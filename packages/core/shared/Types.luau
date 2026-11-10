@@ -390,6 +390,9 @@ export type DataAPI = {
 	isLoaded: (player: Player) -> boolean,
 	getGame: (player: Player) -> { [string]: any }?, -- PlayerData.game[gameId]
 	updateGame: (player: Player, fn: (gameData: { [string]: any }) -> ()) -> boolean,
+	-- Yields until the player's current data is committed to the DataStore (true) or the save
+	-- failed / the player isn't loaded (false). Shop.ProcessReceipt waits on this before granting.
+	saveAsync: (player: Player) -> boolean,
 }
 
 export type MailAPI = {

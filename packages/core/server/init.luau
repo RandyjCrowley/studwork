@@ -9,6 +9,7 @@
 
 local RunService = game:GetService("RunService")
 
+local Console = require(script.Console)
 local Context = require(script.Context)
 local Net = require(script.Net)
 local Types = require(game:GetService("ReplicatedStorage"):WaitForChild("Core"):WaitForChild("Types"))
@@ -68,6 +69,7 @@ function Server.start(core: Types.CoreAPI, config: Types.GameConfig)
 		setReplicatedAll = function(key: string, value: any)
 			Replication.setAll(key, value)
 		end,
+		console = Console,
 		isStudio = RunService:IsStudio(),
 	}
 
@@ -80,6 +82,7 @@ function Server.start(core: Types.CoreAPI, config: Types.GameConfig)
 	end
 	Replication.start()
 	Net.start()
+	Console.start()
 end
 
 return Server

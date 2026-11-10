@@ -45,6 +45,11 @@ export type NetAPI = {
 	feedback: (player: Player, kind: string, text: string, rarity: string?, position: Vector3?) -> (),
 }
 
+export type ConsoleAPI = {
+	-- Register a console command (Studio command bar / MCP / admin): fn(...) -> result string.
+	register: (name: string, help: string, fn: (...any) -> string?) -> (),
+}
+
 export type ServerContext = {
 	config: Types.GameConfig,
 	services: ServerServices,
@@ -55,6 +60,7 @@ export type ServerContext = {
 	-- ctx.setReplicated(player, key, value) and Replication ships it.
 	setReplicated: (player: Player, key: string, value: any) -> (),
 	setReplicatedAll: (key: string, value: any) -> (), -- same value for every player (activeEvents)
+	console: ConsoleAPI,
 	isStudio: boolean,
 }
 

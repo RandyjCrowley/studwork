@@ -127,6 +127,10 @@ function Data.getGame(player: Player): { [string]: any }?
 	return if data then data.game[ctx.config.gameId] else nil
 end
 
+function Data.saveAsync(player: Player): boolean
+	return loaded[player] ~= nil -- stub: in-memory, nothing to commit
+end
+
 function Data.updateGame(player: Player, fn: (gameData: { [string]: any }) -> ()): boolean
 	return Data.update(player, function(data)
 		fn(data.game[ctx.config.gameId])

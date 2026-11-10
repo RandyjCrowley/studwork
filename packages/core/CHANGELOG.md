@@ -4,6 +4,16 @@ Core's public interface (`packages/core/shared/Types.luau`, `packages/core/share
 only gains things: no renames, no removals; old calls are marked deprecated instead.
 Every change is recorded here, newest first.
 
+## 0.1.1 (2026-11-10, before Phase 1 dispatch)
+
+Additive, approved by the core owner after Gate 0:
+
+- `Data.saveAsync(player) -> boolean`: yields until the profile is committed. Needed so
+  `Shop` returns `PurchaseGranted` only after the receipt id is saved.
+- Server console (`core/server/Console.luau`, `ctx.console.register`): a server-only
+  BindableFunction `ServerScriptService.CoreServer.CoreConsole` for the Studio command bar,
+  admin tools and MCP playtests (`:Invoke("help")`).
+
 ## core-contract-v0 (2026-11-10)
 
 Phase 0 contract, frozen for Phase 1.
