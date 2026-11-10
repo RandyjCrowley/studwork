@@ -1,6 +1,10 @@
 #!/usr/bin/env bash
-# tools/new-game <name>: scaffold games/<name> from templates/new-game (see tools/lune/new-game.luau).
+# tools/new-game <name> [--modules A,B,C] [--no-design-doc]
+# Scaffold games/<name> from templates/new-game (see tools/lune/new-game.luau).
+#   --modules A,B,C   write GameConfig.modules (validated against packages/core/shared/Modules.luau;
+#                     required dependencies are added and reported). Default: all (template).
+#   --no-design-doc   don't create docs/games/<name>.md
 source "$(dirname "$0")/_common.sh"
 
-[ $# -eq 1 ] || die "usage: tools/new-game <name>"
-lune run tools/lune/new-game "$1"
+[ $# -ge 1 ] || die "usage: tools/new-game <name> [--modules A,B,C] [--no-design-doc]"
+lune run tools/lune/new-game "$@"
