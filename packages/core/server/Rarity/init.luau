@@ -15,13 +15,24 @@
 		ctx.net.feedback(player, "item", def.name, def.rarity).
 		opts.paid without grant: the caller grants and MUST use source "paid:<tableId>".
 	getOdds(tableId, luck?) -> exact per-item probabilities of the non-pity roll (sum to 1).
-	getOddsDetail(tableId) -> Types.OddsDetail (no luck; RollMath.oddsDetail). Replicated at start
-		as ReplicatedState.odds[tableId] for every table with a cost or paid = true.
+	getOddsDetail(tableId, player?) -> Types.OddsDetail (RollMath.oddsDetail). With a player and a
+		luckDisclosed table the odds include getLuck(player, tableId) (detail.luck); else luck 1.
+	setLuck(player, luck, tableId?) / getLuck(player, tableId?): session-only luck registry
+		(LuckRegistry; per-table wins; sanitised; cleared on PlayerRemoving). roll/rollInto with
+		luck == nil use getLuck. setLuck re-sends that player's odds.
+	Replication (OddsSync): ReplicatedState.odds = shared luck-free map (setReplicatedAll) for
+		every table with a cost, paid = true or luckDisclosed = true; a per-player override
+		(setReplicated) only while the player's luck ~= 1 on a luckDisclosed table. Rebuilt and
+		re-sent on every Items.register after start (N3).
+	Hard rule 11 (LuckRule): a paid roll (opts.paid or t.paid) with effective luck ~= 1 ERRORS in
+		rollInto unless t.luckDisclosed and ctx.sentReplicated(player, "odds")[tableId] carries
+		exactly that luck. RequestRoll checks the rule before spending (toast, no spend).
 	tiers() -> RarityTiers.all().
 	RequestRoll (client): tableId must be a table with a currency `cost` and paid ~= true.
-		Capacity is checked first (no spend if full), then Economy.spend, then roll+grant; if the
-		roll still fails the cost is refunded with Economy.grant.
-	Studio console: `roll <tableId> [userId]`, `odds <tableId> [luck]`.
+		Capacity and the luck rule are checked first (no spend), then Economy.spend, then
+		roll+grant; if the roll still fails the cost is refunded with Economy.grant.
+	Studio console: `roll <tableId> [userId]`, `odds <tableId> [luck|userId]`,
+		`luck <userId> <luck> [tableId]`.
 ]]
 
 local Players = game:GetService("Players")
@@ -31,12 +42,16 @@ local Core = ReplicatedStorage:WaitForChild("Core")
 local RarityTiers = require(Core:WaitForChild("RarityTiers"))
 local Types = require(Core:WaitForChild("Types"))
 local Validate = require(Core:WaitForChild("Validate"))
+local LuckRegistry = require(script.LuckRegistry)
+local LuckRule = require(script.LuckRule)
+local OddsSync = require(script.OddsSync)
 local RollMath = require(script.RollMath)
 local Tx = require(script.Parent.Tx)
 
 local Rarity = {}
 
 local ctx: any = nil
+local luckRegistry = LuckRegistry.new(RollMath.sanitizeLuck)
 local random = Random.new()
 local function nextNumber(): number
 	return random:NextNumber()
@@ -97,18 +112,65 @@ local function currencyIsPaid(currency: any): boolean
 	return type(list) == "table" and table.find(list, currency) ~= nil
 end
 
--- Every table a player can pay for (a currency cost or Robux) is disclosed to every client.
+-- Every table a player can pay for (a currency cost or Robux) or that discloses luck is
+-- disclosed to every client (shared, luck 1); see OddsSync for the per-player overrides.
+local sharedOdds: { [string]: Types.OddsDetail } = {}
+local overridden: { [Player]: boolean } = {}
+
+local function isDisclosed(t: any): boolean
+	return type(t) == "table" and (t.paid == true or type(t.cost) == "table" or t.luckDisclosed == true)
+end
+
+-- Sends `player` the odds their rolls use: the shared map, or the shared map with their
+-- luck-adjusted details for luckDisclosed tables (only while some luck ~= 1).
+local function sendPlayerOdds(player: Player)
+	local merged = OddsSync.playerOdds(sharedOdds, function(tableId: string): number
+		return Rarity.getLuck(player, tableId)
+	end, function(tableId: string): any
+		return Rarity.getOddsDetail(tableId, player)
+	end)
+	if merged ~= nil then
+		ctx.setReplicated(player, "odds", merged)
+		overridden[player] = true
+	elseif overridden[player] then
+		ctx.setReplicated(player, "odds", nil) -- falls back to the shared map
+		overridden[player] = nil
+	end
+end
+
 local function replicateOdds()
 	local all: { [string]: Types.OddsDetail } = {}
 	for tableId, t in ctx.config.balance.rarityTables do
-		if type(t) == "table" and (t.paid == true or type(t.cost) == "table") then
+		if isDisclosed(t) then
 			local detail = Rarity.getOddsDetail(tableId)
 			if detail then
 				all[tableId] = detail
 			end
 		end
 	end
+	sharedOdds = all
 	ctx.setReplicatedAll("odds", all)
+	for _, player in Players:GetPlayers() do
+		if overridden[player] or luckRegistry:has(player) then
+			sendPlayerOdds(player)
+		end
+	end
+end
+
+-- The luck rule for a roll of `tableId` by `player` with an already-sanitised luck.
+local function luckRuleOk(
+	player: Player,
+	tableId: string,
+	t: any,
+	paid: boolean,
+	luck: number
+): (boolean, string?)
+	local sent: any = nil
+	if paid and luck ~= 1 then
+		local odds = ctx.sentReplicated(player, "odds")
+		sent = if type(odds) == "table" then odds[tableId] else nil
+	end
+	return LuckRule.check({ paid = paid, luck = luck, luckDisclosed = t.luckDisclosed == true, sent = sent })
 end
 
 local function targetPlayer(userId: any): Player?
@@ -122,6 +184,14 @@ end
 function Rarity.start()
 	validateTables()
 	replicateOdds()
+	-- N3: items registered after start change the odds; rebuild and re-send everything.
+	ctx.services.Items.onRegistered(function(_defs: { Types.ItemDef })
+		replicateOdds()
+	end)
+	Players.PlayerRemoving:Connect(function(player: Player)
+		luckRegistry:clear(player)
+		overridden[player] = nil
+	end)
 
 	ctx.net.handle("RequestRoll", function(player: Player, tableId: any)
 		if not Validate.isId(tableId) then
@@ -148,6 +218,11 @@ function Rarity.start()
 		end
 		if not ctx.services.Data.isLoaded(player) or not hasRoom(player) then
 			return -- checked before spending, so a full inventory never costs currency
+		end
+		-- hard rule 11, checked before spending: rollInto would error after the spend otherwise
+		if not luckRuleOk(player, tableId, t, paid, Rarity.getLuck(player, tableId)) then
+			ctx.net.feedback(player, "toast", "Odds are updating, try again in a moment")
+			return
 		end
 		local reason = "roll:" .. tableId
 		if not ctx.services.Economy.spend(player, cost.amount, reason, cost.currency) then
@@ -190,12 +265,36 @@ function Rarity.start()
 		)
 		ctx.console.register(
 			"odds",
-			"odds <tableId> [luck]: print exact odds",
-			function(tableId: any, luck: any)
-				local odds = Rarity.getOdds(tostring(tableId), tonumber(luck))
+			"odds <tableId> [luck|userId]: print exact odds (a userId shows that player's disclosed odds)",
+			function(tableId: any, arg: any)
+				local id = tostring(tableId)
+				local n = tonumber(arg)
+				-- luck is clamped to MAX_LUCK, so a larger integer can only be a userId
+				local byUser = if n
+						and n > RollMath.MAX_LUCK
+						and n == math.floor(n)
+					then Players:GetPlayerByUserId(n)
+					else nil
+				local header: string
+				local odds: { [string]: number }
+				if byUser then
+					local detail = Rarity.getOddsDetail(id, byUser)
+					odds = if detail then detail.items else {}
+					header = string.format(
+						"%s odds for %s (luck x%s, luckDisclosed=%s)",
+						id,
+						byUser.Name,
+						tostring(detail and detail.luck or 1),
+						tostring(detail and detail.luckDisclosed or false)
+					)
+				else
+					local luck = RollMath.sanitizeLuck(n)
+					odds = Rarity.getOdds(id, luck)
+					header = string.format("%s odds at luck x%s", id, tostring(luck))
+				end
 				local ids = {}
-				for id in odds do
-					table.insert(ids, id)
+				for itemId in odds do
+					table.insert(ids, itemId)
 				end
 				if #ids == 0 then
 					return "unknown or empty table"
@@ -203,11 +302,29 @@ function Rarity.start()
 				table.sort(ids, function(a, b)
 					return odds[a] > odds[b]
 				end)
-				local lines = {}
-				for _, id in ids do
-					table.insert(lines, string.format("  %s %.4f%%", id, odds[id] * 100))
+				local lines = { header }
+				for _, itemId in ids do
+					table.insert(lines, string.format("  %s %.4f%%", itemId, odds[itemId] * 100))
 				end
 				return table.concat(lines, "\n")
+			end
+		)
+		ctx.console.register(
+			"luck",
+			"luck <userId> <luck> [tableId]: set a player's session luck (Studio)",
+			function(userId: any, luck: any, tableId: any)
+				local player = targetPlayer(userId)
+				if player == nil then
+					return "no player"
+				end
+				local tid = if tableId ~= nil then tostring(tableId) else nil
+				Rarity.setLuck(player, tonumber(luck) :: any, tid)
+				return string.format(
+					"%s luck = x%s (%s)",
+					player.Name,
+					tostring(Rarity.getLuck(player, tid)),
+					tid or "all tables"
+				)
 			end
 		)
 	end
@@ -243,6 +360,12 @@ function Rarity.rollInto(
 	if o.paid == true and ctx.services.Policy.paidRandomRestricted(player) then
 		return fail("restricted")
 	end
+	-- luck nil = the player's session luck; hard rule 11 before anything is written
+	local effectiveLuck = RollMath.sanitizeLuck(if luck == nil then Rarity.getLuck(player, tableId) else luck)
+	local ruleOk, ruleReason = luckRuleOk(player, tableId, t, o.paid == true, effectiveLuck)
+	if not ruleOk then
+		error(LuckRule.message(tableId, effectiveLuck, ruleReason or "?"), 2)
+	end
 	local data: Types.PlayerData = tx.data
 	if o.grant == true then
 		if not ctx.isEnabled("Inventory") then
@@ -253,7 +376,7 @@ function Rarity.rollInto(
 		end
 	end
 
-	local list = weightsFor(t, luck)
+	local list = weightsFor(t, effectiveLuck)
 	local pityCfg = if t.pity ~= nil and RollMath.validPity(t.pity) then t.pity else nil
 	local pityCount = if pityCfg then ((data.pity or {})[tableId] or 0) else 0
 	local result =
@@ -330,47 +453,45 @@ function Rarity.getOdds(tableId: string, luck: number?): { [string]: number }
 	return RollMath.odds(weightsFor(t, luck))
 end
 
--- Full disclosure of a table's odds (no luck): base item odds, mutation odds, every
--- (item, mutation) outcome on a normal roll and the forced-roll odds of a pity rule that can apply.
-function Rarity.getOddsDetail(tableId: string, _player: Player?): Types.OddsDetail?
+-- Full disclosure of a table's odds: base item odds, mutation odds, every (item, mutation)
+-- outcome on a normal roll and the forced-roll odds of a pity rule that can apply. With a player
+-- and a luckDisclosed table the probabilities include that player's luck; otherwise luck 1.
+function Rarity.getOddsDetail(tableId: string, player: Player?): Types.OddsDetail?
 	local t = getTable(tableId)
 	if t == nil then
 		return nil
 	end
 	local paid = t.paid == true or (type(t.cost) == "table" and currencyIsPaid(t.cost.currency))
+	local disclosed = t.luckDisclosed == true
+	local luck = if player ~= nil and disclosed then Rarity.getLuck(player, tableId) else 1
 	return RollMath.oddsDetail(
 		tableId,
 		paid,
-		weightsFor(t, nil),
+		weightsFor(t, luck),
 		t.pity,
 		t.mutationChance,
-		ctx.config.balance.mutations
+		ctx.config.balance.mutations,
+		luck,
+		disclosed
 	)
 end
 
--- v1.2 (N4) CONTRACT STUBS (core-contract-v1.2): agent B implements the luck registry, the
--- per-player disclosure and the paid-roll luck rule (Types.RarityAPI comments).
-local luckOf: { [Player]: { all: number?, tables: { [string]: number } } } = {}
-
+-- v1.2 (N4): session luck registry. Setting luck re-sends that player's odds.
 function Rarity.setLuck(player: Player, luck: number, tableId: string?)
-	local entry = luckOf[player]
-	if entry == nil then
-		entry = { all = nil, tables = {} }
-		luckOf[player] = entry
+	if typeof(player) ~= "Instance" or not player:IsA("Player") then
+		error("[Core.Rarity] setLuck: player must be a Player", 2)
 	end
-	if tableId == nil then
-		entry.all = RollMath.sanitizeLuck(luck)
-	else
-		entry.tables[tableId] = RollMath.sanitizeLuck(luck)
+	if tableId ~= nil and type(tableId) ~= "string" then
+		error("[Core.Rarity] setLuck: tableId must be a string or nil", 2)
+	end
+	luckRegistry:set(player, luck, tableId)
+	if ctx ~= nil and player.Parent == Players then
+		sendPlayerOdds(player)
 	end
 end
 
 function Rarity.getLuck(player: Player, tableId: string?): number
-	local entry = luckOf[player]
-	if entry == nil then
-		return 1
-	end
-	return (if tableId then entry.tables[tableId] else nil) or entry.all or 1
+	return luckRegistry:get(player, tableId)
 end
 
 function Rarity.tiers(): { Types.RarityTierDef }

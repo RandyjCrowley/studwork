@@ -9,6 +9,9 @@
 		                                  Core.Client.state().odds[tableId]. Renders the item odds,
 		                                  mutation lines ("Rainbow 3%"), every final (item, mutation)
 		                                  outcome and the pity line. Takes precedence over `odds`.
+		                                  When detail.luckDisclosed and detail.luck ~= 1 a line
+		                                  "Includes your luck x1.5" is shown above the items (the
+		                                  probabilities are the server's luck-adjusted ones).
 		odds: { [itemId]: probability }?  legacy: per-item odds only (e.g. Rarity.getOdds)
 		items: { { id: string, name: string, rarity: string } }  item defs (GameConfig.items)
 		sortBy: "rarity" | "probability" | nil  ("rarity": rarest last)
@@ -137,6 +140,7 @@ local function OddsTable(props: Props)
 			mutations = Odds.mutationRows(detail),
 			outcomes = Odds.outcomeRows(detail, props.items, TIER_ORDER, props.sortBy),
 			pity = Odds.pityLine(detail),
+			luck = Odds.luckLine(detail),
 		}
 	end, { detail, props.odds, props.items, props.sortBy } :: { any })
 	local rows = model.items
@@ -153,6 +157,9 @@ local function OddsTable(props: Props)
 	end
 	local function addHeader(key: string, text: string)
 		add(key, e(Header, { text = text, layoutOrder = order + 1 }), HEADER_HEIGHT)
+	end
+	if model.luck then
+		addHeader("Luck", model.luck)
 	end
 	if model.pity then
 		addHeader("Pity", model.pity)
