@@ -30,8 +30,10 @@
 		error (retry/dead letter); uid already owned -> success; inventory full -> false (mailbox);
 		else the SAME instance (acquiredAt = now) in one update, then ItemAdded + toast.
 	RequestGift (client): toUserId positive integer, not self; uid an id the sender owns;
-		per-player GIFT_COOLDOWN_SEC on top of Net's rate limit. Receiver must be in this server
-		(transfer, instant). Cross-server gifts only through server code (Inventory.sendGift).
+		per-player GIFT_COOLDOWN_SEC on top of Net's rate limit. Receiver must be in this server.
+		With Mail enabled it uses sendGift (crash-safe outbox, review R2); without Mail, transfer
+		(instant, but a crash between the two players' saves can duplicate or lose the item).
+		Cross-server gifts to arbitrary users only through server code (Inventory.sendGift).
 ]]
 
 local HttpService = game:GetService("HttpService")
@@ -120,7 +122,15 @@ function Inventory.start()
 		local target = Players:GetPlayerByUserId(toUserId)
 		local ok, why
 		if target ~= nil and target ~= player then
-			ok, why = Inventory.transfer(player, target, uid, "gift")
+			-- Review R2: transfer writes two profiles that save separately, so a crash between the
+			-- saves can duplicate or lose the item. With Mail on, even a same-server gift goes
+			-- through the outbox (item removal + message in one update, deduped by key); it lands
+			-- on the receiver's next save (Mail nudges it). transfer is the fallback without Mail.
+			if ctx.isEnabled("Mail") then
+				ok, why = Inventory.sendGift(player, toUserId, uid, "gift")
+			else
+				ok, why = Inventory.transfer(player, target, uid, "gift")
+			end
 		else
 			-- Lead decision (v1.2 merge): the client remote never mails to an arbitrary user id
 			-- (a typo or a fake id would send the item into a profile nobody loads). Gifts to

@@ -59,7 +59,7 @@ false, `onReceive` errors. Core services use `ctx.services.Mail` and may use the
 |---|---|---|
 | `maxAttempts` | 10 | handler ERRORS before dead-lettering (counted across sessions) |
 | `backoff = { base, factor, max }` | `{ 30, 2, 900 }` | wait before retry n: `min(max, base * factor^(n-1))` s |
-| `mailboxCap` | 100 | held messages per player; beyond it a message stays queued in ProfileStore |
+| `mailboxCap` | 500 | held messages per player; beyond it a message stays queued in ProfileStore, whose queue keeps at most 1000 messages and drops the oldest (review R1) |
 
 ## Mailbox (N1)
 

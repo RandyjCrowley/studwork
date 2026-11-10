@@ -362,6 +362,10 @@ describe("Mail.Delivery", function()
 		w.d.deliver(p, { kind = "gift", payload = { item = "b" }, sentAt = 42 }, w.processedFn())
 		expect(#got).toBe(2)
 		expect(w.processed).toBe(2)
+		-- real 32-bit FNV-1a (review R15): published test vectors
+		expect(Delivery.hash("")).toBe("811c9dc5")
+		expect(Delivery.hash("a")).toBe("e40c292c")
+		expect(Delivery.hash("foobar")).toBe("bf9cf968")
 		-- key order does not change the id; a different payload does
 		expect(Delivery.legacyId("k", 1, { a = 1, b = { 2, 3 } })).toBe(
 			Delivery.legacyId("k", 1, { b = { 2, 3 }, a = 1 })
@@ -446,14 +450,14 @@ describe("Mail.Delivery mailbox (N1)", function()
 		expect(d.base).toBe(30)
 		expect(d.factor).toBe(2)
 		expect(d.max).toBe(900)
-		expect(d.mailboxCap).toBe(100)
+		expect(d.mailboxCap).toBe(Delivery.MAILBOX_CAP)
 		local c = Delivery.settings({
 			maxAttempts = 2,
 			mailboxCap = 0 / 0,
 			backoff = { base = -1, factor = 4, max = 8 },
 		})
 		expect(c.maxAttempts).toBe(2)
-		expect(c.mailboxCap).toBe(100)
+		expect(c.mailboxCap).toBe(Delivery.MAILBOX_CAP)
 		expect(c.base).toBe(30)
 		expect(Delivery.backoff(1, { backoff = { base = 2, factor = 4, max = 8 } })).toBe(2)
 		expect(Delivery.backoff(2, { backoff = { base = 2, factor = 4, max = 8 } })).toBe(8)

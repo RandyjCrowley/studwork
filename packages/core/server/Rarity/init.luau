@@ -220,7 +220,7 @@ function Rarity.start()
 			return -- checked before spending, so a full inventory never costs currency
 		end
 		-- hard rule 11, checked before spending: rollInto would error after the spend otherwise
-		if not luckRuleOk(player, tableId, t, paid, Rarity.getLuck(player, tableId)) then
+		if not luckRuleOk(player, tableId, t, paid, Rarity._rollLuck(player, tableId, t, paid)) then
 			ctx.net.feedback(player, "toast", "Odds are updating, try again in a moment")
 			return
 		end
@@ -351,8 +351,11 @@ function Rarity.rollInto(
 	if t == nil then
 		return fail("unknown_table")
 	end
-	-- a table marked paid (Robux) is always treated as paid, whatever the caller passed
-	if t.paid == true and o.paid ~= true then
+	-- a table marked paid (Robux) is always treated as paid, whatever the caller passed; a table
+	-- priced in a balance.paidCurrencies currency too, unless the caller says opts.free = true
+	-- (a reward roll nobody paid for). Review R4.
+	local pricedInPaid = type(t.cost) == "table" and currencyIsPaid(t.cost.currency) and o.free ~= true
+	if (t.paid == true or pricedInPaid) and o.paid ~= true then
 		o = table.clone(o)
 		o.paid = true
 	end
@@ -361,7 +364,9 @@ function Rarity.rollInto(
 		return fail("restricted")
 	end
 	-- luck nil = the player's session luck; hard rule 11 before anything is written
-	local effectiveLuck = RollMath.sanitizeLuck(if luck == nil then Rarity.getLuck(player, tableId) else luck)
+	local effectiveLuck = RollMath.sanitizeLuck(
+		if luck == nil then Rarity._rollLuck(player, tableId, t, o.paid == true) else luck
+	)
 	local ruleOk, ruleReason = luckRuleOk(player, tableId, t, o.paid == true, effectiveLuck)
 	if not ruleOk then
 		error(LuckRule.message(tableId, effectiveLuck, ruleReason or "?"), 2)
@@ -489,6 +494,18 @@ function Rarity.setLuck(player: Player, luck: number, tableId: string?)
 		sendPlayerOdds(player)
 	end
 end
+
+-- Luck a roll uses when its `luck` argument is nil (review R5): an all-table luck boost never
+-- reaches a PAID roll on a table without luckDisclosed (it would make every such purchase error
+-- under hard rule 11); only a luck set for exactly that table does (and then errors, loudly).
+-- Free rolls and luckDisclosed tables use getLuck as before.
+local function rollLuck(player: Player, tableId: string, t: Types.RarityTableConfig, paid: boolean): number
+	if paid and t.luckDisclosed ~= true then
+		return luckRegistry:getTableOnly(player, tableId)
+	end
+	return luckRegistry:get(player, tableId)
+end
+Rarity._rollLuck = rollLuck
 
 function Rarity.getLuck(player: Player, tableId: string?): number
 	return luckRegistry:get(player, tableId)

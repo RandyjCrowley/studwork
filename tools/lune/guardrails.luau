@@ -127,7 +127,7 @@ local function words(name: string): { string }
 end
 
 local function hasBigNumber(text: string): boolean
-	for num in string.gmatch(text, "[^%w_%.](%d+%.?%d*)") do
+	for num in string.gmatch(text, "[^%w_%.](%d[%w%.]*)") do -- 250, 2.5, 1e3, 0xFF (review R14)
 		local n = tonumber(num)
 		if n and n >= 2 then
 			return true
@@ -138,7 +138,7 @@ end
 
 local function balanceAssignment(code: string): boolean
 	-- `local fooCost = 50`, `cost = 50,`, `self.rewardAmount = 2.5`
-	for name, value in string.gmatch(code, "([%a_][%w_]*)%s*=%s*%-?(%d+%.?%d*)") do
+	for name, value in string.gmatch(code, "([%a_][%w_]*)%s*=%s*%-?(%d[%w%.]*)") do
 		local n = tonumber(value)
 		if n and n >= 2 then
 			for _, w in words(name) do
@@ -153,7 +153,7 @@ local function balanceAssignment(code: string): boolean
 	return false
 end
 
--- Scans one file's source. `ctx = { path, modules (set or nil), isServer, inConfig }`.
+-- Scans one file's source. `ctx = { path, modules (set or nil), isServer, isClient, inConfig }`.
 function Guard.scanSource(source: string, ctx): { string }
 	local findings = {}
 	local function add(lineNo: number, check: string, message: string)
@@ -215,23 +215,31 @@ function Guard.scanSource(source: string, ctx): { string }
 				add(lineNo, "remotes", "raw remote handler: route game remotes through Core.Net.handle")
 			end
 			if
-				string.find(code, "Instance%.new%s*%(%s*[\"'](RemoteEvent)[\"']")
-				or string.find(code, "Instance%.new%s*%(%s*[\"'](RemoteFunction)[\"']")
-				or string.find(code, "Instance%.new%s*%(%s*[\"'](UnreliableRemoteEvent)[\"']")
+				string.find(code, "RemoteEvent", 1, true)
+				or string.find(code, "RemoteFunction", 1, true)
+				or string.find(code, '"OnServer', 1, true)
+				or string.find(code, "'OnServer", 1, true)
 			then
 				add(
 					lineNo,
 					"remotes",
-					"creating a RemoteEvent/RemoteFunction: define it in game.blink instead"
+					"RemoteEvent/RemoteFunction in game code: define remotes in game.blink"
 				)
 			end
+			-- Instance.new with a non-literal class name could create a remote (review R8)
+			local newArg = string.match(code, "Instance%.new%s*%(%s*(.)")
+			if newArg and newArg ~= '"' and newArg ~= "'" then
+				add(lineNo, "remotes", "Instance.new with a dynamic class name: use a string literal")
+			end
+			-- Blink listeners anywhere outside client code: shared modules run on the server too
 			if
-				ctx.isServer and (string.find(code, "%.On%s*%(") or string.find(code, "%.SetCallback%s*%("))
+				not ctx.isClient
+				and (string.find(code, "%.On%s*%(") or string.find(code, "%.SetCallback%s*%("))
 			then
 				add(
 					lineNo,
 					"remotes",
-					"Blink listener in server code: use Core.Net.handle(name, event, limit, fn)"
+					"Blink listener outside client code: use Core.Net.handle(name, event, limit, fn)"
 				)
 			end
 		end
@@ -304,6 +312,7 @@ function Guard.scanGame(dir: string): { string }
 		local inConfig = string.find(rel, "/shared/Config/", 1, true) ~= nil
 			or string.match(rel, "/shared/Config%.luau$") ~= nil
 		local isServer = string.find(rel, "server/", 1, true) ~= nil
+		local isClient = string.find(rel, "client/", 1, true) ~= nil
 		local isGenerated = string.find(rel, "Generated", 1, true) ~= nil
 		if not isGenerated then
 			for _, f in
@@ -311,6 +320,7 @@ function Guard.scanGame(dir: string): { string }
 					path = path,
 					modules = mods,
 					isServer = isServer,
+					isClient = isClient,
 					inConfig = inConfig,
 				})
 			do
@@ -341,7 +351,7 @@ end
 -- main, and staged files.
 function Guard.packagesFindings(branch: string, branchFiles: { string }, staged: { string }): { string }
 	local findings = {}
-	if string.match(branch, "^game/") then
+	if string.match(branch, "^game") then -- game/x, games/x, gamez/x (review R9)
 		for _, f in branchFiles do
 			if string.match(f, "^packages/") then
 				table.insert(
@@ -356,6 +366,8 @@ function Guard.packagesFindings(branch: string, branchFiles: { string }, staged:
 		local game = string.match(f, "^games/([^/]+)/")
 		if game and game ~= "_sandbox" then
 			touchesGame = game
+		elseif string.match(f, "^templates/") then
+			touchesGame = touchesGame or "templates"
 		end
 		if string.match(f, "^packages/") then
 			touchesCore = true
@@ -371,12 +383,13 @@ function Guard.packagesFindings(branch: string, branchFiles: { string }, staged:
 end
 
 function Guard.gitFindings(): { string }
-	if process.env.GUARD_ALLOW_CORE == "1" then
+	local branch = (git({ "rev-parse", "--abbrev-ref", "HEAD" }) or ""):gsub("%s+$", "")
+	-- the core owner's bypass works only on core branches and main (review R9)
+	if process.env.GUARD_ALLOW_CORE == "1" and (branch == "main" or string.match(branch, "^core/")) then
 		return {}
 	end
-	local branch = (git({ "rev-parse", "--abbrev-ref", "HEAD" }) or ""):gsub("%s+$", "")
 	local branchFiles = {}
-	if string.match(branch, "^game/") then
+	if string.match(branch, "^game") then -- game/x, games/x, gamez/x (review R9)
 		local base = (git({ "merge-base", "HEAD", "main" }) or ""):gsub("%s+$", "")
 		if base ~= "" then
 			branchFiles = lines(git({ "diff", "--name-only", base }))
@@ -406,7 +419,8 @@ local function selfTest(): boolean
 	end
 	local mods = Guard.parseModules('modules = { "Items", "Inventory", "Economy" },')
 	local server = { path = "games/x/src/server/Main.server.luau", modules = mods, isServer = true }
-	local client = { path = "games/x/src/client/Main.client.luau", modules = mods, isServer = false }
+	local client =
+		{ path = "games/x/src/client/Main.client.luau", modules = mods, isServer = false, isClient = true }
 
 	expectCheck("module off", Guard.scanSource("Core.Rebirth.rebirth(player)", server), "modules")
 	expectCheck("action off", Guard.scanSource("Core.Client.Actions.rebirth()", client), "modules")
@@ -427,6 +441,17 @@ local function selfTest(): boolean
 		Guard.scanSource("Core.Net.handle('PlaceItem', GameNet.PlaceItem, Limits.place, onPlace)", server)
 	)
 	expectClean("client On", Guard.scanSource("GameNet.Ping.On(function() end)", client))
+	local shared = { path = "games/x/src/shared/NetGlue.luau", modules = mods }
+	expectCheck("shared On", Guard.scanSource("GameNet.PlaceItem.On(function(p) end)", shared), "remotes")
+	expectCheck(
+		"concat OnServer",
+		Guard.scanSource('remote["OnServer" .. "Event"]:Connect(fn)', server),
+		"remotes"
+	)
+	expectCheck("dynamic new", Guard.scanSource("local r = Instance.new(cls)", server), "remotes")
+	expectClean("literal new", Guard.scanSource('local p = Instance.new("Part")', server))
+	expectCheck("exp literal", Guard.scanSource("Core.Economy.grant(player, 1e3, 'q')", server), "numbers")
+	expectCheck("hex literal", Guard.scanSource("Core.Economy.grant(player, 0xFF, 'q')", server), "numbers")
 
 	expectCheck(
 		"grant literal",
@@ -457,6 +482,12 @@ local function selfTest(): boolean
 		"packages"
 	)
 	expectClean("core branch", Guard.packagesFindings("core/v12-a", { "packages/core/x.luau" }, {}))
+	expectCheck("gamez branch", Guard.packagesFindings("gamez/x", { "packages/core/y.luau" }, {}), "packages")
+	expectCheck(
+		"templates + core",
+		Guard.packagesFindings("main", {}, { "templates/a", "packages/b" }),
+		"packages"
+	)
 	expectClean("sandbox + core", Guard.packagesFindings("main", {}, { "games/_sandbox/x", "packages/y" }))
 
 	if #failures > 0 then

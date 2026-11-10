@@ -34,7 +34,7 @@ Delivery.MAX_ATTEMPTS = 10 -- handler ERRORS before a message is dead-lettered
 Delivery.BACKOFF_BASE = 30 -- seconds before the first retry
 Delivery.BACKOFF_FACTOR = 2 -- each retry waits FACTOR times longer
 Delivery.BACKOFF_MAX = 900 -- seconds, cap for a single wait
-Delivery.MAILBOX_CAP = 100 -- held messages per player
+Delivery.MAILBOX_CAP = 500 -- held messages per player (review R1: keeps gifts out of ProfileStore's 1000-message queue, which drops the oldest)
 Delivery.MAX_SEEN = 500 -- remembered processed ids per player
 Delivery.MAX_DEAD = 25 -- kept dead letters per player
 Delivery.MAX_ERROR_LENGTH = 200
@@ -178,7 +178,8 @@ function Delivery.hash(text: string): string
 	local h = 2166136261
 	for i = 1, #text do
 		h = bit32.bxor(h, string.byte(text, i))
-		h = (h * 16777619) % 4294967296
+		-- h * 16777619 mod 2^32, exactly: 16777619 = 2^24 + 403 (doubles lose bits past 2^53; R15)
+		h = (h * 403 + bit32.lshift(h, 24)) % 4294967296
 	end
 	return string.format("%08x", h)
 end

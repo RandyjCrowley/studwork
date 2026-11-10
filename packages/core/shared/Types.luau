@@ -75,6 +75,10 @@ export type RollOptions = {
 	paid: boolean?, -- true when the roll was bought with Robux. Blocked for paid-random-restricted players.
 	reason: string?,
 	grant: boolean?, -- true = also add the rolled item to the player's inventory (default false)
+	-- v1.2 (review R4): a roll of a table priced in a balance.paidCurrencies currency counts as
+	-- PAID (policy block, luck rule, "paidcur:" tag) unless free = true (a reward roll nobody paid
+	-- for). Ignored for `paid = true` tables (always paid).
+	free: boolean?,
 }
 
 export type RollInfo = {
@@ -280,8 +284,9 @@ export type MailConfig = {
 	-- Wait before retry n: min(max, base * factor^(n-1)) seconds. Default { 30, 2, 900 }, i.e.
 	-- about 75 minutes of retries inside one session before the attempts carry to the next one.
 	backoff: { base: number, factor: number, max: number }?,
-	-- Max messages held in one player's mailbox (default 100). Beyond it a message is left queued
-	-- in ProfileStore and offered again next session; nothing is dropped.
+	-- Max messages held in one player's mailbox (default 500). Beyond it a message is left queued
+	-- in ProfileStore and offered again next session. ProfileStore keeps at most 1000 queued
+	-- messages per profile and DROPS THE OLDEST beyond that (known issue R1): don't flood one user.
 	mailboxCap: number?,
 }
 
