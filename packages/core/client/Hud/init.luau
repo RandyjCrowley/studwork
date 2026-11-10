@@ -12,6 +12,8 @@
 	                       react-charm. Mobile first: ScreenInsets = CoreUISafeInsets, UIScale from
 	                       the viewport, touch-sized pills. Calling mount twice replaces the HUD.
 	Hud.unmount()          unmounts the React root, disconnects listeners, destroys the ScreenGui.
+	Module-aware (Hud/Visibility): currency + rate only when Economy is enabled, the goal pill
+	only when Rebirth is enabled. ctx.isEnabled comes from the client bootstrap.
 	No dependency on game code. Requires ReplicatedStorage.UI (packages/ui) in the game project.
 ]]
 
@@ -27,6 +29,7 @@ local UI = require(ReplicatedStorage:WaitForChild("UI"))
 
 local Feedback = require(script.Parent.Feedback)
 local State = require(script.Parent.State)
+local Visibility = require(script.Visibility)
 
 local e = React.createElement
 
@@ -55,14 +58,16 @@ end
 type AppProps = {
 	opts: Types.HudOptions,
 	primary: string,
+	isEnabled: (name: string) -> boolean,
 }
 
 local function HudApp(props: AppProps)
 	local state: Types.ReplicatedState = ReactCharm.useAtom(State.atom)
 	local opts = props.opts
+	local shown = Visibility.of(props.isEnabled, opts)
 	local coins = if state.data then (state.data.currency[props.primary] or 0) else 0
 	local goal: string? = nil
-	if opts.nextGoal then
+	if shown.goal and opts.nextGoal then
 		local ok, result = pcall(opts.nextGoal)
 		goal = if ok and type(result) == "string" and result ~= "" then result else nil
 	end
@@ -76,12 +81,14 @@ local function HudApp(props: AppProps)
 			AnchorPoint = Vector2.new(0.5, 0),
 		}, {
 			Layout = UI.Primitives.list(Enum.FillDirection.Vertical, 6, Enum.HorizontalAlignment.Center),
-			Currency = e(UI.CurrencyCounter, {
-				value = coins,
-				rate = if opts.showRate ~= false then state.ratePerSec else nil,
-				label = props.primary,
-				layoutOrder = 1,
-			}),
+			Currency = if shown.currency
+				then e(UI.CurrencyCounter, {
+					value = coins,
+					rate = if shown.rate then state.ratePerSec else nil,
+					label = props.primary,
+					layoutOrder = 1,
+				})
+				else nil,
 			Goal = if goal
 				then e("TextLabel", {
 					Text = goal,
@@ -122,7 +129,7 @@ end
 function Hud.mount(opts: Types.HudOptions?)
 	Hud.unmount()
 	local o: Types.HudOptions = opts or {}
-	local primary = if ctx and ctx.config then ctx.config.balance.primaryCurrency else "Coins"
+	local primary = if ctx and ctx.config then (ctx.config.balance.primaryCurrency or "Coins") else "Coins"
 
 	local screen = Instance.new("ScreenGui")
 	screen.Name = "CoreHud"
@@ -136,7 +143,12 @@ function Hud.mount(opts: Types.HudOptions?)
 	gui = screen
 
 	local r = ReactRoblox.createRoot(screen)
-	r:render(e(HudApp, { opts = o, primary = primary }))
+	local isEnabled = if ctx and ctx.isEnabled
+		then ctx.isEnabled
+		else function(_name: string): boolean
+			return true
+		end
+	r:render(e(HudApp, { opts = o, primary = primary, isEnabled = isEnabled }))
 	root = r
 end
 
