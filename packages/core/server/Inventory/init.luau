@@ -30,8 +30,8 @@
 		error (retry/dead letter); uid already owned -> success; inventory full -> false (mailbox);
 		else the SAME instance (acquiredAt = now) in one update, then ItemAdded + toast.
 	RequestGift (client): toUserId positive integer, not self; uid an id the sender owns;
-		per-player GIFT_COOLDOWN_SEC on top of Net's rate limit. Receiver in this server ->
-		transfer (instant); otherwise sendGift when Mail is on.
+		per-player GIFT_COOLDOWN_SEC on top of Net's rate limit. Receiver must be in this server
+		(transfer, instant). Cross-server gifts only through server code (Inventory.sendGift).
 ]]
 
 local HttpService = game:GetService("HttpService")
@@ -121,9 +121,10 @@ function Inventory.start()
 		local ok, why
 		if target ~= nil and target ~= player then
 			ok, why = Inventory.transfer(player, target, uid, "gift")
-		elseif target == nil and ctx.isEnabled("Mail") then
-			ok, why = Inventory.sendGift(player, toUserId, uid, "gift")
 		else
+			-- Lead decision (v1.2 merge): the client remote never mails to an arbitrary user id
+			-- (a typo or a fake id would send the item into a profile nobody loads). Gifts to
+			-- users outside this server are game-server decisions: Core.Inventory.sendGift.
 			return
 		end
 		if ok then

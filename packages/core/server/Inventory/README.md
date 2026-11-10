@@ -41,7 +41,8 @@ and a toast.
 
 RequestGift (client): `toUserId` positive integer, not self; `uid` an id the sender owns;
 per-sender `GIFT_COOLDOWN_SEC` (2 s) after a successful gift, on top of Net's rate limit. Receiver
-in this server -> `transfer` (instant, v1.1 rules); otherwise `sendGift` when Mail is on.
+in this server -> `transfer` (instant, v1.1 rules); anyone else is ignored. The client remote never
+mails to an arbitrary user id; cross-server gifts are a game-server call to `sendGift`.
 
 Gotcha: as a fallback, `remove`/`transfer` also drop dangling `displayed` references to the uid inside
 the same `Data.update` (no `ItemUndisplayed` fires for that path; Plot's own clearDisplay normally ran first).

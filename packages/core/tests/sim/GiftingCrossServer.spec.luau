@@ -1,11 +1,7 @@
 --[[
-	PENDING (not auto-run): cross-server gifting through Core.Mail, written against the
-	core-contract-v1.2 interface (Types.InventoryAPI.sendGift, Types.MailAPI.pending/claim,
-	Context.MailInternal.sendInto). Agent A implements it on core/v12-a-mail-gifting; on this
-	branch those are stubs, so this file FAILS LOUDLY. After merging A, the lead renames it to
-	gifting_crossserver.spec.luau so tools/test runs it.
-
-	Run: tools/test-sim --pending
+	Cross-server gifting through Core.Mail against the real v1.2 code (Inventory.sendGift,
+	Mail.pending/claim, Mail.sendInto outbox). Written by agent C against the contract while
+	agent A built it; enabled by the lead after merging A (it was gifting_crossserver.pending.luau).
 ]]
 
 local F = require(script.Parent.Fixtures)
@@ -96,17 +92,22 @@ describe("cross-server gifting through Mail (PENDING agent A)", function()
 	it("receiver's inventory full -> mailbox -> claim after freeing a slot", function()
 		local world = F.world()
 		local a, b = F.server(world), F.server(world)
+		local Inventory, Mail = b.services.Inventory, b.services.Mail
+		-- fill the receiver to the cap (3) in an earlier session, so the gift finds it full on
+		-- the next load (queued messages are delivered right after load)
+		local first = joinLoaded(world, b, 86)
+		for _ = 1, 3 do
+			Inventory.add(first, "dust", { source = "drop" })
+		end
+		b:leave(first)
+		expect(released(world, 86)).toBe(true)
+
 		local sender = joinLoaded(world, a, 85)
 		local item = a.services.Inventory.add(sender, "gem", { source = "drop" })
 		expect((gift(a, sender, 86, item.uid))).toBe(true)
 		world:advance(5)
 
 		local receiver = joinLoaded(world, b, 86)
-		local Inventory, Mail = b.services.Inventory, b.services.Mail
-		-- fill the receiver BEFORE the message is processed: cap is 3
-		for _ = 1, 3 do
-			Inventory.add(receiver, "dust", { source = "drop" })
-		end
 		expect(world:advanceUntil(function()
 			return #Mail.pending(receiver) == 1
 		end, 400, 0.25)).toBe(true)
