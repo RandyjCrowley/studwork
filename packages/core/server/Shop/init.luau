@@ -1,17 +1,19 @@
 --!strict
 --[[
-	Core.Shop. OWNED BY AGENT E (core/e-meta). Public API: Types.ShopAPI.
+	Core.Shop. OWNED BY AGENT A (M4 receipts; gamepasses unchanged). Public API: Types.ShopAPI.
 
-	Developer products (MarketplaceService.ProcessReceipt, pinned receipt flow; see Receipt.luau):
+	Developer products (MarketplaceService.ProcessReceipt, flow in Receipt.luau):
 	  - onProduct(product, handler): product = developer product id or a name in
 	    GameConfig.products.devProducts. Ids of 0 mean "not created on Roblox yet": the handler is
 	    kept by name (usable from the `receipt` console command) and a warning is printed once.
-	  - ProcessReceipt -> Receipt.process: NotProcessedYet while the player isn't here / data not
-	    loaded / no handler / handler errors or returns false / save fails. The PurchaseId is
-	    recorded in PlayerData.purchases BEFORE Data.saveAsync, and PurchaseGranted is only
-	    returned after saveAsync returns true. Duplicate PurchaseIds are granted without running
-	    the handler again. The same PurchaseId is never processed concurrently (in-flight set).
-	  - On a real grant: ProductGranted signal, "toast" feedback, Analytics.custom("ProductPurchased").
+	  - The handler (Types.ProductHandler) and purchases[PurchaseId] = now run in ONE
+	    non-yielding Data.update (Receipt.commit). Handler error -> nothing committed,
+	    NotProcessedYet "handler_error"; yield -> "handler_yielded"; tx.retryLater(reason) ->
+	    "retry_later" (not warned). PurchaseGranted only after Data.saveAsync confirmed the save;
+	    a failed save keeps the in-memory record, so the retry is a "duplicate" (handler not run
+	    again). The same PurchaseId is never processed concurrently (in-flight set).
+	  - tx.after effects + ProductGranted signal, "toast" feedback and
+	    Analytics.custom("ProductPurchased") run exactly once, when the grant is saved.
 
 	Gamepasses:
 	  - ownsPass(player, pass): cached per player per pass; UserOwnsGamePassAsync is called once
@@ -35,8 +37,6 @@ local PASS_RETRY_DELAY = 1 -- seconds, doubles per attempt
 
 type ProductHandler = Types.ProductHandler
 
--- Sentinel raised by PurchaseTx.retryLater (caught by the receipt flow -> NotProcessedYet).
-local RETRY_LATER = "__core_shop_retry_later__"
 type PassHandler = (Player) -> ()
 
 local Shop = {}
@@ -48,6 +48,7 @@ local passHandlers: { [number]: { PassHandler } } = {}
 local passCache: { [Player]: { [number]: boolean } } = {}
 local passFired: { [Player]: { [PassHandler]: boolean } } = {}
 local inFlight: { [string]: boolean } = {}
+local pending: { [string]: Receipt.Pending } = {}
 local warned: { [string]: boolean } = {}
 
 local function warnOnce(key: string, message: string)
@@ -122,7 +123,8 @@ local function makePurchaseTx(
 	player: Player,
 	receipt: Types.ReceiptInfo,
 	data: Types.PlayerData,
-	queue: { () -> () }
+	queue: { () -> () },
+	control: Receipt.Control
 ): Types.PurchaseTx
 	local tx = Tx.new(player, data, queue)
 	local name = productName(receipt.ProductId)
@@ -155,32 +157,22 @@ local function makePurchaseTx(
 			)
 		end,
 		retryLater = function(reason: string?)
-			error({ [RETRY_LATER] = true, reason = reason or "retry_later" }, 0)
+			-- the flag (not the raised value) is what Receipt.commit checks: survives a pcall
+			control.retry = true
+			control.reason = if type(reason) == "string" then reason else nil
+			error("[Core.Shop] retryLater", 0)
 		end,
 		after = tx.after,
 	}
 end
 
--- Phase 0 receipt-safe wrapper (agent A hardens it: L6 rollback, yield rejection tests, crash
--- retries). The handler and purchases[PurchaseId] are written in ONE Data.update; effects queued
--- with tx.after run once that update committed (exactly once per real grant).
-local function transactional(handler: ProductHandler, queue: { () -> () })
-	return function(player: Player, receipt: Types.ReceiptInfo): boolean
-		return ctx.services.Data.update(player, function(d: Types.PlayerData)
-			handler(d, receipt, makePurchaseTx(player, receipt, d, queue))
-			d.purchases = d.purchases or {}
-			d.purchases[receipt.PurchaseId] = os.time()
-		end) == true
-	end
-end
-
 -- handlerOverride lets the Studio console simulate a product whose id is still 0.
 local function processWith(receipt: Types.ReceiptInfo, handlerOverride: ProductHandler?): Receipt.Result
 	local Data = ctx.services.Data
-	local queue: { () -> () } = {}
 	local productHandler = handlerOverride or handlersById[receipt.ProductId]
 	local res = Receipt.process(receipt, {
 		inFlight = inFlight,
+		pending = pending,
 		findPlayer = function(userId: number): Player?
 			return Players:GetPlayerByUserId(userId)
 		end,
@@ -191,26 +183,33 @@ local function processWith(receipt: Types.ReceiptInfo, handlerOverride: ProductH
 			local data: Types.PlayerData? = Data.get(player)
 			return data ~= nil and data.purchases ~= nil and data.purchases[purchaseId] ~= nil
 		end,
-		handler = if productHandler then transactional(productHandler, queue) else nil,
-		record = function(player: Player, purchaseId: string): boolean
-			-- already written inside the handler's transaction
-			local d: Types.PlayerData? = Data.get(player)
-			return d ~= nil and d.purchases[purchaseId] ~= nil
+		hasHandler = productHandler ~= nil,
+		commit = function(player: Player, r: any)
+			return Receipt.commit(
+				Data.update,
+				productHandler :: ProductHandler,
+				makePurchaseTx,
+				player,
+				r,
+				os.time()
+			)
 		end,
 		save = function(player: Player): boolean
 			return Data.saveAsync(player) == true
 		end,
 	})
-	if res.granted then
-		Tx.flush(queue) -- the grant is committed in memory (the save may still be retrying)
+	if res.effects then
+		Tx.flush(res.effects) -- the grant is saved: exactly once per real grant
 		local player = Players:GetPlayerByUserId(receipt.PlayerId)
 		if player then
 			grantFeedback(player, receipt)
 		end
 	end
-	if res.decision == "NotProcessedYet" and res.reason ~= "not_in_server" and res.reason ~= "in_flight" then
+	local quiet = res.reason == "not_in_server" or res.reason == "in_flight" or res.reason == "retry_later"
+	if res.decision == "NotProcessedYet" and not quiet then
 		warn(
 			`[Core.Shop] receipt {receipt.PurchaseId} (product {receipt.ProductId}) not processed: {res.reason}`
+				.. (if res.detail then ` ({res.detail})` else "")
 		)
 	end
 	return res
@@ -310,6 +309,7 @@ function Shop.start()
 	Players.PlayerRemoving:Connect(function(player: Player)
 		passCache[player] = nil
 		passFired[player] = nil
+		Receipt.forgetPlayer(pending, player.UserId)
 	end)
 
 	ctx.services.Data.onLoaded(function(player: Player)
