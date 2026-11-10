@@ -1,0 +1,36 @@
+local AnalyticsUtil = require(script.Parent.AnalyticsUtil)
+
+describe("Analytics.AnalyticsUtil", function()
+	local steps = { "Joined", "FirstCollect", "FirstUpgrade" }
+
+	it("step number is the funnel index", function()
+		expect(AnalyticsUtil.stepIndex(steps, "Joined")).toBe(1)
+		expect(AnalyticsUtil.stepIndex(steps, "FirstUpgrade")).toBe(3)
+		expect(AnalyticsUtil.stepIndex(steps, "Nope")).toBeNil()
+		expect(AnalyticsUtil.stepIndex(nil, "Joined")).toBeNil()
+	end)
+
+	it("amounts must be finite and > 0", function()
+		expect(AnalyticsUtil.validAmount(5)).toBe(true)
+		expect(AnalyticsUtil.validAmount(0.5)).toBe(true)
+		expect(AnalyticsUtil.validAmount(0)).toBe(false)
+		expect(AnalyticsUtil.validAmount(-1)).toBe(false)
+		expect(AnalyticsUtil.validAmount(0 / 0)).toBe(false)
+		expect(AnalyticsUtil.validAmount(math.huge)).toBe(false)
+		expect(AnalyticsUtil.validAmount("5")).toBe(false)
+	end)
+
+	it("sanitizes strings", function()
+		expect(AnalyticsUtil.sanitize("  Coins\n", 10)).toBe("Coins")
+		expect(AnalyticsUtil.sanitize("abcdefghijkl", 5)).toBe("abcde")
+		expect(AnalyticsUtil.sanitize("   ", 5)).toBeNil()
+		expect(AnalyticsUtil.sanitize(nil, 5)).toBeNil()
+	end)
+
+	it("client steps are whitelisted", function()
+		expect(AnalyticsUtil.clientAllowed({ "OpenedShop" }, "OpenedShop")).toBe(true)
+		expect(AnalyticsUtil.clientAllowed({ "OpenedShop" }, "Joined")).toBe(false)
+		expect(AnalyticsUtil.clientAllowed(nil, "OpenedShop")).toBe(false)
+		expect(AnalyticsUtil.clientAllowed({ "" }, "")).toBe(false)
+	end)
+end)
