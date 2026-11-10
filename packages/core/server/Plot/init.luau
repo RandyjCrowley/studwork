@@ -39,6 +39,7 @@ local Types = require(Core:WaitForChild("Types"))
 local HandlerList = require(Core:WaitForChild("HandlerList"))
 local Trove = require(ReplicatedStorage:WaitForChild("Packages"):WaitForChild("Trove"))
 local Slots = require(script.Slots)
+local SlotCache = require(script.SlotCache)
 
 local PLOT_TAG = "CorePlot"
 local SLOT_ATTRIBUTE = "SlotId"
@@ -68,6 +69,7 @@ type Session = {
 	trove: any, -- Trove: everything owned by this player's plot session
 	visuals: { [string]: Instance }, -- slotId -> visual
 	folder: Folder,
+	slots: SlotCache.SlotCache, -- M5: slot map cached for the session
 }
 
 local Plot = {}
@@ -91,32 +93,67 @@ local function validId(value: any): boolean
 	return type(value) == "string" and #value > 0 and #value <= MAX_ID_LENGTH
 end
 
--- slotId -> part for every slot in the plot (first part wins on duplicate ids).
+-- slotId -> part for every slot in the plot (first part wins on duplicate ids, in pre-order).
+-- Never walks the CoreDisplays folder (visuals are not slots).
 local function slotParts(plot: Model): { [string]: BasePart }
 	local map: { [string]: BasePart } = {}
-	for _, d in plot:GetDescendants() do
-		if d:IsA("BasePart") then
-			local id = d:GetAttribute(SLOT_ATTRIBUTE)
-			if type(id) == "string" and id ~= "" and not map[id] then
-				map[id] = d
+	local function walk(parent: Instance)
+		for _, d in parent:GetChildren() do
+			if d.Name == DISPLAY_FOLDER and d:IsA("Folder") and parent == plot then
+				continue
 			end
+			if d:IsA("BasePart") then
+				local id = d:GetAttribute(SLOT_ATTRIBUTE)
+				if type(id) == "string" and id ~= "" and not map[id] then
+					map[id] = d
+				end
+			end
+			walk(d)
 		end
 	end
+	walk(plot)
 	return map
 end
 
--- Active slot records (sorted, slotCount applied) + the part map.
-local function activeSlots(plot: Model): ({ Slots.SlotRecord }, { [string]: BasePart })
-	local parts = slotParts(plot)
-	local records: { Slots.SlotRecord } = {}
-	for id, part in parts do
-		local tag = part:GetAttribute(SLOT_TAG_ATTRIBUTE)
-		table.insert(records, { id = id, tag = if type(tag) == "string" and tag ~= "" then tag else nil })
+local function slotTagOf(part: any): string?
+	local tag = (part :: BasePart):GetAttribute(SLOT_TAG_ATTRIBUTE)
+	return if type(tag) == "string" and tag ~= "" then tag else nil
+end
+
+-- Active slot records (sorted, slotCount applied) + the part map, from the session cache.
+local function activeSlots(session: Session): ({ Slots.SlotRecord }, { [string]: BasePart })
+	return session.slots:get(plotConfig().slotCount)
+end
+
+-- Invalidates the session's slot cache when slot parts outside CoreDisplays change.
+local function watchSlots(session: Session)
+	local plot, folder, cache = session.plot, session.folder, session.slots
+	local function check(d: Instance, deferAgain: boolean)
+		local isPart = d:IsA("BasePart")
+		local slotId = if isPart then d:GetAttribute(SLOT_ATTRIBUTE) else nil
+		if SlotCache.isSlotChange(isPart, slotId, d == folder or d:IsDescendantOf(folder)) then
+			cache:invalidate()
+			if deferAgain then
+				-- DescendantRemoving fires before the part leaves; drop a scan made in between
+				task.defer(function()
+					cache:invalidate()
+				end)
+			end
+		end
 	end
-	return Slots.limit(records, plotConfig().slotCount), parts
+	session.trove:Connect(plot.DescendantAdded, function(d: Instance)
+		check(d, false)
+	end)
+	session.trove:Connect(plot.DescendantRemoving, function(d: Instance)
+		check(d, true)
+	end)
 end
 
 local function itemDef(itemId: string): Types.ItemDef?
+	-- Items is optional for Plot (Modules.luau): without it items are untagged + unnamed
+	if not ctx.isEnabled("Items") then
+		return nil
+	end
 	return ctx.services.Items.get(itemId)
 end
 
@@ -264,7 +301,7 @@ local function render(player: Player)
 	if session == nil or data == nil then
 		return
 	end
-	local slots, parts = activeSlots(session.plot)
+	local slots, parts = activeSlots(session)
 	local active: { [string]: boolean } = {}
 	for _, s in slots do
 		active[s.id] = true
@@ -305,7 +342,7 @@ local function removeStale(player: Player)
 	if session == nil or data == nil then
 		return
 	end
-	local stale = Slots.stale(data.displayed, data.inventory, (activeSlots(session.plot)))
+	local stale = Slots.stale(data.displayed, data.inventory, (activeSlots(session)))
 	if #stale == 0 then
 		return
 	end
@@ -347,7 +384,7 @@ local function autoDisplayAll(player: Player)
 	for _, instance in items do
 		table.insert(pending, { uid = instance.uid, tags = tagsOf(instance) })
 	end
-	for _, step in Slots.planAuto((activeSlots(session.plot)), data.displayed, pending) do
+	for _, step in Slots.planAuto((activeSlots(session)), data.displayed, pending) do
 		Plot.display(player, step.uid, step.slotId)
 	end
 end
@@ -436,7 +473,17 @@ local function assign(player: Player): boolean
 	folder.Name = DISPLAY_FOLDER
 	folder.Parent = plot
 	trove:Add(folder)
-	local session: Session = { plot = plot, trove = trove, visuals = {}, folder = folder }
+	local session: Session = {
+		plot = plot,
+		trove = trove,
+		visuals = {},
+		folder = folder,
+		slots = SlotCache.new(function()
+			return slotParts(plot)
+		end, slotTagOf, Slots.limit),
+	}
+	session.slots:get(plotConfig().slotCount) -- build the slot map once at assignment
+	watchSlots(session)
 	sessions[player] = session
 	warnedWaiting[player] = nil
 	plot:SetAttribute(OWNER_ATTRIBUTE, player.UserId)
@@ -543,7 +590,7 @@ local function describePlot(userId: any): string
 		table.insert(lines, string.format("%s: no plot (%s)", target.Name, state))
 	else
 		local data: Types.PlayerData? = ctx.services.Data.get(target)
-		local slots = activeSlots(session.plot)
+		local slots = activeSlots(session)
 		table.insert(
 			lines,
 			string.format(
@@ -612,11 +659,7 @@ function Plot.start()
 		-- rebirth.keepDisplayed, and always drop slots whose item left the inventory.
 		ctx.services.Rebirth.addResetStep("Plot", function(data: Types.PlayerData)
 			local r = ctx.config.balance.rebirth
-			for slotId, uid in data.displayed do
-				if r.keepDisplayed ~= true or data.inventory[uid] == nil then
-					data.displayed[slotId] = nil
-				end
-			end
+			Slots.resetDisplayed(data, r and r.keepDisplayed)
 		end)
 	end
 
@@ -659,7 +702,7 @@ function Plot.slots(player: Player): { string }
 	local session = sessions[player]
 	local list: { string } = {}
 	if session then
-		for _, slot in (activeSlots(session.plot)) do
+		for _, slot in (activeSlots(session)) do
 			table.insert(list, slot.id)
 		end
 	end
@@ -678,8 +721,13 @@ function Plot.display(player: Player, uid: string, slotId: string?): (boolean, s
 	if session == nil or data == nil then
 		return false, Slots.NO_PLOT
 	end
+	-- M5: cheap ownership / duplicate checks before any slot lookup
+	local early = Slots.precheck(data.inventory, data.displayed, uid)
+	if early ~= nil then
+		return false, early
+	end
 	local target, reason = Slots.validateDisplay({
-		slots = (activeSlots(session.plot)),
+		slots = (activeSlots(session)),
 		displayed = data.displayed,
 		owned = data.inventory,
 		uid = uid,
