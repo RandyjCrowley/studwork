@@ -1,9 +1,11 @@
 # StudWork module API (design draft for core v1.3.0)
 
-Status: **draft** written by an AI coding agent (2026-11-10) from the `core-contract-v1.2` code on
-`main`. In Phase 0, the lead checks it against the code, revises it, records every change in
-`docs/decisions.md`, has it reviewed by a fresh subagent, and then freezes it. Read
-`docs/philosophy.md` first.
+Status: **draft, Phase 0 design review folded in** — written by an AI coding agent (2026-11-10) from the
+`core-contract-v1.2` code on `main`, reviewed against the code and revised, then given
+an independent subagent review (`(internal build report, not public)`) whose Critical
+and High findings, plus small-fix Mediums, are folded in below (marked
+`(revised: design review <id>)`). Deferred findings and why are in `docs/decisions.md`.
+Read `docs/philosophy.md` first.
 
 Goal: one public API that **every** module uses, built-in kits and third-party modules alike.
 That's what turns core from a fixed set of services into a framework.
@@ -27,6 +29,7 @@ The v1.2 code already has the right ideas, but they're **closed lists** that onl
 | `ItemDef.incomePerSec` in the base type | `Types.ItemDef` | Base item fields plus **namespaced item fields** declared by modules (§12) |
 | Fixed HUD, palette, sounds, rarity tiers | client `Hud`, `Palette`, `Sounds`, `RarityTiers` | Theme tokens contributed by modules; HUD made of widget slots (§13) |
 | Odds disclosure and the luck rule live in Rarity | `server/Rarity` | Moved to the framework's **Compliance** service, so third-party random sources are covered too (§14) |
+| `MarketplaceService.ProcessReceipt = Shop.processReceipt` (`Shop/init.luau`) | `server/Shop` | The framework claims it exclusively in the last boot step and watches for replacement (§7, revised: design review H4) |
 
 **Keep:** `Tx.run`, Data's transaction rules (working copy, commit only on success, no yielding, no nesting), frozen public APIs, the disabled-module error messages, the pre-start request queue, boot that fails closed (N7), and every guardrail.
 
@@ -172,6 +175,16 @@ economy.grant(player, 10, "quest")
 - Calling `use` before `StudWork.start` errors.
 - **Inside a module, use `ctx.deps`, not `StudWork.use`.** `ctx.deps` contains exactly the declared dependencies, so an undeclared dependency is a boot error and not a hidden coupling. A lint rule enforces this.
 - `StudWork.Economy`-style sugar is generated for **every** enabled module, built-ins and third-party alike. It's untyped, a convenience for the command bar and console. Typed code uses `StudWork.use`.
+- **`StudWork.use` only accepts a `ModuleRef`.** (revised: design review C1 — the v1.2
+  `Modules.API.Data` includes `get`/`update`/`getGame`/`updateGame` on the *whole* `PlayerData`,
+  which a public `StudWork.use(Data)` would hand to any module or game script, defeating "a module
+  can read and write only its own save section" (§4 above, philosophy §4). **Data, Compliance,
+  Net, Replication, Shop and Policy are framework internals, not modules: they have no
+  `ModuleRef`, no public facade, and are not reachable through `StudWork.use` at all.** Their only
+  surface is what `ctx` exposes to a module (`ctx.data`, `ctx.compliance`, `ctx.net`,
+  `ctx.replicate`, `ctx.shop`, `ctx.policy` — §5), each already scoped to the calling module. The
+  one exception is `StudWork.use(Shop).onProduct` in §7's example, which is wrong as written and
+  is corrected there.)
 
 ---
 
@@ -193,6 +206,7 @@ type ModuleContext = {
 	data: ScopedData,                    -- this module's save section only (§6)
 	tx: (player: Player, fn: (tx: Tx) -> R) -> (boolean, R?),   -- Tx.run across modules (§5.1)
 	section: (tx: Tx) -> any,            -- this module's writable section inside a tx
+	framework: FrameworkRead,            -- read-only: firstJoin(player), lastSeen(player) (§5.2)
 
 	net: ModuleNet,                      -- this module's actions + server→client events (§9)
 	replicate: ModuleReplication,        -- this module's replicated state (§10)
@@ -235,6 +249,41 @@ and it returns only the calling module's own section, because each module's `ctx
 to its own `data.key`. That's how "modules stay in their own data" is enforced by construction,
 not by convention.
 
+- **`tx` is a sealed handle, not a table with a `data` field.** (revised: design review
+  H1 — v1.2's `Tx` type has `data: PlayerData` as a real field (`server/Context.luau:32-36`); if
+  that survived into v1.3, `tx.data.otherModulesSection` reaches every section directly and
+  defeats §5.1's guarantee. The framework holds each tx's working copy in a private table keyed
+  by the tx handle itself (an opaque frozen marker table with no fields), never on the handle.
+  `tx.player`, `tx.after` and `tx.retryLater` stay as they are (they carry no section data); there
+  is no `tx.data`. A test asserts that indexing, iterating or `rawget`-ing a `tx` for anything but
+  `player`/`after`/`retryLater` returns nil or errors.)
+- **Only one tx per player may be open on the call stack at a time, and it is single-player.**
+  (revised: design review M1 — while a module's code is running inside `ctx.tx(player,
+  fn)`, calling any OTHER module's mutating public API for a DIFFERENT player (which would need
+  its own `Data.update`/`ctx.tx`) errors immediately: "tx open for `<player>`; use `tx.after` to
+  act on another player once this one commits." This is the same non-nesting rule v1.1's
+  `Data.update` already enforces for the *same* player (core-contract-v1.1, L6), generalised to
+  the transaction object. Cross-player effects (a gift's receiver, a friend's co-play bonus) go
+  through `tx.after` once the opener's commit lands, or through Mail (§ Compliance/Mail stays
+  async for exactly this reason).)
+
+---
+
+## 5.2 Read-only framework facts
+
+`ctx.framework` gives every module the handful of `_framework`-section facts that today's
+`PlayerData` exposes directly (`firstJoin`, `lastSeen`), without handing out the whole section:
+
+```lua
+type FrameworkRead = {
+	firstJoin: (player: Player) -> number,  -- unix seconds
+	lastSeen: (player: Player) -> number,   -- unix seconds, updated on leave and periodically
+}
+```
+
+Offline and Streak use this instead of reaching into `_framework` directly (there is no API that
+lets them; §6 below).
+
 ---
 
 ## 6. Save data: a section per module
@@ -258,18 +307,43 @@ Profile.Data = {
 - **Per-section versions for Replication** are kept as today's `sectionVersion` (M2), now keyed by module.
 - **The game's own section** is simply the game acting as a module: `games/<g>` gets an implicit module named after `gameId`, with `config.data` as today. That's not special either.
 - **Moving v1.2 saves:** a `_framework` migration splits a v1.2 flat save into sections. There are no published games yet, but write it anyway and test it. It proves the migration path works.
+- **Frozen read views apply everywhere, not only in Studio.** (revised: design review
+  H2 — v1.2's `Data/ReadOnlyView.luau` only wraps `Data.get`/`getGame` in Studio (known issue R10);
+  on live servers, and for every other module's `get`/`list`-style read (`Inventory.get` is a
+  concrete v1.2 example that returns the live `ItemInstance`), callers get a live reference and
+  an in-place write silently skips migrations and replication. `ScopedData.get` and every value a
+  module's API returns from its own section are frozen (or a fresh copy for non-table values) in
+  every environment, reusing the per-section-version cache so this isn't a copy on every read.
+  This is one of the things to re-check against the §17 Q6 performance budget.)
+- **Each disabled module's section records its owner, and a key collision is a boot error.**
+  (revised: design review H5 — §2 only checks that `data.key` is unique *among enabled
+  modules*; a new, unrelated module reusing a disabled module's old key would silently inherit
+  data in a shape it never wrote. `_framework._owners: { [key]: moduleName }` is written the
+  first time a module's section is created and checked every boot: a key whose recorded owner
+  doesn't match the module now claiming it is a boot error, unless that module's definition
+  declares `data.adopts = "<oldModuleName>"`, which is itself logged in `decisions.md`-style
+  fashion inside the module's own migration.)
+- **Each module may declare `data.sanitize = fn(section) -> section`,** run once after migrations
+  on load, before the section is used. (revised: design review M3 — v1.2's
+  `Data/Sanitize.luau` has no per-module equivalent in the draft; giving every module the same
+  hook it already effectively needs generalises it instead of leaving it framework-only.)
 
 ---
 
 ## 7. Purchases (Shop) for modules
 
-The guardrail stays in the framework. Modules only add operations.
+The guardrail stays entirely inside the framework; `onProduct` is registered with `ctx.shop`, not
+`StudWork.use(Shop)` (revised: design review C1/C4 — Shop is a framework internal, not
+a `ModuleRef`; §4's correction applies here too):
 
 ```lua
-StudWork.use(Shop).onProduct("CoinPack1000", function(tx: PurchaseTx)
-	tx.use(Economy).grant(1000)                    -- Economy's purchaseOps.grant
-	tx.use(Collection).addItem("GoldenPebble")     -- source auto "paid:<product>"
-end)
+-- any module's server/init.luau, including the game's own implicit module (see below)
+function M.init(ctx)
+	ctx.shop.onProduct("CoinPack1000", function(tx: PurchaseTx)
+		tx.use(Economy).grant(1000)                 -- Economy's purchaseOps.grant
+		tx.use(Collection).addItem("GoldenPebble")   -- source auto "paid:<product>" (§14, M5)
+	end)
+end
 ```
 
 - A module declares `server.purchaseOps`: functions with the shape `(tx, ...)` that are safe inside a receipt transaction. `tx.use(ref)` exposes them, typed.
@@ -279,7 +353,45 @@ end)
   - `PurchaseGranted` only after the save,
   - `tx.retryLater`, `tx.after`.
 - `tx.paid = true` and `tx.paidRandomRestricted` are set by the framework and can't be changed.
-- Random purchase ops must go through `ctx.compliance` (§14), and the framework checks that they did.
+- Random purchase ops must go through `ctx.compliance` (§14), and `ctx.compliance.roll`/`spendForRoll` are the only way to produce a random outcome inside a paid transaction (§14).
+- **A game's gameplay code is its own implicit module, not a free-standing script.**
+  (revised: design review C4 — v1.2 purchase handlers get the whole `data` table
+  (`Types.luau:564`) and games call `Core.Data.updateGame` straight from
+  `games/<g>/src/server/Main.server.luau` (e.g. `games/example-collector/src/server/Main.server.luau`),
+  neither of which exists in v1.3: handlers only get `tx` (§5.1), and there is no public
+  whole-profile Data access to call from a plain script. §6 already says "the game acting as a
+  module"; this makes it literal. `games/<g>/src/server/Main.server.luau` is retired. In its
+  place, `games/<g>/modules/<gameId>/` is a module shaped exactly like a kit module (§1):
+  `module.luau` declares it (`dependsOn`/`optional` on whichever kits the game uses),
+  `server/init.luau` gets a real `ctx` with `ctx.data`, `ctx.tx`, `ctx.section`, `ctx.shop`, and
+  it is auto-added to `GameConfig.modules` (the game doesn't list itself). Its purchase handlers,
+  product registrations and game-specific logic live there with the same guarantees as any other
+  module — "nothing in core is special" applies to the game's own code too.)
+
+---
+
+## 7.1 The framework owns `ProcessReceipt` exclusively
+
+(revised: design review H4 — v1.2 assigns `MarketplaceService.ProcessReceipt` in
+`Shop.start` (`Shop/init.luau:302`) with nothing stopping a module or game script from
+reassigning it afterwards; Roblox allows only one `ProcessReceipt` function at a time, so
+whichever assignment runs last silently wins and every purchase-safety guarantee in this document
+stops applying.
+
+- **Shop claims `ProcessReceipt` in the last framework-init boot step** (§3 step 3), after every
+  module's `init` has run, so no module `init` can race it.
+- **A lint rule bans any other assignment to `MarketplaceService.ProcessReceipt`,**
+  `MarketplaceService.PromptGamePassPurchaseFinished`/`PromptProductPurchaseFinished` callbacks
+  outside the framework, and direct `DataStoreService`/`ProfileStore` use outside `server/Data`,
+  the same way the existing guardrail bans raw `RemoteEvent`/`OnServerEvent` (§9).
+- **Shop also detects a replacement at runtime, not just at lint time:** on a short heartbeat-driven
+  interval it checks `MarketplaceService.ProcessReceipt == <the function Shop assigned>`. A
+  mismatch is a loud `error`/analytics event (something reassigned it despite the lint rule — a
+  vendored library, a Studio command, a bug) and Shop immediately reassigns itself, so a receipt
+  arriving in the gap is not silently dropped by someone else's handler. This is defense in depth
+  under "guardrails stay on" (philosophy §4): the lint rule stops it at review time, the runtime
+  check catches what the lint rule can't see (dynamically generated assignments, a vendored
+  package with its own `ProcessReceipt`).
 
 ---
 
@@ -302,6 +414,39 @@ end
 - Extensions are documented in the module's README alongside its API.
 - Third-party modules can offer extensions and use other modules' extensions on the same terms.
 - Extensions run with the hooked module's guarantees, so a reset step runs inside Rebirth's single transaction. Each reset step can write only its own section, because `ctx.section(tx)` enforces that.
+- **Inverted extensions solve the v1.2 reverse-dependency cases.** (revised: design
+  review H3 — several v1.2 writes cross module lines against the natural dependency direction:
+  `Inventory.transfer` clears a slot in Plot's section (`Inventory/init.luau:381`) even though
+  Plot depends on Inventory, not the other way around; a claimed gift adds to the inventory from
+  inside Mail's claim handler, a two-way coupling. The fix is the *same* extension mechanism,
+  just offered by the module being acted on rather than the one acting:
+
+```lua
+-- Collection (owns item removal) offers an extension FOR its dependents:
+extensions = {
+	onItemRemoved = function(fn: (tx: Tx, player: Player, instance: ItemInstance) -> ()) … end,
+}
+-- Base's Plot, which declares optional = { Collection }, hooks its OWN cleanup:
+if ctx.isEnabled(Collection) then
+	ctx.depsExt[Collection].onItemRemoved(function(tx, player, instance)
+		local mine = ctx.section(tx)   -- Plot's OWN section; ctx here is Plot's, closed over at registration
+		for slotId, uid in mine.displayed do
+			if uid == instance.uid then mine.displayed[slotId] = nil end
+		end
+	end)
+end
+```
+
+  The hook fires inside the *triggering* module's transaction (Collection's, when an item is
+  removed), but because `ctx.section(tx)` is bound to whichever module's `ctx` registered the
+  hook (Plot's), the hook writes only Plot's own section — the same `ctx.tx`-spanning-multiple-
+  sections mechanism §5.1 already uses for `ctx.depsTx[Economy].grant(tx, ...)` plus
+  `ctx.section(tx)` for the caller's own section, just entered from the other side. This needs no
+  new runtime concept, only the documented pattern and an example. Social's Mail gets the same
+  treatment: it offers `extensions.registerKind(kind, claimFn(tx, player, payload) -> boolean)`,
+  so Collection (or a third-party module) can own what happens when ITS kind of mail is claimed,
+  without Mail depending on Collection to interpret the payload. §16's mapping table lists where
+  each kit uses this.)
 
 ---
 
@@ -339,6 +484,12 @@ StudWork.Client.state() = {
 - **`data`:** the fields listed in `data.replicate`, minus `serverOnly`. These are diffed by section version, as M2 does today.
 - **`extra`:** set with `ctx.replicate.set(player, key, value)` and `setAll(key, value)`, namespaced to the module automatically. `ctx.replicate.sent(player, key)` stays available, for the luck-disclosure check.
 - **Client selectors:** `StudWork.use(Economy).state()` returns that module's slice as a Charm atom selector. UI code never digs through `modules.X` by hand.
+- **`data.replicate = true` (whole-section) is not a real option; it's a documentation bug in the
+  original draft.** (revised: design review M6 — §2's own example writes
+  `replicate = { "currency" }`, but prose elsewhere and §18's example used `replicate = true`,
+  which would send a module's entire section, including fields nobody intended to expose (pity
+  counters, outbox contents, internal counters). `data.replicate` is always an explicit list of
+  field names, or `false`/omitted for "nothing replicates." §18's example is corrected to match.)
 
 ---
 
@@ -353,7 +504,8 @@ StudWork.Client.state() = {
 
 ## 12. Items and item fields
 
-**Base `ItemDef`** (in the framework, so items exist even without any kit; open question 1 in §17 may move this into Collection):
+**Base `ItemDef`** (in the framework, so items exist even without any kit; confirmed by §17 Q1 —
+framework, not Collection):
 
 ```lua
 { id: string, name: string, rarity: string?, model: string?, icon: string?, tags: {string}?,
@@ -409,18 +561,69 @@ The odds disclosure registry and the paid-roll luck rule move out of Rarity into
 **every** random source is covered, including third-party ones.
 
 ```lua
-ctx.compliance.registerRandomSource(id, { odds = fn(player) -> OddsDetail, luckDisclosed = boolean })
-ctx.compliance.checkPaidRoll(tx, sourceId, luck) -> (ok, reason)   -- policy + luck + disclosure
-ctx.compliance.tagPaid(source)                                    -- "paid:<id>" / "paidcur:<id>"
+ctx.compliance.registerRandomSource(id, {
+	odds = fn(player) -> OddsDetail,
+	sample = fn(player, luck) -> SampleResult,  -- picks ONE outcome; this is the actual randomness
+	luckDisclosed = boolean,
+})
+-- The only way to produce a random outcome from a registered source, free or paid:
+ctx.compliance.roll(tx, sourceId, luck?) -> (ok: boolean, outcome: SampleResult?, reason: string?)
+-- Paid-currency-priced rolls: spends the currency AND rolls atomically.
+ctx.compliance.spendForRoll(tx, currency, amount, sourceId, luck?) -> (ok, outcome?, reason?)
+ctx.compliance.tagPaid(source) -- "paid:<id>" / "paidcur:<id>", applied automatically (M5 below)
 ```
 
-- Collection's Rarity calls these functions, and so must any third-party random source.
+- Collection's Rarity registers its tables this way, and so must any third-party random source.
 - The framework replicates the disclosed odds and provides the `OddsTable` screen for any registered source.
+- **`ctx.compliance.roll` performs the sample itself; it is not a separate check next to the
+  module's own randomness.** (revised: design review C2 — the original
+  `checkPaidRoll(tx, sourceId, luck)` only recorded that *some* check ran; a module could call it
+  with a harmless `sourceId`/`luck` and then roll its own weights however it liked, so the
+  disclosed odds never had to match what was actually granted. There is no module-side sampling
+  path for a compliance-covered source: `registerRandomSource` takes a `sample` function (the
+  weighted pick, pity included), and `ctx.compliance.roll`/`spendForRoll` are what every caller —
+  built-in or third-party — must use to get an outcome. The policy check, the luck-disclosure
+  rule and the sample happen in one call that the framework controls end to end.)
+- **Paid currencies are declared once, at the framework level, and can only be spent for a roll
+  through Compliance.** (revised: design review C3 — v1.2's `paidCurrencies` lives in
+  `BalanceConfig`/Economy's config (`Rarity/init.luau:111`), so a third-party currency module that
+  never opts in is invisible to the rule, and v1.2 already lets `Economy.spend` and `Rarity.roll`
+  run as two separate transactions (`Rarity/init.luau:227-236`), so nothing ties the spend to the
+  roll it paid for. In v1.3: `GameConfig.compliance.paidCurrencies: { string }` is top-level
+  framework config, read by Compliance directly, not routed through Economy. Economy's own
+  `txApi.spend` refuses to spend a currency on that list (errors "spend a paid currency only
+  through compliance.spendForRoll"); the *only* path to spend one is
+  `ctx.compliance.spendForRoll(tx, currency, amount, sourceId, luck?)`, which spends (via
+  Economy's `txApi`, which Compliance is allowed to call) and rolls in the same transaction, so
+  the two can never be split across commits.)
+- **There is no `opts.free` escape.** (revised: design review C3, taking the stricter
+  option per the user — v1.2's `RollOptions.free` (`Types.luau:79-81`) lets any caller declare a
+  roll on a paid-currency table "free", which bypasses the whole rule by assertion. v1.3 drops
+  it: a genuinely free reward (a streak bonus, a quest payout) calls `ctx.compliance.roll(tx,
+  sourceId, luck?)` directly — no currency changes hands, so there is nothing to misclassify — and
+  a currency on `compliance.paidCurrencies` is *always* paid when spent. If a game needs a
+  currency that's sometimes sold for Robux and sometimes handed out free, that's two different
+  currencies in its config, which is also more honest to players.)
+- **A restricted or policy-unknown player is handled inside `roll`/`spendForRoll`, not by every
+  caller.** (revised: design review M4 — v1.2 handlers each call `Policy.isKnown` and
+  `tx.retryLater()` by hand, e.g. `games/example-collector/src/server/Main.server.luau:84`.
+  `ctx.compliance.roll`/`spendForRoll` check `ctx.policy` first: unknown → `tx.retryLater()`
+  automatically inside a purchase transaction (or `(false, nil, "policy_unknown")` outside one);
+  known-restricted → `(false, nil, "restricted")`. Callers grant a fixed non-random fallback on
+  `"restricted"`, same as today, but don't have to special-case `"policy_unknown"` themselves.)
+- **A granted item's `paid:`/`paidcur:` tag is derived, not passed in.** (revised: design review M5 — v1.2's `Inventory.add`/`addInto` accept any `source` string, and only Shop's
+  own call sites remember to prefix it (`Shop/init.luau:154-155`); a module calling
+  `tx.use(Collection).addItem` directly could omit the tag and make a Robux-bought or paid-roll
+  item look untradeable-safe or rebirth-wipeable when it shouldn't be. Collection's `addInto`
+  derives the prefix itself from the transaction (`tx.paid` for a Shop transaction,
+  `"paidcur:<sourceId>"` when the copy came from `compliance.roll`/`spendForRoll`) and a caller's
+  `source` becomes the free-form reason suffix, never the prefix.)
 - **What is enforced:**
   - Shop marks every purchase transaction as paid.
-  - A purchase op that rolls without calling `checkPaidRoll` first is refused at commit, because the framework tracks whether that check ran during the transaction.
-  - Spending a `paidCurrencies` currency inside a transaction marks it as paid in the same way.
-- **What can only be guided:** arbitrary module code could still invent randomness outside these APIs. The documentation, the generator template and a lint heuristic (`math.random` or `Random.new` in a function that also spends a paid currency) steer authors to Compliance. Say this honestly in the guardrails documentation.
+  - The only way to get a random outcome from a registered source is `compliance.roll` /
+    `spendForRoll`, so there is no "didn't call the check" bypass left to detect.
+  - Spending a `compliance.paidCurrencies` currency is only possible through `spendForRoll`.
+- **What can only be guided:** arbitrary module code could still invent randomness outside these APIs (raw `math.random`/`Random.new`, never registering a source at all). The documentation, the generator template and a lint heuristic (`math.random`/`Random.new` in a function that also calls `Economy`'s grant/spend or touches an item) steer authors to Compliance. Say this honestly in the guardrails documentation.
 
 ---
 
@@ -450,12 +653,12 @@ expect(h:use(Economy).balance(p)).toBe(…)
 | **framework** | Data, Net, Replication, Shop + Tx, Policy, Compliance, Events, Analytics, Console, Theme, Input, Feedback, UI runtime (screens, HUD slots) | Always on. `Core.Net` (GameNet) becomes module and game actions |
 | **collection** | Items, Inventory (cap, transfer, gift), Rarity (tiers, pity, mutations, luck) | Contributes `theme.rarity`, the Odds and Inventory screens, and purchase ops `addItem` and `roll` |
 | **economy** | Economy, Upgrades, Rebirth, Offline | Adds the item and mutation fields, the currency and rate widgets, the purchase op `grant`, and the extension `Rebirth.resetStep` |
-| **base** | Plot | Optional dependency on Economy (reset step). Plot model and tag set in config |
-| **social** | Friends, Mail (mailbox, outbox, gifting via Collection's transfer) | Contributes the mailbox widget and screen |
+| **base** | Plot | Optional dependency on Economy (reset step) and on Collection (`onItemRemoved` inverted extension, §8, clears the slot when an item leaves instead of Inventory writing into Plot's section directly). Plot model and tag set in config |
+| **social** | Friends, Mail (mailbox, outbox, gifting via Collection's transfer) | Offers `registerKind` (§8) so Collection (and third-party modules) own what a claimed mail kind does, instead of Mail depending on Collection. Contributes the mailbox widget and screen |
 | **engagement** | Streak | Time zone and grace window in config |
 
 Whether a kit is one module or several (`Kits.Economy` as one module versus `Economy`, `Upgrades`,
-`Rebirth` and `Offline` as four) is open question 2.
+`Rebirth` and `Offline` as four) is settled by §17 Q2: finer modules, plus bundles.
 
 ---
 
@@ -509,7 +712,8 @@ return StudWork.defineModule({
 	name = "SessionLeaderboard", version = "0.1.0", framework = "^1.3.0",
 	dependsOn = {}, optional = { Economy },
 	config = { schema = { stat = "string", top = "number" }, defaults = { stat = "earned", top = 10 } },
-	data = { key = "sessionLeaderboard", version = 1, default = { best = 0 }, replicate = true },
+	-- replicate lists the fields the owning client sees; there is no whole-section `true` (M6 below)
+	data = { key = "sessionLeaderboard", version = 1, default = { best = 0 }, replicate = { "best" } },
 	theme = { colors = { leaderboardGold = "#FFD23F" } },
 	server = "SessionLeaderboard", client = "SessionLeaderboard",
 })

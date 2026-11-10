@@ -268,3 +268,62 @@ Phase 0 step 1-2 review of the drafts against the v1.2 code (`Modules.luau`, `Co
   naming, so they stand and are being worked into the next module-api.md revision rather than
   re-run from scratch.
 
+### Design review findings folded into module-api.md (Phase 0, after step 3)
+
+Saved the review to `(internal build report, not public)` (wasn't in the repo). Per
+the user: fold in all Critical and High, plus Medium where the fix is small, taking the stricter
+option where it conflicts with convenience, since philosophy.md's guardrails already prefer
+strict. Every fold-in is marked `(revised: design review <id>)` in `module-api.md`.
+
+- **C1** (no Data API, whole-profile access reachable): `StudWork.use` only accepts a `ModuleRef`;
+  Data/Compliance/Net/Replication/Shop/Policy are framework internals with no public facade at
+  all, only scoped `ctx` fields (§4).
+- **C2** (compliance check not bound to the actual roll): `registerRandomSource` takes a `sample`
+  function; `ctx.compliance.roll`/`spendForRoll` are the only way to get an outcome — no separate
+  "I checked" call exists to spoof (§14).
+- **C3** (pay and roll splittable across transactions; `opts.free` escape): `paidCurrencies` moved
+  to top-level `GameConfig.compliance`; a paid currency can only be spent through
+  `compliance.spendForRoll` (spend+roll atomic); `opts.free` dropped entirely — the stricter
+  option, since a truly free reward just doesn't spend a paid currency (§14).
+- **C4** (purchase handlers/game code have no way to get a scoped `ctx`): the game's gameplay code
+  is its own implicit module (`games/<g>/modules/<gameId>/`), not a free-standing
+  `Main.server.luau`; `ctx.shop.onProduct` replaces `StudWork.use(Shop).onProduct` (§7).
+- **H1** (`tx` not actually opaque): `tx` is a sealed handle with no `data` field; `ctx.section(tx)`
+  is the only route (§5.1).
+- **H2** (frozen read views Studio-only in v1.2): every module's own-section read is frozen in
+  every environment, not just Studio, flagged for the §17 Q6 performance re-check (§6).
+- **H3** (cross-module writes against the dependency direction: Plot/Inventory, Mail/Collection):
+  formalised "inverted extensions" — the module being acted on offers the hook
+  (`Collection.onItemRemoved`, `Mail.registerKind`), using the same `ctx.section(tx)` binding
+  mechanism already in §5.1, just entered from the other side (§8, §16).
+- **H4** (`ProcessReceipt` hijackable): Shop claims it exclusively in the last boot step, a lint
+  rule bans other assignment, and — per the user, beyond the review's own suggestion — the
+  framework also polls for a runtime replacement and reasserts itself (§7.1).
+- **H5** (orphaned module section can be silently adopted by an unrelated module): `_framework.
+  _owners` registry, boot error on a key/owner mismatch unless `data.adopts` is declared (§6).
+- **M1** (cross-player writes inside an open transaction commit immediately): only one tx per
+  player open on the call stack; a call needing a different player's tx errors (§5.1).
+- **M4** (every game hand-rolls policy-unknown retry): `compliance.roll`/`spendForRoll` retry
+  automatically inside a purchase transaction (§14).
+- **M5** (the `paid:`/`paidcur:` tag is optional, so a caller can omit it): Collection's `addInto`
+  derives it from the transaction; callers can't override the prefix (§14).
+- **M6** (`data.replicate = true` sends a whole section, contradicting §2's own example):
+  `data.replicate` is always an explicit field list; fixed in §10 and the §18 example (§10).
+
+**Deferred** (documented instead of fixed, per the user's "say why" instruction):
+- **M2** (no cross-module "handoff" migration mechanism): genuinely needs new design (read another
+  module's old section once during migration, version-bump both sides), not a small fix, and
+  nothing in this round needs it — every v1.2 field maps to exactly one new section (§17 Q7
+  already confirmed the mapping is 1:1). Revisit if a future round needs to move a field between
+  modules after both already shipped.
+- **M3, item-registration half** (v1.2's N3 `Items.onRegistered` re-sending odds after boot):
+  deferred, not folded in. In v1.3 `ItemDef` lives in the framework and items come from
+  `GameConfig.items`, validated at boot (§12); whether a kit can register items *after* boot, and
+  how Compliance would re-disclose odds for them, is a bigger design question than this review
+  raised, and no v1.2 game actually relies on it (rule 14 only recommends registering before
+  start). The sanitize-hook and `_framework` read-access halves of M3 *were* small and are folded
+  in (§5.2, §6).
+- **L1–L3** (gamepass handlers outside a transaction, non-atomic two-player transfers, module-name
+  vs. Rojo-folder-name mismatch): left as Phase 1/2 implementation and test items, not module-API
+  design changes; tracked in `docs/known-issues.md` once Phase 1 starts.
+
