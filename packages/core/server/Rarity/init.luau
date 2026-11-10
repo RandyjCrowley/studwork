@@ -10,7 +10,8 @@
 		pity restriction (see RollMath header for the exact rule; PlayerData.pity[tableId] is
 		updated through Data.update only after the roll succeeds), mutation (mutationChance,
 		weighted by Mutation.weight). With opts.grant the item is added via Inventory.add with
-		source = "paid:<tableId>" when opts.paid, else opts.reason or "roll", and the player gets
+		source = "paid:<tableId>" for Robux rolls (paid table / Shop tx.roll), "paidcur:<tableId>"
+		for rolls priced in a paid currency, else opts.reason or "roll", and the player gets
 		ctx.net.feedback(player, "item", def.name, def.rarity).
 		opts.paid without grant: the caller grants and MUST use source "paid:<tableId>".
 	getOdds(tableId, luck?) -> exact per-item probabilities of the non-pity roll (sum to 1).
@@ -265,7 +266,14 @@ function Rarity.rollInto(
 	local info: Types.RollInfo = { ok = true, pity = forced, mutation = mutation }
 
 	if o.grant == true then
-		local source = if o.paid == true then "paid:" .. tableId else (o.reason or "roll")
+		-- "paid:" = bought with Robux (a paid table or a Shop PurchaseTx roll): kept on rebirth.
+		-- "paidcur:" = priced in a balance.paidCurrencies currency: same policy/trade rules, but
+		-- wiped by rebirth like other earned items (review N5).
+		local robux = t.paid == true or string.sub(o.reason or "", 1, 8) == "product:"
+		local source = if o.paid ~= true
+			then (o.reason or "roll")
+			elseif robux then "paid:" .. tableId
+			else "paidcur:" .. tableId
 		local instance = ctx.services.Inventory.addInto(tx, def.id, {
 			mutation = mutation,
 			source = source,

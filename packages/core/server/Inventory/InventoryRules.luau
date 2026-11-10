@@ -26,6 +26,9 @@ InventoryRules.MAX_META_BYTES = 256
 InventoryRules.MAX_SOURCE_LENGTH = 64
 
 InventoryRules.PAID_SOURCE_PREFIX = "paid:"
+-- Rolls priced in a balance.paidCurrencies currency: paid random items for the policy (same trade
+-- rules), but not Robux-bought, so rebirth does not keep them by default (review N5).
+InventoryRules.PAID_CURRENCY_SOURCE_PREFIX = "paidcur:"
 
 function InventoryRules.validateMeta(meta: any): (boolean, string?)
 	if meta == nil then
@@ -86,8 +89,11 @@ function InventoryRules.capacity(
 end
 
 function InventoryRules.isPaidSource(source: string?): boolean
-	return type(source) == "string"
-		and string.sub(source, 1, #InventoryRules.PAID_SOURCE_PREFIX) == InventoryRules.PAID_SOURCE_PREFIX
+	if type(source) ~= "string" then
+		return false
+	end
+	local robux, currency = InventoryRules.PAID_SOURCE_PREFIX, InventoryRules.PAID_CURRENCY_SOURCE_PREFIX
+	return string.sub(source, 1, #robux) == robux or string.sub(source, 1, #currency) == currency
 end
 
 export type TransferInput = {

@@ -4,11 +4,48 @@ Core's public interface (`packages/core/shared/Types.luau`, `packages/core/share
 only gains things: no renames, no removals; old calls are marked deprecated instead.
 Every change is recorded here, newest first.
 
-## core-v1.1.0 (in progress)
+## core-v1.1.0 (2026-11-10)
 
 Hardening before the games: review findings M1–M7 and L1–L7, plus the user's decisions 1–4.
+After core-v1.1.0 the interface is additive-only again.
+
+### Fixed (Phase 1 agents A–E, merged A→E)
+- M1 full odds disclosure: `Rarity.getOddsDetail` (items, mutation odds, item × mutation outcomes,
+  pity odds), replicated as `ReplicatedState.odds`, rendered by `UI.OddsTable`; the sandbox shows
+  server odds only. Monte Carlo spec (200k seeded rolls, every outcome within 4 SE).
+- M2 replication: per-section `Data.sectionVersion` + `Replication/SectionCache` copy only changed
+  sections; `purchases`, `pity`, `funnel`, `mail` are no longer replicated. Bench (50 players × 100
+  items, `tools/bench`): 12.9 ms → 0.64 ms per tick, 6300 → 400 new tables per tick.
+- M3 Mail at-least-once: idempotency keys (`seen`), synchronous pcall'd handlers, retries with
+  backoff, dead letters + `MailDeadLetter` analytics, pending until a handler registers.
+- M4 receipt-safe purchases: handler + `purchases[id]` in one non-yielding `Data.update`;
+  yield/error/`retryLater` commit nothing; `PurchaseGranted` only after the save is confirmed;
+  property test (300 random sequences: never a double grant, never a record without its grant).
+- M5 Plot: per-session slot cache, ownership check before any slot lookup.
+- M7 frozen facade (Phase 0) + no cross-module section writes (Rebirth reset steps).
+- L1 bounded store wait + kick; L3 Net listens at require time with a bounded pre-start queue;
+  L4 Friends in-flight pair dedupe; L5 `ServerConfig.admins`; L6 transactional `Data.update`;
+  L7 dropped-entry counts logged at load.
+- Decision 1 migration failure → friendly kick + `DataLoadFailed` analytics, never saves defaults
+  over a profile. Decision 2 `keepOnRebirth`. Decision 3 module loader (foundation + enabled
+  modules only, erroring proxies, client action gate, module-aware HUD, foundation-only test
+  project). Decision 4 `deploy.json` `coreVersion`/`coreCommit`, `tools/core-status`, GAMES.md Core.
+
+### Fixed from the v1.1.0 review (before the tag)
+- N5 rolls priced in a paid currency are tagged `paidcur:<table>`: same trade/policy rules as
+  `paid:`, but wiped by rebirth (only Robux-bought `paid:` copies are kept).
+- N2 a failed PolicyService lookup keeps retrying every 30 s instead of staying unknown.
+- N7 a `Core.start` that throws part-way marks core unusable; every call errors with the boot error.
+- N10 Mail ignores deliveries for players who already left.
+- Playtest: Studio `receipt` simulation tagged fallback items with the wrong product (ids of 0).
+
+Open: `docs/known-issues.md` (N1 mail dead-lettering, N3/N4 odds edge cases, lows).
 
 ### core-contract-v1.1 (Phase 0, frozen for Phase 1)
+
+Breaking (pre-games) also includes, after Phase 1: `Core.Client.Actions.*` error before
+`Core.start`; a Mail handler returning `false` is a failure (retried); `ReplicatedState.data` lacks
+the server-only sections.
 
 Breaking (pre-games) — allowed once, before any game existed:
 - `GameConfig.modules: { ModuleName }` is required. Core is a foundation (Data, Net, Shop,

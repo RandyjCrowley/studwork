@@ -171,7 +171,9 @@ local Config: Types.GameConfig = {
 - **Mail is at-least-once.** Handlers must be safe to run twice; pass an idempotency `key` to
   `Mail.send` when a retry of the send could duplicate a message.
 - **Rebirth keeps Robux-bought items** (`source` starting with `paid:`) unless
-  `ItemDef.keepOnRebirth = false`; `keepOnRebirth = true` keeps any copy.
+  `ItemDef.keepOnRebirth = false`; `keepOnRebirth = true` keeps any copy. Rolls priced in a paid
+  currency are tagged `paidcur:` (policy/trade rules apply, but rebirth wipes them).
+- **Never pass `luck` to a paid roll** until the odds disclosure includes luck (known issue N4).
 - **Odds shown to players come from the server** (`ReplicatedState.odds`, `Rarity.getOddsDetail`),
   including mutations and pity. Never recompute odds on the client.
 - **Admins are server-only**: `ServerConfig.admins`, kept in `ServerScriptService`/`ServerStorage`.

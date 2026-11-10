@@ -17,6 +17,7 @@ local PolicyService = game:GetService("PolicyService")
 local Policy = {}
 
 local MAX_ATTEMPTS = 4
+local BACKGROUND_RETRY_SEC = 30 -- after MAX_ATTEMPTS fail: retry this often while the player stays
 local BASE_DELAY_SEC = 1
 local MAX_DELAY_SEC = 8
 
@@ -64,9 +65,27 @@ local function lookup(player: Player)
 			warn(
 				"[Core.Policy] lookup failed for "
 					.. player.Name
-					.. "; staying restricted: "
+					.. "; staying restricted, retrying every "
+					.. BACKGROUND_RETRY_SEC
+					.. "s: "
 					.. tostring(info)
 			)
+		end
+	end
+	-- Review N2: keep trying in the background so Robux handlers waiting on isKnown (retryLater)
+	-- are not stuck for the whole session.
+	while player.Parent == Players and restricted[player] == nil do
+		task.wait(BACKGROUND_RETRY_SEC)
+		if player.Parent ~= Players then
+			return
+		end
+		local ok, info = pcall(function()
+			return PolicyService:GetPolicyInfoForPlayerAsync(player)
+		end)
+		if ok and type(info) == "table" and type(info.ArePaidRandomItemsRestricted) == "boolean" then
+			restricted[player] = info.ArePaidRandomItemsRestricted
+			publish(player)
+			return
 		end
 	end
 end

@@ -243,6 +243,9 @@ function Delivery.new(deps: Deps)
 			processed()
 			return
 		end
+		if not deps.isActive(player) then
+			return -- player already left: stays queued for the next session (review N10)
+		end
 		local s = sessionFor(player)
 		local mail = deps.getMail(player)
 		if type(mail) == "table" and type(mail.seen) == "table" and mail.seen[msg.id] ~= nil then

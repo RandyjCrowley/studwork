@@ -26,6 +26,7 @@ local IS_SERVER = RunService:IsServer()
 local started = false
 local activeConfig: Types.GameConfig? = nil
 local enabled: { [string]: boolean } = {}
+local bootError: string? = nil -- set when Core.start threw part-way (review N7): every call errors
 
 local Core = {}
 Core.version = "1.1.0"
@@ -36,6 +37,9 @@ local function guarded(namespace: string, fnName: string, impl: (...any) -> ...a
 	return function(...: any): ...any
 		if not started then
 			error(`[Core] Core.{namespace}.{fnName} called before Core.start`, 2)
+		end
+		if bootError ~= nil then
+			error(`[Core] Core.{namespace}.{fnName}: Core.start failed: {bootError}`, 2)
 		end
 		if isModule and not enabled[namespace] then
 			error("[Core] " .. Modules.notEnabledMessage(namespace), 2)
@@ -89,11 +93,16 @@ function Core.start(gameConfig: Types.GameConfig, serverConfig: Types.ServerConf
 	end
 	started = true
 	activeConfig = config
-	sideModule.start(Core, config, serverConfig or {}, order)
+	local ok, err = pcall(sideModule.start, Core, config, serverConfig or {}, order)
+	if not ok then
+		local message = tostring(err)
+		bootError = message
+		error("[Core] Core.start failed (core is unusable until the server restarts): " .. message, 2)
+	end
 end
 
 function Core.isStarted(): boolean
-	return started
+	return started and bootError == nil
 end
 
 function Core.isEnabled(moduleName: Types.ModuleName): boolean

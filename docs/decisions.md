@@ -133,3 +133,13 @@ Contract choices (Phase 0, core-contract-v1.1):
   belongs to agent B (the sandbox must show server odds, M1); the rest of `games/_sandbox/` is E's.
   `core/server/init.luau` and `core/client/init.luau` (boot code) go to E with
   `core/shared/init.luau`, since the module loader lives there.
+- **`paid:` vs `paidcur:` (review N5).** `paid:<id>` = obtained with Robux (paid table, Shop
+  `tx.roll`/`tx.addItem`): kept on rebirth by default. `paidcur:<table>` = a roll priced in a
+  `balance.paidCurrencies` currency: a paid random item for Roblox's policy (odds shown, policy
+  check, untradeable for restricted players) but wiped by rebirth, otherwise spending earned Coins
+  right before a rebirth would make items rebirth-proof.
+- **Effects of a Robux grant run after the save is confirmed** (agent A), not at commit: a crash
+  can't run them twice; the cost is that they are dropped if the save fails and the player leaves
+  (known issue N9).
+- **Phase 2 review: 0 Critical/High.** Fixed N2, N5, N7, N10 before the tag; N1/N3/N4 and the lows
+  are in `docs/known-issues.md`. N1 must be fixed before Example Gifts relies on Mail.
