@@ -2,7 +2,7 @@
 --[[
 	What the core HUD shows for the enabled modules (pure).
 	  currency/rate: only with Economy (no currencies without it); rate also honours opts.showRate.
-	  goal: only with Rebirth (the "next goal" pill is the rebirth goal) and when opts.nextGoal is set.
+	  goal: whenever the game passes opts.nextGoal (the text is game-defined, any module set).
 ]]
 
 local Visibility = {}
@@ -17,7 +17,7 @@ function Visibility.of(
 	return {
 		currency = economy,
 		rate = economy and opts.showRate ~= false,
-		goal = isEnabled("Rebirth") and opts.nextGoal ~= nil,
+		goal = opts.nextGoal ~= nil,
 	}
 end
 

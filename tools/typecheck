@@ -27,6 +27,24 @@ OUT="$(luau-lsp analyze --platform roblox \
 	packages/core/shared packages/core/server packages/core/client packages/ui "games/$GAME/src" 2>&1 \
 	| grep -v '^\[INFO\]\|^\[WARN\]' || true)"
 
+# Extra Rojo projects of the game (e.g. games/_sandbox/foundation-only.project.json): analyze
+# their own src folder against their own sourcemap.
+for EXTRA in games/$GAME/*.project.json; do
+	[ -f "$EXTRA" ] || continue
+	[ "$(basename "$EXTRA")" = "default.project.json" ] && continue
+	SUB="games/$GAME/$(basename "$EXTRA" .project.json)"
+	[ -d "$SUB" ] || continue
+	rojo sourcemap "$EXTRA" --absolute -o .cache/sourcemap-extra.json >/dev/null
+	OUT="$OUT$(luau-lsp analyze --platform roblox \
+		--sourcemap .cache/sourcemap-extra.json \
+		--defs "@roblox=$DEFS" \
+		--defs "@testkit=tools/types/testkit.d.luau" \
+		--ignore "**/Generated*.luau" \
+		--ignore "**/deps/**" \
+		"$SUB" 2>&1 \
+		| grep -v '^\[INFO\]\|^\[WARN\]' || true)"
+done
+
 if [ -n "$OUT" ]; then
 	echo "$OUT"
 	COUNT="$(echo "$OUT" | grep -c 'Error\|Warning\|Deprecated' || true)"
