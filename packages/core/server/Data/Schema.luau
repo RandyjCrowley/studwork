@@ -6,7 +6,7 @@
 	CURRENT_VERSION  schema version written by this code (PlayerData.schemaVersion).
 	MIGRATIONS       [toVersion] = fn(old) -> new, built from Data/migrations/NNN_*.luau.
 	default(config, now)            fresh PlayerData (currency/game defaults from GameConfig).
-	prepare(raw, config, now, migrations?, currentVersion?) -> (data, status, message?)
+	prepare(raw, config, now, migrations?, currentVersion?) -> (data, status, message?, report?)
 	  Runs on every load. Works on a deep COPY of raw, so on failure raw is untouched.
 	  status "new"    raw was empty (first join): defaults, lastSeen = firstJoin = now.
 	         "ok"     migrated (schema + game table), reconciled, sanitized, purchases pruned.
@@ -87,7 +87,7 @@ function Schema.prepare(
 	now: number,
 	migrations: { [number]: Migrate.MigrationFn }?,
 	currentVersion: number?
-): ({ [string]: any }, Status, string?)
+): ({ [string]: any }, Status, string?, Sanitize.Report?)
 	local target = currentVersion or Schema.CURRENT_VERSION
 	if next(raw) == nil then
 		local fresh = Schema.default(config, now) :: any
@@ -139,13 +139,13 @@ function Schema.prepare(
 		data.game[gameId] = newGame
 	end
 
-	Sanitize.playerData(data)
+	local _, report = Sanitize.playerData(data)
 	Sanitize.reconcile(data.currency, defaults.currency) -- dropped invalid balances -> 0
 	if not Sanitize.isFinite(data.stats.sessions) then
 		data.stats.sessions = 0
 	end
 	Sanitize.prunePurchases(data.purchases, Schema.PURCHASES_CAP)
-	return data, "ok", nil
+	return data, "ok", nil, report
 end
 
 return Schema

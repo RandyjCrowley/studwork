@@ -8,7 +8,9 @@
 	                             default. Keys absent from defaults are kept.
 	playerData(data)             type-checks the known PlayerData maps: drops non-finite numbers,
 	                             non-string keys and malformed entries (currency NaN/inf, broken
-	                             inventory items, bad multipliers ...). Returns the number of fixes.
+	                             inventory items, bad multipliers ...). Returns (fixes, report): fixes = total
+	                             repairs; report = { inventory = dropped inventory entries,
+	                             other = every other drop/repair } (L7: Data logs non-zero counts).
 	prunePurchases(map, cap)     keeps the newest `cap` receipt ids (by timestamp, ties by id).
 ]]
 
@@ -97,8 +99,11 @@ local function validItem(uid: any, item: any): boolean
 end
 
 -- Assumes reconcile already ran, so every top-level key has the right Lua type.
-function Sanitize.playerData(data: { [string]: any }): number
+export type Report = { inventory: number, other: number }
+
+function Sanitize.playerData(data: { [string]: any }): (number, Report)
 	local fixes = 0
+	local inventoryDropped = 0
 	fixes += numberMap(data.currency, nil, false)
 	fixes += numberMap(data.upgrades, 0, true)
 	fixes += numberMap(data.pity, 0, true)
@@ -116,6 +121,7 @@ function Sanitize.playerData(data: { [string]: any }): number
 		if not validItem(uid, item) then
 			data.inventory[uid] = nil
 			fixes += 1
+			inventoryDropped += 1
 		end
 	end
 	for slot, uid in data.displayed do
@@ -135,7 +141,7 @@ function Sanitize.playerData(data: { [string]: any }): number
 			fixes += 1
 		end
 	end
-	return fixes
+	return fixes, { inventory = inventoryDropped, other = fixes - inventoryDropped }
 end
 
 function Sanitize.prunePurchases(purchases: { [string]: number }, cap: number): number

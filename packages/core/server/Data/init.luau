@@ -12,7 +12,17 @@
 	  BindToClose) via profile.OnSave.
 	- DataChanged(player) is deferred and coalesced: at most once per player per frame.
 	- update() returns false (and does not run fn) when the player's data is not loaded.
-	  fn must not yield: it runs in a coroutine and Data raises an error if it yields.
+	  fn runs against a copy-on-read working proxy (Transaction.luau): it commits only when fn
+	  returns without error; an error discards every write and is re-raised with a traceback; a
+	  yield discards and errors; a same-player update inside a running one errors ("nested
+	  Data.update"). Only touched sections change identity. Data.get inside fn returns the
+	  COMMITTED data (not fn's uncommitted writes).
+	- sectionVersion(player, section) (ctx-only) moves only for sections a committed update
+	  changed, plus Data's own writes (lastSeen on save, the stats save stamp, purchases pruning,
+	  console reset/lastseen).
+	- Load failures: store not chosen within STORE_WAIT_TIMEOUT -> kick (load failed). A failed
+	  migration / unreadable save -> DataLoadFailed analytics + kick with Load.KICK_MIGRATION_FAILED;
+	  profile.Data is never replaced, so the closing EndSession save writes back what was loaded.
 	- saveAsync(player) yields until the current data is committed (true) or the save failed /
 	  timed out / the player is not loaded (false).
 
@@ -30,6 +40,8 @@ local ServerStorage = game:GetService("ServerStorage")
 
 local Types = require(game:GetService("ReplicatedStorage"):WaitForChild("Core"):WaitForChild("Types"))
 local Internal = require(script.Internal)
+local Load = require(script.Load)
+local Transaction = require(script.Transaction)
 local Sanitize = require(script.Sanitize)
 local Schema = require(script.Schema)
 
@@ -38,10 +50,9 @@ type PlayerData = Types.PlayerData
 -- Engineering constants.
 local SAVE_TIMEOUT = 30 -- seconds saveAsync waits for the DataStore write
 local STORE_STATE_TIMEOUT = 15 -- seconds to wait for ProfileStore's Studio API-access probe
-local KICK_LOAD_FAILED = "Your save data could not be loaded. Please rejoin in a moment."
+local STORE_WAIT_TIMEOUT = 30 -- seconds loadPlayer waits for chooseStore before kicking (L1)
+local KICK_LOAD_FAILED = Load.KICK_LOAD_FAILED
 local KICK_SESSION_ENDED = "Your save data was opened in another server. Please rejoin."
-local KICK_NEWER_DATA =
-	"This server is running an older version of the game. Please rejoin to get the latest."
 
 -- Reserved key in PlayerData.stats used by saveAsync to recognise its own commit.
 local SAVE_SEQ_KEY = "_saveSeq"
@@ -54,7 +65,7 @@ type Entry = {
 	committedSeq: number, -- highest sequence seen in a SUCCESSFUL save (OnAfterSave payload)
 	ended: boolean,
 	lastSeenOverride: number?, -- Studio `lastseen` console: written instead of os.time()
-	version: number, -- Phase 0 stub of per-section versions: bumped on every update (agent A: per section)
+	tx: Transaction.State, -- running flag (nested detection) + per-section versions
 }
 
 local Data = {}
@@ -66,6 +77,7 @@ local entries: { [Player]: Entry } = {}
 local dirty: { [Player]: boolean } = {}
 local loadedHandlers: { (Player, PlayerData) -> () } = {}
 local storeReady = false
+local storeFailed = false
 
 local function markDirty(player: Player)
 	dirty[player] = true
@@ -75,7 +87,7 @@ local function profileKey(userId: number): string
 	return "Player_" .. tostring(userId)
 end
 
-local function chooseStore()
+local function chooseStoreUnsafe()
 	ProfileStore = require(ServerStorage:WaitForChild("ServerPackages"):WaitForChild("ProfileStore")) :: any
 	local gameId: string = ctx.config.gameId
 	local name = "PlayerData_" .. gameId
@@ -100,6 +112,15 @@ local function chooseStore()
 	storeReady = true
 end
 
+-- L1: a failure here must not leave loadPlayer waiting forever.
+local function chooseStore()
+	local ok, err = pcall(chooseStoreUnsafe :: any)
+	if not ok then
+		storeFailed = true
+		warn(`[Core.Data] could not select a ProfileStore: {err}`)
+	end
+end
+
 local function fireLoaded(player: Player, data: PlayerData)
 	ctx.signals.DataLoaded:Fire(player, data)
 	for _, handler in table.clone(loadedHandlers) do
@@ -114,15 +135,33 @@ local function onSave(entry: Entry)
 	entry.saveStarted += 1
 	if not entry.ended then
 		entry.data.lastSeen = entry.lastSeenOverride or os.time()
+		Transaction.bump(entry.tx, "lastSeen")
 	end
-	Sanitize.prunePurchases(entry.data.purchases, Schema.PURCHASES_CAP)
+	if Sanitize.prunePurchases(entry.data.purchases, Schema.PURCHASES_CAP) > 0 then
+		Transaction.bump(entry.tx, "purchases")
+	end
 end
 
 local function loadPlayer(player: Player)
-	while not storeReady do
-		task.wait()
-	end
+	local ready = Load.awaitStore(
+		function()
+			return storeReady
+		end,
+		function()
+			return storeFailed
+		end,
+		os.clock,
+		function()
+			task.wait(0.1)
+		end,
+		STORE_WAIT_TIMEOUT
+	)
 	if player.Parent ~= Players then
+		return
+	end
+	if not ready then
+		warn(`[Core.Data] no ProfileStore for {player.UserId} (failed or timed out); kicking`)
+		player:Kick(KICK_LOAD_FAILED)
 		return
 	end
 	local userId = player.UserId
@@ -149,14 +188,29 @@ local function loadPlayer(player: Player)
 	end
 
 	local now = os.time()
-	local data, status, message = Schema.prepare(profile.Data, ctx.config, now)
-	if status == "newer" or status == "error" then
-		-- Never write over data we can't understand: profile.Data is untouched, so the final
-		-- EndSession save writes back exactly what was loaded (only the session lock changes).
-		warn(`[Core.Data] refusing to load {userId} ({status}): {message}`)
+	local decision = Load.decide(profile.Data, function(raw)
+		return Schema.prepare(raw, ctx.config, now)
+	end)
+	if decision.action == "kick" then
+		-- Never write over data we can't understand: profile.Data is untouched (Load.decide never
+		-- replaces it), so the closing EndSession save writes back exactly what was loaded; only
+		-- the session lock changes. No OnSave hook is connected yet, so lastSeen isn't stamped.
+		warn(`[Core.Data] refusing to load {userId} ({decision.status}): {decision.reason}`)
+		if decision.analytics then
+			task.spawn(function()
+				pcall(function()
+					ctx.services.Analytics.custom(player, "DataLoadFailed", 1)
+				end)
+			end)
+		end
 		profile:EndSession()
-		player:Kick(if status == "newer" then KICK_NEWER_DATA else KICK_LOAD_FAILED)
+		player:Kick(decision.message)
 		return
+	end
+	local data = decision.data :: { [string]: any }
+	local dropWarning = Load.dropWarning(userId, decision.report)
+	if dropWarning then
+		warn(dropWarning)
 	end
 	profile.Data = data
 	profile:AddUserId(userId)
@@ -173,7 +227,7 @@ local function loadPlayer(player: Player)
 		saveSeq = loadedSeq,
 		committedSeq = loadedSeq,
 		ended = false,
-		version = 0,
+		tx = Transaction.newState(),
 	}
 	entries[player] = entry
 
@@ -227,6 +281,7 @@ local function onPlayerRemoving(player: Player)
 	dirty[player] = nil
 	if entry and not entry.ended then
 		entry.data.lastSeen = entry.lastSeenOverride or os.time()
+		Transaction.bump(entry.tx, "lastSeen")
 		entry.profile:EndSession() -- OnSave writes lastSeen again right before the final save
 	end
 end
@@ -255,11 +310,18 @@ local function registerConsole()
 			if sub == "dump" then
 				return HttpService:JSONEncode(entry.data)
 			elseif sub == "reset" then
-				local fresh = Schema.default(ctx.config, os.time())
+				local fresh: { [string]: any } = Schema.default(ctx.config, os.time()) :: any
 				fresh.stats.sessions = 1
-				entry.profile.Data = fresh
-				entry.data = fresh
-				fireLoaded(player, fresh) -- "re-read everything"
+				-- keep the root identity (profile.Data points at it): replace its contents
+				local root = entry.data :: any
+				for key in table.clone(root) do
+					root[key] = nil
+				end
+				for key, value in fresh do
+					root[key] = value
+				end
+				Transaction.bumpAll(entry.tx, root)
+				fireLoaded(player, entry.data) -- "re-read everything"
 				return `reset data of {player.Name}`
 			end
 			return "usage: data <dump|reset> [userId]"
@@ -280,6 +342,7 @@ local function registerConsole()
 			local entry = entries[player] :: Entry
 			entry.lastSeenOverride = os.time() - seconds
 			entry.data.lastSeen = os.time() - seconds
+			Transaction.bump(entry.tx, "lastSeen")
 			markDirty(player)
 			return `lastSeen of {player.Name} = now - {seconds}s (kept through saves; rejoin to trigger Offline)`
 		end
@@ -339,25 +402,18 @@ function Data.update(player: Player, fn: (data: PlayerData) -> ()): boolean
 	if entry == nil or entry.ended then
 		return false
 	end
-	local co = coroutine.create(fn)
-	local ok, err = coroutine.resume(co, entry.data)
-	entry.version += 1
-	markDirty(player)
-	if not ok then
-		error(err, 2)
-	end
-	if coroutine.status(co) ~= "dead" then
-		coroutine.close(co)
-		error("Data.update: fn must not yield", 2)
+	local changed = Transaction.run(entry.tx, entry.data :: any, fn :: any)
+	if #changed > 0 then
+		markDirty(player)
 	end
 	return true
 end
 
--- ctx-only (Context.DataInternal). Phase 0 stub: one counter for every section, so callers that
--- skip unchanged sections stay correct (they just never skip). Agent A makes it per section.
-function Data.sectionVersion(player: Player, _section: string): number
+-- ctx-only (Context.DataInternal). Globally increasing per-section version (0 = never changed
+-- this session); moves only when a committed update or Data itself changed that section.
+function Data.sectionVersion(player: Player, section: string): number
 	local entry = entries[player]
-	return if entry then entry.version else 0
+	return if entry then Transaction.version(entry.tx, section) else 0
 end
 
 function Data.onLoaded(handler: (player: Player, data: PlayerData) -> ()): Types.Connection
@@ -403,6 +459,7 @@ function Data.saveAsync(player: Player): boolean
 	entry.saveSeq = math.max(entry.saveSeq, entry.committedSeq) + 1
 	local target = entry.saveSeq
 	entry.data.stats[SAVE_SEQ_KEY] = target
+	Transaction.bump(entry.tx, "stats")
 	entry.profile:Save()
 	local deadline = os.clock() + SAVE_TIMEOUT
 	while entry.committedSeq < target do
