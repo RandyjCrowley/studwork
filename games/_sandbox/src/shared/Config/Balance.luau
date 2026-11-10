@@ -35,6 +35,9 @@ local Balance: Types.BalanceConfig = {
 				{ itemId = "comet", weight = 3 },
 			},
 			cost = { currency = "Coins", amount = 250 },
+			-- v1.2: odds are disclosed per player WITH their luck (Core.Rarity.setLuck), so this paid
+			-- (Coins are sold for Robux) roll may use luck. The Robux Egg is not: luck there errors.
+			luckDisclosed = true,
 			pity = { threshold = 10, minTier = "Epic" },
 			mutationChance = 0.1,
 		},

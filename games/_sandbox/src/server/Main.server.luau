@@ -6,6 +6,8 @@
 ]]
 
 local Players = game:GetService("Players")
+local RunService = game:GetService("RunService")
+local ServerScriptService = game:GetService("ServerScriptService")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
 local Core = require(ReplicatedStorage:WaitForChild("Core"))
@@ -96,6 +98,59 @@ end)
 Core.Shop.onProduct("CoinPack", function(_data, _receipt, tx)
 	assert(tx.grant(Tuning.coinPackCoins), "grant failed")
 end)
+-- Mail (v1.2): a game gift kind. Idempotent by message id; a full inventory returns false, so the
+-- gift waits in the player's mailbox (HUD badge) until they claim it with room to spare.
+Core.Mail.onReceive("gift", function(player, payload, info)
+	if type(payload.itemId) ~= "string" then
+		error("gift without itemId")
+	end
+	if Core.Inventory.count(player) >= Core.Inventory.cap(player) then
+		return false
+	end
+	local key = "gift:" .. info.id
+	for _, item in Core.Inventory.list(player) do
+		if item.meta and item.meta.mail == key then
+			return true -- already granted by an earlier run of this message
+		end
+	end
+	local meta: { [string]: string | number | boolean } = { mail = key }
+	return Core.Inventory.add(player, payload.itemId, { source = "gift", meta = meta }) ~= nil
+end)
+
+-- Studio-only test hooks for the sandbox (Command bar / MCP, Server context):
+--   ServerScriptService.SandboxConsole:Invoke("giftme", itemId?)  mail yourself a gift
+--   ServerScriptService.SandboxConsole:Invoke("fill")             fill your inventory to the cap
+--   ServerScriptService.SandboxConsole:Invoke("free")             remove one item
+if RunService:IsStudio() then
+	local console = Instance.new("BindableFunction")
+	console.Name = "SandboxConsole"
+	console.OnInvoke = function(command: string, arg: any): string
+		local player = Players:GetPlayers()[1]
+		if player == nil then
+			return "no player"
+		end
+		if command == "giftme" then
+			local ok = Core.Mail.send(player.UserId, "gift", { itemId = arg or "comet" })
+			return "sent=" .. tostring(ok)
+		elseif command == "fill" then
+			while Core.Inventory.count(player) < Core.Inventory.cap(player) do
+				if Core.Inventory.add(player, "pebble", { source = "test" }) == nil then
+					break
+				end
+			end
+			return `inventory {Core.Inventory.count(player)}/{Core.Inventory.cap(player)}`
+		elseif command == "free" then
+			local first = Core.Inventory.list(player)[1]
+			if first then
+				Core.Inventory.remove(player, first.uid, "test")
+			end
+			return `inventory {Core.Inventory.count(player)}/{Core.Inventory.cap(player)}`
+		end
+		return "commands: giftme [itemId], fill, free"
+	end
+	console.Parent = ServerScriptService
+end
+
 Core.Shop.onPassOwned("DoubleCoins", function(player)
 	Core.Economy.addMultiplier(player, "pass:DoubleCoins", Tuning.doubleCoinsMultiplier)
 end)
