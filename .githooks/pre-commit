@@ -1,0 +1,29 @@
+#!/usr/bin/env bash
+# .githooks/pre-commit: lint + fast tests before every commit (enabled by tools/install, which
+# runs `git config core.hooksPath .githooks`). bash 3.2 compatible.
+# Skip only with git's own `git commit --no-verify` (there is no env-var bypass on purpose).
+set -u
+ROOT="$(git rev-parse --show-toplevel)" || exit 1
+cd "$ROOT" || exit 1
+
+LOG="$(mktemp "${TMPDIR:-/tmp}/pre-commit.XXXXXX")"
+trap 'rm -f "$LOG"' EXIT
+
+step() {
+	# step <label> <cmd...>: quiet on success, full output on failure
+	local label="$1"
+	shift
+	printf 'pre-commit: %-6s ... ' "$label"
+	if "$@" >"$LOG" 2>&1; then
+		echo "ok ($(tail -1 "$LOG"))"
+		return 0
+	fi
+	echo "FAILED"
+	cat "$LOG"
+	echo
+	echo "pre-commit: commit blocked by '$label'. Fix it (run: $*), or skip once with git commit --no-verify."
+	exit 1
+}
+
+step lint tools/lint
+step tests tools/test packages games tools

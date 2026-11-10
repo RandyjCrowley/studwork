@@ -1,0 +1,54 @@
+#!/usr/bin/env bash
+# tools/dev <game> [--print]
+# Serve games/<game> to Roblox Studio with Rojo on the game's servePort (deploy.json) and print the
+# Studio connect steps. --print only prints the steps and the command (doesn't start Rojo).
+source "$(dirname "$0")/_common.sh"
+
+usage() { die "usage: tools/dev <game> [--print]"; }
+NAME="${1:-}"
+[ -n "$NAME" ] || usage
+PRINT_ONLY=0
+[ "${2:-}" = "--print" ] && PRINT_ONLY=1
+[ $# -le 2 ] || usage
+[ $# -lt 2 ] || [ "$PRINT_ONLY" -eq 1 ] || usage
+
+PROJECT="games/$NAME/default.project.json"
+[ -f "$PROJECT" ] || die "no such game: $NAME (missing $PROJECT)"
+
+PORT=""
+if [ -f "games/$NAME/deploy.json" ]; then
+	PORT="$(lune run tools/lune/json-get "games/$NAME/deploy.json" servePort 2>/dev/null || true)"
+fi
+if [ -z "$PORT" ]; then
+	PORT="$(lune run tools/lune/json-get "$PROJECT" servePort 2>/dev/null || true)"
+fi
+[ -n "$PORT" ] || die "no servePort in games/$NAME/deploy.json or $PROJECT"
+
+TEST_PLACE="$(lune run tools/lune/json-get "games/$NAME/deploy.json" test.placeId 2>/dev/null || echo 0)"
+if [ "$TEST_PLACE" = "0" ] || [ -z "$TEST_PLACE" ]; then
+	PLACE_HINT="a new Baseplate (the test place doesn't exist yet: deploy.json test.placeId is a placeholder)"
+else
+	PLACE_HINT="the TEST place $TEST_PLACE (never the live place), or a local Baseplate"
+fi
+
+cat <<STEPS
+== tools/dev $NAME: rojo serve on port $PORT
+Studio steps:
+  1. Open Roblox Studio with $PLACE_HINT.
+  2. Install the Rojo plugin once if needed (Studio > Plugins; version 7.7.x to match rokit.toml rojo).
+  3. Plugins > Rojo > set the port to $PORT (address localhost) > Connect.
+  4. Press Play to test. Edit code here; Rojo syncs on save. Ctrl+C here stops serving.
+  Don't publish from Studio: use tools/publish $NAME --test (docs/publishing.md).
+STEPS
+
+if lsof -nP -iTCP:"$PORT" -sTCP:LISTEN >/dev/null 2>&1; then
+	echo "warning: port $PORT is already in use (another rojo serve?). tools/doctor shows which process."
+fi
+
+CMD="rojo serve $PROJECT --port $PORT"
+if [ "$PRINT_ONLY" -eq 1 ]; then
+	echo "command: $CMD"
+	exit 0
+fi
+echo "== $CMD"
+exec rojo serve "$PROJECT" --port "$PORT"
