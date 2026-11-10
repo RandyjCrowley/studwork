@@ -338,3 +338,46 @@ strict. Every fold-in is marked `(revised: design review <id>)` in `module-api.m
    source"), and fires an analytics event (`ProcessReceiptHijacked`) before reassigning itself, so
    a real conflict is visible instead of an invisible fight over who grants purchases.
 
+## core-v1.3.0 Phase 0 step 4 (module API runtime, `packages/framework/`)
+
+Built standalone (not yet moved into the real layout; that's step 5), 60 new Lune tests, full
+suite green (72 spec files, 546 tests). `defineModule`, resolve/loader, config/items/theme
+validation, per-module data sections with migrations+sanitize+owner registry, sealed `tx`,
+`StudWork.use` restricted to `ModuleRef`s, extensions in both directions (including inverted),
+lifecycle, and the `_framework` v1.2-split migration are full implementations, independently
+spot-checked (not just taken on the builder's word): confirmed `data.replicate = true` really
+errors (M6), `StudWork.use("Data")`/`StudWork.Data` really error naming `ctx.data` (C1), and `tx`
+really has no reachable `data` field under `rawget`/`pairs`/iteration (H1). `ctx.net`,
+`ctx.replicate`, `ctx.compliance`, `ctx.policy`, `ctx.shop`, `ctx.events` are explicitly-labelled
+stubs (`server/Stubs.luau`) for later this phase — `compliance.roll`/`spendForRoll`/`tagPaid` and
+`policy.*` raise "not implemented" rather than silently succeeding, so nothing can produce an
+undisclosed paid roll through them by accident.
+
+Decisions on the builder's open questions, before Phase 1:
+1. **Rojo mapping gains `ReplicatedStorage.Framework`/`ServerScriptService.Framework`** when
+   `packages/core` moves to the new layout in step 5, matching module-api.md §1/§2's
+   `require(ReplicatedStorage.Framework)`. Confirmed, done as part of step 5.
+2. **Finer modules (§17 Q2) each get their own `data.key`, not one combined `economy` key.** The
+   v1.2→sections split (`FrameworkSection.V12_MAP`) must target: `currency`/`multipliers` ->
+   Economy's own `economy` key, `upgrades` -> Upgrades' own `upgrades` key, `rebirths` ->
+   Rebirth's own `rebirth` key, `displayed` -> Plot's `plot` key, `inventory` -> Inventory's
+   `inventory` key, `pity` -> Rarity's `rarity` key, `mail.box`/`mail.outbox` -> Mail's `mail`
+   key, `streak` -> Streak's `streak` key, `game` -> the game's own implicit module key. No
+   handoff migration (M2) is needed for this: it's a one-time split at v1.3's creation, not a
+   move between two sections that already independently exist and evolve, which is what M2 was
+   deferred for.
+3. **`StudWork._attach`/`_installStarter` move off the public `StudWork` table.** An
+   underscore-prefixed escape hatch on the same table game/kit code indexes into is exactly the
+   kind of back door Phase 2's "nothing is special" lint rule (philosophy §3) is supposed to
+   catch; leaving it there now means allowlisting it later, which defeats the rule. Move them to
+   a separate internal-only module (`packages/framework/server/Boot.luau`, required only by the
+   framework's own server/client `init.luau`, never by `StudWork`) in step 5's reorg. Not
+   blocking for Phase 1 since no kit touches it, but must be done before Phase 2's lint check is
+   written.
+4. **The config schema syntax (enums, ranges, described keys) is approved as specified.** Small
+   extension of v1.2's existing format (module-api.md §11); freeze it.
+5. **`start(ctx)` does not yield either, same as `init(ctx)`.** Long-running work goes through
+   `ctx.lifecycle.onTick`/a `task.spawn`'d loop started from inside `start`, not a yield in
+   `start` itself — this matches how every v1.2 service's `start()` already behaves and keeps the
+   6-step boot sequence (module-api.md §3) synchronous and fail-closed end to end.
+
