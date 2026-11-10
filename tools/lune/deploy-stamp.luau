@@ -1,12 +1,17 @@
 --!nocheck
 --[[
-	tools/lune/deploy-stamp <name> <how>: record the core a game was built with.
-	Called by tools/publish on every publish, dry runs included (`how` says which, e.g.
-	"publish --test --dry-run"). Writes games/<name>/deploy.json:
+	tools/lune/deploy-stamp <name> <how> (optional: --target test|live --commit <hash>
+	                                     --dry-run --version <n>)
+	Record the core a game was built with. Called by tools/publish on every publish, dry runs
+	included (`how` says which, e.g. "publish --test --dry-run"). Writes games/<name>/deploy.json:
 	  coreVersion  Core.version of the build ("1.1.0")
 	  coreCommit   last commit touching packages/core or packages/ui (+ "-dirty")
 	  coreStamp    { how, at (UTC ISO time) }
 	and the game's "Core" cell in GAMES.md ("1.1.0 (abc1234)").
+	With --target it also records what went to that place (read by the test-before-live gate,
+	tools/lune/PublishGate.luau, and tools/core-status):
+	  <target>.published = { commit, at, versionNumber }   real publish
+	  <target>.dryRun    = { commit, at }                  --dry-run
 ]]
 
 local DateTime = require("@lune/datetime")
@@ -17,6 +22,27 @@ local serde = require("@lune/serde")
 local CoreInfo = require("./core-info")
 
 local name, how = process.args[1], process.args[2] or "manual"
+local opts = { dryRun = false }
+do
+	local i = 3
+	while i <= #process.args do
+		local a = process.args[i]
+		if a == "--dry-run" then
+			opts.dryRun = true
+		elseif a == "--target" or a == "--commit" or a == "--version" then
+			opts[string.sub(a, 3)] = process.args[i + 1]
+			i += 1
+		else
+			print("error: unknown option " .. tostring(a))
+			process.exit(1)
+		end
+		i += 1
+	end
+end
+if opts.target ~= nil and (opts.target ~= "test" and opts.target ~= "live" or opts.commit == nil) then
+	print("error: --target must be test|live and needs --commit")
+	process.exit(1)
+end
 if name == nil then
 	print("usage: deploy-stamp <name> <how>")
 	process.exit(1)
@@ -33,7 +59,19 @@ local commit = CoreInfo.commit()
 local deploy = serde.decode("json", fs.readFile(deployPath))
 deploy.coreVersion = version
 deploy.coreCommit = commit
-deploy.coreStamp = { how = how, at = DateTime.now():toIsoDate() }
+local now = DateTime.now():toIsoDate()
+deploy.coreStamp = { how = how, at = now }
+if opts.target then
+	if type(deploy[opts.target]) ~= "table" then
+		deploy[opts.target] = { universeId = 0, placeId = 0 }
+	end
+	if opts.dryRun then
+		deploy[opts.target].dryRun = { commit = opts.commit, at = now }
+	else
+		deploy[opts.target].published =
+			{ commit = opts.commit, at = now, versionNumber = tonumber(opts.version) }
+	end
+end
 fs.writeFile(deployPath, serde.encode("json", deploy, true) .. "\n")
 
 -- GAMES.md: set the "Core" cell of this game's row.

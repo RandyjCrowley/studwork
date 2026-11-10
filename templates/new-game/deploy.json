@@ -1,6 +1,7 @@
 {
   "name": "_sandbox",
   "servePort": 34872,
+  "idsNote": "PLACEHOLDER ids (0): create the test and live experiences, paste their universe/place ids here (docs/publishing.md). tools/publish refuses 0 ids.",
   "test": { "universeId": 0, "placeId": 0 },
   "live": { "universeId": 0, "placeId": 0 }
 }

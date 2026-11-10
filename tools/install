@@ -1,8 +1,25 @@
 #!/usr/bin/env bash
-# tools/install: install the pinned toolchain (rokit.toml) and Wally packages (deps/wally.toml).
+# tools/install [--hooks-only]: install the pinned toolchain (rokit.toml) and Wally packages
+# (deps/wally.toml), then enable the git pre-commit hook (.githooks/pre-commit: tools/lint +
+# tools/test) with `git config core.hooksPath .githooks` (repo-wide: applies to every worktree).
+# --hooks-only skips rokit/wally and only enables the hook.
 # Wally 0.3.2 ships only an x86_64 macOS binary: Apple Silicon needs Rosetta 2.
 source "$(dirname "$0")/_common.sh"
 
-rokit install
-(cd deps && wally install)
-echo "install: done (deps/Packages, deps/ServerPackages)"
+HOOKS_ONLY=0
+case "${1:-}" in
+"") ;;
+--hooks-only) HOOKS_ONLY=1 ;;
+*) die "usage: tools/install [--hooks-only]" ;;
+esac
+
+if [ "$HOOKS_ONLY" -eq 0 ]; then
+	rokit install
+	(cd deps && wally install)
+	echo "install: toolchain and packages done (deps/Packages, deps/ServerPackages)"
+fi
+
+[ -f .githooks/pre-commit ] || die ".githooks/pre-commit is missing"
+chmod +x .githooks/pre-commit
+git config core.hooksPath .githooks
+echo "install: pre-commit hook enabled (core.hooksPath = $(git config --get core.hooksPath)); skip once with git commit --no-verify"
