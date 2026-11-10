@@ -78,6 +78,15 @@ end)
 
 -- Robux roll (paid random item). Shop records the receipt; Rarity refuses restricted players.
 Core.Shop.onProduct("EggRoll", function(player, _receipt)
+	if not Core.Policy.isKnown(player) then
+		return false -- policy lookup still running (e.g. a receipt replayed on join): retry later
+	end
+	if Core.Policy.paidRandomRestricted(player) then
+		-- The client never prompts restricted players, but if a purchase still arrives (policy
+		-- changed, prompt from elsewhere) they must not pay for nothing: grant a fixed,
+		-- non-random item instead of a roll.
+		return Core.Inventory.add(player, "crystal", { source = "egg_fallback" }) ~= nil
+	end
 	local def, info = Core.Rarity.roll("Egg", player, nil, { paid = true, grant = true, reason = "egg" })
 	return def ~= nil and info.ok
 end)

@@ -43,11 +43,15 @@ local KICK_SESSION_ENDED = "Your save data was opened in another server. Please 
 local KICK_NEWER_DATA =
 	"This server is running an older version of the game. Please rejoin to get the latest."
 
+-- Reserved key in PlayerData.stats used by saveAsync to recognise its own commit.
+local SAVE_SEQ_KEY = "_saveSeq"
+
 type Entry = {
 	profile: any,
 	data: PlayerData,
-	saveStarted: number, -- OnSave count
-	saveDone: number, -- OnAfterSave count
+	saveStarted: number, -- OnSave count (diagnostics)
+	saveSeq: number, -- last sequence stamped into data.stats[SAVE_SEQ_KEY] by saveAsync
+	committedSeq: number, -- highest sequence seen in a SUCCESSFUL save (OnAfterSave payload)
 	ended: boolean,
 	lastSeenOverride: number?, -- Studio `lastseen` console: written instead of os.time()
 }
@@ -158,15 +162,37 @@ local function loadPlayer(player: Player)
 	local playerData = data :: PlayerData
 	playerData.stats.sessions = (playerData.stats.sessions or 0) + 1
 
-	local entry: Entry =
-		{ profile = profile, data = playerData, saveStarted = 0, saveDone = 0, ended = false }
+	-- Start the save sequence from the stored value so saves of older data never look newer.
+	local storedSeq = playerData.stats[SAVE_SEQ_KEY]
+	local loadedSeq = if type(storedSeq) == "number" and storedSeq == storedSeq then storedSeq else 0
+	local entry: Entry = {
+		profile = profile,
+		data = playerData,
+		saveStarted = 0,
+		saveSeq = loadedSeq,
+		committedSeq = loadedSeq,
+		ended = false,
+	}
 	entries[player] = entry
 
 	profile.OnSave:Connect(function()
 		onSave(entry)
 	end)
-	profile.OnAfterSave:Connect(function()
-		entry.saveDone += 1
+	-- OnSave fires for every attempt but OnAfterSave only for successful writes, so attempts and
+	-- successes can't be counted against each other. Instead saveAsync stamps a sequence number
+	-- into the data and waits until a successful save's payload contains it (or a later one).
+	profile.OnAfterSave:Connect(function(lastSaved: any)
+		local stats = type(lastSaved) == "table" and lastSaved.stats
+		local seq = type(stats) == "table" and stats[SAVE_SEQ_KEY]
+		if type(seq) == "number" and seq > entry.committedSeq then
+			entry.committedSeq = seq
+		end
+	end)
+	-- OnSessionEnd fires for every ending save (leave, shutdown, session stolen). Only a stolen
+	-- session ("External") deserves the "opened in another server" kick.
+	local lastSaveReason: string? = nil
+	profile.OnLastSave:Connect(function(reason: string)
+		lastSaveReason = reason
 	end)
 	profile.OnSessionEnd:Connect(function()
 		entry.ended = true
@@ -174,7 +200,7 @@ local function loadPlayer(player: Player)
 			entries[player] = nil
 			dirty[player] = nil
 		end
-		if player.Parent == Players then
+		if player.Parent == Players and lastSaveReason == "External" then
 			player:Kick(KICK_SESSION_ENDED)
 		end
 	end)
@@ -361,19 +387,17 @@ function Data.saveAsync(player: Player): boolean
 	if entry == nil or entry.ended or not entry.profile:IsActive() then
 		return false
 	end
-	local before = entry.saveStarted
-	entry.profile:Save() -- spawns the save; OnSave fires synchronously inside
-	if entry.saveStarted == before then
-		return false
-	end
-	-- Saves on one key complete in order, so our write is committed once saveDone reaches the
-	-- OnSave count of our call. A failed write is retried by ProfileStore's next save; we give up
-	-- after SAVE_TIMEOUT and report false.
-	local target = entry.saveStarted
+	-- Stamp a sequence number into the data; any successful save whose payload carries this
+	-- number (or a later one) contains every write made before this call. A failed save never
+	-- blocks later calls: the next successful save (ours or an autosave) carries the stamp.
+	entry.saveSeq = math.max(entry.saveSeq, entry.committedSeq) + 1
+	local target = entry.saveSeq
+	entry.data.stats[SAVE_SEQ_KEY] = target
+	entry.profile:Save()
 	local deadline = os.clock() + SAVE_TIMEOUT
-	while entry.saveDone < target do
+	while entry.committedSeq < target do
 		if entry.ended or os.clock() > deadline then
-			return entry.saveDone >= target
+			return entry.committedSeq >= target
 		end
 		task.wait()
 	end

@@ -27,7 +27,9 @@ Read `docs/decisions.md` for why things are the way they are.
    only your own paths (no `git add -A` in shared trees).
 8. **Paid random items:** show exact odds (`Rarity.getOdds`), pass `{ paid = true }` to rolls bought
    with Robux (blocked for `Policy.paidRandomRestricted` players), and don't let restricted players
-   trade items from paid random sources.
+   trade items from paid random sources. Rolls costing a currency that is sold for Robux are paid
+   random items too: list such currencies in `balance.paidCurrencies`. A Robux product handler must
+   never take money for nothing from a restricted player: grant a fixed non-random fallback.
 9. **No text-chat dependence** (chat is age-gated): pings, emotes, roles.
 10. **Ask the user** before installing anything outside the repo or with sudo, spending money,
     publishing to Roblox, or touching files outside the repo root.
@@ -108,6 +110,12 @@ Core.Client.Hud.mount({ nextGoal = fn }) / .unmount()
 - A game's own remotes: `src/shared/net/game.blink` with `option RemoteScope = "<GAMEID>"`, compiled
   by `tools/net`. Validate and rate-limit them the same way core does.
 - Plots: ship Models tagged `CorePlot` with BasePart slots that have a string `SlotId` attribute.
+  Optional: `SlotTag` on a slot (only items with that tag), `PlotOrder` on the plot, a part named
+  `Spawn` (or `PlotSpawn = true`) for the owner's spawn. Core writes `OwnerUserId`; don't set it.
+  Item models live in `ReplicatedStorage.GameAssets` (or `GameConfig.assetsFolderName`) by
+  `ItemDef.model`. Full table: `packages/core/server/Plot/README.md`.
+- UI: render screens inside `UI.ScaledRoot`; read `packages/ui/README.md` (mobile checklist).
+- Studio test hooks: `game.ServerScriptService.CoreServer.CoreConsole:Invoke("help")`.
 
 ## How to add a core service (core owner only)
 

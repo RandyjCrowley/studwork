@@ -63,7 +63,7 @@ end
 
 local function ActionBar()
 	local state = ReactCharm.useAtom(Core.Client.state)
-	local oddsOpen, setOddsOpen = React.useState(false)
+	local oddsFor_, setOddsFor = React.useState("")
 	local data = state.data
 	local level = if data then (data.upgrades.IncomeBoost or 0) else 0
 	local chestCost = (Config.balance.rarityTables.Chest.cost :: any).amount
@@ -90,19 +90,19 @@ local function ActionBar()
 				end,
 			}),
 			Chest = e(UI.Button, {
-				text = "Open chest (" .. UI.Format.abbreviate(chestCost) .. ")",
+				text = "Chest (" .. UI.Format.abbreviate(chestCost) .. ")",
 				variant = "secondary",
 				layoutOrder = 2,
 				onActivated = function()
-					Core.Client.Actions.roll("Chest")
+					setOddsFor("Chest")
 				end,
 			}),
 			Egg = e(UI.Button, {
-				text = "Robux egg: odds",
+				text = "Robux egg",
 				variant = "secondary",
 				layoutOrder = 3,
 				onActivated = function()
-					setOddsOpen(true)
+					setOddsFor("Egg")
 				end,
 			}),
 			Rebirth = e(UI.Button, {
@@ -114,20 +114,34 @@ local function ActionBar()
 				end,
 			}),
 		}),
+		-- Both rolls are paid random items (Robux egg; Chest costs Coins, which are sold for
+		-- Robux), so the exact odds are always shown before rolling and restricted players get
+		-- no roll button.
 		Odds = e(UI.Modal, {
-			open = oddsOpen,
-			title = "Robux egg",
+			open = oddsFor_ ~= "",
+			title = if oddsFor_ == "Egg" then "Robux egg" else "Chest",
 			onClose = function()
-				setOddsOpen(false)
+				setOddsFor("")
 			end,
 		}, {
-			Table = e(UI.OddsTable, {
-				odds = oddsFor("Egg"),
-				items = Config.items,
-				restricted = state.paidRandomRestricted,
-				layoutOrder = 1,
-			}),
-			Buy = if not state.paidRandomRestricted
+			Table = if oddsFor_ ~= ""
+				then e(UI.OddsTable, {
+					odds = oddsFor(oddsFor_),
+					items = Config.items,
+					restricted = state.paidRandomRestricted,
+					layoutOrder = 1,
+				})
+				else nil,
+			Open = if oddsFor_ == "Chest" and not state.paidRandomRestricted
+				then e(UI.Button, {
+					text = "Open chest (" .. UI.Format.abbreviate(chestCost) .. ")",
+					layoutOrder = 2,
+					onActivated = function()
+						Core.Client.Actions.roll("Chest")
+					end,
+				})
+				else nil,
+			Buy = if oddsFor_ == "Egg" and not state.paidRandomRestricted
 				then e(UI.Button, {
 					text = if eggProduct == 0 then "Buy (product not created yet)" else "Buy egg",
 					disabled = eggProduct == 0,

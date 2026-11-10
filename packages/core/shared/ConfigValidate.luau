@@ -63,6 +63,17 @@ function ConfigValidate.validate(config: any): { string }
 	if not Validate.isId(b.primaryCurrency, 32) then
 		err("balance.primaryCurrency must be an id")
 	end
+	if b.paidCurrencies ~= nil then
+		if type(b.paidCurrencies) ~= "table" then
+			err("balance.paidCurrencies must be a list of currency ids")
+		else
+			for i, id in b.paidCurrencies do
+				if not Validate.isId(id, 32) then
+					err("balance.paidCurrencies[" .. tostring(i) .. "] invalid")
+				end
+			end
+		end
+	end
 	if type(b.income) ~= "table" or not Validate.isPositiveNumber(b.income.tickSeconds) then
 		err("balance.income.tickSeconds must be > 0")
 	elseif b.income.source ~= "displayed" and b.income.source ~= "owned" then

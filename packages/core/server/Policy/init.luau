@@ -120,6 +120,12 @@ function Policy.start()
 	end
 end
 
+-- true once the policy lookup succeeded (or a Studio override is set). While false,
+-- paidRandomRestricted() reports true (fail closed) but the real answer is not known yet.
+function Policy.isKnown(player: Player): boolean
+	return overrides[player] ~= nil or restricted[player] ~= nil
+end
+
 function Policy.paidRandomRestricted(player: Player): boolean
 	return effective(player)
 end

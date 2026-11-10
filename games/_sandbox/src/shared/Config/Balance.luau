@@ -4,6 +4,8 @@ local Types = require(game:GetService("ReplicatedStorage"):WaitForChild("Core"):
 
 local Balance: Types.BalanceConfig = {
 	primaryCurrency = "Coins",
+	-- Coins are sold for Robux (CoinPack), so the Coin-priced Chest is a paid random item too.
+	paidCurrencies = { "Coins" },
 	startingCurrency = { Coins = 0 },
 	starterItems = { "pebble" }, -- first reward: earning starts the moment you join
 	income = { tickSeconds = 1, source = "displayed" },

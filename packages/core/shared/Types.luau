@@ -174,6 +174,9 @@ export type IncomeConfig = {
 
 export type BalanceConfig = {
 	primaryCurrency: string,
+	-- Currencies players can buy with Robux (directly or via packs). Rolls costing these count as
+	-- paid random items: restricted players can't roll and results are tagged "paid:<table>".
+	paidCurrencies: { string }?,
 	startingCurrency: { [string]: number }?,
 	starterItems: { string }?, -- item ids granted on first join (and displayed if possible)
 	income: IncomeConfig,
@@ -381,6 +384,9 @@ export type ShopAPI = {
 
 export type PolicyAPI = {
 	paidRandomRestricted: (player: Player) -> boolean, -- true (restricted) until the policy is known
+	-- true once the policy lookup finished. Robux handlers: unknown -> return false (retry later);
+	-- known restricted -> grant a non-random fallback.
+	isKnown: (player: Player) -> boolean,
 }
 
 export type DataAPI = {

@@ -99,6 +99,11 @@ end
 function Rarity.start()
 	validateTables()
 
+	local function currencyIsPaid(currency: string): boolean
+		local list = ctx.config.balance.paidCurrencies
+		return type(list) == "table" and table.find(list, currency) ~= nil
+	end
+
 	ctx.net.handle("RequestRoll", function(player: Player, tableId: any)
 		if not Validate.isId(tableId) then
 			return
@@ -111,6 +116,13 @@ function Rarity.start()
 		if not Validate.isNonNegativeNumber(cost.amount) or type(cost.currency) ~= "string" then
 			return
 		end
+		-- A roll paid with a currency that can be bought with Robux is a paid random item
+		-- (balance.paidCurrencies): restricted players can't roll, results are tagged "paid:".
+		local paid = currencyIsPaid(cost.currency)
+		if paid and ctx.services.Policy.paidRandomRestricted(player) then
+			ctx.net.feedback(player, "toast", "Not available in your region")
+			return
+		end
 		if not ctx.services.Data.isLoaded(player) or not hasRoom(player) then
 			return -- checked before spending, so a full inventory never costs currency
 		end
@@ -118,7 +130,12 @@ function Rarity.start()
 		if not ctx.services.Economy.spend(player, cost.amount, reason, cost.currency) then
 			return
 		end
-		local _, info = Rarity.roll(tableId, player, nil, { grant = true, reason = "roll" })
+		local _, info = Rarity.roll(
+			tableId,
+			player,
+			nil,
+			{ grant = true, reason = "roll", paid = paid } :: Types.RollOptions
+		)
 		if not info.ok then
 			ctx.services.Economy.grant(player, cost.amount, "refund:" .. tableId, cost.currency)
 		end
@@ -183,6 +200,11 @@ function Rarity.roll(
 	local t = getTable(tableId)
 	if t == nil then
 		return fail("unknown_table")
+	end
+	-- a table marked paid (Robux) is always treated as paid, whatever the caller passed
+	if t.paid == true and o.paid ~= true then
+		o = table.clone(o)
+		o.paid = true
 	end
 	if o.paid == true and ctx.services.Policy.paidRandomRestricted(player) then
 		return fail("restricted")
