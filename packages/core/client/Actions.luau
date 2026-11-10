@@ -65,6 +65,11 @@ function Actions.triggerEvent(eventId: string)
 	Generated.AdminTriggerEvent.Fire(eventId)
 end
 
+function Actions.claimMail(messageId: string)
+	check("claimMail")
+	Generated.RequestMailClaim.Fire(messageId)
+end
+
 function Actions.funnel(step: string)
 	check("funnel")
 	Generated.ClientFunnel.Fire(step)

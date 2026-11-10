@@ -248,6 +248,19 @@ local function check(from: Player, to: Player, uid: string): (boolean, string?)
 	})
 end
 
+-- v1.2 CONTRACT STUB (core-contract-v1.2): agent A implements (Types.InventoryAPI.sendGift).
+function Inventory.sendGift(
+	_from: Player,
+	_toUserId: number,
+	_uid: string,
+	_reason: string?
+): (boolean, string?)
+	if not ctx.isEnabled("Mail") then
+		return false, "mail_off"
+	end
+	return false, "failed"
+end
+
 function Inventory.transfer(from: Player, to: Player, uid: string, _reason: string): (boolean, string?)
 	if type(uid) ~= "string" then
 		return false, "not_owned"

@@ -316,8 +316,29 @@ describe("Mail.Delivery", function()
 			return true
 		end)
 		w.d.deliver(p, { kind = "gift", payload = {}, sentAt = 42 }, w.processedFn())
-		expect(id).toBe("legacy-gift-42")
+		expect(id).toBe(Delivery.legacyId("gift", 42, {}))
+		expect(string.sub(id, 1, 15)).toBe("legacy-gift-42-")
 		expect(w.processed).toBe(1)
+	end)
+
+	it("N6: two legacy messages of one kind in the same second with different payloads both run", function()
+		local w = world()
+		local p = {}
+		w.join(p)
+		local got = {}
+		w.d.register("gift", function(_, payload)
+			table.insert(got, payload.item)
+			return true
+		end)
+		w.d.deliver(p, { kind = "gift", payload = { item = "a" }, sentAt = 42 }, w.processedFn())
+		w.d.deliver(p, { kind = "gift", payload = { item = "b" }, sentAt = 42 }, w.processedFn())
+		expect(#got).toBe(2)
+		expect(w.processed).toBe(2)
+		-- key order does not change the id; a different payload does
+		expect(Delivery.legacyId("k", 1, { a = 1, b = { 2, 3 } })).toBe(
+			Delivery.legacyId("k", 1, { b = { 2, 3 }, a = 1 })
+		)
+		expect(Delivery.legacyId("k", 1, { a = 1 }) == Delivery.legacyId("k", 1, { a = 2 })).toBe(false)
 	end)
 
 	it("bounds seen (oldest pruned) and dead (oldest dropped)", function()

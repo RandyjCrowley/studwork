@@ -332,7 +332,7 @@ end
 
 -- Full disclosure of a table's odds (no luck): base item odds, mutation odds, every
 -- (item, mutation) outcome on a normal roll and the forced-roll odds of a pity rule that can apply.
-function Rarity.getOddsDetail(tableId: string): Types.OddsDetail?
+function Rarity.getOddsDetail(tableId: string, _player: Player?): Types.OddsDetail?
 	local t = getTable(tableId)
 	if t == nil then
 		return nil
@@ -346,6 +346,31 @@ function Rarity.getOddsDetail(tableId: string): Types.OddsDetail?
 		t.mutationChance,
 		ctx.config.balance.mutations
 	)
+end
+
+-- v1.2 (N4) CONTRACT STUBS (core-contract-v1.2): agent B implements the luck registry, the
+-- per-player disclosure and the paid-roll luck rule (Types.RarityAPI comments).
+local luckOf: { [Player]: { all: number?, tables: { [string]: number } } } = {}
+
+function Rarity.setLuck(player: Player, luck: number, tableId: string?)
+	local entry = luckOf[player]
+	if entry == nil then
+		entry = { all = nil, tables = {} }
+		luckOf[player] = entry
+	end
+	if tableId == nil then
+		entry.all = RollMath.sanitizeLuck(luck)
+	else
+		entry.tables[tableId] = RollMath.sanitizeLuck(luck)
+	end
+end
+
+function Rarity.getLuck(player: Player, tableId: string?): number
+	local entry = luckOf[player]
+	if entry == nil then
+		return 1
+	end
+	return (if tableId then entry.tables[tableId] else nil) or entry.all or 1
 end
 
 function Rarity.tiers(): { Types.RarityTierDef }

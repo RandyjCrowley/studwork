@@ -324,7 +324,11 @@ function Shop.start()
 	Players.PlayerRemoving:Connect(function(player: Player)
 		passCache[player] = nil
 		passFired[player] = nil
-		Receipt.forgetPlayer(pending, player.UserId)
+		-- N9: a grant whose save wasn't confirmed before the leave is persisted by the session-end
+		-- save; log its purchase analytics now (the next server only sees a duplicate).
+		for _, dropped in Receipt.forgetPlayer(pending, player.UserId) do
+			pcall(ctx.services.Analytics.custom, player, "ProductPurchased", dropped.currencySpent or 0)
+		end
 	end)
 
 	ctx.services.Data.onLoaded(function(player: Player)

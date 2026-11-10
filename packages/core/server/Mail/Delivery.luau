@@ -83,6 +83,47 @@ function Delivery.pruneSeen(seen: { [string]: number }, max: number)
 	end
 end
 
+-- Deterministic text of a JSON-safe value (keys sorted), for legacy ids (review N6).
+local function canonical(value: any, depth: number?): string
+	local d = depth or 0
+	local t = type(value)
+	if t ~= "table" then
+		return t .. ":" .. tostring(value)
+	end
+	if d > 8 then
+		return "deep"
+	end
+	local keys = {}
+	for k in value do
+		table.insert(keys, k)
+	end
+	table.sort(keys, function(a, b)
+		return tostring(a) < tostring(b)
+	end)
+	local parts = {}
+	for _, k in keys do
+		table.insert(parts, tostring(k) .. "=" .. canonical(value[k], d + 1))
+	end
+	return "{" .. table.concat(parts, ",") .. "}"
+end
+
+-- 32-bit FNV-1a hash of a string, as 8 hex digits.
+function Delivery.hash(text: string): string
+	local h = 2166136261
+	for i = 1, #text do
+		h = bit32.bxor(h, string.byte(text, i))
+		h = (h * 16777619) % 4294967296
+	end
+	return string.format("%08x", h)
+end
+
+-- Id of a v1.0 message (no id): kind + second + payload hash, so two same-kind messages sent
+-- in the same second with different payloads no longer collide (review N6). Identical copies
+-- (same kind, second and payload) still share an id, which is the safe direction.
+function Delivery.legacyId(kind: string, sentAt: number, payload: any): string
+	return `legacy-{kind}-{math.floor(sentAt)}-{Delivery.hash(canonical(payload))}`
+end
+
 local function ensureMail(mail: any): any
 	mail.seen = if type(mail.seen) == "table" then mail.seen else {}
 	mail.attempts = if type(mail.attempts) == "table" then mail.attempts else {}
@@ -225,7 +266,7 @@ function Delivery.new(deps: Deps)
 		local id = raw.id
 		if id == nil then
 			-- v1.0 message without an id: deterministic id so retries/dedupe still work.
-			id = `legacy-{raw.kind}-{math.floor(sentAt)}`
+			id = Delivery.legacyId(raw.kind, sentAt, raw.payload)
 		end
 		if not MailValidate.key(id) then
 			return nil

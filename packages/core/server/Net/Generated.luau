@@ -170,6 +170,7 @@ Queue.Reliable[5] = table.create(256)
 Queue.Reliable[6] = table.create(256)
 Queue.Reliable[7] = table.create(256)
 Queue.Reliable[8] = table.create(256)
+Queue.Reliable[9] = table.create(256)
 export type Id = string
 export type FeedbackMessage = { Kind: string, Text: string, Rarity: string?, Position: Vector3? }
 function SerdesFunctions.ReadEVENT_StateInit(): (nil)
@@ -240,6 +241,16 @@ function SerdesFunctions.ReadEVENT_RequestGift(): (number, string)
 	return Value1, Value2
 end
 
+function SerdesFunctions.ReadEVENT_RequestMailClaim(): (string)
+	-- Read BLOCK: 1 bytes
+	local BLOCK_START = Read(1)
+	local Length = buffer.readu8(RecieveBuffer, BLOCK_START + 0)
+	local Value = buffer.readstring(RecieveBuffer, Read(Length), Length)
+	if #Value < 1 then error(`Expected length of "Value" to be larger than or equal to 1, got {#Value} instead.`) end
+	if #Value > 64 then error(`Expected length of "Value" to be smaller than or equal to  64, got {#Value} instead.`) end
+	return Value
+end
+
 function SerdesFunctions.ReadEVENT_AdminTriggerEvent(): (string)
 	-- Read BLOCK: 1 bytes
 	local BLOCK_START = Read(1)
@@ -263,14 +274,14 @@ end
 function SerdesFunctions.WriteEVENT_StateSync(Value: any): ()
 	-- Allocate BLOCK: 1 bytes
 	local BLOCK_START = Allocate(1)
-	buffer.writeu8(SendBuffer, BLOCK_START + 0, 9)
+	buffer.writeu8(SendBuffer, BLOCK_START + 0, 10)
 	table.insert(SendInstances, if Value == nil then Null else Value)
 end
 
 function SerdesFunctions.WriteEVENT_Feedback(Value: { Kind: string, Text: string, Rarity: string?, Position: Vector3? }): ()
 	-- Allocate BLOCK: 5 bytes
 	local BLOCK_START = Allocate(5)
-	buffer.writeu8(SendBuffer, BLOCK_START + 0, 10)
+	buffer.writeu8(SendBuffer, BLOCK_START + 0, 11)
 	local Length = #Value.Kind
 	buffer.writeu8(SendBuffer, BLOCK_START + 1, Length)
 	Allocate(Length)
@@ -302,7 +313,7 @@ end
 function SerdesFunctions.WriteEVENT_EventState(Value1: string, Value2: number): ()
 	-- Allocate BLOCK: 10 bytes
 	local BLOCK_START = Allocate(10)
-	buffer.writeu8(SendBuffer, BLOCK_START + 0, 11)
+	buffer.writeu8(SendBuffer, BLOCK_START + 0, 12)
 	local Length = #Value1
 	buffer.writeu8(SendBuffer, BLOCK_START + 1, Length)
 	Allocate(Length)
@@ -332,6 +343,9 @@ if not RunService:IsRunning() then
 		On = NOOP
 	},
 	RequestGift = {
+		On = NOOP
+	},
+	RequestMailClaim = {
 		On = NOOP
 	},
 	AdminTriggerEvent = {
@@ -491,24 +505,34 @@ Reliable.OnServerEvent:Connect(function(Player: Player, Buffer: buffer, Instance
 				table.insert(Queue.Reliable[6], {Player, Value1, Value2} :: {any})
 			end
 		elseif Index == 7 then
-			local Value: string = SerdesFunctions.ReadEVENT_AdminTriggerEvent()
+			local Value: string = SerdesFunctions.ReadEVENT_RequestMailClaim()
 			if Events.Reliable[7] ~= nil then
 				task.spawn(Events.Reliable[7], Player, Value)
 			else
 				if #Queue.Reliable[7] > 256 then
-					warn("[Blink]: Event queue of \"AdminTriggerEvent\" exceeded 256, did you forget to implement a listener?")
+					warn("[Blink]: Event queue of \"RequestMailClaim\" exceeded 256, did you forget to implement a listener?")
 				end
 				table.insert(Queue.Reliable[7], {Player, Value} :: {any})
 			end
 		elseif Index == 8 then
-			local Value: string = SerdesFunctions.ReadEVENT_ClientFunnel()
+			local Value: string = SerdesFunctions.ReadEVENT_AdminTriggerEvent()
 			if Events.Reliable[8] ~= nil then
 				task.spawn(Events.Reliable[8], Player, Value)
 			else
 				if #Queue.Reliable[8] > 256 then
-					warn("[Blink]: Event queue of \"ClientFunnel\" exceeded 256, did you forget to implement a listener?")
+					warn("[Blink]: Event queue of \"AdminTriggerEvent\" exceeded 256, did you forget to implement a listener?")
 				end
 				table.insert(Queue.Reliable[8], {Player, Value} :: {any})
+			end
+		elseif Index == 9 then
+			local Value: string = SerdesFunctions.ReadEVENT_ClientFunnel()
+			if Events.Reliable[9] ~= nil then
+				task.spawn(Events.Reliable[9], Player, Value)
+			else
+				if #Queue.Reliable[9] > 256 then
+					warn("[Blink]: Event queue of \"ClientFunnel\" exceeded 256, did you forget to implement a listener?")
+				end
+				table.insert(Queue.Reliable[9], {Player, Value} :: {any})
 			end
 		end
 	end
@@ -633,7 +657,7 @@ local Returns = table.freeze({
 			end
 		end
 	},
-	AdminTriggerEvent = {
+	RequestMailClaim = {
 		On = function(Listener: (Player: Player, Value: string) -> ()): () -> ()
 			Events.Reliable[7] = Listener
 			for Index, Arguments in Queue.Reliable[7] do
@@ -647,7 +671,7 @@ local Returns = table.freeze({
 			end
 		end
 	},
-	ClientFunnel = {
+	AdminTriggerEvent = {
 		On = function(Listener: (Player: Player, Value: string) -> ()): () -> ()
 			Events.Reliable[8] = Listener
 			for Index, Arguments in Queue.Reliable[8] do
@@ -657,6 +681,20 @@ local Returns = table.freeze({
 			return function (): ()
 				if Events.Reliable[8] == Listener then
 					Events.Reliable[8] = nil
+				end
+			end
+		end
+	},
+	ClientFunnel = {
+		On = function(Listener: (Player: Player, Value: string) -> ()): () -> ()
+			Events.Reliable[9] = Listener
+			for Index, Arguments in Queue.Reliable[9] do
+				task.spawn(Listener, table.unpack(Arguments))
+			end
+			Queue.Reliable[9] = {}
+			return function (): ()
+				if Events.Reliable[9] == Listener then
+					Events.Reliable[9] = nil
 				end
 			end
 		end

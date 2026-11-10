@@ -16,7 +16,20 @@ describe("Hud.Visibility", function()
 			currency = true,
 			rate = true,
 			goal = true,
+			mailbox = false,
 		})
+	end)
+
+	it("shows the mailbox slot only with Mail", function()
+		expect(Visibility.of(enabled({ "Mail" }), {}).mailbox).toBe(true)
+		expect(Visibility.of(enabled({ "Economy" }), {}).mailbox).toBe(false)
+	end)
+
+	it("counts mailbox entries", function()
+		expect(Visibility.mailboxCount({ mailbox = { {}, {}, {} } })).toBe(3)
+		expect(Visibility.mailboxCount({})).toBe(0)
+		expect(Visibility.mailboxCount({ mailbox = "bad" })).toBe(0)
+		expect(Visibility.mailboxCount(nil)).toBe(0)
 	end)
 
 	it("hides currency and rate without Economy", function()

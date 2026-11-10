@@ -43,6 +43,7 @@ ModuleLoader.BOOT_ORDER = table.freeze({
 	"Analytics",
 	"Mail",
 	"Plot",
+	"Net", -- v1.2 GameNet (Core.Net.handle): stateless, foundation
 })
 
 -- Validates the module list again (ConfigValidate already did) and returns the boot plan.

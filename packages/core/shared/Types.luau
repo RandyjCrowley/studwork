@@ -1,6 +1,6 @@
 --!strict
 --[[
-	Core public interface. FROZEN at tag core-contract-v1.1 (previously core-contract-v0).
+	Core public interface. FROZEN at tag core-contract-v1.2 (previously core-contract-v1.1, v0).
 
 	ADDITIVE ONLY: new fields/functions/types may be added; nothing is ever renamed or removed.
 	Deprecate instead (keep it working, mark it `-- @deprecated <why, replacement>`).
@@ -130,8 +130,33 @@ export type MailDeadLetter = {
 
 export type MailState = {
 	seen: { [string]: number }, -- idempotency key -> unix seconds processed (bounded, oldest pruned)
-	attempts: { [string]: number }, -- key -> failed attempts so far (cleared on success/dead letter)
+	attempts: { [string]: number }, -- key -> handler ERRORS so far (cleared on success/dead letter)
 	dead: { MailDeadLetter }, -- messages that failed every attempt (bounded, oldest dropped)
+	-- v1.2 (N1). Absent in older saves; Mail creates them on first use.
+	box: { [string]: MailboxEntry }?, -- the mailbox: id -> message a handler couldn't accept yet
+	outbox: { [string]: MailOutboxEntry }?, -- key -> message committed but not sent yet (sendInto)
+}
+
+-- A message whose handler returned `false` ("can't accept it now", e.g. the inventory is full).
+-- It waits in PlayerData.mail.box with no time limit until Mail.claim succeeds (N1). Holding a
+-- message is a capacity condition, never a failure: it never counts toward dead-lettering.
+export type MailboxEntry = {
+	id: string, -- idempotency key (MailInfo.id)
+	kind: string,
+	payload: { [string]: any },
+	sentAt: number, -- unix seconds the sender sent it
+	heldAt: number, -- unix seconds it entered the mailbox
+}
+
+-- A message written in the SAME Data.update as its cause (e.g. the item leaving the sender's
+-- inventory for a gift) and sent after that update commits. Kept until MessageAsync succeeds,
+-- retried on the sender's next load, so the cause and the message can't be separated.
+export type MailOutboxEntry = {
+	toUserId: number,
+	kind: string,
+	payload: { [string]: any },
+	key: string, -- idempotency key used for the send (a retried send can't deliver twice)
+	at: number, -- unix seconds it was written
 }
 
 --------------------------------------------------------------------------------
@@ -148,6 +173,10 @@ export type RarityTableConfig = {
 	cost: { currency: string, amount: number }?, -- for player-requested rolls (Actions.roll). nil = server-only table
 	paid: boolean?, -- true = bought with Robux -> paid random item rules apply (odds shown, policy check)
 	luckMinTier: RarityTier?, -- luck multiplies weights of tiers >= this (default "Rare")
+	-- true = odds of this table are disclosed PER PLAYER including that player's luck
+	-- (Rarity.getOddsDetail(tableId, player) -> ReplicatedState.odds). Only such a table may take a
+	-- PAID roll with luck ~= 1, and only once the player's client has received those odds (N4).
+	luckDisclosed: boolean?,
 	pity: { threshold: number, minTier: RarityTier }?, -- after `threshold` rolls below minTier, force >= minTier
 	mutationChance: number?, -- 0..1 chance the result gets a mutation (weighted by Mutation.weight)
 }
@@ -244,6 +273,18 @@ export type GameDataConfig = {
 	migrations: { [number]: (old: { [string]: any }) -> { [string]: any } }?, -- [toVersion] = fn
 }
 
+-- Core.Mail delivery tuning (reliability rails, not balance). Every field is optional.
+export type MailConfig = {
+	-- Handler ERRORS (not `false`) before a message is dead-lettered. Counted across sessions.
+	maxAttempts: number?, -- default 10
+	-- Wait before retry n: min(max, base * factor^(n-1)) seconds. Default { 30, 2, 900 }, i.e.
+	-- about 75 minutes of retries inside one session before the attempts carry to the next one.
+	backoff: { base: number, factor: number, max: number }?,
+	-- Max messages held in one player's mailbox (default 100). Beyond it a message is left queued
+	-- in ProfileStore and offered again next session; nothing is dropped.
+	mailboxCap: number?,
+}
+
 export type AnalyticsConfig = {
 	funnel: { string }, -- ordered onboarding steps; index = step number sent to AnalyticsService
 	clientSteps: { string }?, -- steps the client may report (UI-only steps); everything else is server-only
@@ -288,6 +329,7 @@ export type GameConfig = {
 	admins: { number }?,
 	data: GameDataConfig?,
 	analytics: AnalyticsConfig?,
+	mail: MailConfig?, -- Mail module delivery tuning (optional)
 	assetsFolderName: string?, -- child of ReplicatedStorage holding item models (default "GameAssets")
 }
 
@@ -375,6 +417,10 @@ export type OddsDetail = {
 	mutations: { OddsMutation },
 	outcomes: { OddsOutcome }, -- items x mutations on a normal roll (sums to 1)
 	pity: OddsPity?,
+	-- v1.2 (N4): the luck these odds include (1 = none) and whether the table discloses per-player
+	-- luck (RarityTableConfig.luckDisclosed). Shared (all-player) odds always have luck = 1.
+	luck: number?,
+	luckDisclosed: boolean?,
 }
 
 export type RarityAPI = {
@@ -382,9 +428,20 @@ export type RarityAPI = {
 	getOdds: (tableId: string, luck: number?) -> { [string]: number }, -- itemId -> probability (sums to 1)
 	-- Everything a player needs to see before a paid roll: base odds, mutation odds, the final
 	-- probability of each outcome and the pity rule. nil = unknown table. Replicated to clients as
-	-- ReplicatedState.odds[tableId] for every table with a cost or `paid = true`.
-	getOddsDetail: (tableId: string) -> OddsDetail?,
+	-- ReplicatedState.odds[tableId] for every table with a cost or `paid = true`, and re-sent when
+	-- Items.register adds items after start (N3).
+	-- With `player` (v1.2, N4) the odds include that player's current luck (getLuck) when the
+	-- table has `luckDisclosed = true`; otherwise luck = 1. `detail.luck` says which.
+	getOddsDetail: (tableId: string, player: Player?) -> OddsDetail?,
 	tiers: () -> { RarityTierDef },
+	-- v1.2 (N4): the player's current luck, used by roll() when its `luck` argument is nil.
+	-- tableId nil = every table; a per-table value wins over the all-table one. Session only (not
+	-- saved). Setting it re-sends that player's odds for luckDisclosed tables.
+	-- HARD RULE: a PAID roll (Robux, or a cost in balance.paidCurrencies) whose effective luck is
+	-- not 1 ERRORS unless the table has luckDisclosed = true and the player's client has already
+	-- received odds computed with exactly that luck. Free rolls may use any luck.
+	setLuck: (player: Player, luck: number, tableId: string?) -> (),
+	getLuck: (player: Player, tableId: string?) -> number, -- 1 when never set
 }
 
 export type EconomyAPI = {
@@ -408,6 +465,14 @@ export type InventoryAPI = {
 	cap: (player: Player) -> number,
 	transfer: (from: Player, to: Player, uid: string, reason: string) -> (boolean, string?),
 	canTrade: (player: Player) -> boolean,
+	-- v1.2: gift an owned copy to ANY user (offline, other server, a stranger) through Core.Mail
+	-- (needs the Mail module). The copy leaves the sender in the same Data.update that queues the
+	-- message (outbox), so it is never duplicated or lost; the receiver gets the same instance
+	-- (uid, mutation, meta, source) on delivery, or in their mailbox when their inventory is full.
+	-- Reasons: "mail_off" | "not_loaded" | "same_player" | "not_owned" | "restricted_source" (copies
+	-- from paid random sources, "paid:"/"paidcur:", can't be mailed: the receiver's policy is
+	-- unknown) | "bad_target" | "failed".
+	sendGift: (from: Player, toUserId: number, uid: string, reason: string?) -> (boolean, string?),
 }
 
 export type PlotAPI = {
@@ -474,6 +539,8 @@ export type PurchaseTx = {
 	addItem: (itemId: string, opts: InventoryAddOptions?) -> ItemInstance?, -- Inventory module
 	-- A paid roll granted into the inventory (opts.paid/grant forced). Restricted players get
 	-- info.ok == false, reason "restricted": grant them a fixed non-random fallback instead.
+	-- luck nil = the player's current luck (Rarity.getLuck). This is a PAID roll: luck ~= 1 errors
+	-- unless the table has luckDisclosed = true and the client has those odds (N4).
 	roll: (tableId: string, luck: number?) -> (ItemDef?, RollInfo), -- Rarity + Inventory modules
 	-- Abort without granting: nothing is saved, the receipt stays unprocessed (NotProcessedYet)
 	-- and Roblox retries later (e.g. the policy lookup is still running). Does not return.
@@ -529,12 +596,41 @@ export type MailAPI = {
 	-- dropped once the first was processed. Default: a new GUID per call.
 	send: (userId: number, kind: string, payload: { [string]: any }, key: string?) -> boolean,
 	-- At-least-once delivery: a message is marked processed only when every handler for its kind
-	-- returned without error (returning false also counts as a failure). Failures are retried with
-	-- backoff, then dead-lettered (PlayerData.mail.dead). Handlers MUST be safe to run twice.
+	-- returned without error. Handlers MUST be safe to run twice.
+	--   nil/true -> delivered.
+	--   false    -> "can't accept it now" (e.g. inventory full): the message moves to the player's
+	--               mailbox (v1.2, N1) and waits there, with no time limit, for Mail.claim. Not a
+	--               failure: never counted toward dead-lettering.
+	--   error    -> failure: retried with backoff (GameConfig.mail), counted across sessions, then
+	--               dead-lettered (PlayerData.mail.dead).
+	-- Kinds starting with "core_" are reserved for core (e.g. Inventory.sendGift).
 	onReceive: (
 		kind: string,
 		handler: (player: Player, payload: { [string]: any }, info: MailInfo) -> boolean?
 	) -> Connection,
+	-- v1.2 (N1): the player's mailbox, oldest first. Replicated as ReplicatedState.mailbox.
+	pending: (player: Player) -> { MailboxEntry },
+	-- v1.2 (N1): run the kind's handlers again for a held message. true = delivered and removed
+	-- from the mailbox. Reasons: "not_loaded" | "not_found" | "busy" (a claim is running) |
+	-- "still_held" (a handler returned false again) | "no_handler" | "error".
+	claim: (player: Player, messageId: string) -> (boolean, string?),
+}
+
+-- Token bucket for a game remote: `rate` requests per second, up to `burst` at once.
+export type RateLimitSpec = { rate: number, burst: number }
+
+-- v1.2: games route their OWN Blink events through core's validated Net (foundation, always on).
+export type NetAPI = {
+	-- `event` is a server event from the game's generated Blink module (it has `.On`). Core owns
+	-- the listener: it drops calls from players who left, rate-limits per player (`limit`), pcalls
+	-- `handler` and logs errors. Blink checks wire types; the handler still validates ownership,
+	-- ranges and game rules. One handler per eventName. Never use OnServerEvent in game code.
+	handle: (
+		eventName: string,
+		event: any,
+		limit: RateLimitSpec,
+		handler: (player: Player, ...any) -> ()
+	) -> (),
 }
 
 export type AnalyticsAPI = {
@@ -570,6 +666,8 @@ export type ReplicatedState = {
 	-- Server-computed odds of every player-facing rarity table (Rarity.getOddsDetail). Show these;
 	-- never recompute odds on the client.
 	odds: { [string]: OddsDetail }?,
+	-- v1.2 (N1): the local player's mailbox (Mail.pending), oldest first. nil/empty = no items.
+	mailbox: { MailboxEntry }?,
 }
 
 export type FeedbackAPI = {
@@ -605,11 +703,15 @@ export type ActionsAPI = {
 	gift: (toUserId: number, uid: string) -> (),
 	triggerEvent: (eventId: string) -> (), -- admin only (server checks GameConfig.admins)
 	funnel: (step: string) -> (), -- only AnalyticsConfig.clientSteps are accepted
+	claimMail: (messageId: string) -> (), -- v1.2: Mail.claim for a mailbox entry (Mail module)
 }
 
 export type HudOptions = {
 	nextGoal: (() -> string?)?, -- text for the "next goal" slot; re-evaluated when state changes
 	showRate: boolean?,
+	-- v1.2: tapping the mailbox badge (shown while the mailbox has items, Mail module). The game
+	-- opens its own mailbox screen; without it the badge is shown but does nothing.
+	onMailbox: (() -> ())?,
 }
 
 export type HudAPI = {
@@ -624,6 +726,9 @@ export type ClientAPI = {
 	Actions: ActionsAPI,
 	Hud: HudAPI,
 	onFeedbackEvent: (handler: (kind: string, text: string, rarity: RarityTier?) -> ()) -> Connection,
+	-- v1.2 (N1): fires with the mailbox item count whenever it changes (and once on connect when
+	-- the state is loaded).
+	onMailbox: (handler: (count: number) -> ()) -> Connection,
 }
 
 --------------------------------------------------------------------------------
@@ -657,6 +762,7 @@ export type CoreAPI = {
 	Data: DataAPI,
 	Mail: MailAPI,
 	Analytics: AnalyticsAPI,
+	Net: NetAPI, -- v1.2: game remotes (foundation)
 	-- client only
 	Client: ClientAPI,
 }

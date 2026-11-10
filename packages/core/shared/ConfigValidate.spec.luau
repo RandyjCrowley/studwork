@@ -40,6 +40,17 @@ describe("ConfigValidate", function()
 		expect(#ConfigValidate.validate(baseConfig())).toBe(0)
 	end)
 
+	it("v1.2: validates mail tuning and luckDisclosed", function()
+		local c = baseConfig()
+		c.mail = { maxAttempts = 10, backoff = { base = 30, factor = 2, max = 900 }, mailboxCap = 100 }
+		c.balance.rarityTables.T.luckDisclosed = true
+		expect(#ConfigValidate.validate(c)).toBe(0)
+		c.mail = { maxAttempts = 0, backoff = { base = 30, factor = 0.5, max = 10 }, mailboxCap = 1.5 }
+		c.balance.rarityTables.T.luckDisclosed = "yes"
+		local errors = ConfigValidate.validate(c)
+		expect(#errors).toBe(4)
+	end)
+
 	it("rejects duplicate item ids", function()
 		local c = baseConfig()
 		table.insert(c.items, { id = "a", name = "A2", rarity = "Common", incomePerSec = 1 })

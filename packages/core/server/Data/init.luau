@@ -42,6 +42,7 @@ local Types = require(game:GetService("ReplicatedStorage"):WaitForChild("Core"):
 local Internal = require(script.Internal)
 local Load = require(script.Load)
 local Transaction = require(script.Transaction)
+local ReadOnlyView = require(script.ReadOnlyView)
 local Sanitize = require(script.Sanitize)
 local Schema = require(script.Schema)
 
@@ -411,6 +412,39 @@ end
 
 -- ctx-only (Context.DataInternal). Globally increasing per-section version (0 = never changed
 -- this session); moves only when a committed update or Data itself changed that section.
+-- v1.2 (N8): what the PUBLIC facade returns for Core.Data.get / getGame. In Studio a frozen
+-- copy (ReadOnlyView, cached per section version) so an in-place write fails loudly; on live
+-- servers the live table, as before. Core services keep using Data.get (live).
+local views: { [Player]: ReadOnlyView.Cache } = setmetatable({}, { __mode = "k" }) :: any
+
+local function viewOf(player: Player): PlayerData?
+	local entry = entries[player]
+	if entry == nil then
+		return nil
+	end
+	if not ctx.isStudio then
+		return entry.data
+	end
+	local cache = views[player]
+	if cache == nil then
+		cache = ReadOnlyView.new()
+		views[player] = cache
+	end
+	return ReadOnlyView.build(cache, entry.data, function(section: string): number
+		return Transaction.version(entry.tx, section)
+	end)
+end
+
+Data.facade = {
+	get = function(player: Player): PlayerData?
+		return viewOf(player)
+	end,
+	getGame = function(player: Player): { [string]: any }?
+		local view = viewOf(player)
+		return if view then view.game[ctx.config.gameId] else nil
+	end,
+}
+
 function Data.sectionVersion(player: Player, section: string): number
 	local entry = entries[player]
 	return if entry then Transaction.version(entry.tx, section) else 0

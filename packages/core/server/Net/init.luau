@@ -40,6 +40,7 @@ local LIMITS: { [string]: RateLimit.Limit } = {
 	RequestUpgrade = { rate = 6, burst = 12 },
 	RequestRoll = { rate = 4, burst = 8 },
 	RequestGift = { rate = 1, burst = 3 },
+	RequestMailClaim = { rate = 2, burst = 5 },
 	AdminTriggerEvent = { rate = 1, burst = 3 },
 	ClientFunnel = { rate = 2, burst = 10 },
 }
@@ -52,6 +53,7 @@ local CLIENT_EVENTS = {
 	"RequestUpgrade",
 	"RequestRoll",
 	"RequestGift",
+	"RequestMailClaim",
 	"AdminTriggerEvent",
 	"ClientFunnel",
 }
@@ -135,6 +137,31 @@ function Net.start()
 	for _, entry in pending:drain() do
 		task.spawn(run, entry.eventName, entry.player, entry.args)
 	end
+end
+
+-- v1.2: a game's own Blink server event (Core.Net.handle via server/GameNet). Same treatment as
+-- core events: players who left are dropped, per-player rate limit (bucket key "game:<name>"),
+-- pcall'd handler with a warning on error. One handler per eventName; listens immediately.
+local gameEvents: { [string]: boolean } = {}
+function Net.handleGame(eventName: string, event: any, limit: RateLimit.Limit, handler: Handler)
+	assert(not gameEvents[eventName], "[Core.Net] game event already handled: " .. eventName)
+	gameEvents[eventName] = true
+	local key = "game:" .. eventName
+	event.On(function(player: Player, ...: any)
+		if not validPlayer(player) then
+			return
+		end
+		if not limiter:allow(player.UserId, key, limit) then
+			return
+		end
+		local args = table.pack(...)
+		local ok, err = pcall(function()
+			handler(player, table.unpack(args, 1, args.n))
+		end)
+		if not ok then
+			warn("[Core.Net] game event " .. eventName .. " handler error: " .. tostring(err))
+		end
+	end)
 end
 
 -- Console summary: dropped-early and handler-less request counts.

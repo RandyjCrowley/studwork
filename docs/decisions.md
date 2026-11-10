@@ -143,3 +143,65 @@ Contract choices (Phase 0, core-contract-v1.1):
   (known issue N9).
 - **Phase 2 review: 0 Critical/High.** Fixed N2, N5, N7, N10 before the tag; N1/N3/N4 and the lows
   are in `docs/known-issues.md`. N1 must be fixed before Example Gifts relies on Mail.
+
+## core-v1.2.0 (finishing the platform)
+
+Contract choices (Phase 0, core-contract-v1.2). All additive; one behaviour change (Mail `false`).
+- **N1 mailbox, stored in PlayerData.** A handler returning `false` means "can't accept it now"
+  (full inventory is a capacity condition, not a failure). The message moves to
+  `PlayerData.mail.box` in one Data.update and is then `processed()` in ProfileStore, so core owns
+  it: `Mail.pending(player)` lists it (replicated as `ReplicatedState.mailbox`, HUD badge
+  "Mailbox (N)", `Core.Client.onMailbox`), and `Mail.claim(player, id)` re-runs the handlers
+  (client: `Actions.claimMail` → `RequestMailClaim`). No time limit; `mail.mailboxCap` (default
+  100) bounds the save size: beyond it the message stays queued in ProfileStore and is offered
+  again next session. Rejected alternative: leaving held messages unprocessed in ProfileStore
+  (no listing without our own index, and ProfileStore never re-offers them in the same session).
+  Before v1.2 `false` counted as a failure; no game shipped, so the meaning changed in place.
+- **Only thrown errors count toward dead-lettering.** `GameConfig.mail = { maxAttempts,
+  backoff = { base, factor, max }, mailboxCap }`; defaults 10 attempts, 30 s × 2^n capped at
+  900 s (≈ 75 min of retries in one session), attempts persist across sessions. These are
+  reliability rails, so core has defaults (unlike balance numbers).
+- **Gifts to anyone go through a mail outbox** (`Inventory.sendGift`, ctx-only
+  `Mail.sendInto(tx, ...)`): the item leaves the sender and the message is written to
+  `PlayerData.mail.outbox` in ONE Data.update, sent after commit with a fixed idempotency key,
+  and re-sent on the sender's next load until MessageAsync succeeds. That is what makes "never
+  duplicated, never lost" hold across crashes: the item and the message can't be separated, and
+  the receiver dedupes the key. Copies from paid random sources (`paid:`/`paidcur:`) can't be
+  mailed: the receiver's PolicyService answer is unknown while they are offline (fail closed).
+  Mail kinds starting with `core_` are reserved (`core_gift`).
+- **N3: re-send odds** (it is cheap: one table build per registration batch). Items gets a
+  ctx-only `onRegistered` hook; Rarity rebuilds and re-replicates the shared odds and every
+  player's luck-adjusted odds. No CLAUDE.md "register before start" error rule was needed; a
+  softer recommendation was added (rule 14).
+- **N4: luck is a core concept now.** `Rarity.setLuck/getLuck` (session-only, per player, per
+  table or all tables); `roll` with `luck = nil` uses it. `getOddsDetail(tableId, player?)`
+  includes the player's luck when the table has `luckDisclosed = true` (`OddsDetail.luck`).
+  A paid roll with effective luck ≠ 1 errors unless `luckDisclosed` and the odds with exactly
+  that luck were **sent** to the client: Replication remembers the state it last handed to
+  StateSync per player (`ctx.sentReplicated`), which is reliable and ordered, so "sent" is as
+  close to "received" as the server can know without an ack round-trip. Erroring (not failing
+  softly) matches the prompt: it is a game bug, and inside a Robux handler an error means
+  NotProcessedYet, so the player is never charged for a roll with undisclosed odds. Currency
+  rolls (RequestRoll) check the rule before spending.
+- **Games' remotes go through core (`Core.Net.handle`, foundation).** The guardrail "remote
+  handlers must go through core's validated Net" needed something to go through: Net now listens
+  to a game's Blink server event, drops left players, rate-limits per player with the game's
+  `{ rate, burst }` and pcalls the handler. Added "Net" to `Modules.FOUNDATION` (service
+  `server/GameNet`).
+- **N6 fixed:** legacy ids are `legacy-<kind>-<second>-<fnv1a(canonical payload)>`.
+- **N8 fixed for game code:** in Studio the facade's `Data.get`/`getGame` return frozen copies
+  (`Data/ReadOnlyView`, cached per section version), so an in-place write errors at the line
+  that makes it. Live servers return the live table (no cost); core services keep the live
+  table. Done through `service.facade` overrides in the facade builder. Not covered:
+  `Data.onLoaded` handlers still receive the live table (documented).
+- **N9 fixed (analytics only):** `Receipt.forgetPlayer` returns the dropped entries and Shop
+  logs `ProductPurchased` for them at leave; the grant itself is persisted by the session-end
+  save. Game `tx.after` effects for a player who left are still dropped (they target a player
+  who is gone). If the session-end save also fails, the next server re-grants and the event is
+  counted twice; we accept a rare double count over a guaranteed miss.
+- **Guardrails** live in `tools/lune/guardrails.luau`, run by `tools/lint` with a
+  `--self-test` that plants one violation of each kind. "Game edits packages/" is checked by
+  branch convention (`game/<name>` branches may not change `packages/` since `main`) and by
+  staged-change mixing; the core owner can bypass with `GUARD_ALLOW_CORE=1`. The number check
+  is a heuristic (balance calls with literals >= 2, balance-named assignments); game-own numbers
+  go in `src/shared/Config/Tuning.luau`.

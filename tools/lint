@@ -1,5 +1,7 @@
 #!/usr/bin/env bash
-# tools/lint: selene + stylua --check over every Luau source (vendor, Packages, generated excluded).
+# tools/lint: selene + stylua --check over every Luau source (vendor, Packages, generated excluded),
+# then the game-agent guardrails (tools/lune/guardrails.luau: modules, packages, numbers, remotes;
+# its --self-test proves each check still catches a planted violation).
 source "$(dirname "$0")/_common.sh"
 
 PATHS="packages games templates tools"
@@ -7,4 +9,7 @@ echo "== selene"
 selene $PATHS
 echo "== stylua --check"
 stylua --check $PATHS
+echo "== guardrails"
+lune run tools/lune/guardrails --self-test
+lune run tools/lune/guardrails
 echo "lint: clean"

@@ -25,8 +25,9 @@ Core.Data.onLoaded(function(player: Player)
 		g.joins = (g.joins or 0) + 1
 	end)
 	Core.Analytics.custom(player, "FoundationOnlyJoin", 1)
-	local ok, err = pcall(Core.Rebirth.rebirth, player)
-	print(`[foundation-only] Core.Rebirth.rebirth -> ok={ok} {tostring(err)}`)
+	-- Deliberately calls a module that is off, to show the error. -- guard: allow modules
+	local ok, err = pcall(Core.Rebirth.rebirth, player) -- guard: allow modules
+	print(`[foundation-only] Core.Rebirth.rebirth -> ok={ok} {tostring(err)}`) -- guard: allow modules
 end)
 
 Players.PlayerRemoving:Connect(function(player)

@@ -44,6 +44,7 @@ type PlayerEntry = {
 	cache: SectionCache.SectionCache,
 	extra: { [string]: any },
 	subscribed: boolean,
+	sent: { [string]: any }?, -- v1.2: the state last handed to StateSync for this client
 }
 
 local ctx: any = nil
@@ -174,6 +175,16 @@ function Replication.setAll(key: string, value: any)
 	end
 end
 
+-- v1.2 (N4): `key` of the state last sent to this player's subscribed client (nil = never sent).
+-- StateSync is reliable and ordered, so the client has (or is about to apply) this value.
+function Replication.sent(player: Player, key: string): any
+	local entry = entries[player]
+	if entry == nil or not entry.subscribed or entry.sent == nil then
+		return nil
+	end
+	return entry.sent[key]
+end
+
 -- Debug helper: the snapshot currently held for a player (nil if none). Read-only.
 function Replication.peek(player: Player): any
 	local entry = entries[player]
@@ -207,8 +218,10 @@ function Replication.start()
 	CharmSync.config.interval = -1 -- manual flush in step()
 	CharmSync.server.connect(function(player: Player, payloads: any)
 		-- charm-sync only builds payloads for keys this player subscribed to (their own)
-		if player.Parent == Players and entries[player] ~= nil then
+		local entry = entries[player]
+		if player.Parent == Players and entry ~= nil then
 			ctx.net.events.StateSync.Fire(player, payloads)
+			entry.sent = entry.atom() -- the state this payload brings the client to
 		end
 	end)
 

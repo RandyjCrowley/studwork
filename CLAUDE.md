@@ -34,6 +34,27 @@ Read `docs/decisions.md` for why things are the way they are.
 9. **No text-chat dependence** (chat is age-gated): pings, emotes, roles.
 10. **Ask the user** before installing anything outside the repo or with sudo, spending money,
     publishing to Roblox, or touching files outside the repo root.
+11. **Luck and disclosed odds (core-v1.2, N4).** A *paid* roll (Robux: a `paid = true` table or
+    `tx.roll`; or a `cost` in `balance.paidCurrencies`) whose effective luck is not 1 **errors**.
+    The only exception: the table sets `luckDisclosed = true` and the player's client has already
+    received odds computed with that exact luck (`Rarity.setLuck` re-sends them; core checks what
+    was actually sent). So: give luck with `Core.Rarity.setLuck(player, luck, tableId?)`, never as
+    a hidden argument to a paid roll; show `state.odds[tableId]` (it carries `luck`) with
+    `UI.OddsTable`. Free rolls may use any luck.
+12. **Game remotes go through `Core.Net.handle(name, blinkEvent, { rate, burst }, fn)`**, never
+    `OnServerEvent`/`OnServerInvoke` or hand-made RemoteEvents. Validate every argument in `fn`.
+13. **Full inventory is not a failure.** A Mail handler that can't accept a message now returns
+    `false`: the message waits in the player's mailbox (`Core.Mail.pending/claim`, HUD badge)
+    with no time limit. Only thrown errors are retried and dead-lettered. Mail kinds starting
+    with `core_` are reserved.
+14. **Register items before `Core.start` when you can** (put them in `Config.items`). Items
+    registered later are allowed: core re-sends the disclosed odds (N3), but the odds a player
+    saw before that are stale until the update arrives.
+15. **`tools/lint` guardrails must stay clean** (`tools/lune/guardrails.luau`): no core module
+    outside `GameConfig.modules`, no edits under `packages/` from game work (branch `game/<name>`),
+    no balance number literals outside `src/shared/Config/` (put game-own numbers in
+    `Config/Tuning.luau`), no raw remotes. `-- guard: allow <check>` on a line is a last resort
+    and needs a reason on the line above.
 
 ## Folder map
 
@@ -73,14 +94,16 @@ Core.start(Config, ServerConfig)                     -- server (once); ServerCon
 Core.isEnabled("Rebirth") -> boolean / Core.config() / Core.isStarted() / Core.version
 -- server
 Core.Items.register(defs) / .get(id) / .all() / .byTag(tag) / .incomeOf(instance)
-Core.Rarity.roll(tableId, player, luck?, { paid?, grant?, reason? }) -> (ItemDef?, RollInfo)
+Core.Rarity.roll(tableId, player, luck?, { paid?, grant?, reason? }) -> (ItemDef?, RollInfo) -- luck nil = getLuck
 Core.Rarity.getOdds(tableId, luck?) -> { [itemId]: probability } / .tiers()
-Core.Rarity.getOddsDetail(tableId) -> OddsDetail? -- items, mutations, outcomes (item x mutation), pity
+Core.Rarity.getOddsDetail(tableId, player?) -> OddsDetail? -- items, mutations, outcomes, pity, luck
+Core.Rarity.setLuck(player, luck, tableId?) / .getLuck(player, tableId?) -> number   -- rule 11
 Core.Economy.grant/spend(player, amount, reason, currency?) -> boolean / .balance(player, currency?)
 Core.Economy.addIncomeSource/removeIncomeSource(player, sourceId, perSec)
 Core.Economy.addMultiplier(player, id, mult, expiresAt?, persist?) / .removeMultiplier / .getMultiplier / .getRate
 Core.Inventory.add(player, itemId, opts?) -> ItemInstance? / .remove / .get / .list / .count / .cap
-Core.Inventory.transfer(from, to, uid, reason) -> (ok, err?) / .canTrade(player)
+Core.Inventory.transfer(from, to, uid, reason) -> (ok, err?) / .canTrade(player)   -- same server
+Core.Inventory.sendGift(from, toUserId, uid, reason?) -> (ok, err?)  -- any user, via Mail (outbox)
 Core.Plot.get(player) -> Model? / .owner(plot) / .display(player, uid, slotId?) / .clearDisplay / .slots / .onAssigned
 Core.Upgrades.level/cost/purchase(player, upgradeId)
 Core.Rebirth.canRebirth/rebirth/cost/multiplier(player)
@@ -91,14 +114,17 @@ Core.Shop.onProduct(product, fn(data, receipt, tx)) / .ownsPass / .onPassOwned  
 Core.Policy.paidRandomRestricted(player)
 Core.Data.get / .update(player, fn) / .onLoaded / .isLoaded / .getGame / .updateGame / .saveAsync
 Core.Mail.send(userId, kind, payload, key?) / .onReceive(kind, fn(player, payload, info) -> false?)
+Core.Mail.pending(player) -> { MailboxEntry } / .claim(player, messageId) -> (ok, err?)  -- mailbox
+Core.Net.handle(eventName, blinkServerEvent, { rate, burst }, fn(player, ...))   -- game remotes
 Core.Analytics.funnel(player, step) / .economy(player, flow, currency, amount, type, sku?) / .custom
 Core.Signals.DataLoaded, DataChanged, CurrencyChanged, ItemAdded, ItemRemoved, ItemDisplayed, ...
 -- client
 Core.Client.state()                                   -- Charm atom: ReplicatedState of the local player
 Core.Client.Feedback.pop(text, position?, rarity?) / .flash(rarity) / .sound(key) / .shake(intensity?)
 Core.Client.Input.device() / .deviceChanged / .bind(actionId, binding, fn) / .unbind
-Core.Client.Actions.display/clearDisplay/rebirth/upgrade/roll/gift/triggerEvent/funnel
-Core.Client.Hud.mount({ nextGoal = fn }) / .unmount()
+Core.Client.Actions.display/clearDisplay/rebirth/upgrade/roll/gift/triggerEvent/funnel/claimMail
+Core.Client.Hud.mount({ nextGoal = fn, onMailbox = fn }) / .unmount()   -- mailbox badge slot
+Core.Client.onMailbox(fn(count)) -> Connection; Core.Client.state().mailbox / .odds
 ```
 
 ## Modules
@@ -110,7 +136,7 @@ on the client. A game switches modules on in `GameConfig.modules`:
 | Module | Requires | Optional integrations | Config section it needs |
 |---|---|---|---|
 | Items | – | – | `items` |
-| Inventory | Items | Plot, Upgrades | `balance.inventory` |
+| Inventory | Items | Plot, Upgrades, Mail (`sendGift`) | `balance.inventory` |
 | Rarity | Items | Inventory (grants), Economy (`cost`) | `balance.rarityTables` |
 | Economy | – | Items, Rebirth, Upgrades, Friends | `balance.income` |
 | Upgrades | Economy | Rebirth | `balance.upgrades` |
@@ -118,7 +144,7 @@ on the client. A game switches modules on in `GameConfig.modules`:
 | Offline | – | Economy (`autoPay`) | `balance.offline` |
 | Streak | – | Economy (`rewards`) | `balance.streak` |
 | Friends | – | Economy (`coPlayMultiplier`) | `balance.friends` |
-| Mail | – | – | – |
+| Mail | – | – | `mail` (optional tuning) |
 | Plot | Inventory | Items | `balance.plot` (optional) |
 
 `packages/core/shared/Modules.luau` is the source of truth (requires, optional, public API names).
@@ -144,7 +170,7 @@ local Config: Types.GameConfig = {
 - Inside core: `ctx.isEnabled(name)` guards every OPTIONAL dependency; a disabled module in
   `ctx.services` is a proxy that errors the same way.
 
-## API rules (core-contract-v1.1)
+## API rules (core-contract-v1.2)
 
 - **Frozen facade.** `Core.<Namespace>` is a frozen table with exactly the functions of
   `Types.<Namespace>API` (listed in `Modules.API`). No `init`/`start`, no private helpers. A second
@@ -169,11 +195,15 @@ local Config: Types.GameConfig = {
   returned only after the save is confirmed. Never call `Economy.grant`/`Inventory.add` from a
   handler (nested update error); use `tx.grant/addItem/roll` or write `data.game[gameId]`.
 - **Mail is at-least-once.** Handlers must be safe to run twice; pass an idempotency `key` to
-  `Mail.send` when a retry of the send could duplicate a message.
+  `Mail.send` when a retry of the send could duplicate a message. Handler result: `nil`/`true` =
+  delivered, `false` = held in the mailbox (capacity, never a failure), error = retried with
+  backoff (`GameConfig.mail`), then dead-lettered.
+- **Gifts:** `Inventory.transfer` (both players in this server) or `Inventory.sendGift` (any
+  user, through Mail). Copies from paid random sources (`paid:`/`paidcur:`) can't be mailed.
 - **Rebirth keeps Robux-bought items** (`source` starting with `paid:`) unless
   `ItemDef.keepOnRebirth = false`; `keepOnRebirth = true` keeps any copy. Rolls priced in a paid
   currency are tagged `paidcur:` (policy/trade rules apply, but rebirth wipes them).
-- **Never pass `luck` to a paid roll** until the odds disclosure includes luck (known issue N4).
+- **Luck on paid rolls:** see hard rule 11 (core errors otherwise).
 - **Odds shown to players come from the server** (`ReplicatedState.odds`, `Rarity.getOddsDetail`),
   including mutations and pity. Never recompute odds on the client.
 - **Admins are server-only**: `ServerConfig.admins`, kept in `ServerScriptService`/`ServerStorage`.
@@ -194,7 +224,9 @@ local Config: Types.GameConfig = {
 - `src/client/Main.client.luau` calls `Core.start(Config)`, mounts the HUD, reads `Core.Client.state`
   and sends requests with `Core.Client.Actions`.
 - A game's own remotes: `src/shared/net/game.blink` with `option RemoteScope = "<GAMEID>"`, compiled
-  by `tools/net`. Validate and rate-limit them the same way core does.
+  by `tools/net`. On the server register each client event with
+  `Core.Net.handle("PlaceItem", GameNet.PlaceItem, Tuning.limits.placeItem, fn)` (rate limit,
+  left-player drop, pcall) and validate every argument in `fn`.
 - Plots: ship Models tagged `CorePlot` with BasePart slots that have a string `SlotId` attribute.
   Optional: `SlotTag` on a slot (only items with that tag), `PlotOrder` on the plot, a part named
   `Spawn` (or `PlotSpawn = true`) for the owner's spawn. Core writes `OwnerUserId`; don't set it.

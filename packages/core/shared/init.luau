@@ -29,7 +29,7 @@ local enabled: { [string]: boolean } = {}
 local bootError: string? = nil -- set when Core.start threw part-way (review N7): every call errors
 
 local Core = {}
-Core.version = "1.1.0"
+Core.version = "1.2.0"
 Core.Signals = Signals.new()
 
 local function guarded(namespace: string, fnName: string, impl: (...any) -> ...any): (...any) -> ...any
@@ -48,11 +48,14 @@ local function guarded(namespace: string, fnName: string, impl: (...any) -> ...a
 	end
 end
 
--- Frozen public table for one server namespace: only the names in Modules.API.
+-- Frozen public table for one server namespace: only the names in Modules.API. A service may
+-- give the facade a different implementation of a function in `service.facade` (v1.2: Data
+-- returns read-only views in Studio, N8); core services keep calling the service directly.
 local function publicTable(namespace: string, service: { [string]: any }): { [string]: any }
 	local api: { [string]: any } = {}
+	local overrides: { [string]: any } = if type(service.facade) == "table" then service.facade else {}
 	for _, fnName in Modules.API[namespace] do
-		local impl = service[fnName]
+		local impl = overrides[fnName] or service[fnName]
 		assert(
 			type(impl) == "function",
 			`[Core] contract mismatch: {namespace}.{fnName} is listed in Modules.API but not implemented`

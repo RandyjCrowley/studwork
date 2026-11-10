@@ -160,11 +160,11 @@ local Queue: any = {
 
 local SerdesEvent = "?"
 local SerdesThread: thread?
-Queue.Reliable[9] = table.create(256)
-Events.Reliable[10] = {}
 Queue.Reliable[10] = table.create(256)
 Events.Reliable[11] = {}
 Queue.Reliable[11] = table.create(256)
+Events.Reliable[12] = {}
+Queue.Reliable[12] = table.create(256)
 export type Id = string
 export type FeedbackMessage = { Kind: string, Text: string, Rarity: string?, Position: Vector3? }
 function SerdesFunctions.WriteEVENT_StateInit(Value: nil): ()
@@ -239,7 +239,7 @@ function SerdesFunctions.WriteEVENT_RequestGift(Value1: number, Value2: string):
 	buffer.writestring(SendBuffer, SendOffset, Value2, Length)
 end
 
-function SerdesFunctions.WriteEVENT_AdminTriggerEvent(Value: string): ()
+function SerdesFunctions.WriteEVENT_RequestMailClaim(Value: string): ()
 	-- Allocate BLOCK: 2 bytes
 	local BLOCK_START = Allocate(2)
 	buffer.writeu8(SendBuffer, BLOCK_START + 0, 7)
@@ -249,10 +249,20 @@ function SerdesFunctions.WriteEVENT_AdminTriggerEvent(Value: string): ()
 	buffer.writestring(SendBuffer, SendOffset, Value, Length)
 end
 
-function SerdesFunctions.WriteEVENT_ClientFunnel(Value: string): ()
+function SerdesFunctions.WriteEVENT_AdminTriggerEvent(Value: string): ()
 	-- Allocate BLOCK: 2 bytes
 	local BLOCK_START = Allocate(2)
 	buffer.writeu8(SendBuffer, BLOCK_START + 0, 8)
+	local Length = #Value
+	buffer.writeu8(SendBuffer, BLOCK_START + 1, Length)
+	Allocate(Length)
+	buffer.writestring(SendBuffer, SendOffset, Value, Length)
+end
+
+function SerdesFunctions.WriteEVENT_ClientFunnel(Value: string): ()
+	-- Allocate BLOCK: 2 bytes
+	local BLOCK_START = Allocate(2)
+	buffer.writeu8(SendBuffer, BLOCK_START + 0, 9)
 	local Length = #Value
 	buffer.writeu8(SendBuffer, BLOCK_START + 1, Length)
 	Allocate(Length)
@@ -331,6 +341,9 @@ if not RunService:IsRunning() then
 	RequestGift = {
 		Fire = NOOP
 	},
+	RequestMailClaim = {
+		Fire = NOOP
+	},
 	AdminTriggerEvent = {
 		Fire = NOOP
 	},
@@ -388,39 +401,39 @@ Reliable.OnClientEvent:Connect(function(Buffer: buffer, Instances: {Instance})
 		-- Read BLOCK: 1 bytes
 		local BLOCK_START = Read(1)
 		local Index = buffer.readu8(RecieveBuffer, BLOCK_START + 0)
-		if Index == 9 then
+		if Index == 10 then
 			local Value: any = SerdesFunctions.ReadEVENT_StateSync()
-			if Events.Reliable[9] ~= nil then
-				task.spawn(Events.Reliable[9], Value)
-			else
-				if #Queue.Reliable[9] > 256 then
-					warn("[Blink]: Event queue of \"StateSync\" exceeded 256, did you forget to implement a listener?")
-				end
-				table.insert(Queue.Reliable[9], {Value} :: {any})
-			end
-		elseif Index == 10 then
-			local Value: { Kind: string, Text: string, Rarity: string?, Position: Vector3? } = SerdesFunctions.ReadEVENT_Feedback()
-			if #Events.Reliable[10] > 0 then
-				for _, Listener in Events.Reliable[10] do
-					task.spawn(Listener, Value)
-				end
+			if Events.Reliable[10] ~= nil then
+				task.spawn(Events.Reliable[10], Value)
 			else
 				if #Queue.Reliable[10] > 256 then
-					warn("[Blink]: Event queue of \"Feedback\" exceeded 256, did you forget to implement a listener?")
+					warn("[Blink]: Event queue of \"StateSync\" exceeded 256, did you forget to implement a listener?")
 				end
 				table.insert(Queue.Reliable[10], {Value} :: {any})
 			end
 		elseif Index == 11 then
-			local Value1: string, Value2: number = SerdesFunctions.ReadEVENT_EventState()
+			local Value: { Kind: string, Text: string, Rarity: string?, Position: Vector3? } = SerdesFunctions.ReadEVENT_Feedback()
 			if #Events.Reliable[11] > 0 then
 				for _, Listener in Events.Reliable[11] do
-					task.spawn(Listener, Value1, Value2)
+					task.spawn(Listener, Value)
 				end
 			else
 				if #Queue.Reliable[11] > 256 then
+					warn("[Blink]: Event queue of \"Feedback\" exceeded 256, did you forget to implement a listener?")
+				end
+				table.insert(Queue.Reliable[11], {Value} :: {any})
+			end
+		elseif Index == 12 then
+			local Value1: string, Value2: number = SerdesFunctions.ReadEVENT_EventState()
+			if #Events.Reliable[12] > 0 then
+				for _, Listener in Events.Reliable[12] do
+					task.spawn(Listener, Value1, Value2)
+				end
+			else
+				if #Queue.Reliable[12] > 256 then
 					warn("[Blink]: Event queue of \"EventState\" exceeded 256, did you forget to implement a listener?")
 				end
-				table.insert(Queue.Reliable[11], {Value1, Value2} :: {any})
+				table.insert(Queue.Reliable[12], {Value1, Value2} :: {any})
 			end
 		end
 	end
@@ -482,6 +495,11 @@ local Returns = table.freeze({
 			SerdesFunctions.WriteEVENT_RequestGift(Value1, Value2)
 		end
 	},
+	RequestMailClaim = {
+		Fire = function(Value: string): ()
+			SerdesFunctions.WriteEVENT_RequestMailClaim(Value)
+		end
+	},
 	AdminTriggerEvent = {
 		Fire = function(Value: string): ()
 			SerdesFunctions.WriteEVENT_AdminTriggerEvent(Value)
@@ -494,35 +512,20 @@ local Returns = table.freeze({
 	},
 	StateSync = {
 		On = function(Listener: (Value: any) -> ()): () -> ()
-			Events.Reliable[9] = Listener
-			for Index, Arguments in Queue.Reliable[9] do
+			Events.Reliable[10] = Listener
+			for Index, Arguments in Queue.Reliable[10] do
 				task.spawn(Listener, table.unpack(Arguments))
 			end
-			Queue.Reliable[9] = {}
+			Queue.Reliable[10] = {}
 			return function (): ()
-				if Events.Reliable[9] == Listener then
-					Events.Reliable[9] = nil
+				if Events.Reliable[10] == Listener then
+					Events.Reliable[10] = nil
 				end
 			end
 		end
 	},
 	Feedback = {
 		On = function(Listener: (Value: { Kind: string, Text: string, Rarity: string?, Position: Vector3? }) -> ()): () -> ()
-			table.insert(Events.Reliable[10], Listener)
-			for Index, Arguments in Queue.Reliable[10] do
-				task.spawn(Listener, table.unpack(Arguments))
-			end
-			Queue.Reliable[10] = {}
-			return function (): ()
-				local Index = table.find(Events.Reliable[10], Listener)
-				if Index ~= nil then
-					table.remove(Events.Reliable[10], Index)
-				end
-			end
-		end
-	},
-	EventState = {
-		On = function(Listener: (Value1: string, Value2: number) -> ()): () -> ()
 			table.insert(Events.Reliable[11], Listener)
 			for Index, Arguments in Queue.Reliable[11] do
 				task.spawn(Listener, table.unpack(Arguments))
@@ -532,6 +535,21 @@ local Returns = table.freeze({
 				local Index = table.find(Events.Reliable[11], Listener)
 				if Index ~= nil then
 					table.remove(Events.Reliable[11], Index)
+				end
+			end
+		end
+	},
+	EventState = {
+		On = function(Listener: (Value1: string, Value2: number) -> ()): () -> ()
+			table.insert(Events.Reliable[12], Listener)
+			for Index, Arguments in Queue.Reliable[12] do
+				task.spawn(Listener, table.unpack(Arguments))
+			end
+			Queue.Reliable[12] = {}
+			return function (): ()
+				local Index = table.find(Events.Reliable[12], Listener)
+				if Index ~= nil then
+					table.remove(Events.Reliable[12], Index)
 				end
 			end
 		end

@@ -142,6 +142,7 @@ function Snapshot.build(
 		activeEvents = tableOf(pick("activeEvents")) or {},
 		plotName = if type(pick("plotName")) == "string" then pick("plotName") else nil,
 		odds = tableOf(pick("odds")),
+		mailbox = tableOf(pick("mailbox")), -- v1.2 (N1)
 	}
 end
 
@@ -153,6 +154,7 @@ Snapshot.EXTRA_KEYS = {
 	activeEvents = true,
 	plotName = true,
 	odds = true,
+	mailbox = true, -- v1.2 (N1): Mail.pending(player)
 }
 
 return Snapshot

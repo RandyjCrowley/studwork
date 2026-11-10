@@ -42,6 +42,21 @@ export type DataInternal = Types.DataAPI & {
 	sectionVersion: (player: Player, section: string) -> number,
 }
 
+export type ItemsInternal = Types.ItemsAPI & {
+	-- v1.2 (N3): fn(defs) runs after every successful Items.register made after Core.start
+	-- (Rarity re-sends the disclosed odds).
+	onRegistered: (fn: (defs: { Types.ItemDef }) -> ()) -> (),
+}
+
+export type MailInternal = Types.MailAPI & {
+	-- v1.2: queue a message inside an open transaction (PlayerData.mail.outbox of tx.player, the
+	-- SENDER). It is sent with MessageAsync after the transaction commits and retried on the
+	-- sender's next load until it succeeds, so it can't be separated from the rest of the
+	-- transaction (Inventory.sendGift removes the item in the same update). Returns false (and
+	-- writes nothing) on an invalid message. `key` is required: the send's idempotency key.
+	sendInto: (tx: Tx, toUserId: number, kind: string, payload: { [string]: any }, key: string) -> boolean,
+}
+
 export type EconomyInternal = Types.EconomyAPI & {
 	grantInto: (tx: Tx, amount: number, reason: string, currency: string?) -> boolean,
 }
@@ -71,7 +86,7 @@ export type RebirthInternal = Types.RebirthAPI & {
 -- calling an OPTIONAL dependency (Modules.SPECS[...].optional).
 export type ServerServices = {
 	Data: DataInternal,
-	Items: Types.ItemsAPI,
+	Items: ItemsInternal,
 	Policy: Types.PolicyAPI,
 	Rarity: RarityInternal,
 	Inventory: InventoryInternal,
@@ -84,8 +99,9 @@ export type ServerServices = {
 	Events: Types.EventsAPI,
 	Shop: Types.ShopAPI,
 	Analytics: Types.AnalyticsAPI,
-	Mail: Types.MailAPI,
+	Mail: MailInternal,
 	Plot: Types.PlotAPI,
+	Net: Types.NetAPI,
 }
 
 export type NetAPI = {
@@ -96,6 +112,13 @@ export type NetAPI = {
 	events: any,
 	-- Send a cosmetic feedback message to one player.
 	feedback: (player: Player, kind: string, text: string, rarity: string?, position: Vector3?) -> (),
+	-- v1.2: listener for a game's own Blink event (used by server/GameNet = Core.Net.handle).
+	handleGame: (
+		eventName: string,
+		event: any,
+		limit: { rate: number, burst: number },
+		handler: (player: Player, ...any) -> ()
+	) -> (),
 }
 
 export type ConsoleAPI = {
@@ -113,6 +136,10 @@ export type ServerContext = {
 	-- ctx.setReplicated(player, key, value) and Replication ships it.
 	setReplicated: (player: Player, key: string, value: any) -> (),
 	setReplicatedAll: (key: string, value: any) -> (), -- same value for every player (activeEvents)
+	-- v1.2 (N4): the value of an extra key (set/setAll) as it was in the last state actually sent
+	-- to this player's subscribed client (nil = never sent). Rarity uses it to know the client
+	-- has received the luck-adjusted odds before a paid roll uses that luck.
+	sentReplicated: (player: Player, key: string) -> any,
 	console: ConsoleAPI,
 	isStudio: boolean,
 	-- Modules (packages/core/shared/Modules.luau)

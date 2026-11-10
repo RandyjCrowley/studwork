@@ -1,7 +1,7 @@
 local ModuleLoader = require(script.Parent.ModuleLoader)
 local Modules = require(game:GetService("ReplicatedStorage"):WaitForChild("Core"):WaitForChild("Modules"))
 
-local FOUNDATION_PLAN = { "Data", "Policy", "Events", "Shop", "Analytics" }
+local FOUNDATION_PLAN = { "Data", "Policy", "Events", "Shop", "Analytics", "Net" }
 
 local function fakeAll(): { [string]: any }
 	local all = {}
@@ -33,6 +33,7 @@ describe("ModuleLoader.plan", function()
 			"Shop",
 			"Analytics",
 			"Mail",
+			"Net",
 		})
 		for _, name in Modules.FOUNDATION do
 			expect(table.find(plan :: any, name) ~= nil).toBe(true)

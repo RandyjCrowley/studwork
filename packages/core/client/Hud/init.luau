@@ -13,7 +13,8 @@
 	                       the viewport, touch-sized pills. Calling mount twice replaces the HUD.
 	Hud.unmount()          unmounts the React root, disconnects listeners, destroys the ScreenGui.
 	Module-aware (Hud/Visibility): currency + rate only when Economy is enabled, the goal pill
-	only when Rebirth is enabled. ctx.isEnabled comes from the client bootstrap.
+	whenever the game passes nextGoal, and (v1.2) a mailbox badge "Mailbox (N)" while Mail is
+	enabled and state.mailbox has N > 0 items; tapping it calls opts.onMailbox. ctx.isEnabled comes from the client bootstrap.
 	No dependency on game code. Requires ReplicatedStorage.UI (packages/ui) in the game project.
 ]]
 
@@ -66,6 +67,7 @@ local function HudApp(props: AppProps)
 	local opts = props.opts
 	local shown = Visibility.of(props.isEnabled, opts)
 	local coins = if state.data then (state.data.currency[props.primary] or 0) else 0
+	local mailboxCount = if shown.mailbox then Visibility.mailboxCount(state) else 0
 	local goal: string? = nil
 	if shown.goal and opts.nextGoal then
 		local ok, result = pcall(opts.nextGoal)
@@ -109,6 +111,18 @@ local function HudApp(props: AppProps)
 						PaddingRight = UDim.new(0, 12),
 					}),
 					Limit = e("UISizeConstraint", { MaxSize = Vector2.new(360, math.huge) }),
+				})
+				else nil,
+			Mailbox = if mailboxCount > 0
+				then e(UI.Button, {
+					text = `Mailbox ({mailboxCount})`,
+					variant = "secondary",
+					layoutOrder = 3,
+					onActivated = function()
+						if opts.onMailbox then
+							task.spawn(opts.onMailbox)
+						end
+					end,
 				})
 				else nil,
 		}),

@@ -375,3 +375,50 @@ describe("Shop.Receipt.process", function()
 		end
 	end)
 end)
+
+describe("Receipt.forgetPlayer (N9)", function()
+	it("returns the dropped entries of that player only, with the amount spent", function()
+		local pending = {
+			a = { userId = 1, effects = {}, currencySpent = 49 },
+			b = { userId = 2, effects = {} },
+			c = { userId = 1, effects = {} },
+		}
+		local dropped = Receipt.forgetPlayer(pending, 1)
+		expect(#dropped).toBe(2)
+		local spent = 0
+		for _, p in dropped do
+			spent += p.currencySpent or 0
+		end
+		expect(spent).toBe(49)
+		expect(pending.a).toBe(nil)
+		expect(pending.c).toBe(nil)
+		expect(pending.b ~= nil).toBe(true)
+		expect(#Receipt.forgetPlayer(pending, 1)).toBe(0)
+	end)
+
+	it("a save failure parks the amount spent with the effects", function()
+		local pending: { [string]: any } = {}
+		local res = Receipt.process({ PurchaseId = "p", PlayerId = 1, ProductId = 5, CurrencySpent = 25 }, {
+			inFlight = {},
+			pending = pending,
+			findPlayer = function()
+				return {}
+			end,
+			isLoaded = function()
+				return true
+			end,
+			isRecorded = function()
+				return false
+			end,
+			hasHandler = true,
+			commit = function()
+				return "committed", {}, nil
+			end,
+			save = function()
+				return false
+			end,
+		})
+		expect(res.reason).toBe("save_failed")
+		expect(pending.p.currencySpent).toBe(25)
+	end)
+end)

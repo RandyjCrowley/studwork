@@ -1,6 +1,6 @@
 -- Core network contract (Blink IDL, compiled with `tools/net` -> blink 0.18.9).
--- FROZEN at core-contract-v1.1 (first frozen at core-contract-v0): additive only (new
--- events/fields with optional types). v1.1 adds no events: rarity odds (Rarity.getOddsDetail)
+-- FROZEN at core-contract-v1.2 (first frozen at core-contract-v0): additive only (new
+-- events/fields with optional types). v1.2 adds RequestMailClaim. v1.1 added no events: rarity odds (Rarity.getOddsDetail)
 -- travel in ReplicatedState.odds over StateSync, and M2's per-section deltas reuse StateSync's
 -- `unknown` payload. Events of a module that is not enabled have no handler: Net drops them.
 -- Every client -> server event is a REQUEST: the server validates type, range and ownership
@@ -71,6 +71,14 @@ event RequestGift {
     Type: Reliable,
     Call: SingleAsync,
     Data: (f64, Id)
+}
+
+-- Claim a held mailbox message (Core.Mail.claim). (messageId) -- v1.2
+event RequestMailClaim {
+    From: Client,
+    Type: Reliable,
+    Call: SingleAsync,
+    Data: Id
 }
 
 -- Admin-only: trigger a configured event now. Server checks ServerConfig.admins (Core.start's

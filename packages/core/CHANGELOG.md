@@ -4,6 +4,48 @@ Core's public interface (`packages/core/shared/Types.luau`, `packages/core/share
 only gains things: no renames, no removals; old calls are marked deprecated instead.
 Every change is recorded here, newest first.
 
+## core-v1.2.0 (unreleased)
+
+Finishing the platform: open findings N1, N3, N4, N6, N8, N9, game-agent guardrails, multi-player
+tests, publishing readiness. Interface additive only (one behaviour change below).
+
+### core-contract-v1.2 (Phase 0)
+
+Behaviour change (no game shipped, so changed in place): a Mail handler returning `false` no
+longer counts as a failure; the message waits in the player's mailbox (N1).
+
+Added:
+- `Mail.pending(player) -> { MailboxEntry }`, `Mail.claim(player, messageId) -> (ok, reason?)`,
+  `Types.MailboxEntry`, `Types.MailOutboxEntry`, `MailState.box?` / `.outbox?`,
+  `Types.MailConfig` + `GameConfig.mail?` (`maxAttempts`, `backoff`, `mailboxCap`), ctx-only
+  `Mail.sendInto(tx, toUserId, kind, payload, key)` (Context.MailInternal). Kinds `core_*` reserved.
+- Client: `ReplicatedState.mailbox?`, `Core.Client.onMailbox(fn(count))`,
+  `Actions.claimMail(messageId)` (Blink `RequestMailClaim`, rate 2/s burst 5),
+  `HudOptions.onMailbox` + the HUD's "Mailbox (N)" badge (Mail module only).
+- `Inventory.sendGift(from, toUserId, uid, reason?) -> (ok, reason?)` (needs Mail; Inventory's
+  optional dependencies gain Mail).
+- `RarityTableConfig.luckDisclosed?`, `OddsDetail.luck?` / `.luckDisclosed?`,
+  `Rarity.getOddsDetail(tableId, player?)`, `Rarity.setLuck(player, luck, tableId?)`,
+  `Rarity.getLuck(player, tableId?)`; `roll`/`tx.roll` with `luck = nil` use `getLuck`.
+  Hard rule: a paid roll with effective luck ~= 1 errors unless the table is `luckDisclosed` and
+  the client was sent odds with that luck (N4).
+- ctx-only `Items.onRegistered(fn)` (N3), `ctx.sentReplicated(player, key)` (N4).
+- `Core.Net.handle(eventName, blinkEvent, { rate, burst }, handler)` (`Types.NetAPI`,
+  `Types.RateLimitSpec`): game remotes through core's Net. "Net" joins `Modules.FOUNDATION`.
+- `ConfigValidate`: `mail` section, `luckDisclosed` boolean.
+- `Core.version` = "1.2.0".
+
+Fixed:
+- N6 legacy (id-less) mail ids include a payload hash.
+- N8 in Studio, the facade's `Data.get`/`getGame` return frozen copies (`Data/ReadOnlyView`), so an
+  in-place write errors instead of silently skipping replication. Facade builder honours
+  `service.facade` overrides.
+- N9 `Receipt.forgetPlayer` returns the dropped entries; Shop logs `ProductPurchased` for them.
+
+Tooling: `tools/lune/guardrails.luau` (modules / packages / numbers / remotes, with
+`--self-test`) wired into `tools/lint`. Sandbox and template moved their two literal grant
+numbers to `Config/Tuning.luau`.
+
 ## core-v1.1.0 (2026-11-10)
 
 Hardening before the games: review findings M1–M7 and L1–L7, plus the user's decisions 1–4.

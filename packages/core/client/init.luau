@@ -6,13 +6,16 @@
 	State -> Input -> Feedback -> (game calls Core.Client.Hud.mount when it wants the HUD).
 ]]
 
-local Types = require(game:GetService("ReplicatedStorage"):WaitForChild("Core"):WaitForChild("Types"))
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local Charm = require(ReplicatedStorage:WaitForChild("Packages"):WaitForChild("Charm")) :: any
+local Types = require(ReplicatedStorage:WaitForChild("Core"):WaitForChild("Types"))
 
 local Actions = require(script.Actions)
 local Feedback = require(script.Feedback)
 local Hud = require(script.Hud)
 local Input = require(script.Input)
 local State = require(script.State)
+local Visibility = require(script.Hud.Visibility)
 
 local Client = {}
 
@@ -26,16 +29,51 @@ local function pick(source: { [string]: any }, names: { string }): any
 	return table.freeze(out)
 end
 
+-- v1.2 (N1): handler(count) when the loaded mailbox count changes (and once now if loaded).
+local function onMailbox(handler: (count: number) -> ()): Types.Connection
+	assert(type(handler) == "function", "Core.Client.onMailbox: handler must be a function")
+	local function countOf(): number
+		local s = State.atom()
+		return if s.loaded then Visibility.mailboxCount(s) else -1
+	end
+	local last = countOf()
+	if last >= 0 then
+		task.spawn(handler, last)
+	end
+	local cleanup = Charm.subscribe(countOf, function(n: number)
+		if n >= 0 and n ~= last then
+			last = n
+			task.spawn(handler, n)
+		end
+	end)
+	local connection = { Connected = true }
+	function connection.Disconnect(self: any)
+		if self.Connected then
+			self.Connected = false
+			cleanup()
+		end
+	end
+	return (connection :: any) :: Types.Connection
+end
+
 Client.api = table.freeze({
 	state = State.atom,
 	Feedback = pick(Feedback, { "pop", "flash", "sound", "shake" }),
 	Input = pick(Input, { "device", "deviceChanged", "bind", "unbind" }),
-	Actions = pick(
-		Actions,
-		{ "display", "clearDisplay", "rebirth", "upgrade", "roll", "gift", "triggerEvent", "funnel" }
-	),
+	Actions = pick(Actions, {
+		"display",
+		"clearDisplay",
+		"rebirth",
+		"upgrade",
+		"roll",
+		"gift",
+		"triggerEvent",
+		"funnel",
+		"claimMail",
+	}),
 	Hud = pick(Hud, { "mount", "unmount" }),
 	onFeedbackEvent = Feedback.onFeedbackEvent,
+	onMailbox = onMailbox,
 }) :: Types.ClientAPI
 
 function Client.start(

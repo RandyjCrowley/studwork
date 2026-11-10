@@ -156,6 +156,9 @@ function ConfigValidate.validate(config: any): { string }
 			if t.luckMinTier ~= nil and not RarityTiers.isTier(t.luckMinTier) then
 				err(where .. ".luckMinTier invalid")
 			end
+			if t.luckDisclosed ~= nil and type(t.luckDisclosed) ~= "boolean" then
+				err(where .. ".luckDisclosed must be a boolean")
+			end
 			if t.pity ~= nil then
 				if not Validate.isInteger(t.pity.threshold) or t.pity.threshold < 1 then
 					err(where .. ".pity.threshold must be an integer >= 1")
@@ -349,6 +352,34 @@ function ConfigValidate.validate(config: any): { string }
 	if config.analytics ~= nil then
 		if type(config.analytics.funnel) ~= "table" then
 			err("analytics.funnel must be a list of step names")
+		end
+	end
+
+	-- mail tuning (v1.2): reliability rails, all optional
+	if config.mail ~= nil then
+		local m = config.mail
+		if type(m) ~= "table" then
+			err("mail must be a table")
+		else
+			if m.maxAttempts ~= nil and (not Validate.isInteger(m.maxAttempts) or m.maxAttempts < 1) then
+				err("mail.maxAttempts must be an integer >= 1")
+			end
+			if m.mailboxCap ~= nil and (not Validate.isInteger(m.mailboxCap) or m.mailboxCap < 1) then
+				err("mail.mailboxCap must be an integer >= 1")
+			end
+			if m.backoff ~= nil then
+				local bo = m.backoff
+				if
+					type(bo) ~= "table"
+					or not Validate.isPositiveNumber(bo.base)
+					or not Validate.isPositiveNumber(bo.factor)
+					or bo.factor < 1
+					or not Validate.isPositiveNumber(bo.max)
+					or bo.max < bo.base
+				then
+					err("mail.backoff must be { base > 0, factor >= 1, max >= base } (seconds)")
+				end
+			end
 		end
 	end
 

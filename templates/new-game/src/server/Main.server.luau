@@ -10,6 +10,7 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
 local Core = require(ReplicatedStorage:WaitForChild("Core"))
 local Config = require(ReplicatedStorage:WaitForChild("Game"):WaitForChild("Config"))
+local Tuning = require(ReplicatedStorage:WaitForChild("Game"):WaitForChild("Config"):WaitForChild("Tuning"))
 local ServerConfig = require(script.Parent.ServerConfig)
 local World = require(script.Parent.World)
 
@@ -93,8 +94,8 @@ Core.Shop.onProduct("EggRoll", function(_data, _receipt, tx)
 	assert(def and info.ok, info.reason or "roll failed") -- e.g. inventory full: retried later
 end)
 Core.Shop.onProduct("CoinPack", function(_data, _receipt, tx)
-	assert(tx.grant(1000), "grant failed")
+	assert(tx.grant(Tuning.coinPackCoins), "grant failed")
 end)
 Core.Shop.onPassOwned("DoubleCoins", function(player)
-	Core.Economy.addMultiplier(player, "pass:DoubleCoins", 2)
+	Core.Economy.addMultiplier(player, "pass:DoubleCoins", Tuning.doubleCoinsMultiplier)
 end)

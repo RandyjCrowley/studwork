@@ -108,6 +108,26 @@ function Mail.send(userId: number, kind: string, payload: { [string]: any }, key
 	return true
 end
 
+-- v1.2 (N1) CONTRACT STUBS (core-contract-v1.2): agent A implements (Types.MailAPI comments).
+function Mail.pending(_player: Player): { Types.MailboxEntry }
+	return {}
+end
+
+function Mail.claim(_player: Player, _messageId: string): (boolean, string?)
+	return false, "not_found"
+end
+
+-- ctx-only (Context.MailInternal). Contract stub: agent A implements.
+function Mail.sendInto(
+	_tx: any,
+	_toUserId: number,
+	_kind: string,
+	_payload: { [string]: any },
+	_key: string
+): boolean
+	error("[Core.Mail] sendInto is not implemented yet (core-contract-v1.2 stub)", 2)
+end
+
 function Mail.onReceive(kind: string, handler: Handler): Types.Connection
 	assert(MailValidate.kind(kind), "Mail.onReceive: invalid kind")
 	assert(type(handler) == "function", "Mail.onReceive: handler must be a function")

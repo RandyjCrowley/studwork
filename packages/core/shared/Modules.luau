@@ -16,7 +16,7 @@
 local Modules = {}
 
 -- Server namespaces that are always on.
-Modules.FOUNDATION = { "Data", "Policy", "Analytics", "Events", "Shop" }
+Modules.FOUNDATION = { "Data", "Policy", "Analytics", "Events", "Shop", "Net" }
 
 -- Every optional module in default boot order (a valid topological order).
 Modules.MODULE_ORDER = {
@@ -40,7 +40,7 @@ export type ModuleSpec = {
 
 Modules.SPECS = {
 	Items = { requires = {}, optional = {} },
-	Inventory = { requires = { "Items" }, optional = { "Plot", "Upgrades" } },
+	Inventory = { requires = { "Items" }, optional = { "Plot", "Upgrades", "Mail" } },
 	Rarity = { requires = { "Items" }, optional = { "Inventory", "Economy" } },
 	Economy = { requires = {}, optional = { "Items", "Rebirth", "Upgrades", "Friends" } },
 	Upgrades = { requires = { "Economy" }, optional = { "Rebirth" } },
@@ -60,8 +60,8 @@ Modules.API = {
 	Events = { "schedule", "trigger", "isActive", "onEnded" },
 	Shop = { "onProduct", "ownsPass", "onPassOwned" },
 	Items = { "register", "get", "all", "byTag", "incomeOf" },
-	Inventory = { "add", "remove", "get", "list", "count", "cap", "transfer", "canTrade" },
-	Rarity = { "roll", "getOdds", "getOddsDetail", "tiers" },
+	Inventory = { "add", "remove", "get", "list", "count", "cap", "transfer", "canTrade", "sendGift" },
+	Rarity = { "roll", "getOdds", "getOddsDetail", "tiers", "setLuck", "getLuck" },
 	Economy = {
 		"grant",
 		"spend",
@@ -78,7 +78,8 @@ Modules.API = {
 	Offline = { "onReturn" },
 	Streak = { "onDaily", "get" },
 	Friends = { "onCoPlay", "friendsInServer" },
-	Mail = { "send", "onReceive" },
+	Mail = { "send", "onReceive", "pending", "claim" },
+	Net = { "handle" },
 	Plot = { "get", "owner", "display", "clearDisplay", "slots", "onAssigned" },
 } :: { [string]: { string } }
 
@@ -90,6 +91,7 @@ Modules.CLIENT_ACTIONS = {
 	upgrade = "Upgrades",
 	roll = "Rarity",
 	gift = "Inventory",
+	claimMail = "Mail",
 } :: { [string]: string }
 
 function Modules.isModule(name: any): boolean

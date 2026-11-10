@@ -35,7 +35,9 @@ local Receipt = {}
 export type Decision = "PurchaseGranted" | "NotProcessedYet"
 export type CommitStatus = "committed" | "handler_error" | "handler_yielded" | "retry_later" | "not_loaded"
 
-export type Pending = { userId: number, effects: { () -> () } }
+-- currencySpent (v1.2, N9): kept so the purchase analytics can still be logged if the player
+-- leaves before the save is confirmed (Receipt.forgetPlayer returns the dropped entries).
+export type Pending = { userId: number, effects: { () -> () }, currencySpent: number? }
 
 export type Deps<P> = {
 	inFlight: { [string]: boolean },
@@ -98,7 +100,11 @@ local function run<P>(receipt: any, deps: Deps<P>): Result
 	end
 	local queue = effects or {}
 	if not trySave(deps, player) then
-		deps.pending[purchaseId] = { userId = receipt.PlayerId, effects = queue }
+		deps.pending[purchaseId] = {
+			userId = receipt.PlayerId,
+			effects = queue,
+			currencySpent = if type(receipt.CurrencySpent) == "number" then receipt.CurrencySpent else nil,
+		}
 		return result("NotProcessedYet", "save_failed")
 	end
 	return result("PurchaseGranted", "granted", queue)
@@ -174,13 +180,19 @@ function Receipt.commit<P>(
 	return "committed", queue, nil
 end
 
--- Drops the parked effects of a player who left (their save can't be confirmed here anymore).
-function Receipt.forgetPlayer(pending: { [string]: Pending }, userId: number)
+-- Drops the parked effects of a player who left (their save can't be confirmed here anymore)
+-- and returns them (v1.2, N9). The grant itself is persisted by the session-end save; the
+-- caller logs the purchase analytics for each returned entry, since the next server will only
+-- see a "duplicate" with nothing parked. Game tx.after effects are dropped (the player left).
+function Receipt.forgetPlayer(pending: { [string]: Pending }, userId: number): { Pending }
+	local dropped: { Pending } = {}
 	for id, p in pending do
 		if p.userId == userId then
 			pending[id] = nil
+			table.insert(dropped, p)
 		end
 	end
+	return dropped
 end
 
 return Receipt

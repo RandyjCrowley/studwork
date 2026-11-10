@@ -9,6 +9,8 @@
 	get(id) / all() (registration order) / byTag(tag) (indexed; returns a fresh array) /
 	incomeOf(instance) = def.incomePerSec * mutation multiplier (balance.mutations; unknown
 	mutation -> multiplier 1, unknown item -> 0). Registered defs are frozen copies.
+	v1.2 (N3): onRegistered(fn) (ctx-only, Context.ItemsInternal) runs fn(defs) after every
+	successful register() made after Items.start, so Rarity re-sends the disclosed odds.
 ]]
 
 local Core = game:GetService("ReplicatedStorage"):WaitForChild("Core")
@@ -23,6 +25,8 @@ local byId: { [string]: Types.ItemDef } = {}
 local ordered: { Types.ItemDef } = {}
 local tagIndex: { [string]: { Types.ItemDef } } = {}
 local mutationMult: { [string]: number } = {}
+local registeredHooks: { (defs: { Types.ItemDef }) -> () } = {}
+local started = false
 
 local function freezeDef(def: Types.ItemDef): Types.ItemDef
 	local copy = table.clone(def)
@@ -42,7 +46,15 @@ function Items.init(context: any)
 	Items.register(ctx.config.items)
 end
 
-function Items.start() end
+function Items.start()
+	started = true
+end
+
+-- ctx-only (Context.ItemsInternal): fn(defs) after each successful register() once started.
+function Items.onRegistered(fn: (defs: { Types.ItemDef }) -> ())
+	assert(type(fn) == "function", "[Core.Items] onRegistered: fn must be a function")
+	table.insert(registeredHooks, fn)
+end
 
 function Items.register(defs: { Types.ItemDef })
 	local ok, err = ItemValidate.validateBatch(defs, function(id: string): boolean
@@ -65,6 +77,16 @@ function Items.register(defs: { Types.ItemDef })
 					tagIndex[tag] = list
 				end
 				table.insert(list, frozen)
+			end
+		end
+	end
+	if started then
+		for _, hook in registeredHooks do
+			local hookOk, hookErr = pcall(function()
+				hook(defs)
+			end)
+			if not hookOk then
+				warn("[Core.Items] onRegistered hook failed: " .. tostring(hookErr))
 			end
 		end
 	end

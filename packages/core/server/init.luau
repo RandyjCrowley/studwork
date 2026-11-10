@@ -35,6 +35,7 @@ local services = {
 	Analytics = require(script.Analytics),
 	Mail = require(script.Mail),
 	Plot = require(script.Plot),
+	Net = require(script.GameNet), -- v1.2: Core.Net (game remotes); core's own Net is ctx.net
 }
 
 local Replication = require(script.Replication)
@@ -68,6 +69,9 @@ function Server.start(
 		end,
 		setReplicatedAll = function(key: string, value: any)
 			Replication.setAll(key, value)
+		end,
+		sentReplicated = function(player: Player, key: string): any
+			return Replication.sent(player, key)
 		end,
 		console = Console,
 		isStudio = RunService:IsStudio(),
