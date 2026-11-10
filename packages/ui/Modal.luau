@@ -2,7 +2,9 @@
 --[[
 	Modal: dimmed full-screen backdrop + centred Panel with a title and a close (X) button.
 	Render it inside a ScreenGui whose ScreenInsets keep it in the safe area (see AutoScale /
-	README); the panel is capped to 92% x 88% of the screen so it never runs under notches.
+	README); the panel is capped to 92% x 88% of the screen so it never runs under notches:
+	when its content is taller or wider than that, the whole panel (title and close button
+	included) is scaled down to fit (Modal.fitScale, v1.2 playtest fix).
 
 	props:
 		open: boolean                when false nothing is rendered
@@ -22,6 +24,8 @@ local Theme = require(script.Parent.Theme)
 
 local e = React.createElement
 
+local fitScale = require(script.Parent.ModalFit).fitScale
+
 export type Props = {
 	open: boolean,
 	title: string?,
@@ -32,6 +36,42 @@ export type Props = {
 }
 
 local function Modal(props: Props)
+	local bodyRef = React.useRef(nil :: Frame?)
+	local scale, setScale = React.useState(1)
+	React.useEffect(function(): (() -> ())?
+		local body = bodyRef.current
+		if not props.open or body == nil then
+			return nil
+		end
+		local backdrop = body.Parent :: GuiObject?
+		local current = scale
+		local function refit()
+			if backdrop == nil or body.Parent == nil then
+				return
+			end
+			-- AbsoluteSize includes our own UIScale: divide it out to get the unscaled size
+			local s = if current > 0 then current else 1
+			local nextScale = fitScale(
+				body.AbsoluteSize.X / s,
+				body.AbsoluteSize.Y / s,
+				backdrop.AbsoluteSize.X,
+				backdrop.AbsoluteSize.Y
+			)
+			if math.abs(nextScale - current) > 0.01 then
+				current = nextScale
+				setScale(nextScale)
+			end
+		end
+		refit()
+		local a = body:GetPropertyChangedSignal("AbsoluteSize"):Connect(refit)
+		local b = if backdrop then backdrop:GetPropertyChangedSignal("AbsoluteSize"):Connect(refit) else nil
+		return function()
+			a:Disconnect()
+			if b then
+				b:Disconnect()
+			end
+		end
+	end, { props.open, scale } :: { any })
 	if not props.open then
 		return nil
 	end
@@ -63,7 +103,9 @@ local function Modal(props: Props)
 			Position = UDim2.fromScale(0.5, 0.5),
 			AnchorPoint = Vector2.new(0.5, 0.5),
 			ZIndex = 51,
+			ref = bodyRef,
 		}, {
+			Fit = e("UIScale", { Scale = scale }),
 			Limit = e("UISizeConstraint", { MinSize = Vector2.new(320, 0), MaxSize = Vector2.new(640, 560) }),
 			-- swallow taps on the panel so they don't hit the backdrop
 			Sink = e("TextButton", {
