@@ -84,6 +84,8 @@ client-guessed odds for a Robux purchase if the server applies luck; send the se
 
 ## Mobile checklist
 
+- ScreenGui: `DisplayOrder` above 5 (the core HUD) for screens that open modals, or the HUD
+  pills draw over the modal (seen live on the odds table).
 - ScreenGui: `ScreenInsets = CoreUISafeInsets` for interactive UI (clear of the top bar, notch and
   home indicator), `ResetOnSpawn = false`, `SafeAreaCompatibility = FullscreenExtension` (default).
 - One `UI.ScaledRoot` per screen; author in design pixels, don't hand-scale per device.

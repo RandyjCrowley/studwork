@@ -149,6 +149,7 @@ local screen = Instance.new("ScreenGui")
 screen.Name = "SandboxActions"
 screen.ResetOnSpawn = false
 screen.ScreenInsets = Enum.ScreenInsets.CoreUISafeInsets
+screen.DisplayOrder = 10 -- above the core HUD (5) so modals (odds) cover it
 screen.Parent = Players.LocalPlayer:WaitForChild("PlayerGui")
 
 local root = ReactRoblox.createRoot(screen)

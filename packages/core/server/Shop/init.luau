@@ -62,7 +62,16 @@ local function products(): Types.ProductsConfig
 	return ctx.config.products or { passes = {}, devProducts = {} }
 end
 
+-- Set by the Studio `receipt` command while it simulates a product (ids of 0 are ambiguous).
+local simulatedName: string? = nil
+
 local function productName(id: number): string?
+	if simulatedName then
+		return simulatedName
+	end
+	if id <= 0 then
+		return nil -- several products may still have id 0 (not created yet)
+	end
 	for name, pid in products().devProducts do
 		if pid == id then
 			return name
@@ -274,8 +283,14 @@ local function consoleReceipt(...: any): string?
 		CurrencySpent = 0,
 		PlaceIdWherePurchased = game.PlaceId,
 	}
-	local first = processWith(receipt, handler)
-	local second = processWith(receipt, handler)
+	simulatedName = if products().devProducts[name] ~= nil then name else nil
+	local ok, first, second = pcall(function()
+		return processWith(receipt, handler), processWith(receipt, handler)
+	end)
+	simulatedName = nil
+	if not ok then
+		return "receipt simulation errored: " .. tostring(first)
+	end
 	return `{purchaseId}: 1st {first.decision} ({first.reason}), 2nd {second.decision} ({second.reason})`
 end
 
