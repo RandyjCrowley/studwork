@@ -19,9 +19,14 @@ local ReactCharm = require(ReplicatedStorage:WaitForChild("Packages"):WaitForChi
 local ReactRoblox = require(ReplicatedStorage:WaitForChild("Packages"):WaitForChild("ReactRoblox"))
 local UI = require(ReplicatedStorage:WaitForChild("UI"))
 
+local Charm = require(ReplicatedStorage:WaitForChild("Packages"):WaitForChild("Charm"))
+
 local e = React.createElement
 
 Core.start(Config)
+
+-- v1.2 mailbox: the HUD shows "Mailbox (N)" while gifts wait (full inventory); tapping opens this.
+local mailboxOpen = Charm.atom(false)
 
 local function rebirthCost(rebirths: number): number
 	local r = Config.balance.rebirth :: any
@@ -29,6 +34,9 @@ local function rebirthCost(rebirths: number): number
 end
 
 Core.Client.Hud.mount({
+	onMailbox = function()
+		mailboxOpen(true)
+	end,
 	nextGoal = function()
 		local state = Core.Client.state()
 		if not state.data then
@@ -51,6 +59,23 @@ end
 local function ActionBar()
 	local state = ReactCharm.useAtom(Core.Client.state)
 	local oddsFor_, setOddsFor = React.useState("")
+	local showMailbox = ReactCharm.useAtom(mailboxOpen)
+	local mailRows: { [string]: any } = {}
+	local mailbox: { any } = state.mailbox or {}
+	for i, entry in mailbox do
+		local itemId = if type(entry.payload) == "table" then entry.payload.itemId else nil
+		local item = if type(entry.payload) == "table" and type(entry.payload.item) == "table"
+			then entry.payload.item.itemId
+			else itemId
+		mailRows["Row" .. i] = e(UI.Button, {
+			text = "Claim " .. tostring(item or entry.kind),
+			variant = "secondary",
+			layoutOrder = i,
+			onActivated = function()
+				Core.Client.Actions.claimMail(entry.id)
+			end,
+		})
+	end
 	local data = state.data
 	local level = if data then (data.upgrades.IncomeBoost or 0) else 0
 	local chestCost = (Config.balance.rarityTables :: any).Chest.cost.amount
@@ -101,6 +126,13 @@ local function ActionBar()
 				end,
 			}),
 		}),
+		Mailbox = e(UI.Modal, {
+			open = showMailbox and #mailbox > 0,
+			title = "Mailbox",
+			onClose = function()
+				mailboxOpen(false)
+			end,
+		}, mailRows),
 		-- Both rolls are paid random items (Robux egg; Chest costs Coins, which are sold for
 		-- Robux), so the exact odds are always shown before rolling and restricted players get
 		-- no roll button.

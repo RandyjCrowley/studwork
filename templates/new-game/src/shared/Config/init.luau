@@ -22,7 +22,7 @@ local Config: Types.GameConfig = {
 		"Offline", -- what returning players get for time away (balance.offline; autoPay needs Economy)
 		"Streak", -- daily UTC streak with grace (balance.streak; rewards need Economy)
 		"Friends", -- co-play detection + optional income bonus (balance.friends)
-		"Mail", -- cross-server / offline messages, at-least-once (handlers must be idempotent)
+		"Mail", -- cross-server / offline messages + mailbox (handler false = held; must be idempotent)
 		"Plot", -- per-player plots with item display slots (needs Inventory; balance.plot)
 	},
 	items = require(script.Items),
