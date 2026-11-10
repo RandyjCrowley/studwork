@@ -60,3 +60,14 @@ attributes `ItemUid`, `ItemId`, `Rarity`, `DisplaySlotId`. All parts are anchore
   limit. Idle bob/spin isn't done on the server; a client effect can find visuals through
   `CoreDisplays`.
 - **Console** (Studio only): `plot [userId]` prints the assignment and slot occupancy.
+
+## Performance (M5)
+- The slot map (slotId -> part + sorted records) is cached per session (`SlotCache.luau`), built once at assignment by walking the plot **without** the `CoreDisplays` folder. It is invalidated only when a BasePart with a `SlotId` is added to / removed from the plot outside `CoreDisplays`. Editing `SlotId`/`SlotTag` on an already-parented part does not invalidate: set slot attributes before parenting.
+- `display` runs the cheap checks first (`Slots.precheck`: `data.inventory[uid]`, already displayed) before any slot lookup. `clearDisplay` never looks up slots (and deliberately does not require ownership: it runs on `ItemRemoved`, after the item left the inventory).
+
+## Ownership of `displayed` (M7)
+- Plot is the only writer of `PlayerData.displayed`; every Plot `Data.update` writes only that section.
+- Rebirth reset step `addResetStep("Plot", ...)` -> `Slots.resetDisplayed(data, balance.rebirth.keepDisplayed)`: clears every slot, or with `keepDisplayed` keeps owned items and drops uids that left the inventory.
+- `ItemRemoved` -> `clearDisplay` (Inventory no longer scrubs `displayed`).
+- `Items` is optional: without it (`ctx.isEnabled("Items")` false) items are treated as untagged and labelled with their itemId.
+

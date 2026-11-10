@@ -97,3 +97,26 @@ describe("Replication.Snapshot.build", function()
 		expect(Snapshot.build(data) == Snapshot.build(data)).toBe(false)
 	end)
 end)
+
+describe("Replication.Snapshot.build opts (M2)", function()
+	it("uses dataCopy instead of copying data", function()
+		local data = { a = 1 }
+		local dataCopy = { a = 1 }
+		local s = Snapshot.build(data, nil, nil, { dataCopy = dataCopy })
+		expect(s.data == dataCopy).toBe(true)
+		expect(s.loaded).toBe(true)
+	end)
+	it("reuses pre-sanitised table values by reference", function()
+		local events = { rain = 1 }
+		local odds = { basic = { tiers = {} } }
+		local s = Snapshot.build(nil, nil, { activeEvents = events, odds = odds }, { sanitized = true })
+		expect(s.activeEvents == events).toBe(true)
+		expect(s.odds == odds).toBe(true)
+		local copied = Snapshot.build(nil, nil, { activeEvents = events, odds = odds })
+		expect(copied.activeEvents == events).toBe(false)
+		expect(copied.odds.basic ~= nil).toBe(true)
+	end)
+	it("odds is a known extra key", function()
+		expect(Snapshot.EXTRA_KEYS.odds).toBe(true)
+	end)
+end)

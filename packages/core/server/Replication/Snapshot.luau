@@ -14,7 +14,7 @@
 		    userdata, Vector3 etc. are dropped - PlayerData never holds them)
 		  * depth capped at MAX_DEPTH (cycles cannot blow the stack)
 
-	Snapshot.build(data, extra, shared) -> ReplicatedState-shaped table (already sanitised).
+	Snapshot.build(data, extra, shared, opts?) -> ReplicatedState-shaped table (already sanitised).
 ]]
 
 local MAX_DEPTH = 16
@@ -101,7 +101,18 @@ end
 
 -- extra: per-player keys from Replication.set; shared: keys from Replication.setAll.
 -- Per-player values win over shared ones for the same key.
-function Snapshot.build(data: any, extra: { [string]: any }?, shared: { [string]: any }?): { [string]: any }
+-- opts (M2, both optional):
+--   dataCopy  = an already sanitised data copy (SectionCache.build) used instead of copying `data`
+--   sanitized = true when table values in extra/shared were already passed through Snapshot.copy
+--               (Replication copies them once in set/setAll), so they are reused by reference
+export type BuildOptions = { dataCopy: any?, sanitized: boolean? }
+
+function Snapshot.build(
+	data: any,
+	extra: { [string]: any }?,
+	shared: { [string]: any }?,
+	opts: BuildOptions?
+): { [string]: any }
 	local e: { [string]: any } = extra or {}
 	local s: { [string]: any } = shared or {}
 	local function pick(key: string): any
@@ -111,15 +122,26 @@ function Snapshot.build(data: any, extra: { [string]: any }?, shared: { [string]
 		end
 		return v
 	end
-	local events = pick("activeEvents")
+	local o: BuildOptions = opts or {}
+	local function tableOf(value: any): any
+		if type(value) ~= "table" then
+			return nil
+		end
+		return if o.sanitized then value else Snapshot.copy(value)
+	end
+	local dataCopy = nil
+	if data ~= nil then
+		dataCopy = if o.dataCopy ~= nil then o.dataCopy else Snapshot.copy(data)
+	end
 	return {
 		loaded = data ~= nil,
-		data = if data ~= nil then Snapshot.copy(data) else nil,
+		data = dataCopy,
 		ratePerSec = num(pick("ratePerSec"), 0),
 		multiplier = num(pick("multiplier"), 1),
 		paidRandomRestricted = bool(pick("paidRandomRestricted"), true),
-		activeEvents = if type(events) == "table" then Snapshot.copy(events) else {},
+		activeEvents = tableOf(pick("activeEvents")) or {},
 		plotName = if type(pick("plotName")) == "string" then pick("plotName") else nil,
+		odds = tableOf(pick("odds")),
 	}
 end
 
@@ -130,6 +152,7 @@ Snapshot.EXTRA_KEYS = {
 	paidRandomRestricted = true,
 	activeEvents = true,
 	plotName = true,
+	odds = true,
 }
 
 return Snapshot

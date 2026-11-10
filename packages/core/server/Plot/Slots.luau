@@ -135,15 +135,38 @@ export type DisplayInput = {
 	itemTags: { string }?,
 }
 
+-- Cheap checks that need no slot lookup (M5): run BEFORE building/reading the slot map so that
+-- invalid / spammed requests never pay for it. Returns a reason or nil.
+function Slots.precheck(owned: { [string]: any }, displayed: { [string]: string }, uid: string): string?
+	if owned[uid] == nil then
+		return Slots.NOT_OWNED
+	end
+	if Slots.isDisplayed(displayed, uid) ~= nil then
+		return Slots.ALREADY_DISPLAYED
+	end
+	return nil
+end
+
+-- Rebirth reset step (M7, Plot owns `displayed`). Mutates data.displayed ONLY: clears every slot
+-- unless keepDisplayed == true, and always drops slots whose uid left the inventory.
+function Slots.resetDisplayed(
+	data: { displayed: { [string]: string }, inventory: { [string]: any } },
+	keepDisplayed: boolean?
+)
+	for slotId, uid in data.displayed do
+		if keepDisplayed ~= true or data.inventory[uid] == nil then
+			data.displayed[slotId] = nil
+		end
+	end
+end
+
 -- Validates a display request. Returns (slotId, nil) on success or (nil, reason).
 -- Check order: not_owned, already_displayed, then (explicit slot) no_slot, slot_taken,
 -- tag_mismatch / (auto slot) no_free_slot.
 function Slots.validateDisplay(input: DisplayInput): (string?, string?)
-	if input.owned[input.uid] == nil then
-		return nil, Slots.NOT_OWNED
-	end
-	if Slots.isDisplayed(input.displayed, input.uid) ~= nil then
-		return nil, Slots.ALREADY_DISPLAYED
+	local early = Slots.precheck(input.owned, input.displayed, input.uid)
+	if early ~= nil then
+		return nil, early
 	end
 	if input.slotId == nil then
 		local free = Slots.firstFree(input.slots, input.displayed, input.itemTags)

@@ -1,0 +1,5 @@
+#!/usr/bin/env bash
+# tools/bench [runs]: Lune micro-benchmarks for core (packages/core/bench/*). Not part of tools/test.
+source "$(dirname "$0")/_common.sh"
+
+lune run packages/core/bench/replication "$@"
