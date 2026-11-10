@@ -64,7 +64,7 @@ check() {
 	local label="$1"
 	shift
 	if "$@" >"$LOG" 2>&1; then
-		echo "$label: $(tail -1 "$LOG")"
+		echo "  $(tail -1 "$LOG")"
 	else
 		cat "$LOG"
 		rm -f "$LOG"

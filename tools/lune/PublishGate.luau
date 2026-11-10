@@ -12,8 +12,9 @@
 	    dirty        { string } build-relevant paths with uncommitted changes (game folder, core,
 	                 deps), deploy.json excluded (publishing itself writes it)
 	    keyPresent   boolean: ROBLOX_OPEN_CLOUD_API_KEY is set (the value never reaches this module)
-	    testEquivalent boolean?: the recorded test commit differs from HEAD only in files that do not
-	                 change the build (deploy.json, GAMES.md); computed by the caller with git
+	    testEquivalent boolean?: the recorded test commit and HEAD have identical build inputs
+	                 (games/<name> minus deploy.json, packages/, deps/), e.g. only the stamp files
+	                 or tools/docs changed since; computed by the caller with `git diff --quiet`
 	  }
 	Decision = { ok, errors, warnings, record = "published" | "dryRun" }
 
