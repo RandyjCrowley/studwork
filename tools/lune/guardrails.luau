@@ -208,6 +208,21 @@ function Guard.scanSource(source: string, ctx): { string }
 		then
 			add(lineNo, "modules", "game code must use the Core facade, not CoreServer/CoreClient internals")
 		end
+		if
+			not allowed(raw, "modules")
+			and (
+				string.find(code, 'Child%(%s*"Kits"')
+				or string.find(code, "Child%(%s*'Kits'")
+				or string.find(code, "%.Kits[%.:]")
+			)
+		then
+			-- core-v1.3.0 step 5: the v1.2 services now live in ServerScriptService.Kits.<Kit>
+			add(
+				lineNo,
+				"modules",
+				"game code must use the Core facade, not the kits' service internals (Kits)"
+			)
+		end
 
 		-- remotes
 		if not allowed(raw, "remotes") then
@@ -425,6 +440,12 @@ local function selfTest(): boolean
 	expectCheck("module off", Guard.scanSource("Core.Rebirth.rebirth(player)", server), "modules")
 	expectCheck("action off", Guard.scanSource("Core.Client.Actions.rebirth()", client), "modules")
 	expectCheck("internals", Guard.scanSource('require(SSS:WaitForChild("CoreServer"))', server), "modules")
+	expectCheck(
+		"kit internals",
+		Guard.scanSource('require(SSS:WaitForChild("Kits"):WaitForChild("Economy"))', server),
+		"modules"
+	)
+	expectCheck("kit internals dot", Guard.scanSource("require(SSS.Kits.Economy.Economy)", server), "modules")
 	expectClean("module on", Guard.scanSource("Core.Economy.grant(player, Balance.reward, 'x')", server))
 	expectClean("comment", Guard.scanSource("-- Core.Rebirth.rebirth(player)", server))
 	expectClean(
@@ -473,7 +494,7 @@ local function selfTest(): boolean
 
 	expectCheck(
 		"game branch",
-		Guard.packagesFindings("game/example-shop", { "packages/core/server/Mail/init.luau" }, {}),
+		Guard.packagesFindings("game/example-shop", { "packages/kits/social/server/Mail/init.luau" }, {}),
 		"packages"
 	)
 	expectCheck(

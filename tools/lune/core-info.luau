@@ -4,7 +4,7 @@
 
 	coreVersion = the `Core.version = "x.y.z"` string in packages/core/shared/init.luau (what the
 	              built place actually reports at runtime).
-	coreCommit  = the last commit that touched packages/core or packages/ui (short hash), with
+	coreCommit  = the last commit that touched packages/core, framework, kits or ui (short hash), with
 	              "-dirty" appended when those folders have uncommitted changes.
 ]]
 
@@ -13,7 +13,7 @@ local process = require("@lune/process")
 
 local CoreInfo = {}
 
-CoreInfo.CORE_PATHS = { "packages/core", "packages/ui" }
+CoreInfo.CORE_PATHS = { "packages/core", "packages/framework", "packages/kits", "packages/ui" }
 
 local function git(args: { string }): (boolean, string)
 	local result = process.exec("git", args)

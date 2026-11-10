@@ -14,11 +14,29 @@
       "Packages": { "$path": "../../deps/Packages" },
       "Core": { "$path": "../../packages/core/shared" },
       "CoreClient": { "$path": "../../packages/core/client" },
+      "Framework": { "$path": "../../packages/framework/shared" },
+      "Kits": {
+        "$className": "Folder",
+        "Collection": { "$path": "../../packages/kits/collection/shared" },
+        "Economy": { "$path": "../../packages/kits/economy/shared" },
+        "Base": { "$path": "../../packages/kits/base/shared" },
+        "Social": { "$path": "../../packages/kits/social/shared" },
+        "Engagement": { "$path": "../../packages/kits/engagement/shared" }
+      },
       "UI": { "$path": "../../packages/ui" },
       "Game": { "$path": "src/shared" }
     },
     "ServerScriptService": {
       "CoreServer": { "$path": "../../packages/core/server" },
+      "Framework": { "$path": "../../packages/framework/server" },
+      "Kits": {
+        "$className": "Folder",
+        "Collection": { "$path": "../../packages/kits/collection/server" },
+        "Economy": { "$path": "../../packages/kits/economy/server" },
+        "Base": { "$path": "../../packages/kits/base/server" },
+        "Social": { "$path": "../../packages/kits/social/server" },
+        "Engagement": { "$path": "../../packages/kits/engagement/server" }
+      },
       "Game": { "$path": "src/server" }
     },
     "ServerStorage": {

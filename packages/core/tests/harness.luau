@@ -210,12 +210,18 @@ end
 
 -- Fake `game` exposing only the Rojo mapping of core (see games/_sandbox/default.project.json):
 --   ReplicatedStorage.Core -> packages/core/shared, .CoreClient -> packages/core/client,
---   .UI -> packages/ui, .Packages -> Packages; ServerScriptService.CoreServer -> packages/core/server.
+--   .UI -> packages/ui, .Packages -> Packages, .Framework -> packages/framework/shared,
+--   .Kits.<Kit> -> packages/kits/<kit>/shared; ServerScriptService.CoreServer -> packages/core/server,
+--   .Framework -> packages/framework/server, .Kits.<Kit> -> packages/kits/<kit>/server.
 -- Any other service errors, so a spec cannot silently depend on the engine.
-local function folderNode(children: { [string]: string })
+local folderNode
+function folderNode(children: { [string]: any })
 	local node = {}
 	local function find(_, name)
 		local path = children[name]
+		if type(path) == "table" then
+			return folderNode(path)
+		end
 		if path and (isDir(path) or isFile(path)) then
 			return makeNode(path)
 		end
@@ -249,8 +255,26 @@ local fakeServices = {
 		CoreClient = "packages/core/client",
 		UI = "packages/ui",
 		Packages = "deps/Packages",
+		Framework = "packages/framework/shared",
+		Kits = {
+			Collection = "packages/kits/collection/shared",
+			Economy = "packages/kits/economy/shared",
+			Base = "packages/kits/base/shared",
+			Social = "packages/kits/social/shared",
+			Engagement = "packages/kits/engagement/shared",
+		},
 	}),
-	ServerScriptService = folderNode({ CoreServer = "packages/core/server" }),
+	ServerScriptService = folderNode({
+		CoreServer = "packages/core/server",
+		Framework = "packages/framework/server",
+		Kits = {
+			Collection = "packages/kits/collection/server",
+			Economy = "packages/kits/economy/server",
+			Base = "packages/kits/base/server",
+			Social = "packages/kits/social/server",
+			Engagement = "packages/kits/engagement/server",
+		},
+	}),
 }
 
 local fakeGame = setmetatable({}, {

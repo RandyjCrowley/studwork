@@ -18,23 +18,28 @@ local Net = require(script.Net)
 local CoreShared = game:GetService("ReplicatedStorage"):WaitForChild("Core")
 local Types = require(CoreShared:WaitForChild("Types"))
 
+-- core-v1.3.0 Phase 0 step 5: the optional services moved to packages/kits/<kit>/server
+-- (Rojo: ServerScriptService.Kits.<Kit>). Their internals are unchanged v1.2 code and this
+-- facade still owns their init/start; the kit modules' defineModule wrappers are dormant.
+local Kits = game:GetService("ServerScriptService"):WaitForChild("Kits")
+
 local services = {
 	Data = require(script.Data),
-	Items = require(script.Items),
+	Items = require(Kits:WaitForChild("Collection"):WaitForChild("Items")),
 	Policy = require(script.Policy),
-	Rarity = require(script.Rarity),
-	Inventory = require(script.Inventory),
-	Economy = require(script.Economy),
-	Upgrades = require(script.Upgrades),
-	Rebirth = require(script.Rebirth),
-	Offline = require(script.Offline),
-	Streak = require(script.Streak),
-	Friends = require(script.Friends),
+	Rarity = require(Kits:WaitForChild("Collection"):WaitForChild("Rarity")),
+	Inventory = require(Kits:WaitForChild("Collection"):WaitForChild("Inventory")),
+	Economy = require(Kits:WaitForChild("Economy"):WaitForChild("Economy")),
+	Upgrades = require(Kits:WaitForChild("Economy"):WaitForChild("Upgrades")),
+	Rebirth = require(Kits:WaitForChild("Economy"):WaitForChild("Rebirth")),
+	Offline = require(Kits:WaitForChild("Economy"):WaitForChild("Offline")),
+	Streak = require(Kits:WaitForChild("Engagement"):WaitForChild("Streak")),
+	Friends = require(Kits:WaitForChild("Social"):WaitForChild("Friends")),
 	Events = require(script.Events),
 	Shop = require(script.Shop),
 	Analytics = require(script.Analytics),
-	Mail = require(script.Mail),
-	Plot = require(script.Plot),
+	Mail = require(Kits:WaitForChild("Social"):WaitForChild("Mail")),
+	Plot = require(Kits:WaitForChild("Base"):WaitForChild("Plot")),
 	Net = require(script.GameNet), -- v1.2: Core.Net (game remotes); core's own Net is ctx.net
 }
 

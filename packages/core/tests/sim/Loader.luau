@@ -18,7 +18,16 @@ local luau = luneRequire("@lune/luau")
 
 local Loader = {}
 
-local ROOTS = { "packages/core/shared", "packages/core/server", "deps/ServerPackages" }
+local ROOTS = {
+	"packages/core/shared",
+	"packages/core/server",
+	"packages/kits/collection/server",
+	"packages/kits/economy/server",
+	"packages/kits/base/server",
+	"packages/kits/social/server",
+	"packages/kits/engagement/server",
+	"deps/ServerPackages",
+}
 
 local kinds: { [string]: "file" | "dir" } = {}
 local listing: { [string]: { string } } = {}

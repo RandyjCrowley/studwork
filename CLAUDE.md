@@ -234,7 +234,7 @@ local Config: Types.GameConfig = {
   Optional: `SlotTag` on a slot (only items with that tag), `PlotOrder` on the plot, a part named
   `Spawn` (or `PlotSpawn = true`) for the owner's spawn. Core writes `OwnerUserId`; don't set it.
   Item models live in `ReplicatedStorage.GameAssets` (or `GameConfig.assetsFolderName`) by
-  `ItemDef.model`. Full table: `packages/core/server/Plot/README.md`.
+  `ItemDef.model`. Full table: `packages/kits/base/server/Plot/README.md`.
 - UI: render screens inside `UI.ScaledRoot`; read `packages/ui/README.md` (mobile checklist).
 - Studio test hooks: `game.ServerScriptService.CoreServer.CoreConsole:Invoke("help")`.
 

@@ -381,3 +381,33 @@ Decisions on the builder's open questions, before Phase 1:
    `start` itself — this matches how every v1.2 service's `start()` already behaves and keeps the
    6-step boot sequence (module-api.md §3) synchronous and fail-closed end to end.
 
+
+## core-v1.3.0 Phase 0 step 5 (move to `packages/framework/` + `packages/kits/`)
+
+Move + wire only, per module-api.md §5 step 5; no service logic was edited.
+1. **The v1.2 `packages/core` facade stays as the live boot path (compatibility shim).** Booting the
+   eleven services through the framework loader now would mean swapping v1.2's flat profile +
+   `ctx.services` for per-module sections and scoped `ctx`, which is the Phase 1 rewrite, not a
+   move. So `Core.start` still owns Data/Policy/Shop/... and the services' init/start; it now
+   requires them from `ServerScriptService.Kits.<Kit>.<Service>`. `packages/core/shared/Types.luau`
+   stays where it is (every service still imports it).
+2. **Services moved with `git mv` to `packages/kits/<kit>/server/<Service>/`**, grouped per §16.
+   The only source edits inside them are require paths that crossed the old CoreServer tree
+   (`script.Parent.Tx`, `script.Parent:WaitForChild("Data")...` -> `ServerScriptService.CoreServer...`;
+   two specs' relative paths to Mail/Data).
+3. **Thin wrappers: one `defineModule` per service (finer modules, §17 Q2), at
+   `packages/kits/<kit>/shared/<Service>.luau`** (Rojo: `ReplicatedStorage.Kits.<Kit>.<Service>`),
+   not `<kit>/<service>/module.luau`: the kit's `shared/` folder is what maps to ReplicatedStorage,
+   and §1's one-folder-per-module anatomy arrives with the Phase 1 rewrite. Hard deps only
+   (Inventory/Rarity -> Items, Upgrades/Rebirth -> Economy, Plot -> Inventory); v1.2's optional
+   integrations are left out because as refs they form require cycles (Economy <-> Upgrades) and
+   v1.2 still resolves them via `ctx.isEnabled`. `data` = key per decision 2, version 1, empty
+   default, `replicate = false` (placeholder; v1.2 Data still owns the save).
+   `packages/kits/<kit>/server/ModuleServers.luau` gives `loadServer(ref)` returning
+   `{ api = <v1.2 service table> }` with no init/start (v1.2 owns the lifecycle; no double init).
+   `packages/kits/Kits.spec.luau` boots all eleven definitions through the framework harness.
+4. **Decision 3 done:** `StudWork._attach`/`_installStarter` removed; the runtime slot is
+   `packages/framework/shared/RuntimeSlot.luau`, written only by `packages/framework/server/Boot.luau`.
+5. **Not done here:** `FrameworkSection.V12_MAP` still targets the coarse kit keys
+   (`economy`/`collection`/`social`/`engagement`); retargeting it to decision 2's finer keys
+   belongs with Phase 1's real data sections.

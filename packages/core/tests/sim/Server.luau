@@ -6,7 +6,7 @@
 	fakes for everything else (Policy, Plot, Upgrades, Rebirth, Analytics, Net, Replication).
 
 	What is real vs modelled (see also README.md in this folder):
-	  real      packages/core/server/<Service>/init.luau for every name in opts.real, their
+	  real      packages/kits/<kit>/server/<Service>/init.luau for every name in opts.real, their
 	            private modules (Load, Schema, Transaction, Receipt, OfflineMath, CoPlay, ...),
 	            packages/core/shared (Types, Validate, HandlerList), ProfileStore.luau, and
 	            packages/core/server/Tx.luau.
@@ -29,6 +29,36 @@
 ]]
 
 local Loader = require(script.Parent.Loader)
+
+-- core-v1.3.0 Phase 0 step 5: the optional services live in packages/kits/<kit>/server.
+local KIT_OF = {
+	Items = "collection",
+	Inventory = "collection",
+	Rarity = "collection",
+	Economy = "economy",
+	Upgrades = "economy",
+	Rebirth = "economy",
+	Offline = "economy",
+	Plot = "base",
+	Friends = "social",
+	Mail = "social",
+	Streak = "engagement",
+}
+
+local function servicePath(name: string): string
+	local kit = KIT_OF[name]
+	return if kit then `packages/kits/{kit}/server/{name}` else "packages/core/server/" .. name
+end
+
+local function kitFolder(kit: string): { [string]: string }
+	local out = {}
+	for name, k in KIT_OF do
+		if k == kit then
+			out[name] = `packages/kits/{kit}/server/{name}`
+		end
+	end
+	return out
+end
 local Signal = require(script.Parent.Signal)
 
 local Server = {}
@@ -186,7 +216,16 @@ function Server._buildEngine(self)
 			Core = "packages/core/shared",
 		}),
 		ServerStorage = Loader.folder({ ServerPackages = "deps/ServerPackages" }),
-		ServerScriptService = Loader.folder({ CoreServer = "packages/core/server" }),
+		ServerScriptService = Loader.folder({
+			CoreServer = "packages/core/server",
+			Kits = Loader.folder({
+				Collection = Loader.folder(kitFolder("collection")),
+				Economy = Loader.folder(kitFolder("economy")),
+				Base = Loader.folder(kitFolder("base")),
+				Social = Loader.folder(kitFolder("social")),
+				Engagement = Loader.folder(kitFolder("engagement")),
+			}),
+		}),
 	}
 
 	local game = {
@@ -420,7 +459,7 @@ function Server._boot(self, opts: any)
 	end
 	for _, name in order do
 		if self.real[name] and enabled[name] then
-			services[name] = self.require("packages/core/server/" .. name)
+			services[name] = self.require(servicePath(name))
 		else
 			services[name] = self:_fakeService(name)
 		end

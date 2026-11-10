@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# tools/typecheck [game]: strict type-check core, ui and a game (default _sandbox) with luau-lsp,
+# tools/typecheck [game]: strict type-check core, framework, kits, ui and a game (default _sandbox) with luau-lsp,
 # using Roblox definitions pinned to the luau-lsp version in rokit.toml and a Rojo sourcemap.
 # Exit 1 on any type error.
 source "$(dirname "$0")/_common.sh"
@@ -24,7 +24,8 @@ OUT="$(luau-lsp analyze --platform roblox \
 	--defs "@testkit=tools/types/testkit.d.luau" \
 	--ignore "**/Generated*.luau" \
 	--ignore "**/deps/**" \
-	packages/core/shared packages/core/server packages/core/client packages/ui "games/$GAME/src" 2>&1 \
+	packages/core/shared packages/core/server packages/core/client \
+	packages/framework/shared packages/framework/server packages/kits packages/ui "games/$GAME/src" 2>&1 \
 	| grep -v '^\[INFO\]\|^\[WARN\]' || true)"
 
 # Extra Rojo projects of the game (e.g. games/_sandbox/foundation-only.project.json): analyze

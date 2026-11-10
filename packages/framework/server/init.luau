@@ -37,6 +37,7 @@ local Freeze = requireShared(Shared.Freeze)
 local Resolve = requireShared(Shared.Resolve)
 local Signal = requireShared(Shared.Signal)
 local StudWork = requireShared(Shared)
+local Boot = require(script.Boot)
 local Context = require(script.Context)
 local Data = require(script.Data)
 local Extensions = require(script.Extensions)
@@ -145,7 +146,7 @@ function Server.start(gameConfig: any, serverConfig: any?, opts: any?): any
 		return StudWork._notEnabledProxy(if type(ref) == "table" then tostring(ref.name) else tostring(ref))
 	end
 
-	StudWork._attach(rt)
+	Boot.attach(rt)
 
 	local impls: { [any]: any } = {}
 	local ctxs: { [any]: any } = {}
@@ -322,6 +323,6 @@ function Server.start(gameConfig: any, serverConfig: any?, opts: any?): any
 	return rt
 end
 
-StudWork._installStarter(Server.start)
+Boot.installStarter(Server.start)
 
 return Server

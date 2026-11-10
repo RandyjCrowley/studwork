@@ -30,23 +30,16 @@ export type ModuleRef<API = any, TxAPI = any, ClientAPI = any> = any
 local INTERNALS =
 	{ Data = true, Compliance = true, Net = true, Replication = true, Shop = true, Policy = true }
 
--- The side's runtime (set by server/init.luau or a future client runtime). It provides
--- state: "booting" | "running" | "failed", bootError, phase, isEnabled(ref), api(ref), byName(name).
-local runtime: any = nil
-local starter: ((...any) -> any)? = nil
+-- The side's runtime lives in RuntimeSlot, written only by server/Boot.luau (decision 3, Phase 0
+-- step 4). It provides state: "booting" | "running" | "failed", bootError, phase,
+-- isEnabled(ref), api(ref), byName(name).
+local RuntimeSlot = require(script.RuntimeSlot)
 
 StudWork.defineModule = DefineModule.defineModule
 StudWork.isModuleRef = DefineModule.isModuleRef
 
--- Internal: installed by the side's runtime module. Not part of the module API.
-function StudWork._installStarter(fn: (...any) -> any)
-	starter = fn
-end
-function StudWork._attach(rt: any)
-	runtime = rt
-end
-
 function StudWork.start(...: any): any
+	local starter = RuntimeSlot.starter
 	if starter == nil then
 		error(
 			"[StudWork] StudWork.start: no runtime installed; require the framework's server (or client) part first",
@@ -73,14 +66,17 @@ end
 StudWork._notEnabledProxy = notEnabledProxy
 
 local function assertStarted(what: string)
-	if runtime == nil then
+	if RuntimeSlot.runtime == nil then
 		error(`[StudWork] {what} called before StudWork.start`, 3)
 	end
-	if runtime.state == "failed" then
-		error(runtime.bootError, 3)
+	if RuntimeSlot.runtime.state == "failed" then
+		error(RuntimeSlot.runtime.bootError, 3)
 	end
-	if runtime.phase ~= "start" and runtime.phase ~= "running" then
-		error(`[StudWork] {what} called before StudWork.start (boot phase '{tostring(runtime.phase)}')`, 3)
+	if RuntimeSlot.runtime.phase ~= "start" and RuntimeSlot.runtime.phase ~= "running" then
+		error(
+			`[StudWork] {what} called before StudWork.start (boot phase '{tostring(RuntimeSlot.runtime.phase)}')`,
+			3
+		)
 	end
 end
 
@@ -102,8 +98,8 @@ function StudWork.use<A>(ref: ModuleRef<A>): A
 		)
 	end
 	assertStarted("StudWork.use")
-	if runtime.isEnabled(ref) then
-		return runtime.api(ref)
+	if RuntimeSlot.runtime.isEnabled(ref) then
+		return RuntimeSlot.runtime.api(ref)
 	end
 	return notEnabledProxy((ref :: any).name)
 end
@@ -141,13 +137,16 @@ setmetatable(
 					2
 				)
 			end
-			if runtime ~= nil and runtime.state == "failed" then
-				error(runtime.bootError, 2)
+			if RuntimeSlot.runtime ~= nil and RuntimeSlot.runtime.state == "failed" then
+				error(RuntimeSlot.runtime.bootError, 2)
 			end
-			if runtime ~= nil and (runtime.phase == "start" or runtime.phase == "running") then
-				local ref = runtime.byName(key)
+			if
+				RuntimeSlot.runtime ~= nil
+				and (RuntimeSlot.runtime.phase == "start" or RuntimeSlot.runtime.phase == "running")
+			then
+				local ref = RuntimeSlot.runtime.byName(key)
 				if ref then
-					return runtime.api(ref)
+					return RuntimeSlot.runtime.api(ref)
 				end
 			end
 			if type(key) == "string" then
