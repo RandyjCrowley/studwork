@@ -1,0 +1,96 @@
+# UI kit (`ReplicatedStorage.UI`)
+
+React-lua (jsdotlua React 17.2.1 + ReactRoblox) components themed from `Core.Palette` /
+`Core.RarityTiers`. Games require it and never edit it (requests go to `CORE_REQUESTS.md`).
+
+```lua
+local UI = require(ReplicatedStorage:WaitForChild("UI"))
+```
+
+Sizes are **design pixels** for a phone-landscape baseline (short side 400 px). Put `UI.AutoScale`
+under your screen root so everything grows on tablets/desktop and never drops below
+`Responsive.MIN_SCALE` (0.85). `Theme.touchTarget` (52) stays >= 44 real px at that scale.
+
+## Components
+
+| Component | Props |
+|---|---|
+| `Button` | `text`, `variant?` (`"primary"`\|`"secondary"`\|`"danger"`), `disabled?`, `onActivated?`, `icon?`, `size?`, `position?`, `anchorPoint?`, `layoutOrder?`. Press tween (UIScale 0.94), min size = touch target. |
+| `Panel` | `title?`, `color?` (palette key, default `surface`), `size?` (default full width, auto height), `automaticSize?`, `position?`, `anchorPoint?`, `layoutOrder?`, children (vertical list). Rounded, stroke, gradient, drop shadow, padding. |
+| `ItemCard` | `name`, `rarity`, `icon?` (nil = rarity-coloured placeholder initial), `incomePerSec?`, `mutation?`, `mutationColor?` (hex), `size?`, `layoutOrder?`, `onActivated?`. Aspect 0.75 held by UIAspectRatioConstraint; stroke glows by tier. |
+| `RarityBadge` | `rarity`, `size?`, `layoutOrder?`. Tier colour pill + glow stroke from `glowStrength`. |
+| `Toast` | `text`, `rarity?`, `count?` (shows `x3`), `layoutOrder?`, `onDismiss?` (tap). Pops in. |
+| `ToastHost` | `subscribe(push) -> unsubscribe`, `maxVisible?` (3), `duration?` (3 s), `position?`, `anchorPoint?`, `size?`. Queue + auto-dismiss + duplicate merge (pure `ToastQueue`). |
+| `Modal` | `open`, `title?`, `onClose?` (X button + backdrop tap), `dismissOnBackdrop?`, `size?`, children. Dimmed backdrop, panel capped 320-640 px wide. |
+| `CurrencyCounter` | `value`, `rate?` (`+12/s` line), `icon?`, `label?`, `animate?` (default true), `duration?` (0.35 s), `size?`, `position?`, `anchorPoint?`, `layoutOrder?`. Abbreviated (1.2K / 3.4M / 5.6B ...). |
+| `OddsTable` | `odds` (`{[itemId]: probability}`), `items` (`{id,name,rarity}` defs), `sortBy?` (`"rarity"` = rarest last, default; or `"probability"`), `title?`, `restricted?`, `restrictedText?`, `maxHeight?`, `size?`, `position?`, `anchorPoint?`, `layoutOrder?`. Exact percentages; never `0%` for a non-zero chance. |
+| `AutoScale` | none. UIScale following the camera viewport. |
+
+Helpers: `UI.Theme` (`color`, `rarity`, `font`, `gradient`, `setOverrides`, `metrics`, `text`,
+`touchTarget`), `UI.Primitives` (corner/stroke/padding/gradient/shadow/list/textSize elements),
+pure `UI.Format` (`abbreviate`, `percent`), `UI.Odds` (`rows`, `total`), `UI.ToastQueue`,
+`UI.Responsive`. The pure ones have `*.spec.luau` tests.
+
+## Mounting a screen
+
+```lua
+local Players = game:GetService("Players")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local React = require(ReplicatedStorage.Packages.React)
+local ReactRoblox = require(ReplicatedStorage.Packages.ReactRoblox)
+local ReactCharm = require(ReplicatedStorage.Packages.ReactCharm)
+local Core = require(ReplicatedStorage.Core)
+local Config = require(ReplicatedStorage.Game.Config)
+local UI = require(ReplicatedStorage.UI)
+local e = React.createElement
+
+local function ChestScreen(props: { open: boolean, onClose: () -> (), odds: { [string]: number } })
+	local state = ReactCharm.useAtom(Core.Client.state)
+	return e(UI.Modal, { open = props.open, title = "Chest", onClose = props.onClose }, {
+		Odds = e(UI.OddsTable, {
+			odds = props.odds,
+			items = Config.items,
+			-- required for Robux-bought rolls: tell restricted players up front
+			restricted = state.paidRandomRestricted,
+			layoutOrder = 1,
+		}),
+		Open = e(UI.Button, {
+			text = "Open (250)",
+			layoutOrder = 2,
+			onActivated = function()
+				Core.Client.Actions.roll("Chest")
+			end,
+		}),
+	})
+end
+
+local screen = Instance.new("ScreenGui")
+screen.Name = "ChestScreen"
+screen.ResetOnSpawn = false
+screen.ScreenInsets = Enum.ScreenInsets.CoreUISafeInsets
+screen.Parent = Players.LocalPlayer:WaitForChild("PlayerGui")
+local root = ReactRoblox.createRoot(screen)
+root:render(e("Frame", { BackgroundTransparency = 1, Size = UDim2.fromScale(1, 1) }, {
+	Scale = e(UI.AutoScale),
+	Chest = e(ChestScreen, { open = true, onClose = function() root:unmount() end, odds = odds }),
+}))
+```
+
+**Where odds come from.** `Core.Rarity.getOdds(tableId, luck?)` is server-side. Either have the
+server send it (your own remote / replicated value) or compute it on the client from the same
+`Config.rarityTables[tableId]` weights the server uses (only when luck is not involved). Never show
+client-guessed odds for a Robux purchase if the server applies luck; send the server's numbers.
+
+## Mobile checklist
+
+- ScreenGui: `ScreenInsets = CoreUISafeInsets` for interactive UI (clear of the top bar, notch and
+  home indicator), `ResetOnSpawn = false`, `SafeAreaCompatibility = FullscreenExtension` (default).
+- One `UI.AutoScale` per screen root; author in design pixels, don't hand-scale per device.
+- Touch targets: buttons/pills use `Theme.touchTarget` (>= 44 px at the smallest scale). Don't
+  shrink them with your own `size`.
+- Text: fixed design sizes (`Theme.text`) + UIScale; when you use `TextScaled`, add
+  `Primitives.textSize(12, max)` so it never becomes unreadable.
+- Shapes that must hold (cards, icons, coin dots) use `UIAspectRatioConstraint`.
+- Keep the bottom-right (jump/thumbstick area on touch) and bottom-left free of HUD elements.
+- Test in the Device Simulator on a small phone in landscape and portrait, plus a tablet.
+- Open/close each screen repeatedly; `root:unmount()` must leave no ScreenGui or connections.

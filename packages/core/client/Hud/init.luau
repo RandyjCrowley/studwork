@@ -2,62 +2,152 @@
 --[[
 	Core.Client.Hud. OWNED BY AGENT F (core/f-ui). Public API: Types.HudAPI.
 
-	PHASE 0 STUB: a plain TextLabel showing primary currency, rate per second and the next goal,
-	updated from Core.Client.state with Charm.effect. Agent F replaces it with a React-lua HUD
-	built from packages/ui components (CurrencyCounter, Toast, ...), mobile-first.
+	Hud.init(ctx)          called by the client bootstrap with { config, net }; no side effects.
+	Hud.mount(opts?)       (re)mounts a React root into a "CoreHud" ScreenGui in PlayerGui:
+	                       primary currency (UI.CurrencyCounter, count-up), rate per second
+	                       (unless opts.showRate == false), a "next goal" pill (opts.nextGoal()
+	                       re-evaluated on every Core.Client.state change), and a toast stack fed by
+	                       Feedback.onFeedbackEvent for kind "toast" ("pop"/"item" are rendered by
+	                       Core.Client.Feedback, not duplicated here). Bound to Core.Client.state via
+	                       react-charm. Mobile first: ScreenInsets = CoreUISafeInsets, UIScale from
+	                       the viewport, touch-sized pills. Calling mount twice replaces the HUD.
+	Hud.unmount()          unmounts the React root, disconnects listeners, destroys the ScreenGui.
+	No dependency on game code. Requires ReplicatedStorage.UI (packages/ui) in the game project.
 ]]
 
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
-local Charm = require(ReplicatedStorage:WaitForChild("Packages"):WaitForChild("Charm"))
-local Palette = require(ReplicatedStorage:WaitForChild("Core"):WaitForChild("Palette"))
+local Packages = ReplicatedStorage:WaitForChild("Packages")
+local React = require(Packages:WaitForChild("React"))
+local ReactCharm = require(Packages:WaitForChild("ReactCharm"))
+local ReactRoblox = require(Packages:WaitForChild("ReactRoblox"))
 local Types = require(ReplicatedStorage:WaitForChild("Core"):WaitForChild("Types"))
+local UI = require(ReplicatedStorage:WaitForChild("UI"))
+
+local Feedback = require(script.Parent.Feedback)
 local State = require(script.Parent.State)
+
+local e = React.createElement
 
 local Hud = {}
 
 local ctx: any = nil
 local gui: ScreenGui? = nil
-local cleanup: (() -> ())? = nil
+local root: any = nil
+
+local TOAST_KINDS: { [string]: boolean } = { toast = true }
+
+local function subscribeToasts(push: (text: string, rarity: string?) -> ()): () -> ()
+	local conn = Feedback.onFeedbackEvent(function(kind: string, text: string, rarity: Types.RarityTier?)
+		if type(text) ~= "string" or text == "" then
+			return
+		end
+		if TOAST_KINDS[kind] then
+			push(text, rarity)
+		end
+	end)
+	return function()
+		conn:Disconnect()
+	end
+end
+
+type AppProps = {
+	opts: Types.HudOptions,
+	primary: string,
+}
+
+local function HudApp(props: AppProps)
+	local state: Types.ReplicatedState = ReactCharm.useAtom(State.atom)
+	local opts = props.opts
+	local coins = if state.data then (state.data.currency[props.primary] or 0) else 0
+	local goal: string? = nil
+	if opts.nextGoal then
+		local ok, result = pcall(opts.nextGoal)
+		goal = if ok and type(result) == "string" and result ~= "" then result else nil
+	end
+
+	return e("Frame", {
+		BackgroundTransparency = 1,
+		Size = UDim2.fromScale(1, 1),
+	}, {
+		Scale = e(UI.AutoScale, {}),
+		Top = e("Frame", {
+			BackgroundTransparency = 1,
+			Size = UDim2.fromScale(1, 0),
+			AutomaticSize = Enum.AutomaticSize.Y,
+			Position = UDim2.new(0.5, 0, 0, 8),
+			AnchorPoint = Vector2.new(0.5, 0),
+		}, {
+			Layout = UI.Primitives.list(Enum.FillDirection.Vertical, 6, Enum.HorizontalAlignment.Center),
+			Currency = e(UI.CurrencyCounter, {
+				value = coins,
+				rate = if opts.showRate ~= false then state.ratePerSec else nil,
+				label = props.primary,
+				layoutOrder = 1,
+			}),
+			Goal = if goal
+				then e("TextLabel", {
+					Text = goal,
+					FontFace = UI.Theme.font("bold"),
+					TextSize = UI.Theme.text.small,
+					TextColor3 = UI.Theme.color("outline"),
+					BackgroundColor3 = UI.Theme.color("accent"),
+					AutomaticSize = Enum.AutomaticSize.XY,
+					Size = UDim2.fromOffset(0, 0),
+					LayoutOrder = 2,
+				}, {
+					Corner = e("UICorner", { CornerRadius = UDim.new(0.5, 0) }),
+					Stroke = UI.Primitives.stroke(),
+					Padding = e("UIPadding", {
+						PaddingTop = UDim.new(0, 4),
+						PaddingBottom = UDim.new(0, 4),
+						PaddingLeft = UDim.new(0, 12),
+						PaddingRight = UDim.new(0, 12),
+					}),
+					Limit = e("UISizeConstraint", { MaxSize = Vector2.new(360, math.huge) }),
+				})
+				else nil,
+		}),
+		Toasts = e(UI.ToastHost, {
+			subscribe = subscribeToasts,
+			position = UDim2.new(0.5, 0, 0, 96),
+		}),
+	})
+end
 
 function Hud.init(context: any)
 	ctx = context
+	if context and context.config and type(context.config.palette) == "table" then
+		UI.Theme.setOverrides(context.config.palette)
+	end
 end
 
 function Hud.mount(opts: Types.HudOptions?)
 	Hud.unmount()
 	local o: Types.HudOptions = opts or {}
+	local primary = if ctx and ctx.config then ctx.config.balance.primaryCurrency else "Coins"
+
 	local screen = Instance.new("ScreenGui")
 	screen.Name = "CoreHud"
 	screen.ResetOnSpawn = false
-	local label = Instance.new("TextLabel")
-	label.Size = UDim2.fromScale(0.4, 0.08)
-	label.Position = UDim2.fromScale(0.5, 0.02)
-	label.AnchorPoint = Vector2.new(0.5, 0)
-	label.BackgroundColor3 = Palette.color("surface", ctx.config.palette)
-	label.TextColor3 = Palette.color("text", ctx.config.palette)
-	label.TextScaled = true
-	label.Parent = screen
+	screen.IgnoreGuiInset = false
+	screen.ScreenInsets = Enum.ScreenInsets.CoreUISafeInsets -- below the top bar, clear of notches
+	screen.SafeAreaCompatibility = Enum.SafeAreaCompatibility.FullscreenExtension
+	screen.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
+	screen.DisplayOrder = 5
 	screen.Parent = Players.LocalPlayer:WaitForChild("PlayerGui")
 	gui = screen
-	cleanup = Charm.effect(function()
-		local state: Types.ReplicatedState = State.atom()
-		local primary = ctx.config.balance.primaryCurrency
-		local coins = if state.data then (state.data.currency[primary] or 0) else 0
-		local text = string.format("%s: %d  (+%.1f/s)", primary, math.floor(coins), state.ratePerSec)
-		local goal = o.nextGoal and o.nextGoal()
-		if goal then
-			text ..= "  |  " .. goal
-		end
-		label.Text = text
-	end)
+
+	local r = ReactRoblox.createRoot(screen)
+	r:render(e(HudApp, { opts = o, primary = primary }))
+	root = r
 end
 
 function Hud.unmount()
-	if cleanup then
-		cleanup()
-		cleanup = nil
+	if root then
+		root:unmount()
+		root = nil
 	end
 	if gui then
 		gui:Destroy()
