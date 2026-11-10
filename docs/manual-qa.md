@@ -20,7 +20,7 @@ Automated coverage you don't need to repeat by hand:
 | friend detection, co-play multiplier on/off, invite kind, lookup failures | `sim/CoPlay.spec.luau` |
 | BindToClose with saves in flight, receipts across shutdown/crash never doubled or lost | `sim/Shutdown.spec.luau` |
 | session lock held by another server (release request, steal after 40 s, stale lock, outage, newer data) | `sim/SessionLock.spec.luau` |
-| cross-server gifting, mailbox, claim (after agent A's merge) | `sim/gifting_crossserver.pending.luau` (renamed to `.spec.luau` by the lead) |
+| cross-server gifting, mailbox, claim | `sim/GiftingCrossServer.spec.luau`, `server/Inventory/Gift.spec.luau` (never-duplicated/never-lost property test) |
 
 ## Checklist
 
@@ -40,8 +40,9 @@ Automated coverage you don't need to repeat by hand:
    `require(game.ReplicatedStorage.CoreClient).api.Actions.gift(-2, "<uid>")` (real client
    remote through Blink and core's rate-limited Net). Then, in the Server command bar,
    `CoreConsole:Invoke("coplay", "server")` (Studio test players are not real friends).
-   Expected: the item disappears from Player1's inventory UI and appears on Player2's within a
-   second, both HUDs update; gifting the same item again does nothing; a quick second gift
+   Expected: the item disappears from Player1's inventory at once and appears on Player2's within
+   a few seconds (with Mail on, a same-server gift goes through the crash-safe mail outbox: one
+   save, then delivery on Player2's next save), both HUDs update; gifting the same item again does nothing; a quick second gift
    inside 2 s is ignored. The co-play toast "Playing with ..." appears on the first player.
    A paid-roll item (from the Egg product) can't be gifted when a player is restricted (only
    checkable if the Studio account's PolicyService answer is restricted; otherwise skip).
@@ -70,8 +71,8 @@ Automated coverage you don't need to repeat by hand:
    the Output. (b) Join server 1, leave, and join a second server within a few seconds (a
    private server or a second device): data kept, no kick. (c) Buy the CoinPack dev product as
    a Studio test purchase, then stop the session immediately: on the next join the coins are
-   there exactly once. (d) After agent A's merge, gift an item to an alt account that is
-   offline, then join with the alt in another server: it arrives once (or waits in the mailbox
-   when the alt's inventory is full).
+   there exactly once. (d) Gift an item to an alt account that is offline (server code:
+   `Core.Inventory.sendGift`), then join with the alt in another server: it arrives once (or
+   waits in the mailbox, HUD "Mailbox (N)", when the alt's inventory is full).
    Expected: as described; the Output has no `[Core.Data]` load-failure or "refusing to load"
    warnings.

@@ -4,10 +4,34 @@ Core's public interface (`packages/core/shared/Types.luau`, `packages/core/share
 only gains things: no renames, no removals; old calls are marked deprecated instead.
 Every change is recorded here, newest first.
 
-## core-v1.2.0 (unreleased)
+## core-v1.2.0 (2026-11-10)
 
 Finishing the platform: open findings N1, N3, N4, N6, N8, N9, game-agent guardrails, multi-player
 tests, publishing readiness. Interface additive only (one behaviour change below).
+
+### Phase 1 (agents A–D, merged A→D) and Phase 2
+- A: Mail mailbox (hold on `false`, claim, cap, config tuning, `mailreplay`), outbox
+  (`sendInto`, save-before-send, resend with the same key), `Inventory.sendGift` + `core_gift`
+  receiver, reserved `core_` kinds via `Mail.facade`; property test (40 seeds × 300 steps) that
+  gifted items are never duplicated or lost; Example Gifts scenario.
+- B: luck registry, per-player luck-aware odds (`OddsSync`), N3 re-send on `Items.onRegistered`,
+  hard rule 11 enforced in `rollInto` (error) and `RequestRoll` (before spending), `Odds.luckLine`
+  in `OddsTable`, Monte Carlo 200k rolls at luck 1 / 1.5 / 3 (+ pity), console `luck`.
+- C: Lune multi-server simulation (`packages/core/tests/sim/`: real Data + ProfileStore 1.0.3 with
+  session locks on a mock DataStore, virtual clock): leave/rejoin, offline payout + cap,
+  two-player gifting, co-play, shutdown while saving, session locks, cross-server gifting;
+  `tools/test-sim` (+ soak); `docs/manual-qa.md`.
+- D: `tools/publish` gate (test before live, clean tree, placeholder ids, secret-safe key,
+  end-to-end dry run, stamping), `docs/publishing.md`, `.githooks/pre-commit` via
+  `tools/install`, `tools/dev`, `tools/doctor`, `tools/new-game --modules --no-design-doc`,
+  `tools/core-status` sync columns. `tools/test` now also runs `tools/**/*.spec.luau`.
+- Lead: RequestGift stays in-server only; `UI.Modal` fits the screen (`ModalFit`); sandbox:
+  luck-disclosed Chest, `gift` mail kind, mailbox modal, Studio `SandboxConsole`; template synced;
+  five games scaffolded (example-collector, example-courier, example-shop, example-garden, example-gifts).
+- Review fixes: R2 same-server `RequestGift` uses `sendGift` when Mail is on; R4 tables priced in a
+  paid currency count as paid unless `RollOptions.free = true` (added); R5 an all-table luck
+  doesn't reach paid rolls on undisclosed tables; R1 `mailboxCap` default 100 → 500 (mitigation);
+  R8/R9/R14 guardrail evasions; R15 exact FNV-1a. Open: `docs/known-issues.md`.
 
 ### core-contract-v1.2 (Phase 0)
 

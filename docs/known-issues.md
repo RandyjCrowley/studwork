@@ -1,55 +1,77 @@
 # Known issues
 
-Open findings after `core-v1.1.0`. All v1.0.0 review findings (H1–H3, M1–M7, L1–L7) are fixed; the
-v1.1.0 review (`(internal build report, not public)`) found 0 Critical, 0 High, 5 Medium,
-5 Low. Fixed before the tag: N2, N5, N7, N10. Each entry: severity, where, failure, suggested fix.
+Open findings after `core-v1.2.0`. The v1.1.0 review findings N1–N10 are fixed (N8 and N9 within
+the limits listed under Low). The v1.2.0 review (`(internal build report, not public)`) found
+0 Critical, 2 High, 7 Medium and 8 Low. Fixed before the tag: R2, R4, R5, R8, R15, most of R9 and
+part of R14. R1 is mitigated, not fixed. Each entry gives the severity, where it is, how it fails,
+and what to do until it is fixed.
+
+## High (residual)
+
+### R1. ProfileStore keeps at most 1000 queued messages per player and drops the oldest
+- Where: `ProfileStore.luau:181,1683` (`MAX_MESSAGE_QUEUE`).
+- What protects it now: Mail takes a message out of that queue as soon as the receiver loads it. It
+  is either delivered or held in `PlayerData.mail.box`, which now holds up to 500 messages.
+- Still exposed: a receiver who **never logs in**, or who already has 500 held messages, while more
+  than 1000 messages pile up. The sender has already given the item up, so the oldest gifts are lost.
+- Until fixed: game code must not mail items to users who may never return. Pick recipients from
+  recently active players and cap undelivered gifts per recipient per day (Example Gifts).
+- Possible fix: a per-recipient counter (MemoryStore or DataStore) that `sendGift` checks, or keep the
+  outbox entry until the receiver acknowledges.
 
 ## Medium
 
-### N1. Mail dead-letters a message after ~30 s of handler failures
-- `Mail/Delivery.luau` `MAX_ATTEMPTS = 5`, backoff 2+4+8+16 s; `processed()` after dead-lettering,
-  and nothing reads or replays `PlayerData.mail.dead` (cap 25).
-- A gift handler that returns `false` because the inventory is full loses the gift ~30 s later.
-- Fix: treat `false` as "not ready" (stay pending, no attempt counted, retry on DataChanged / next
-  session); count only thrown errors; spread attempts across sessions; add a replay path for
-  `mail.dead`. **Fix before Example Gifts ships.** Until then: mail handlers should not return
-  `false` for transient conditions; store the gift in the game table and grant it later instead.
-
-### N3. Odds are replicated once at Rarity.start
-- Items registered after `Core.start` and listed in a paid/costed table are rolled but missing from
-  `ReplicatedState.odds` (and `validateTables` only warns about unknown items).
-- Fix: re-replicate odds after every `Items.register`, or make unknown items in paid/costed tables
-  a config error. Until then: register every item before `Core.start` (put them in `Config.items`).
-
-### N4. Luck is not reflected in the disclosed odds
-- `PurchaseTx.roll(tableId, luck)` / `Rarity.roll(..., luck, { paid = true })` roll with luck while
-  `state.odds` shows luck-free odds.
-- Fix: refuse luck on paid rolls, or add a per-player luck-aware disclosure
-  (`getOddsDetail(tableId, luck)` + `setReplicated(player, "odds", ...)`). Until then: **never pass
-  luck to a paid roll.**
+- **R3. An unsent gift waits for its sender.** If the sender leaves or the server shuts down before
+  `saveAsync` and `MessageAsync` finish, the gift stays in the sender's outbox until they rejoin.
+  - Fix: flush once more in PlayerRemoving or BindToClose, or let any server flush the outboxes of
+    users who left.
+- **R6. Dead letters can't be replayed on live servers.** Only the Studio console can replay them
+  (`mailreplay`), and live servers keep only the newest 25.
+  - Fix: an admin-gated live replay. Consider holding "unknown item" gifts in the mailbox instead of
+    throwing.
+- **R7. Duplicate detection only covers the last 500 ids.** A resend older than that can grant an
+  item again if the receiver no longer owns it. This needs a crash between the send and the outbox
+  removal, and the sender returning much later.
+  - Fix: time-based dedupe for `core_gift`, or expire old outbox entries.
+- **R9 (remaining). The packages/ guardrail is a convention.** It works on branch names and staged
+  files, so it misses a `packages/` commit made on its own on a branch not named `game*`, and
+  anything already merged.
+  - Until fixed: review merges of game branches.
+- **A session stolen during an autosave doesn't kick the player** (found by agent C,
+  `Data/init.luau:251-262`).
+  - ProfileStore ends the session without `OnLastSave`, so Data never kicks. The player stays in the
+    old server with nothing loaded and nothing saving. No stale write lands.
+  - Repro: `tests/sim/SessionLock.spec`, "holder alive but MessagingService down", which asserts the
+    current gap.
+  - Fix: kick on any session end that isn't a leave or a shutdown.
+- **A long DataStore outage at join leaves the player waiting.** `Data/init.luau:171` passes `Cancel`,
+  so ProfileStore's 120 s load timeout is off. The player waits unloaded, with no kick, until the
+  outage ends. Defaults are never written over a profile (tested).
 
 ## Low
 
-- **N6** Legacy (v1.0, id-less) mail messages of the same kind sent in the same second share an id;
-  the second is consumed without running. No game shipped on v1.0, so none should exist.
-- **N8** In-place writes through `Data.get`/`getGame` (against the rules) are saved but no longer
-  replicated (the section cache only re-copies sections whose version/reference moved). Consider a
-  read-only view in Studio.
-- **N9** If a receipt's save fails and the player leaves before the retry, the grant persists but its
-  post-grant effects (signals, toast, `ProductPurchased` analytics) are dropped.
+- **R10 (rest of N8).** Read-only views cover `Core.Data.get/getGame` in Studio only.
+  `Core.Inventory.get/list` still return live instances, and `Data.onLoaded` handlers get the live table.
+- **R11 (rest of N9).** If the player leaves before the receipt's save is confirmed, only the
+  analytics are logged. Game `tx.after` effects, `ProductGranted` and the toast are dropped. Never put
+  grant logic in `tx.after`.
+- **R12.** `tools/publish` trusts `deploy.json`: hand-editing `test.published.commit` unlocks `--live`.
+- **R13 / rest of R14.** The modules and numbers guardrails miss aliases (`local C = Core`,
+  `Core["Mail"]`, `local E = Core.Economy`) and neutral names (`local k = 750`). The facade still
+  errors at runtime for a disabled module, and the numbers check is only a heuristic.
+- **R16.** `tools/new-game --modules <subset>` copies the full template loop, so lint fails until the
+  game code is trimmed (new-game prints the findings). The five scaffolds were trimmed by hand.
+- **R17.** When one handler of a kind returns `false`, the handlers before it have already run, and
+  they run again on claim. This is documented: handlers must be safe to run twice.
 - Net's pre-start queue cap (`PENDING_CAP = 256`) is shared by all players and events.
-- `OddsDetail` has no long-run effective rate including pity (optional interface request from B).
-- Mail limits (5 attempts, 500 remembered ids, 25 dead letters) are untuned.
-- ProfileStore's `EndSession()` always writes once: on a migration failure the session ends with a
+- `OddsDetail` has no long-run effective rate that includes pity.
+- ProfileStore's `EndSession()` always writes once. On a migration failure the session ends with a
   save of the untouched loaded data (never defaults). Documented in `Data/README.md`.
+- The Studio console shows `rbxassetid://203785492 … Asset type does not match`. This id is not
+  in core; it is probably a Studio or default asset.
 
 ## Not verified live (needs a human in Studio)
 
-- Leave → rejoin with saved data and the offline payout (solo Play can't rejoin the same server;
-  use Test > Local Server with 1 client, close the client, start another).
-- Gifting between two players; real friend co-play multiplier.
-- Phone layout in the Device Emulator (not scriptable over MCP). Re-check the odds modal now that
-  the sandbox action screen draws above the HUD.
-- Real DataStore behaviour (place is unpublished, ProfileStore runs in Mock mode), including
-  receipts across a real server crash and mail across servers.
-- Sound ids in `Sounds.luau` were chosen by name, not listened to.
+`docs/manual-qa.md` covers these: Local Server with 1 and 2 clients, Device Emulator presets,
+listening to the sounds, and the real DataStore on a published test place. The automated cover is in
+`packages/core/tests/sim/`.

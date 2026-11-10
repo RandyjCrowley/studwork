@@ -205,3 +205,36 @@ Contract choices (Phase 0, core-contract-v1.2). All additive; one behaviour chan
   staged-change mixing; the core owner can bypass with `GUARD_ALLOW_CORE=1`. The number check
   is a heuristic (balance calls with literals >= 2, balance-named assignments); game-own numbers
   go in `src/shared/Config/Tuning.luau`.
+
+Phase 1/2 decisions (merge, playtest, review):
+- **RequestGift never mails to an arbitrary user id** (agent A had added that fallback): a typo or
+  fake id would send the item into a profile nobody loads. Cross-server gifts to other users are a
+  game-server call to `Inventory.sendGift`.
+- **Same-server gifts go through the outbox when Mail is on** (review R2): `Inventory.transfer`
+  writes two profiles that save separately, so a crash between the saves duplicates or loses the
+  item. `RequestGift` uses `sendGift` (a save, then delivery on the receiver's next save: seconds,
+  not instant); `transfer` stays the no-Mail fallback and a server API.
+- **The outbox saves before it sends** (agent A): a commit is only in memory, and sending first
+  would let a crash restore the item AND deliver it.
+- **mailboxCap default 500** (was 100, review R1). The decision above said a message beyond the
+  cap "stays queued in ProfileStore"; ProfileStore's queue is capped at 1000 and drops the oldest,
+  so a larger box keeps gifts out of it. Still open for receivers who never log in (known issue R1).
+- **Paid-currency-priced tables count as paid** in `rollInto` unless `opts.free = true` (review R4,
+  `RollOptions.free` added): rule 11 and the policy block no longer depend on the caller passing
+  `paid`.
+- **An all-table luck never reaches a paid roll on a table without luckDisclosed** (review R5):
+  otherwise a luck potion for free rolls made every Robux egg purchase error until it expired. A
+  luck set for exactly that table still errors.
+- **UI.Modal scales its panel to fit 92% x 88% of the screen** (playtest): the odds modal's title
+  and close button were off-screen at UIScale 1.73.
+- **tools/publish: "same commit" means same build inputs** (agent D): live is allowed when the
+  test record is HEAD or nothing under `games/<name>` (except deploy.json), `packages/` or `deps/`
+  changed since; otherwise committing the stamp after `--test` would block `--live` forever. A test
+  dry run unlocks only a live dry run. The key goes to curl through a 0600 header file, never argv.
+- **Publish endpoint kept:** `POST /universes/v1/{u}/places/{p}/versions` (Beta, scope
+  `universe-places:write`), checked 2026-11-10; Roblox's guide now prefers the Assets API (broader
+  scope). Revisit when the universes endpoint is retired.
+- **Scaffolds trimmed by hand:** `tools/new-game --modules` copies the full template loop; for
+  games without Upgrades/Rebirth the client buttons and the rebirth goal were removed so lint
+  (modules guardrail) passes. Scaffolds keep the sandbox loop otherwise (no gameplay code).
+

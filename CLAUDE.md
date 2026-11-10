@@ -46,7 +46,10 @@ Read `docs/decisions.md` for why things are the way they are.
 13. **Full inventory is not a failure.** A Mail handler that can't accept a message now returns
     `false`: the message waits in the player's mailbox (`Core.Mail.pending/claim`, HUD badge)
     with no time limit. Only thrown errors are retried and dead-lettered. Mail kinds starting
-    with `core_` are reserved.
+    with `core_` are reserved. Never mail items to users who may never come back: ProfileStore
+    drops the oldest of more than 1000 queued messages (known issue R1). Pick recipients from
+    recently active players and cap gifts per recipient. Rolls of a table priced in a paid
+    currency are paid rolls unless you pass `{ free = true }` (a reward nobody paid for).
 14. **Register items before `Core.start` when you can** (put them in `Config.items`). Items
     registered later are allowed: core re-sends the disclosed odds (N3), but the odds a player
     saw before that are stale until the update arrives.
@@ -261,9 +264,26 @@ tools/typecheck [game]        # luau-lsp strict type check with Roblox definitio
 tools/net                     # regenerate Blink code after editing a .blink file
 rojo build games/_sandbox/default.project.json -o /tmp/sandbox.rbxl
 rojo serve games/_sandbox/default.project.json   # port 34872, connect the Studio Rojo plugin
-tools/new-game <name>         # scaffold games/<name> from templates/new-game
+tools/install --hooks-only    # enable .githooks/pre-commit (lint + tests) for this clone
+tools/test-sim [--pending]    # multi-server simulation incl. the slow soak test
+tools/doctor                  # toolchain, Wally packages, hook, .env keys (never values), ports
+tools/dev <name>              # rojo serve on the game's port + Studio connect steps
+tools/new-game <name> [--modules A,B,C] [--no-design-doc]   # scaffold from templates/new-game
+tools/core-status             # every game's core version and test/live sync with HEAD
 tools/publish <name> --test|--live [--dry-run]   # build + Open Cloud upload (ask the user first)
 ```
+
+## Publish flow (docs/publishing.md has the one-time setup)
+
+1. The user creates the Group, a test and a live experience per game, and an Open Cloud key with
+   only `universe-places:write` for those experiences, in the git-ignored `.env`
+   (`ROBLOX_OPEN_CLOUD_API_KEY`). Agents never create keys or upload without the user's OK.
+2. Put the universe/place ids in `games/<name>/deploy.json` (placeholders are 0; publish refuses them).
+3. `tools/publish <name> --test --dry-run`, then (with the user's OK) `tools/publish <name> --test`:
+   lint, tests, typecheck, build, upload, stamp `deploy.json` + GAMES.md with the core version.
+4. Playtest the test place (`docs/manual-qa.md`).
+5. `tools/publish <name> --live`: refused unless the same build was published to `--test` first
+   and the tree is clean; asks for the game name to confirm. Commit the stamped files.
 
 ## Definition of done
 
