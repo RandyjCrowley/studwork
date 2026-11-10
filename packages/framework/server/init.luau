@@ -14,8 +14,8 @@
 	                    module surfaces; one scoped ctx per module
 	  4. init(ctx)      every module, boot order; must not yield; other modules' APIs are blocked
 	  5. start(ctx)     every module, boot order; dependency APIs allowed; must not yield
-	  6. framework start Events start, Shop claims ProcessReceipt (LAST, §7.1), Net releases its
-	                    queue, console installed, players load (Data), ticker runs
+	  6. framework start Events start, Net releases its queue, console installed, then Shop
+	                    claims ProcessReceipt (the very last step, §7.1); players load, ticker runs
 	If any step throws, boot fails closed (N7): Server.start re-raises, and every later call into
 	the runtime, any module API, StudWork.use and StudWork.<Name> errors with the boot message.
 
@@ -186,9 +186,13 @@ function Server.start(gameConfig: any, serverConfig: any?, opts: any?): any
 
 	local function registerFrameworkConsole()
 		local function cmd(key: string, help: string, fn: (...string) -> any)
-			rt.console[key] = { owner = "framework", fn = function(_player: any, ...: string)
-				return fn(...)
-			end, help = help }
+			rt.console[key] = {
+				owner = "framework",
+				fn = function(_player: any, ...: string)
+					return fn(...)
+				end,
+				help = help,
+			}
 		end
 		local function target(userId: string?): any
 			local id = tonumber(userId)
@@ -250,7 +254,9 @@ function Server.start(gameConfig: any, serverConfig: any?, opts: any?): any
 				else
 					return "usage: policy restrict <true|false|clear> [userId]"
 				end
-				return `{tostring(player)} paidRandomRestricted = {tostring(rt.policy.paidRandomRestricted(player))}`
+				return `{tostring(player)} paidRandomRestricted = {tostring(
+					rt.policy.paidRandomRestricted(player)
+				)}`
 			end
 		)
 		cmd(
@@ -260,18 +266,22 @@ function Server.start(gameConfig: any, serverConfig: any?, opts: any?): any
 				return rt.shop.consoleReceipt(name, purchaseId, userId)
 			end
 		)
-		cmd("events event", "events event [id]: trigger an event now (no id = list events)", function(id: string?)
-			if id == nil then
-				return rt.events.consoleList()
+		cmd(
+			"events event",
+			"events event [id]: trigger an event now (no id = list events)",
+			function(id: string?)
+				if id == nil then
+					return rt.events.consoleList()
+				end
+				if rt.gameConfigPublic.events[id] == nil then
+					return "unknown event " .. id
+				end
+				if rt.events.trigger(id, platform.players.list()[1]) then
+					return `started {id}`
+				end
+				return id .. " is already active"
 			end
-			if rt.gameConfigPublic.events[id] == nil then
-				return "unknown event " .. id
-			end
-			if rt.events.trigger(id, platform.players.list()[1]) then
-				return `started {id}`
-			end
-			return id .. " is already active"
-		end)
+		)
 	end
 
 	local function boot()
@@ -343,6 +353,7 @@ function Server.start(gameConfig: any, serverConfig: any?, opts: any?): any
 			lookup = platform.policyLookup,
 			isPlayer = platform.isPlayer,
 			wait = platform.wait,
+			delay = platform.delay,
 			publish = function(player: any, value: boolean)
 				rt.replication.setFramework(player, "paidRandomRestricted", value)
 			end,
@@ -428,6 +439,12 @@ function Server.start(gameConfig: any, serverConfig: any?, opts: any?): any
 		for _, ref in order do
 			ctxs[ref] = Context.build(rt, ref)
 		end
+		for _, ref in order do
+			local impl = impls[ref]
+			if impl.actions then
+				rt.net.bindActions(ref.name, impl.actions, impl.net) -- listening now; queued until step 6
+			end
+		end
 
 		-- 4. init(ctx), in order, no yielding, no cross-module API calls
 		rt.phase = "init"
@@ -449,11 +466,11 @@ function Server.start(gameConfig: any, serverConfig: any?, opts: any?): any
 
 		-- 6. framework start
 		rt.events.start()
-		rt.shop.claim() -- last: no module code that runs during boot can replace it (§7.1)
-		rt.net.start()
+		rt.net.start() -- releases the queued requests (module handlers run here)
 		platform.installConsole(function(...: any): string
 			return rt.consoleText(...)
 		end)
+		rt.shop.claim() -- LAST: no module code that runs during boot can replace it (§7.1)
 		rt.phase = "running"
 		rt.state = "running"
 	end
@@ -483,6 +500,7 @@ function Server.start(gameConfig: any, serverConfig: any?, opts: any?): any
 		if rt.data.isLoaded(player) then
 			rt.lifecycle.firePlayerRemoving(player)
 			rt.frameworkSignals.PlayerRemoving:Fire(player)
+			rt.shop.settleOnLeave(player) -- N9: may yield (one confirmed save) before the release
 		end
 		rt.data.release(player)
 		rt.policy.forget(player)
@@ -499,6 +517,7 @@ function Server.start(gameConfig: any, serverConfig: any?, opts: any?): any
 		rt.assertUsable()
 		rt.lifecycle.tick(dt)
 		rt.events.tick(dt)
+		rt.shop.tick(dt) -- §7.1 ProcessReceipt owner check
 		rt.replication.step()
 	end
 
@@ -510,27 +529,18 @@ function Server.start(gameConfig: any, serverConfig: any?, opts: any?): any
 		end
 	end
 
-	-- Module-declared actions (server.actions; per-module Blink routing is later work, §9): the
-	-- harness drives them. Loaded check, the action's rate limit, pcall.
+	-- Module-declared actions (§9, server.actions): routed by Net (wire: the module's own Blink
+	-- events; here: a server-side call, e.g. the harness's h:action). Left / not loaded / rate
+	-- limit / pcall all apply. -> (ok, result | reason)
 	function rt.action(player: any, ref: any, actionName: string, ...: any): (boolean, any)
 		rt.assertUsable()
 		if not enabled[ref] then
 			error(Resolve.notEnabledMessage(ref.name), 2)
 		end
-		local actions = impls[ref].actions
-		local action = actions and actions[actionName]
-		if action == nil then
+		if not rt.net.hasAction(ref.name, actionName) then
 			error(`{ref.name} has no action '{actionName}'`, 2)
 		end
-		if not rt.data.isLoaded(player) then
-			return false, "not_loaded"
-		end
-		local handler = if type(action) == "function" then action else action.handler
-		local limit = if type(action) == "table" then action.limit else nil
-		if limit and not rt.net.allow(player, `action:{ref.name}.{actionName}`, limit) then
-			return false, "rate_limited"
-		end
-		return pcall(handler, player, ...)
+		return rt.net.action(ref.name, actionName, player, ...)
 	end
 
 	-- Console: `<prefix> <command> args...` (module commands are prefixed with the lower-case

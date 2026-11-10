@@ -166,7 +166,11 @@ function Events.new(opts: any): any
 		if def == nil or active[id] ~= nil then
 			return false
 		end
-		if type(def.durationSec) ~= "number" or def.durationSec ~= def.durationSec or def.durationSec <= 0 then
+		if
+			type(def.durationSec) ~= "number"
+			or def.durationSec ~= def.durationSec
+			or def.durationSec <= 0
+		then
 			log(`[StudWork.Events] events.{id}.durationSec must be > 0`)
 			return false
 		end
@@ -228,7 +232,9 @@ function Events.new(opts: any): any
 					error(`ctx.events.schedule('{id}'): already scheduled by {existing.owner}`, 2)
 				end
 				if defsTable[id] == nil then
-					log(`[StudWork.Events] schedule('{id}'): not in GameConfig.events (needs durationSec); trigger will refuse it`)
+					log(
+						`[StudWork.Events] schedule('{id}'): not in GameConfig.events (needs durationSec); trigger will refuse it`
+					)
 				end
 				if schedule ~= nil then
 					local problem = Schedule.validate(schedule)

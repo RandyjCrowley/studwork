@@ -25,7 +25,12 @@
 local AnalyticsService = game:GetService("AnalyticsService")
 
 local Types = require(game:GetService("ReplicatedStorage"):WaitForChild("Core"):WaitForChild("Types"))
-local AnalyticsUtil = require(script.AnalyticsUtil)
+local AnalyticsUtil = require(
+	game:GetService("ServerScriptService")
+		:WaitForChild("Framework")
+		:WaitForChild("Analytics")
+		:WaitForChild("AnalyticsUtil")
+)
 
 local MAX_NAME_LENGTH = 50
 local JOINED_STEP = "Joined"

@@ -29,8 +29,13 @@ local MarketplaceService = game:GetService("MarketplaceService")
 local Players = game:GetService("Players")
 
 local Types = require(game:GetService("ReplicatedStorage"):WaitForChild("Core"):WaitForChild("Types"))
-local Receipt = require(script.Receipt)
-local Tx = require(script.Parent.Tx)
+local Receipt = require(
+	game:GetService("ServerScriptService")
+		:WaitForChild("Framework")
+		:WaitForChild("Shop")
+		:WaitForChild("Receipt")
+)
+local Tx = require(game:GetService("ServerScriptService"):WaitForChild("Compat"):WaitForChild("Tx"))
 
 local PASS_CHECK_ATTEMPTS = 3
 local PASS_RETRY_DELAY = 1 -- seconds, doubles per attempt

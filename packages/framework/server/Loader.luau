@@ -19,7 +19,8 @@ local Resolve = requireShared(Shared.Resolve)
 
 local Loader = {}
 
-local SURFACES = { "api", "txApi", "extensions", "purchaseOps", "actions" }
+-- net (step 4b): the module's own generated Blink server module; its events back `actions`
+local SURFACES = { "api", "txApi", "extensions", "purchaseOps", "actions", "net" }
 
 -- ServerScriptService.Modules.<server>, or one level down in a kit folder
 -- (ServerScriptService.Modules.<Kit>.<server>), so a game's Rojo project can map each kit's

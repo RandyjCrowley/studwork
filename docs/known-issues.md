@@ -55,6 +55,11 @@ and what to do until it is fixed.
 - **R11 (rest of N9).** If the player leaves before the receipt's save is confirmed, only the
   analytics are logged. Game `tx.after` effects, `ProductGranted` and the toast are dropped. Never put
   grant logic in `tx.after`.
+  *core-v1.3.0 (framework Shop, step 4b):* settled. On leave, the framework makes one more confirmed
+  save and then runs the parked `tx.after` effects even though the buyer is gone; only if that save
+  can't be confirmed either are they dropped (warned). `tx.after` effects must not assume the buyer is
+  still in the server. See `packages/framework/server/Shop/README.md` (N9). The v1.2 `Core.start` path
+  keeps the old behaviour until the boot switch (step 4b-II).
 - **R12.** `tools/publish` trusts `deploy.json`: hand-editing `test.published.commit` unlocks `--live`.
 - **R13 / rest of R14.** The modules and numbers guardrails miss aliases (`local C = Core`,
   `Core["Mail"]`, `local E = Core.Economy`) and neutral names (`local k = 750`). The facade still
@@ -75,3 +80,9 @@ and what to do until it is fixed.
 `docs/manual-qa.md` covers these: Local Server with 1 and 2 clients, Device Emulator presets,
 listening to the sounds, and the real DataStore on a published test place. The automated cover is in
 `packages/core/tests/sim/`.
+- **R16 (core-v1.3.0, §7.1). On live servers ProcessReceipt replacement can't be detected at
+  runtime.** `MarketplaceService.ProcessReceipt` is a write-only callback in the engine, so the
+  framework's Heartbeat check (which works with the fake platform in tests) is inert live; see
+  `receiptCheck().status`. Enforcement is the `purchases` lint guardrail plus Shop claiming the
+  callback as the very last boot step. Workaround: never assign ProcessReceipt anywhere; vendored
+  packages that do must be patched.

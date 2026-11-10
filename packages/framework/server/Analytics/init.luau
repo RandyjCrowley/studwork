@@ -14,7 +14,8 @@
 	                        through Economy.balance, i.e. the framework calling a kit; nothing in the
 	                        framework may depend on a kit, so the currency's owner supplies it.)
 	                        amount finite and > 0; strings sanitized (control chars, length).
-	  custom(player, name, value?)  value defaults to 1; non-finite values are dropped.
+	  custom(player, name, value?, fields?)  value defaults to 1; non-finite values are dropped.
+	                        fields (step 4b, additive): { [string]: string } -> customFields.
 	  ClientFunnel (framework Blink event): only GameConfig.analytics.clientSteps are accepted.
 
 	Analytics.new(opts): opts.config (GameConfig.analytics or nil), opts.service ({ funnel, economy,
@@ -26,6 +27,7 @@ local AnalyticsUtil = require(script.AnalyticsUtil)
 local Analytics = {}
 
 Analytics.MAX_NAME_LENGTH = 50
+Analytics.MAX_FIELD_LENGTH = 100
 Analytics.JOINED_STEP = "Joined"
 
 function Analytics.new(opts: any): any
@@ -83,7 +85,11 @@ function Analytics.new(opts: any): any
 		if not AnalyticsUtil.validAmount(amount) then
 			return
 		end
-		if type(endingBalance) ~= "number" or endingBalance ~= endingBalance or math.abs(endingBalance) == math.huge then
+		if
+			type(endingBalance) ~= "number"
+			or endingBalance ~= endingBalance
+			or math.abs(endingBalance) == math.huge
+		then
 			return
 		end
 		local cleanCurrency = AnalyticsUtil.sanitize(currency, Analytics.MAX_NAME_LENGTH)
@@ -92,13 +98,14 @@ function Analytics.new(opts: any): any
 			return
 		end
 		local cleanSku = AnalyticsUtil.sanitize(sku, Analytics.MAX_NAME_LENGTH)
-		local ok, err = pcall(service.economy, player, flow, cleanCurrency, amount, endingBalance, cleanType, cleanSku)
+		local ok, err =
+			pcall(service.economy, player, flow, cleanCurrency, amount, endingBalance, cleanType, cleanSku)
 		if not ok then
 			log("[StudWork.Analytics] economy: " .. tostring(err))
 		end
 	end
 
-	function a.custom(player: any, name: string, value: number?)
+	function a.custom(player: any, name: string, value: number?, fields: { [string]: string }?)
 		local cleanName = AnalyticsUtil.sanitize(name, Analytics.MAX_NAME_LENGTH)
 		if cleanName == nil then
 			return
@@ -107,7 +114,19 @@ function Analytics.new(opts: any): any
 		if type(v) ~= "number" or v ~= v or v == math.huge or v == -math.huge then
 			return
 		end
-		local ok, err = pcall(service.custom, player, cleanName, v)
+		local cleanFields: { [string]: string }? = nil
+		if type(fields) == "table" then
+			local out: { [string]: string } = {}
+			for k, fv in fields do
+				local ck = AnalyticsUtil.sanitize(k, Analytics.MAX_NAME_LENGTH)
+				local cv = AnalyticsUtil.sanitize(tostring(fv), Analytics.MAX_FIELD_LENGTH)
+				if ck and cv then
+					out[ck] = cv
+				end
+			end
+			cleanFields = out
+		end
+		local ok, err = pcall(service.custom, player, cleanName, v, cleanFields)
 		if not ok then
 			log("[StudWork.Analytics] custom: " .. tostring(err))
 		end

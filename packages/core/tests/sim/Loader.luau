@@ -21,6 +21,8 @@ local Loader = {}
 local ROOTS = {
 	"packages/core/shared",
 	"packages/core/server",
+	"packages/kits/compat",
+	"packages/framework/server",
 	"packages/kits/collection/server",
 	"packages/kits/economy/server",
 	"packages/kits/base/server",

@@ -73,6 +73,7 @@ local function fakePlatform(self: any, opts: Options): any
 	}
 	self.fake = fake
 	self.inGame = {}
+	self.timers = {}
 	local events: any = {}
 	for _, name in Net.CLIENT_EVENTS do
 		events[name] = Harness.fakeEvent(name, fake.serverEvents)
@@ -88,6 +89,10 @@ local function fakePlatform(self: any, opts: Options): any
 		end,
 		clock = function()
 			return self.clock
+		end,
+		-- task.delay stand-in: fired by h:tick once the fake clock reaches it
+		delay = function(seconds: number, fn: any)
+			table.insert(self.timers, { at = self.clock + (seconds or 0), fn = fn })
 		end,
 		isPlayer = function(p: any): boolean
 			return self.inGame[p] == true
@@ -117,6 +122,11 @@ local function fakePlatform(self: any, opts: Options): any
 			setProcessReceipt = function(fn: any)
 				fake.receiptFn = fn
 			end,
+			-- readable here (unlike the live engine), so the §7.1 runtime check can be tested:
+			-- a test replaces fake.receiptFn and ticks
+			getProcessReceipt = function(): (boolean, any)
+				return true, fake.receiptFn
+			end,
 			decision = function(name: string): string
 				return name
 			end,
@@ -137,7 +147,14 @@ local function fakePlatform(self: any, opts: Options): any
 			funnel = function(p: any, index: number, name: string)
 				table.insert(fake.analytics, { kind = "funnel", player = p, index = index, name = name })
 			end,
-			economy = function(p: any, flow: string, currency: string, amount: number, ending: number, kind: string)
+			economy = function(
+				p: any,
+				flow: string,
+				currency: string,
+				amount: number,
+				ending: number,
+				kind: string
+			)
 				table.insert(fake.analytics, {
 					kind = "economy",
 					player = p,
@@ -148,8 +165,11 @@ local function fakePlatform(self: any, opts: Options): any
 					type = kind,
 				})
 			end,
-			custom = function(p: any, name: string, value: number)
-				table.insert(fake.analytics, { kind = "custom", player = p, name = name, value = value })
+			custom = function(p: any, name: string, value: number, fields: any)
+				table.insert(
+					fake.analytics,
+					{ kind = "custom", player = p, name = name, value = value, fields = fields }
+				)
 			end,
 		},
 		makeSync = function(hooks: any): any
@@ -300,15 +320,30 @@ function Harness.console(self: any, ...: any): string
 	return self.fake.consoleRun(...)
 end
 
+-- Runs every platform.delay timer that is due at the current fake clock.
+function Harness.runTimers(self: any)
+	local due = {}
+	local keep = {}
+	for _, t in self.timers do
+		table.insert(if t.at <= self.clock then due else keep, t)
+	end
+	self.timers = keep
+	for _, t in due do
+		t.fn()
+	end
+end
+
 function Harness.tick(self: any, seconds: number)
 	local whole = math.floor(seconds)
 	for _ = 1, whole do
 		self.clock += 1
+		self:runTimers()
 		self.runtime.tick(1)
 	end
 	local rest = seconds - whole
 	if rest > 0 then
 		self.clock += rest
+		self:runTimers()
 		self.runtime.tick(rest)
 	end
 end

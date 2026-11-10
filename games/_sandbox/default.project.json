@@ -13,7 +13,7 @@
     "ReplicatedStorage": {
       "Packages": { "$path": "../../deps/Packages" },
       "Core": { "$path": "../../packages/core/shared" },
-      "CoreClient": { "$path": "../../packages/core/client" },
+      "FrameworkClient": { "$path": "../../packages/framework/client" },
       "Framework": { "$path": "../../packages/framework/shared" },
       "Kits": {
         "$className": "Folder",
@@ -28,6 +28,7 @@
     },
     "ServerScriptService": {
       "CoreServer": { "$path": "../../packages/core/server" },
+      "Compat": { "$path": "../../packages/kits/compat" },
       "Framework": { "$path": "../../packages/framework/server" },
       "Kits": {
         "$className": "Folder",

@@ -24,6 +24,7 @@
 	      currency. Only Compliance calls it.
 	  isPaidCurrency(currency) -> boolean, paidCurrencies() -> { string }   (added in step 4b)
 	  tagPaid(tx, reason?) -> string                                       (step 4b: takes the tx)
+	  tagPaid(sourceId) -> "paidcur:<sourceId>"   §14's frozen form, for a registered source
 	      "paid:<product>" inside a purchase, "paidcur:<sourceId>" after a spendForRoll in this tx,
 	      otherwise `reason` (or "free") — callers can't choose the prefix (M5).
 	  disclose(player, sourceId?)   (re)send the player's odds (framework field `odds`)
@@ -79,7 +80,10 @@ function Compliance.new(opts: any): any
 	local function sourceFor(caller: string, sourceId: any): { owner: string, source: Source }
 		local entry = if type(sourceId) == "string" then sources[sourceId] else nil
 		if entry == nil then
-			error(`ctx.compliance: unknown random source '{tostring(sourceId)}' (registerRandomSource first)`, 3)
+			error(
+				`ctx.compliance: unknown random source '{tostring(sourceId)}' (registerRandomSource first)`,
+				3
+			)
 		end
 		if entry.owner ~= caller and not opts.canUse(caller, entry.owner) then
 			error(
@@ -177,9 +181,18 @@ function Compliance.new(opts: any): any
 					"registerRandomSource: id must be a short string"
 				)
 				assert(type(source) == "table", "registerRandomSource: source must be a table")
-				assert(type(source.odds) == "function", "registerRandomSource: source.odds must be a function")
-				assert(type(source.sample) == "function", "registerRandomSource: source.sample must be a function")
-				assert(type(source.luckDisclosed) == "boolean", "registerRandomSource: luckDisclosed must be a boolean")
+				assert(
+					type(source.odds) == "function",
+					"registerRandomSource: source.odds must be a function"
+				)
+				assert(
+					type(source.sample) == "function",
+					"registerRandomSource: source.sample must be a function"
+				)
+				assert(
+					type(source.luckDisclosed) == "boolean",
+					"registerRandomSource: luckDisclosed must be a boolean"
+				)
 				local existing = sources[id]
 				if existing ~= nil then
 					error(`random source '{id}' already registered (by {existing.owner})`, 2)
@@ -188,8 +201,14 @@ function Compliance.new(opts: any): any
 				table.insert(order, id)
 			end,
 			registerCurrencySpender = function(currency: string, fn: (any, number) -> boolean)
-				assert(type(currency) == "string" and currency ~= "", "registerCurrencySpender: currency must be a string")
-				assert(type(fn) == "function", "registerCurrencySpender: spender must be a function(tx, amount)")
+				assert(
+					type(currency) == "string" and currency ~= "",
+					"registerCurrencySpender: currency must be a string"
+				)
+				assert(
+					type(fn) == "function",
+					"registerCurrencySpender: spender must be a function(tx, amount)"
+				)
 				local existing = spenders[currency]
 				if existing ~= nil then
 					error(`currency '{currency}' already has a spender (owned by {existing.owner})`, 2)
@@ -251,11 +270,24 @@ function Compliance.new(opts: any): any
 				m.paidcur = sourceId
 				local outcome = doSample(tx, m, sourceId, entry, l)
 				if outcome == nil then
-					error(`spendForRoll('{sourceId}'): the source returned no outcome; the spend is discarded`, 0)
+					error(
+						`spendForRoll('{sourceId}'): the source returned no outcome; the spend is discarded`,
+						0
+					)
 				end
 				return true, outcome, nil
 			end,
 			tagPaid = function(tx: any, reason: string?): string
+				-- §14's tagPaid(source) form: a registered random source id -> "paidcur:<id>"
+				if type(tx) == "string" and not data.isTxHandle(tx) then
+					if sources[tx] == nil then
+						error(
+							`ctx.compliance.tagPaid('{tx}'): not a registered random source; pass the open tx to derive the tag`,
+							2
+						)
+					end
+					return "paidcur:" .. tx
+				end
 				local m = meta(tx)
 				if m.purchase then
 					return "paid:" .. tostring(m.product)

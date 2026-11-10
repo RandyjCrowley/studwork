@@ -78,7 +78,7 @@ if IS_SERVER then
 		(Core :: any)[namespace] = publicTable(namespace, sideModule.services[namespace])
 	end
 else
-	sideModule = require(ReplicatedStorage:WaitForChild("CoreClient"))
+	sideModule = require(ReplicatedStorage:WaitForChild("FrameworkClient"))
 	Core.Client = sideModule.api
 end
 

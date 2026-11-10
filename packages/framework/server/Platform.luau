@@ -8,11 +8,12 @@
 	  isStudio, now() (unix s), clock() (os.clock), spawn(fn, ...), delay(s, fn), wait(s?), guid(),
 	  isPlayer(p) (in the game), players = { list(), byUserId(id) }, kick(p, msg),
 	  events                           generated Blink server module (framework.blink), or nil
-	  marketplace = { setProcessReceipt(fn), decision(name) -> Enum, ownsPass(userId, id),
+	  marketplace = { setProcessReceipt(fn), getProcessReceipt() -> (readable, fn?) (optional; the
+	                  §7.1 runtime owner check), decision(name) -> Enum, ownsPass(userId, id),
 	                  onPassPurchaseFinished(fn(player, id, purchased)) }
 	  policyLookup(player) -> PolicyInfo
 	  analytics = { funnel(p, index, name), economy(p, flow, currency, amount, ending, type, sku?),
-	                custom(p, name, value) }
+	                custom(p, name, value, fields?) }   fields: { [string]: string } -> customFields
 	  makeSync(hooks) -> replication transport (Replication.luau)
 	  makeStore(gameId) -> Data store (Store.luau)
 	  installConsole(run(...) -> string)
@@ -144,6 +145,19 @@ function Platform.live(): any
 			setProcessReceipt = function(fn: any)
 				MarketplaceService.ProcessReceipt = fn
 			end,
+			-- ProcessReceipt is a write-only callback on the engine ("you can only set the callback
+			-- value, get is not available"): pcall'd, so the Shop check sees (false) and reports
+			-- itself unavailable instead of erroring. If a future engine allows reading it, the
+			-- check becomes live with no other change.
+			getProcessReceipt = function(): (boolean, any)
+				local ok, current = pcall(function(): any
+					return (MarketplaceService :: any).ProcessReceipt
+				end)
+				if ok and type(current) == "function" then
+					return true, current
+				end
+				return false, nil
+			end,
 			decision = function(name: string): any
 				return if name == "PurchaseGranted"
 					then Enum.ProductPurchaseDecision.PurchaseGranted
@@ -177,8 +191,26 @@ function Platform.live(): any
 					else Enum.AnalyticsEconomyFlowType.Sink
 				AnalyticsService:LogEconomyEvent(player, flowType, currency, amount, ending, kind, sku)
 			end,
-			custom = function(player: any, name: string, value: number)
-				AnalyticsService:LogCustomEvent(player, name, value)
+			custom = function(player: any, name: string, value: number, fields: { [string]: string }?)
+				if fields == nil then
+					AnalyticsService:LogCustomEvent(player, name, value)
+					return
+				end
+				-- customFields: up to 3 string values, keyed CustomField01..03, in sorted key order
+				local keys = {}
+				for k in fields do
+					table.insert(keys, k)
+				end
+				table.sort(keys)
+				local custom: { [string]: string } = {}
+				local slots = { "CustomField01", "CustomField02", "CustomField03" }
+				for i, k in keys do
+					if i > #slots then
+						break
+					end
+					custom[(Enum.AnalyticsCustomFieldKeys :: any)[slots[i]].Name] = `{k}={fields[k]}`
+				end
+				AnalyticsService:LogCustomEvent(player, name, value, custom)
 			end,
 		},
 		makeSync = function(hooks: any): any

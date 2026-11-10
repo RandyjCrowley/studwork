@@ -209,7 +209,7 @@ makeNode = function(path: string)
 end
 
 -- Fake `game` exposing only the Rojo mapping of core (see games/_sandbox/default.project.json):
---   ReplicatedStorage.Core -> packages/core/shared, .CoreClient -> packages/core/client,
+--   ReplicatedStorage.Core -> packages/core/shared, .FrameworkClient -> packages/framework/client,
 --   .UI -> packages/ui, .Packages -> Packages, .Framework -> packages/framework/shared,
 --   .Kits.<Kit> -> packages/kits/<kit>/shared; ServerScriptService.CoreServer -> packages/core/server,
 --   .Framework -> packages/framework/server, .Kits.<Kit> -> packages/kits/<kit>/server.
@@ -252,7 +252,7 @@ end
 local fakeServices = {
 	ReplicatedStorage = folderNode({
 		Core = "packages/core/shared",
-		CoreClient = "packages/core/client",
+		FrameworkClient = "packages/framework/client",
 		UI = "packages/ui",
 		Packages = "deps/Packages",
 		Framework = "packages/framework/shared",
@@ -266,6 +266,7 @@ local fakeServices = {
 	}),
 	ServerScriptService = folderNode({
 		CoreServer = "packages/core/server",
+		Compat = "packages/kits/compat",
 		Framework = "packages/framework/server",
 		Kits = {
 			Collection = "packages/kits/collection/server",

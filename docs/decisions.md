@@ -411,3 +411,41 @@ Move + wire only, per module-api.md §5 step 5; no service logic was edited.
 5. **Not done here:** `FrameworkSection.V12_MAP` still targets the coarse kit keys
    (`economy`/`collection`/`social`/`engagement`); retargeting it to decision 2's finer keys
    belongs with Phase 1's real data sections.
+
+## core-v1.3.0 step 4b, resumed (builder 4b-I: green again, real framework services, Shop)
+
+The previous run stopped partway through step 4b. On resume, the WIP was committed as-is
+(`9942a44`, `--no-verify`) and the starting point recorded in
+`(internal build report, not public)`. Decisions from this pass, all verified by the
+lead re-running lint, typecheck (6 games), tests (582), test-sim (51) and 8 rojo builds:
+1. **`ReplicatedStorage.FrameworkClient` -> `packages/framework/client`** in every project. It sits
+   next to `Framework`; `StudWork.Client` is the API name, not a DataModel name.
+2. **`ServerScriptService.Compat` -> `packages/kits/compat`** while the v1.2 path is live. v1.2
+   Replication's `SectionCache` was restored there (`compat/SectionCache.luau`). Phase 2 deletes
+   the whole folder.
+3. **Policy retries on a self-rescheduling `platform.delay` timer, not a `while ... wait()` loop.**
+   The loop was the ShopCompliance.spec hang: under `Platform.inert`, `wait` returns immediately.
+4. **Shop claims `ProcessReceipt` as the very last boot step, after `net.start`**, which can run
+   module code from the pre-start queue.
+5. **N9: after-purchase effects are run, not best-effort.** If the buyer leaves while a grant's save
+   is still unconfirmed, `shop.settleOnLeave` makes one more confirmed save before the release.
+   While it waits, the PurchaseIds are marked in flight, so a concurrent retry gets
+   NotProcessedYet. Effects run only after confirmation; if the save fails as well, they are
+   dropped with a warning. Documented in `framework/server/Shop/README.md` and known-issues R11.
+6. **Module actions declared as a bare function get the default limit of 4/s, burst 8.**
+7. **New lint guardrail `purchases`:** bans `ProcessReceipt =`, `Prompt*PurchaseFinished`,
+   `DataStoreService` and `ProfileStore` outside an allow-list: framework Shop/Platform/Store/Data
+   and test fakes, plus, temporarily, `packages/core` and v1.2 Mail. Phase 1 agent C moves Mail
+   onto `ctx.data.messages`, and Phase 2 deletes `packages/core`.
+8. **§7.1's runtime replacement check can't work on a live server as written.** On Roblox,
+   `MarketplaceService.ProcessReceipt` is a write-only callback and can't be read back to compare.
+   The check is built behind the Platform adapter (`getProcessReceipt`) and fully tested with the
+   fake platform (warn naming the source, `ProcessReceiptHijacked` analytics, reclaim). On a live
+   server the adapter reports the callback as unreadable and `receiptCheck().status` says the check
+   is unavailable, so enforcement there is the lint guardrail plus claiming last. The frozen doc is
+   not edited (contract frozen at `core-contract-v1.3`). This is a clarification of what the engine
+   allows, logged here and in known-issues, not an API change.
+9. Additive, framework-internal helpers accepted: `compliance.registerCurrencySpender` /
+   `isPaidCurrency` / `paidCurrencies`; `tagPaid(tx, reason)` alongside the frozen
+   `tagPaid(sourceId)`; `sample(player, luck, tx)`; `analytics.custom(..., fields?)`; server parts
+   may declare `net`.

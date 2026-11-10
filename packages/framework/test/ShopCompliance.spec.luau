@@ -22,7 +22,10 @@ local Loot = mod("Loot", {
 	data = { key = "loot", version = 1, default = { items = {}, pity = 0 } },
 })
 -- The game: sells products using both.
-local Game = mod("Game", { dependsOn = { Bank, Loot }, data = { key = "game", version = 1, default = { bought = 0 } } })
+local Game = mod(
+	"Game",
+	{ dependsOn = { Bank, Loot }, data = { key = "game", version = 1, default = { bought = 0 } } }
+)
 local Stranger = mod("Stranger", { data = { key = "stranger", version = 1, default = {} } })
 
 local ctxs = {}
@@ -57,12 +60,19 @@ local function servers(gameHandlers)
 				for _, id in { "Box", "Egg" } do
 					ctx.compliance.registerRandomSource(id, {
 						odds = function(player)
-							return { tableId = id, luck = ctx.data.isLoaded(player) and (ctxs.luck or 1) or 1, items = { pebble = 1 } }
+							return {
+								tableId = id,
+								luck = ctx.data.isLoaded(player) and (ctxs.luck or 1) or 1,
+								items = { pebble = 1 },
+							}
 						end,
-						sample = function(player, luck, tx)
+						sample = function(_player, luck, tx)
 							sampleCalls += 1
 							local s = ctx.section(tx)
 							s.pity += 1
+							if nextOutcome == nil then
+								return nil -- an empty table / no outcome
+							end
 							return { itemId = nextOutcome, luck = luck }
 						end,
 						luckDisclosed = id == "Box",
@@ -82,7 +92,10 @@ local function servers(gameHandlers)
 				end,
 				addItem = function(tx, itemId)
 					local c = ctxs.Loot
-					table.insert(c.section(tx).items, { id = itemId, source = c.compliance.tagPaid(tx, "drop") })
+					table.insert(
+						c.section(tx).items,
+						{ id = itemId, source = c.compliance.tagPaid(tx, "drop") }
+					)
 					return true
 				end,
 			},
@@ -94,7 +107,10 @@ local function servers(gameHandlers)
 						if not ok then
 							return reason
 						end
-						table.insert(c.section(tx).items, { id = outcome.itemId, source = c.compliance.tagPaid(tx, "drop") })
+						table.insert(
+							c.section(tx).items,
+							{ id = outcome.itemId, source = c.compliance.tagPaid(tx, "drop") }
+						)
 						return outcome.itemId
 					end)
 				end,
@@ -102,7 +118,10 @@ local function servers(gameHandlers)
 					local c = ctxs.Loot
 					return c.tx(player, function(tx)
 						local ok, outcome = c.compliance.roll(tx, "Box", 5) -- free: any luck
-						table.insert(c.section(tx).items, { id = outcome.itemId, source = c.compliance.tagPaid(tx, "reward") })
+						table.insert(
+							c.section(tx).items,
+							{ id = outcome.itemId, source = c.compliance.tagPaid(tx, "reward") }
+						)
 						return ok
 					end)
 				end,
@@ -124,7 +143,8 @@ local function servers(gameHandlers)
 	}
 end
 
-local PRODUCTS = { passes = { Vip = 77, Soon = 0 }, devProducts = { CoinPack = 11, EggRoll = 22, Broken = 33, Later = 0 } }
+local PRODUCTS =
+	{ passes = { Vip = 77, Soon = 0 }, devProducts = { CoinPack = 11, EggRoll = 22, Broken = 33, Later = 0 } }
 
 local function boot(gameHandlers, extra)
 	nextOutcome = "pebble"
@@ -147,39 +167,42 @@ local function receipt(pid, product, user)
 end
 
 describe("ctx.shop: receipts", function()
-	it("grants once: handler + purchase record in one commit, effects after the save, duplicates skip", function()
-		local runs, effects = 0, 0
-		local h = boot({
-			CoinPack = function(tx)
-				runs += 1
-				expect(tx.paid).toBe(true)
-				expect(tx.productName).toBe("CoinPack")
-				tx.use(Bank).grant(1000)
-				ctxs.Game.section(tx).bought += 1
-				tx.after(function()
-					effects += 1
-				end)
-			end,
-		})
-		local p = h:addPlayer({ userId = 1 })
-		expect(h:receipt(receipt("r1", 11))).toBe("PurchaseGranted")
-		expect(h:receipt(receipt("r1", 11))).toBe("PurchaseGranted")
-		expect(runs).toBe(1)
-		expect(effects).toBe(1)
-		expect(ctxs.Bank.data.get(p).Coins).toBe(1100)
-		expect(ctxs.Game.data.get(p).bought).toBe(1)
-		h:removePlayer(p)
-		local saved = h:saved(p)
-		expect(saved._framework.purchases.r1).Not.toBeNil()
-		expect(saved.bank.Coins).toBe(1100)
-		local granted = 0
-		for _, a in h.fake.analytics do
-			if a.name == "ProductPurchased" then
-				granted += 1
+	it(
+		"grants once: handler + purchase record in one commit, effects after the save, duplicates skip",
+		function()
+			local runs, effects = 0, 0
+			local h = boot({
+				CoinPack = function(tx)
+					runs += 1
+					expect(tx.paid).toBe(true)
+					expect(tx.productName).toBe("CoinPack")
+					tx.use(Bank).grant(1000)
+					ctxs.Game.section(tx).bought += 1
+					tx.after(function()
+						effects += 1
+					end)
+				end,
+			})
+			local p = h:addPlayer({ userId = 1 })
+			expect(h:receipt(receipt("r1", 11))).toBe("PurchaseGranted")
+			expect(h:receipt(receipt("r1", 11))).toBe("PurchaseGranted")
+			expect(runs).toBe(1)
+			expect(effects).toBe(1)
+			expect(ctxs.Bank.data.get(p).Coins).toBe(1100)
+			expect(ctxs.Game.data.get(p).bought).toBe(1)
+			h:removePlayer(p)
+			local saved = h:saved(p)
+			expect(saved._framework.purchases.r1).Not.toBeNil()
+			expect(saved.bank.Coins).toBe(1100)
+			local granted = 0
+			for _, a in h.fake.analytics do
+				if a.name == "ProductPurchased" then
+					granted += 1
+				end
 			end
+			expect(granted).toBe(1)
 		end
-		expect(granted).toBe(1)
-	end)
+	)
 
 	it("handler error / yield / retryLater write nothing and return NotProcessedYet", function()
 		local h = boot({
@@ -226,7 +249,7 @@ describe("ctx.shop: receipts", function()
 		ctxs.Stranger.shop.onProduct(11, function(tx)
 			local ok, e = pcall(tx.use, Bank)
 			err = e
-			assert(not ok)
+			assert(not ok, "tx.use(Bank) must fail for Stranger")
 		end)
 		h:addPlayer({ userId = 1 })
 		h:receipt(receipt("z", 11))
@@ -295,27 +318,30 @@ describe("ctx.compliance", function()
 		expect(ctxs.Loot.data.get(p).pity).toBe(1)
 	end)
 
-	it("restricted players get 'restricted' (grant a fixed fallback); unknown policy retries the purchase", function()
-		local reasons = {}
-		local h = boot({
-			EggRoll = function(tx)
-				local out, reason = tx.use(Loot).roll("Egg")
-				table.insert(reasons, reason or "ok")
-				if out == nil then
-					assert(tx.use(Loot).addItem("crystal")) -- fixed, non-random fallback
-				end
-			end,
-		}, { policy = { [1] = true, [2] = "fail" } })
-		local a = h:addPlayer({ userId = 1 })
-		expect(h:receipt(receipt("r1", 22, 1))).toBe("PurchaseGranted")
-		expect(reasons[1]).toBe("restricted")
-		expect(ctxs.Loot.data.get(a).items[1].id).toBe("crystal")
-		expect(sampleCalls).toBe(0)
-		local b = h:addPlayer({ userId = 2 })
-		expect(h:receipt(receipt("r2", 22, 2))).toBe("NotProcessedYet")
-		expect(#ctxs.Loot.data.get(b).items).toBe(0)
-		expect(table.concat(h:warnings(), "\n")).Not.toContain("r2")
-	end)
+	it(
+		"restricted players get 'restricted' (grant a fixed fallback); unknown policy retries the purchase",
+		function()
+			local reasons = {}
+			local h = boot({
+				EggRoll = function(tx)
+					local out, reason = tx.use(Loot).roll("Egg")
+					table.insert(reasons, reason or "ok")
+					if out == nil then
+						assert(tx.use(Loot).addItem("crystal")) -- fixed, non-random fallback
+					end
+				end,
+			}, { policy = { [1] = true, [2] = "fail" } })
+			local a = h:addPlayer({ userId = 1 })
+			expect(h:receipt(receipt("r1", 22, 1))).toBe("PurchaseGranted")
+			expect(reasons[1]).toBe("restricted")
+			expect(ctxs.Loot.data.get(a).items[1].id).toBe("crystal")
+			expect(sampleCalls).toBe(0)
+			local b = h:addPlayer({ userId = 2 })
+			expect(h:receipt(receipt("r2", 22, 2))).toBe("NotProcessedYet")
+			expect(#ctxs.Loot.data.get(b).items).toBe(0)
+			expect(table.concat(h:warnings(), "\n")).Not.toContain("receipt r2") -- retried quietly
+		end
+	)
 
 	it("spendForRoll spends a paid currency and rolls in one tx; insufficient spends nothing", function()
 		local h = boot()
@@ -344,12 +370,15 @@ describe("ctx.compliance", function()
 		expect(ctxs.Bank.data.get(p).Coins).toBe(100)
 	end)
 
-	it("free rolls (outside a purchase, no paid currency) may use any luck and are tagged as given", function()
-		local h = boot(nil, { policy = { [1] = true } })
-		local p = h:addPlayer({ userId = 1 })
-		expect(h:use(Loot).freeBox(p)).toBe(true) -- restricted players may roll free tables
-		expect(ctxs.Loot.data.get(p).items[1].source).toBe("reward")
-	end)
+	it(
+		"free rolls (outside a purchase, no paid currency) may use any luck and are tagged as given",
+		function()
+			local h = boot(nil, { policy = { [1] = true } })
+			local p = h:addPlayer({ userId = 1 })
+			expect(h:use(Loot).freeBox(p)).toBe(true) -- restricted players may roll free tables
+			expect(ctxs.Loot.data.get(p).items[1].source).toBe("reward")
+		end
+	)
 
 	it("luck rule: a paid roll with luck ~= 1 needs a luckDisclosed source and the same luck sent", function()
 		local h = boot({
@@ -393,7 +422,10 @@ describe("ctx.compliance", function()
 			ctxs.Stranger.compliance.registerCurrencySpender("Coins", function() end)
 		end).toThrow("already has a spender (owned by Bank)")
 		expect(function()
-			ctxs.Stranger.compliance.registerRandomSource("Box", { odds = print, sample = print, luckDisclosed = false })
+			ctxs.Stranger.compliance.registerRandomSource(
+				"Box",
+				{ odds = print, sample = print, luckDisclosed = false }
+			)
 		end).toThrow("already registered (by Loot)")
 	end)
 

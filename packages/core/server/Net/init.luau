@@ -21,9 +21,24 @@
 
 local Players = game:GetService("Players")
 
-local PendingQueue = require(script.PendingQueue)
-local RateLimit = require(script.RateLimit)
-local Generated = require(script.Generated)
+local PendingQueue = require(
+	game:GetService("ServerScriptService")
+		:WaitForChild("Framework")
+		:WaitForChild("Net")
+		:WaitForChild("PendingQueue")
+)
+local RateLimit = require(
+	game:GetService("ServerScriptService")
+		:WaitForChild("Framework")
+		:WaitForChild("Net")
+		:WaitForChild("RateLimit")
+)
+local Generated = require(
+	game:GetService("ServerScriptService")
+		:WaitForChild("Framework")
+		:WaitForChild("Net")
+		:WaitForChild("Generated")
+)
 
 type Handler = (player: Player, ...any) -> ()
 

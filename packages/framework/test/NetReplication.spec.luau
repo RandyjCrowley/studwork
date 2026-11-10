@@ -14,7 +14,13 @@ local function mod(name, extra)
 end
 
 local Wallet = mod("Wallet", {
-	data = { key = "wallet", version = 1, default = { coins = 0, secret = "x" }, replicate = { "coins", "secret" }, serverOnly = { "secret" } },
+	data = {
+		key = "wallet",
+		version = 1,
+		default = { coins = 0, secret = "x" },
+		replicate = { "coins", "secret" },
+		serverOnly = { "secret" },
+	},
 })
 local Other = mod("Other", { data = { key = "other", version = 1, default = { n = 0 } } })
 
@@ -23,16 +29,18 @@ describe("ctx.net (Net)", function()
 		local got = {}
 		local h = Harness.new({
 			modules = { Wallet },
-			servers = { Wallet = {
-				init = function(ctx)
-					ctx.net.handle("RequestUpgrade", function(player, id)
-						table.insert(got, id)
-						if id == "boom" then
-							error("handler blew up")
-						end
-					end)
-				end,
-			} },
+			servers = {
+				Wallet = {
+					init = function(ctx)
+						ctx.net.handle("RequestUpgrade", function(_player, id)
+							table.insert(got, id)
+							if id == "boom" then
+								error("handler blew up")
+							end
+						end)
+					end,
+				},
+			},
 		})
 		local p = h:addPlayer({ userId = 1 })
 		h:fire(p, "RequestUpgrade", "a")
@@ -49,17 +57,26 @@ describe("ctx.net (Net)", function()
 
 	it("a second owner of the same framework event is a boot error naming both", function()
 		local function claimer()
-			return { init = function(ctx)
-				ctx.net.handle("RequestRoll", function() end)
-			end }
+			return {
+				init = function(ctx)
+					ctx.net.handle("RequestRoll", function() end)
+				end,
+			}
 		end
-		local _, err = Harness.boot({ modules = { Wallet, Other }, servers = { Wallet = claimer(), Other = claimer() } })
-		expect(err).toContain("framework event 'RequestRoll' already has a handler (owned by Wallet); Other can't claim it too")
+		local _, err =
+			Harness.boot({ modules = { Wallet, Other }, servers = { Wallet = claimer(), Other = claimer() } })
+		expect(err).toContain(
+			"framework event 'RequestRoll' already has a handler (owned by Wallet); Other can't claim it too"
+		)
 		local _, err2 = Harness.boot({
 			modules = { Wallet },
-			servers = { Wallet = { init = function(ctx)
-				ctx.net.handle("StateInit", function() end)
-			end } },
+			servers = {
+				Wallet = {
+					init = function(ctx)
+						ctx.net.handle("StateInit", function() end)
+					end,
+				},
+			},
 		})
 		expect(err2).toContain("owned by framework")
 	end)
@@ -68,11 +85,15 @@ describe("ctx.net (Net)", function()
 		local got = {}
 		local h = Harness.new({
 			modules = { Wallet },
-			servers = { Wallet = { init = function(ctx)
-				ctx.net.handle("RequestRebirth", function(player)
-					table.insert(got, player.UserId)
-				end)
-			end } },
+			servers = {
+				Wallet = {
+					init = function(ctx)
+						ctx.net.handle("RequestRebirth", function(player)
+							table.insert(got, player.UserId)
+						end)
+					end,
+				},
+			},
 		})
 		local ghost = Harness.player(99)
 		h:fire(ghost, "RequestRebirth") -- not in the game
@@ -94,12 +115,16 @@ describe("ctx.net (Net)", function()
 		local got = {}
 		local h = Harness.new({
 			modules = { Wallet },
-			servers = { Wallet = { init = function(ctx)
-				c = ctx
-				ctx.net.handleEvent("PlaceItem", ev, { rate = 1, burst = 1 }, function(player, slot)
-					table.insert(got, slot)
-				end)
-			end } },
+			servers = {
+				Wallet = {
+					init = function(ctx)
+						c = ctx
+						ctx.net.handleEvent("PlaceItem", ev, { rate = 1, burst = 1 }, function(_player, slot)
+							table.insert(got, slot)
+						end)
+					end,
+				},
+			},
 		})
 		local p = h:addPlayer({ userId = 2 })
 		h:fireCustom(ev, p, "s1")
@@ -125,9 +150,11 @@ describe("ctx.replicate (Replication)", function()
 		local c
 		local h = Harness.new({
 			modules = { Wallet, Other },
-			servers = { Wallet = { init = function(ctx)
-				c = ctx
-			end } },
+			servers = { Wallet = {
+				init = function(ctx)
+					c = ctx
+				end,
+			} },
 		})
 		local a = h:addPlayer({ userId = 1 })
 		local b = h:addPlayer({ userId = 2 })
@@ -155,9 +182,14 @@ describe("ctx.replicate (Replication)", function()
 
 	it("unchanged sections keep their table reference between sends (M2)", function()
 		local c
-		local h = Harness.new({ modules = { Wallet }, servers = { Wallet = { init = function(ctx)
-			c = ctx
-		end } } })
+		local h = Harness.new({
+			modules = { Wallet },
+			servers = { Wallet = {
+				init = function(ctx)
+					c = ctx
+				end,
+			} },
+		})
 		local p = h:addPlayer({ userId = 3 })
 		h:fire(p, "StateInit")
 		local first = h:state(p).modules.Wallet.data
@@ -172,9 +204,14 @@ describe("ctx.replicate (Replication)", function()
 
 	it("sent() is nil until the client subscribed (StateInit)", function()
 		local c
-		local h = Harness.new({ modules = { Wallet }, servers = { Wallet = { init = function(ctx)
-			c = ctx
-		end } } })
+		local h = Harness.new({
+			modules = { Wallet },
+			servers = { Wallet = {
+				init = function(ctx)
+					c = ctx
+				end,
+			} },
+		})
 		local p = h:addPlayer({ userId = 4 })
 		c.replicate.set(p, "k", 1)
 		h:tick(1)

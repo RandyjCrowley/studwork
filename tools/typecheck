@@ -24,7 +24,7 @@ OUT="$(luau-lsp analyze --platform roblox \
 	--defs "@testkit=tools/types/testkit.d.luau" \
 	--ignore "**/Generated*.luau" \
 	--ignore "**/deps/**" \
-	packages/core/shared packages/core/server packages/core/client \
+	packages/core/shared packages/core/server packages/framework/client packages/kits/compat \
 	packages/framework/shared packages/framework/server packages/kits packages/ui "games/$GAME/src" 2>&1 \
 	| grep -v '^\[INFO\]\|^\[WARN\]' || true)"
 

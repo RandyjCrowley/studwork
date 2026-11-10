@@ -71,6 +71,9 @@ Net.FRAMEWORK_SERVER_EVENTS = table.freeze({ "StateSync", "Feedback", "EventStat
 -- Requests (all players, all events) held before Net.start.
 Net.PENDING_CAP = 256
 
+-- Rate limit of a module action declared without one (a bare function).
+Net.DEFAULT_ACTION_LIMIT = table.freeze({ rate = 4, burst = 8 })
+
 local BEFORE_LOAD = { StateInit = true }
 
 type Handler = (player: any, ...any) -> ()
@@ -89,7 +92,9 @@ function Net.new(opts: any): any
 	local stats = { unhandled = {} :: { [string]: number }, notLoaded = 0, limited = 0, errors = 0 }
 	local started = false
 	local pending = PendingQueue.new(Net.PENDING_CAP, function(cap: number)
-		log(`[StudWork.Net] {cap} client requests arrived before boot finished; dropping further early requests`)
+		log(
+			`[StudWork.Net] {cap} client requests arrived before boot finished; dropping further early requests`
+		)
 	end)
 
 	if events ~= nil then
@@ -104,7 +109,13 @@ function Net.new(opts: any): any
 	local net: any = {}
 	net.stats = stats
 
-	local function run(label: string, fn: Handler?, player: any, args: { n: number, [number]: any }, needsLoad: boolean)
+	local function run(
+		label: string,
+		fn: Handler?,
+		player: any,
+		args: { n: number, [number]: any },
+		needsLoad: boolean
+	)
 		if not isPlayer(player) then
 			return -- left while queued
 		end
@@ -169,12 +180,21 @@ function Net.new(opts: any): any
 	-- Framework services and modules claim framework events through this.
 	function net.claim(owner: string, eventName: string, fn: Handler)
 		if Net.LIMITS[eventName] == nil then
-			error(`unknown framework client event '{tostring(eventName)}' (framework.blink has: {table.concat(Net.CLIENT_EVENTS, ", ")})`, 3)
+			error(
+				`unknown framework client event '{tostring(eventName)}' (framework.blink has: {table.concat(
+					Net.CLIENT_EVENTS,
+					", "
+				)})`,
+				3
+			)
 		end
 		assert(type(fn) == "function", "net.handle: handler must be a function")
 		local existing = handlers[eventName]
 		if existing ~= nil then
-			error(`framework event '{eventName}' already has a handler (owned by {existing.owner}); {owner} can't claim it too`, 3)
+			error(
+				`framework event '{eventName}' already has a handler (owned by {existing.owner}); {owner} can't claim it too`,
+				3
+			)
 		end
 		handlers[eventName] = { owner = owner, fn = fn }
 	end
@@ -222,6 +242,99 @@ function Net.new(opts: any): any
 		end)
 	end
 
+	-- Module actions (§9): server part `actions = { name = { limit = { rate, burst }, handler =
+	-- fn(player, ...), event = <Blink server event>? } }` (a bare function is { handler = fn } with
+	-- DEFAULT_ACTION_LIMIT). An action is bound to the wire through `event`, or the event of the same
+	-- name (or PascalCase name) in the module's own generated Blink module (server part `net`).
+	-- Every call (wire or net.action) takes the same path as any client request: dropped for a
+	-- player who left, rate-limited, queued until Net.start, blocked until data loads, pcall'd.
+	local actions: { [string]: { [string]: { limit: RateLimit.Limit, handler: Handler } } } = {}
+
+	local function pascal(name: string): string
+		return string.upper(string.sub(name, 1, 1)) .. string.sub(name, 2)
+	end
+
+	function net.bindActions(owner: string, specs: any, moduleNet: any?)
+		local mine: { [string]: { limit: RateLimit.Limit, handler: Handler } } = {}
+		actions[owner] = mine
+		for name, spec in specs or {} do
+			if type(name) ~= "string" or not string.match(name, "^[%a_][%w_]*$") then
+				error(`{owner}: action names must be identifiers, got '{tostring(name)}'`, 0)
+			end
+			local handler: any, limit: any, event: any
+			if type(spec) == "function" then
+				handler, limit = spec, Net.DEFAULT_ACTION_LIMIT
+			elseif type(spec) == "table" and type(spec.handler) == "function" then
+				handler = spec.handler
+				limit = if spec.limit == nil then Net.DEFAULT_ACTION_LIMIT else spec.limit
+				event = spec.event
+			else
+				error(`{owner}.actions.{name}: expected a function or {"{"} limit, handler {"}"}`, 0)
+			end
+			local ok, lim = pcall(checkLimit, limit)
+			if not ok then
+				error(`{owner}.actions.{name}: limit must be {"{"} rate > 0, burst >= 1 {"}"} (finite)`, 0)
+			end
+			if event == nil and type(moduleNet) == "table" then
+				event = moduleNet[name] or moduleNet[pascal(name)]
+			end
+			mine[name] = { limit = lim, handler = handler }
+			if event ~= nil then
+				if type(event) ~= "table" or type(event.On) ~= "function" then
+					error(
+						`{owner}.actions.{name}: event must be a generated Blink server event (with .On)`,
+						0
+					)
+				end
+				if frameworkEvents[event] ~= nil then
+					error(`{owner}.actions.{name}: '{frameworkEvents[event]}' is a framework event`, 0)
+				end
+				local label = `action:{owner}.{name}`
+				event.On(function(player: any, ...: any)
+					receive(label, lim, function(): Handler?
+						return handler
+					end, true, player, ...)
+				end)
+			end
+		end
+	end
+
+	function net.hasAction(owner: string, name: string): boolean
+		local mine = actions[owner]
+		return mine ~= nil and mine[name] ~= nil
+	end
+
+	-- A server-side call of a module action (StudWork.test harness h:action, console): the same
+	-- checks as a wire call, but synchronous and with the result. -> (ok, result | reason)
+	function net.action(owner: string, name: string, player: any, ...: any): (boolean, any)
+		local mine = actions[owner]
+		local action = mine and mine[name]
+		if action == nil then
+			error(`{owner} has no action '{name}'`, 2)
+		end
+		if not isPlayer(player) then
+			return false, "left"
+		end
+		if not isLoaded(player) then
+			stats.notLoaded += 1
+			return false, "not_loaded"
+		end
+		if not limiter:allow(player.UserId, `action:{owner}.{name}`, action.limit) then
+			stats.limited += 1
+			return false, "rate_limited"
+		end
+		local args = table.pack(...)
+		local handler: any = action.handler
+		local ok, res = pcall(function(): any
+			return handler(player, table.unpack(args, 1, args.n))
+		end)
+		if not ok then
+			stats.errors += 1
+			log(`[StudWork.Net] action {owner}.{name} handler error: {tostring(res)}`)
+		end
+		return ok, res
+	end
+
 	function net.feedback(player: any, kind: string, text: string, rarity: string?, position: any?)
 		if events == nil or events.Feedback == nil or not isPlayer(player) then
 			return
@@ -267,7 +380,12 @@ function Net.new(opts: any): any
 	end
 
 	function net.summary(): string
-		local lines = { `pending dropped (before start): {pending.dropped}`, `dropped (not loaded): {stats.notLoaded}`, `rate limited: {stats.limited}`, `handler errors: {stats.errors}` }
+		local lines = {
+			`pending dropped (before start): {pending.dropped}`,
+			`dropped (not loaded): {stats.notLoaded}`,
+			`rate limited: {stats.limited}`,
+			`handler errors: {stats.errors}`,
+		}
 		for _, name in Net.CLIENT_EVENTS do
 			local h = handlers[name]
 			if h == nil then
@@ -299,7 +417,10 @@ function Net.new(opts: any): any
 					error("ctx.net.fire(player, event, ...): event must be a generated Blink server event", 2)
 				end
 				if frameworkEvents[event] ~= nil then
-					error(`ctx.net.fire: '{frameworkEvents[event]}' is a framework event; modules can't fire it`, 2)
+					error(
+						`ctx.net.fire: '{frameworkEvents[event]}' is a framework event; modules can't fire it`,
+						2
+					)
 				end
 				if isPlayer(player) then
 					event.Fire(player, ...)
@@ -310,7 +431,10 @@ function Net.new(opts: any): any
 					error("ctx.net.fireAll(event, ...): event must be a generated Blink server event", 2)
 				end
 				if frameworkEvents[event] ~= nil then
-					error(`ctx.net.fireAll: '{frameworkEvents[event]}' is a framework event; modules can't fire it`, 2)
+					error(
+						`ctx.net.fireAll: '{frameworkEvents[event]}' is a framework event; modules can't fire it`,
+						2
+					)
 				end
 				event.FireAll(...)
 			end,

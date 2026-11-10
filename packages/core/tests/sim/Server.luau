@@ -218,6 +218,8 @@ function Server._buildEngine(self)
 		ServerStorage = Loader.folder({ ServerPackages = "deps/ServerPackages" }),
 		ServerScriptService = Loader.folder({
 			CoreServer = "packages/core/server",
+			Compat = "packages/kits/compat",
+			Framework = "packages/framework/server",
 			Kits = Loader.folder({
 				Collection = Loader.folder(kitFolder("collection")),
 				Economy = Loader.folder(kitFolder("economy")),

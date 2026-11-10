@@ -12,7 +12,8 @@
 	Studio only: console `policy restrict <true|false|clear> [userId]`.
 
 	Policy.new(opts): opts.lookup(player) -> info (yields; may error), opts.isPlayer(player),
-	opts.wait(seconds), opts.publish(player, value), opts.log(msg).
+	opts.wait(seconds), opts.delay(seconds, fn) (the
+	background retry timer), opts.publish(player, value), opts.log(msg).
 ]]
 
 local Policy = {}
@@ -26,11 +27,12 @@ function Policy.new(opts: any): any
 	local lookupFn: (any) -> any = opts.lookup
 	local isPlayer: (any) -> boolean = opts.isPlayer
 	local wait: (number) -> () = opts.wait
+	local delay: (number, () -> ()) -> () = opts.delay
 	local publishFn: (any, boolean) -> () = opts.publish
 	local log: (string) -> () = opts.log
 
 	local restricted: { [any]: boolean } = {}
-	local overrides: { [any]: boolean } = {}
+	local overrides: { [any]: boolean? } = {}
 	local tracking: { [any]: boolean } = {}
 
 	local p: any = {}
@@ -87,15 +89,17 @@ function Policy.new(opts: any): any
 				)
 			end
 		end
-		while isPlayer(player) and restricted[player] == nil do
-			wait(Policy.BACKGROUND_RETRY)
-			if not isPlayer(player) then
+		-- Background retry on a timer (not a wait loop): a platform whose wait() returns at once
+		-- (Platform.inert, the Lune harness) can't spin here forever (step 4b hang fix).
+		local function retry()
+			if not tracking[player] or not isPlayer(player) or restricted[player] ~= nil then
 				return
 			end
-			if tryOnce(player) then
-				return
+			if not tryOnce(player) then
+				delay(Policy.BACKGROUND_RETRY, retry)
 			end
 		end
+		delay(Policy.BACKGROUND_RETRY, retry)
 	end
 
 	function p.forget(player: any)

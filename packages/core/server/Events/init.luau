@@ -29,8 +29,18 @@ local Players = game:GetService("Players")
 local Types = require(game:GetService("ReplicatedStorage"):WaitForChild("Core"):WaitForChild("Types"))
 local HandlerList =
 	require(game:GetService("ReplicatedStorage"):WaitForChild("Core"):WaitForChild("HandlerList"))
-local Admins = require(script.Admins)
-local Schedule = require(script.Schedule)
+local Admins = require(
+	game:GetService("ServerScriptService")
+		:WaitForChild("Framework")
+		:WaitForChild("Events")
+		:WaitForChild("Admins")
+)
+local Schedule = require(
+	game:GetService("ServerScriptService")
+		:WaitForChild("Framework")
+		:WaitForChild("Events")
+		:WaitForChild("Schedule")
+)
 
 local TICK_SECONDS = 1
 local MAX_ID_LENGTH = 64

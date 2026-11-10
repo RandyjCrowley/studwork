@@ -40,7 +40,8 @@
 	Shop.new(opts): opts.data, opts.policy, opts.products, opts.marketplace (platform), opts.players
 	({ byUserId, list }), opts.isPlayer, opts.feedback, opts.analytics, opts.signals, opts.purchaseOps
 	(ref -> ops), opts.canUse(callerName, ref) -> boolean, opts.isEnabled(ref), opts.now, opts.spawn,
-	opts.wait, opts.log, opts.isStudio, opts.guid().
+	opts.wait, opts.log, opts.isStudio, opts.guid(). platform.marketplace.getProcessReceipt() -> (readable,
+	fn?) is optional (no check without it).
 ]]
 
 local Receipt = require(script.Receipt)
@@ -50,6 +51,7 @@ local Shop = {}
 Shop.PASS_CHECK_ATTEMPTS = 3
 Shop.PASS_RETRY_DELAY = 1
 Shop.PURCHASES_CAP = 200
+Shop.RECEIPT_CHECK_SECONDS = 2 -- §7.1 runtime ProcessReceipt owner check interval
 
 function Shop.new(opts: any): any
 	local data = opts.data
@@ -70,6 +72,7 @@ function Shop.new(opts: any): any
 	local passFired: { [any]: { [any]: boolean } } = {}
 	local inFlight: { [string]: boolean } = {}
 	local pending: { [string]: Receipt.Pending } = {}
+	local parkedProduct: { [string]: number } = {} -- PurchaseId -> ProductId of a parked grant
 	local warned: { [string]: boolean } = {}
 	local simulatedName: string? = nil
 	local claimed = false
@@ -108,7 +111,10 @@ function Shop.new(opts: any): any
 			return nil
 		end
 		if id == 0 then
-			warnOnce("pass0:" .. pass, "pass '" .. pass .. "' has id 0 (not created yet); treated as not owned")
+			warnOnce(
+				"pass0:" .. pass,
+				"pass '" .. pass .. "' has id 0 (not created yet); treated as not owned"
+			)
 			return nil
 		end
 		return id
@@ -148,12 +154,16 @@ function Shop.new(opts: any): any
 	-- Receipt.commit (pure, unchanged from v1.2) drives it: `update` opens ONE framework tx whose
 	-- `data` argument is the _framework working section (purchases[PurchaseId] lands in the same
 	-- commit as the handler's writes); buildTx hands Receipt the tx handle and its after queue.
-	local function commitWith(entry: { owner: string, fn: (any) -> () }, player: any, receipt: any): (string, any, string?)
+	local function commitWith(
+		entry: { owner: string, fn: (any) -> () },
+		player: any,
+		receipt: any
+	): (Receipt.CommitStatus, any, string?)
 		local name = productName(receipt.ProductId)
 		local tag = name or tostring(receipt.ProductId)
 		local handle: any = nil
-		local afterQueue: { () -> () } = {}
-		local control: any = { retry = false }
+		-- Receipt.commit's after queue and control, handed over in buildTx (before the handler runs)
+		local live: { queue: { () -> () }?, control: any } = { queue = nil, control = nil }
 		local function use(ref: any): any
 			if type(ref) ~= "table" or not opts.isEnabled(ref) then
 				error(
@@ -162,7 +172,10 @@ function Shop.new(opts: any): any
 				)
 			end
 			if not opts.canUse(entry.owner, ref) then
-				error(`tx.use({ref.name}): {entry.owner} must declare {ref.name} in dependsOn/optional to use its purchase ops`, 2)
+				error(
+					`tx.use({ref.name}): {entry.owner} must declare {ref.name} in dependsOn/optional to use its purchase ops`,
+					2
+				)
 			end
 			local ops = opts.purchaseOps(ref)
 			local bound = {}
@@ -184,12 +197,12 @@ function Shop.new(opts: any): any
 				if type(fn) ~= "function" then
 					error("tx.after expects a function", 2)
 				end
-				table.insert(afterQueue, fn)
+				table.insert(live.queue :: { () -> () }, fn)
 			end,
 			retryLater = function(reason: string?)
 				-- the flag (not the raised value) is what Receipt.commit checks: survives a pcall
-				control.retry = true
-				control.reason = if type(reason) == "string" then reason else nil
+				live.control.retry = true
+				live.control.reason = if type(reason) == "string" then reason else nil
 				error("[StudWork.Shop] retryLater", 0)
 			end,
 		}
@@ -201,8 +214,8 @@ function Shop.new(opts: any): any
 			return committed
 		end
 		local function buildTx(_p: any, _r: any, _data: any, queue: { () -> () }, ctl: any): any
-			afterQueue = queue
-			control = ctl
+			live.queue = queue
+			live.control = ctl
 			return handle
 		end
 		local function handler(_fw: any, _r: any, tx: any)
@@ -212,7 +225,12 @@ function Shop.new(opts: any): any
 	end
 
 	local function processWith(receipt: any, override: { owner: string, fn: (any) -> () }?): Receipt.Result
-		local entry = override or (if type(receipt) == "table" and type(receipt.ProductId) == "number" then handlersById[receipt.ProductId] else nil)
+		local entry = override
+			or (
+				if type(receipt) == "table" and type(receipt.ProductId) == "number"
+					then handlersById[receipt.ProductId]
+					else nil
+			)
 		local res = Receipt.process(receipt, {
 			inFlight = inFlight,
 			pending = pending,
@@ -234,6 +252,13 @@ function Shop.new(opts: any): any
 				return data.saveAsync(player) == true
 			end,
 		})
+		if type(receipt) == "table" and type(receipt.PurchaseId) == "string" then
+			if pending[receipt.PurchaseId] ~= nil then
+				parkedProduct[receipt.PurchaseId] = receipt.ProductId
+			else
+				parkedProduct[receipt.PurchaseId] = nil
+			end
+		end
 		if res.effects then
 			flush(res.effects) -- the grant is saved: exactly once per real grant
 			local player = players.byUserId(receipt.PlayerId)
@@ -241,10 +266,14 @@ function Shop.new(opts: any): any
 				grantFeedback(player, receipt)
 			end
 		end
-		local quiet = res.reason == "not_in_server" or res.reason == "in_flight" or res.reason == "retry_later"
+		local quiet = res.reason == "not_in_server"
+			or res.reason == "in_flight"
+			or res.reason == "retry_later"
 		if res.decision == "NotProcessedYet" and not quiet then
 			log(
-				`[StudWork.Shop] receipt {tostring(receipt and receipt.PurchaseId)} (product {tostring(receipt and receipt.ProductId)}) not processed: {res.reason}`
+				`[StudWork.Shop] receipt {tostring(receipt and receipt.PurchaseId)} (product {tostring(
+					receipt and receipt.ProductId
+				)}) not processed: {res.reason}`
 					.. (if res.detail then ` ({res.detail})` else "")
 			)
 		end
@@ -256,16 +285,84 @@ function Shop.new(opts: any): any
 		return processWith(receipt, nil).decision
 	end
 
-	-- §7.1: assigned once, at the very end of boot.
+	-- §7.1: claimed at the very end of boot, then guarded at runtime (s.tick).
+	local assigned: ((any) -> any)? = nil
+	local checkAcc = 0
+	local checkStatus = "not claimed"
+	local hijacks = 0
+
 	function s.claim()
 		claimed = true
-		marketplace.setProcessReceipt(function(receipt: any): any
+		local fn = function(receipt: any): any
 			return marketplace.decision(s.processReceipt(receipt))
-		end)
+		end
+		assigned = fn
+		marketplace.setProcessReceipt(fn)
+		checkStatus = if marketplace.getProcessReceipt
+			then "active"
+			else "unavailable (platform can't read it)"
 	end
 
 	function s.isClaimed(): boolean
 		return claimed
+	end
+
+	-- Where a replacement ProcessReceipt was defined (debug.info), or "unknown source".
+	function Shop.sourceOf(fn: any): string
+		if type(fn) ~= "function" then
+			return "unknown source (" .. type(fn) .. ")"
+		end
+		local info: any = debug.info
+		local ok, src, line = pcall(info, fn, "sl")
+		if ok and type(src) == "string" and src ~= "" and src ~= "[C]" then
+			return if type(line) == "number" and line > 0 then `{src}:{line}` else src
+		end
+		return "unknown source"
+	end
+
+	-- The runtime replacement check (§7.1): MarketplaceService.ProcessReceipt must still be the
+	-- function Shop assigned. A mismatch warns naming the source, fires analytics
+	-- ProcessReceiptHijacked (customFields.source) and reassigns Shop's function. Returns true
+	-- when a replacement was found. Platforms whose ProcessReceipt can't be read (the live engine:
+	-- the callback is write-only) report checkStatus "unavailable"; the lint guardrail is the
+	-- enforcement there (see Shop/README.md).
+	function s.checkReceiptOwner(): boolean
+		if not claimed or assigned == nil or marketplace.getProcessReceipt == nil then
+			return false
+		end
+		local readable, current = marketplace.getProcessReceipt()
+		if not readable then
+			checkStatus = "unavailable (ProcessReceipt is write-only on this platform)"
+			return false
+		end
+		checkStatus = "active"
+		if current == assigned then
+			return false
+		end
+		hijacks += 1
+		local source = Shop.sourceOf(current)
+		log(
+			`[StudWork.Shop] MarketplaceService.ProcessReceipt was replaced (by {source}); reclaiming it. Only the framework Shop may assign ProcessReceipt (module-api.md §7.1): use ctx.shop.onProduct.`
+		)
+		local witness = players.list()[1]
+		if witness ~= nil then
+			pcall(opts.analytics.custom, witness, "ProcessReceiptHijacked", 1, { source = source })
+		end
+		marketplace.setProcessReceipt(assigned)
+		return true
+	end
+
+	function s.receiptCheck(): { status: string, hijacks: number }
+		return { status = checkStatus, hijacks = hijacks }
+	end
+
+	-- Driven by the runtime ticker (Heartbeat via the platform).
+	function s.tick(dt: number)
+		checkAcc += dt
+		if checkAcc >= Shop.RECEIPT_CHECK_SECONDS then
+			checkAcc = 0
+			s.checkReceiptOwner()
+		end
 	end
 
 	function s.ownsPass(player: any, pass: number | string): boolean
@@ -293,7 +390,11 @@ function Shop.new(opts: any): any
 				delay *= 2
 			end
 		end
-		log("[StudWork.Shop] UserOwnsGamePassAsync failed for pass " .. id .. "; treating as not owned for now")
+		log(
+			"[StudWork.Shop] UserOwnsGamePassAsync failed for pass "
+				.. id
+				.. "; treating as not owned for now"
+		)
 		return false
 	end
 
@@ -317,9 +418,56 @@ function Shop.new(opts: any): any
 		end
 	end
 
+	-- N9 (step 4b): a player leaving while a grant's save is still unconfirmed. Called by the
+	-- runtime BEFORE Data releases the player (the record is still there; may yield). One more
+	-- confirmed save is attempted; if it lands, the parked tx.after effects run now (they must not
+	-- assume the player is still in the server: analytics, cross-player Mail/messages, signals),
+	-- plus ProductGranted + ProductPurchased. If it can't be confirmed, the effects are dropped
+	-- (the grant still persists through the session-end save if that lands, and the next server
+	-- then sees a duplicate) and only ProductPurchased is logged. The PurchaseIds stay in flight
+	-- meanwhile, so a concurrent retry gets NotProcessedYet instead of an unconfirmed grant.
+	function s.settleOnLeave(player: any)
+		local mine: { { id: string, parked: Receipt.Pending } } = {}
+		for id, parked in pending do
+			if parked.userId == player.UserId then
+				table.insert(mine, { id = id, parked = parked })
+			end
+		end
+		if #mine == 0 then
+			return
+		end
+		for _, m in mine do
+			pending[m.id] = nil
+			inFlight[m.id] = true
+		end
+		local ok, saved = pcall(data.saveAsync, player)
+		for _, m in mine do
+			inFlight[m.id] = nil
+		end
+		for _, m in mine do
+			local spent = m.parked.currencySpent or 0
+			if ok and saved == true then
+				flush(m.parked.effects)
+				opts.signals.ProductGranted:Fire(player, parkedProduct[m.id], m.id)
+			else
+				log(
+					`[StudWork.Shop] receipt {m.id}: the player left before the grant's save was confirmed; its tx.after effects are dropped (N9, best effort)`
+				)
+			end
+			pcall(opts.analytics.custom, player, "ProductPurchased", spent)
+			parkedProduct[m.id] = nil
+		end
+	end
+
 	function s.playerRemoving(player: any)
 		passCache[player] = nil
 		passFired[player] = nil
+		-- anything settleOnLeave didn't see (it runs first): v1.2 behaviour, effects dropped
+		for id, p in pending do
+			if p.userId == player.UserId then
+				parkedProduct[id] = nil
+			end
+		end
 		for _, dropped in Receipt.forgetPlayer(pending, player.UserId) do
 			pcall(opts.analytics.custom, player, "ProductPurchased", dropped.currencySpent or 0)
 		end
@@ -347,7 +495,9 @@ function Shop.new(opts: any): any
 		if type(name) ~= "string" then
 			return "usage: shop receipt <productName> [purchaseId] [userId]"
 		end
-		local player = if tonumber(userIdArg) then players.byUserId(tonumber(userIdArg) :: number) else players.list()[1]
+		local player = if tonumber(userIdArg)
+			then players.byUserId(tonumber(userIdArg) :: number)
+			else players.list()[1]
 		if player == nil then
 			return "no player in server"
 		end
@@ -356,7 +506,9 @@ function Shop.new(opts: any): any
 		if entry == nil then
 			return "no handler registered for product " .. name
 		end
-		local purchaseId = if type(purchaseIdArg) == "string" and purchaseIdArg ~= "" then purchaseIdArg else "studio-" .. opts.guid()
+		local purchaseId = if type(purchaseIdArg) == "string" and purchaseIdArg ~= ""
+			then purchaseIdArg
+			else "studio-" .. opts.guid()
 		local receipt = {
 			PlayerId = player.UserId,
 			PurchaseId = purchaseId,
@@ -384,7 +536,10 @@ function Shop.new(opts: any): any
 				local entry = { owner = owner, fn = handler }
 				if type(product) == "number" then
 					if handlersById[product] ~= nil then
-						error(`ctx.shop.onProduct: product {product} already has a handler (owned by {handlersById[product].owner})`, 2)
+						error(
+							`ctx.shop.onProduct: product {product} already has a handler (owned by {handlersById[product].owner})`,
+							2
+						)
 					end
 					handlersById[product] = entry
 					return
@@ -397,7 +552,10 @@ function Shop.new(opts: any): any
 					error(`ctx.shop.onProduct: unknown product '{product}' (not in products.devProducts)`, 2)
 				end
 				if handlersByName[product] ~= nil then
-					error(`ctx.shop.onProduct: product '{product}' already has a handler (owned by {handlersByName[product].owner})`, 2)
+					error(
+						`ctx.shop.onProduct: product '{product}' already has a handler (owned by {handlersByName[product].owner})`,
+						2
+					)
 				end
 				handlersByName[product] = entry
 				if id == 0 then

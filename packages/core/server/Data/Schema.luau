@@ -22,7 +22,8 @@
 
 local Types = require(game:GetService("ReplicatedStorage"):WaitForChild("Core"):WaitForChild("Types"))
 local Migrate = require(script.Parent.Migrate)
-local Sanitize = require(script.Parent.Sanitize)
+local Sanitize =
+	require(game:GetService("ServerScriptService"):WaitForChild("Compat"):WaitForChild("V12Sanitize"))
 
 local Schema = {}
 
