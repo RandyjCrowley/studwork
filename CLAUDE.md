@@ -80,7 +80,7 @@ Core.Friends.onCoPlay(fn(player, friends, "server"|"invite"|"private")) / .frien
 Core.Events.schedule(id, schedule?, fn(ctx)) / .trigger(id, by?) / .isActive / .onEnded
 Core.Shop.onProduct(product, fn(player, receipt) -> granted) / .ownsPass / .onPassOwned
 Core.Policy.paidRandomRestricted(player)
-Core.Data.get / .update(player, fn) / .onLoaded / .isLoaded / .getGame / .updateGame
+Core.Data.get / .update(player, fn) / .onLoaded / .isLoaded / .getGame / .updateGame / .saveAsync
 Core.Mail.send(userId, kind, payload) / .onReceive(kind, fn)
 Core.Analytics.funnel(player, step) / .economy(player, flow, currency, amount, type, sku?) / .custom
 Core.Signals.DataLoaded, DataChanged, CurrencyChanged, ItemAdded, ItemRemoved, ItemDisplayed, ...
@@ -91,6 +91,11 @@ Core.Client.Input.device() / .deviceChanged / .bind(actionId, binding, fn) / .un
 Core.Client.Actions.display/clearDisplay/rebirth/upgrade/roll/gift/triggerEvent/funnel
 Core.Client.Hud.mount({ nextGoal = fn }) / .unmount()
 ```
+
+## Server console (Studio / admin)
+
+`game.ServerScriptService.CoreServer.CoreConsole:Invoke("help")` from the Studio command bar
+(Server context during Play) lists commands services registered with `ctx.console.register`.
 
 ## How games use core
 
