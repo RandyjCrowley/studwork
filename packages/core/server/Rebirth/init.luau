@@ -2,16 +2,34 @@
 --[[
 	Core.Rebirth. OWNED BY AGENT B (core/b-economy). Public API: Types.RebirthAPI.
 
-	PHASE 0 STUB: cost = baseCost * costGrowth ^ rebirths; resets primary currency (and
-	inventory/displayed unless kept) and upgrades. Agent B: pure curve + tests, resetCurrencies,
-	maxRebirths, keepDisplayed, upgrade resetsOnRebirth, analytics, feedback.
+	Config: balance.rebirth (baseCost, costGrowth, currency (default primary), multiplierPerRebirth,
+	keepInventory, keepDisplayed, resetCurrencies (default { primary }), maxRebirths).
+	- cost = floor(baseCost * costGrowth ^ rebirths); multiplier = 1 + rebirths * multiplierPerRebirth.
+	- rebirth(): ONE Data.update re-checks max + balance, pays the cost (if the cost currency is not
+	  in resetCurrencies), resets resetCurrencies to balance.startingCurrency[id] or 0, resets
+	  upgrades with resetsOnRebirth ~= false, wipes inventory+displayed unless keepInventory (and
+	  displayed unless keepDisplayed), increments rebirths. Then fires CurrencyChanged (reason
+	  "rebirth") per changed currency and Rebirthed (listeners re-read everything; no per-item
+	  ItemRemoved is fired, per the pinned contract), a "toast" feedback and analytics.
 ]]
 
 local Types = require(game:GetService("ReplicatedStorage"):WaitForChild("Core"):WaitForChild("Types"))
+local RebirthMath = require(script.RebirthMath)
+local UpgradeMath = require(script.Parent.Upgrades.UpgradeMath)
 
 local Rebirth = {}
 
 local ctx: any = nil
+
+local function count(player: Player): number
+	local data: Types.PlayerData? = ctx.services.Data.get(player)
+	return if data then data.rebirths else 0
+end
+
+local function costCurrency(): string
+	local r = ctx.config.balance.rebirth
+	return r.currency or ctx.config.balance.primaryCurrency
+end
 
 function Rebirth.init(context: any)
 	ctx = context
@@ -23,48 +41,88 @@ function Rebirth.start()
 	end)
 end
 
-local function count(player: Player): number
-	local data: Types.PlayerData? = ctx.services.Data.get(player)
-	return if data then data.rebirths else 0
-end
-
 function Rebirth.cost(player: Player): number
 	local r = ctx.config.balance.rebirth
-	return math.floor(r.baseCost * r.costGrowth ^ count(player))
+	return RebirthMath.cost(r.baseCost, r.costGrowth, count(player))
 end
 
 function Rebirth.multiplier(player: Player): number
-	return 1 + count(player) * ctx.config.balance.rebirth.multiplierPerRebirth
+	return RebirthMath.multiplier(count(player), ctx.config.balance.rebirth.multiplierPerRebirth)
 end
 
 function Rebirth.canRebirth(player: Player): boolean
-	local r = ctx.config.balance.rebirth
-	if not ctx.services.Data.isLoaded(player) then
+	local data: Types.PlayerData? = ctx.services.Data.get(player)
+	if data == nil then
 		return false
 	end
-	if r.maxRebirths and count(player) >= r.maxRebirths then
-		return false
-	end
-	return ctx.services.Economy.balance(player, r.currency) >= Rebirth.cost(player)
+	local ok =
+		RebirthMath.check(data.rebirths, data.currency[costCurrency()] or 0, ctx.config.balance.rebirth)
+	return ok
 end
 
 function Rebirth.rebirth(player: Player): boolean
-	if not Rebirth.canRebirth(player) then
+	if not ctx.services.Data.isLoaded(player) then
 		return false
 	end
-	local r = ctx.config.balance.rebirth
+	local balance = ctx.config.balance
+	local r = balance.rebirth
+	local payWith = costCurrency()
+	local resets = RebirthMath.resetList(r, balance.primaryCurrency)
+	local starting = balance.startingCurrency or {}
+
+	local done = false
 	local newCount = 0
+	local paid = 0
+	local changes: { { id: string, newBalance: number, delta: number } } = {}
+
 	ctx.services.Data.update(player, function(data: Types.PlayerData)
-		data.rebirths += 1
-		newCount = data.rebirths
-		data.currency[r.currency or ctx.config.balance.primaryCurrency] = 0
-		data.upgrades = {}
+		local ok, _, cost = RebirthMath.check(data.rebirths, data.currency[payWith] or 0, r)
+		if not ok then
+			return
+		end
+		done = true
+		paid = cost
+		local before = table.clone(data.currency)
+		if not table.find(resets, payWith) then
+			data.currency[payWith] = (data.currency[payWith] or 0) - cost
+		end
+		for _, id in resets do
+			data.currency[id] = starting[id] or 0
+		end
+		for id, value in data.currency do
+			local old = before[id] or 0
+			if value ~= old then
+				table.insert(changes, { id = id, newBalance = value, delta = value - old })
+			end
+		end
+		data.upgrades = UpgradeMath.afterRebirth(balance.upgrades, data.upgrades)
 		if not r.keepInventory then
 			data.inventory = {}
 			data.displayed = {}
+		elseif r.keepDisplayed ~= true then
+			data.displayed = {}
 		end
+		data.rebirths += 1
+		newCount = data.rebirths
 	end)
+	if not done then
+		return false
+	end
+
+	for _, c in changes do
+		ctx.signals.CurrencyChanged:Fire(player, c.id, c.newBalance, c.delta, "rebirth")
+	end
 	ctx.signals.Rebirthed:Fire(player, newCount)
+
+	local analytics = ctx.services.Analytics
+	if analytics then
+		if paid > 0 then
+			pcall(analytics.economy, player, "Sink", payWith, paid, "rebirth", tostring(newCount))
+		end
+		pcall(analytics.custom, player, "Rebirth", newCount)
+	end
+	local mult = RebirthMath.multiplier(newCount, r.multiplierPerRebirth)
+	ctx.net.feedback(player, "toast", string.format("Rebirth %d! Income x%s", newCount, tostring(mult)))
 	return true
 end
 
