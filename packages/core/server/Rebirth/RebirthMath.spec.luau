@@ -36,3 +36,48 @@ describe("RebirthMath", function()
 		}, "Coins")).toEqual({ "A", "B" })
 	end)
 end)
+
+describe("RebirthMath.keptInventory (Decision 2)", function()
+	local DEFS: { [string]: any } = {
+		plain = { keepOnRebirth = nil },
+		always = { keepOnRebirth = true },
+		never = { keepOnRebirth = false },
+	}
+	local function getDef(id: string): any
+		return DEFS[id]
+	end
+	local INV = {
+		u1 = { itemId = "plain", source = "paid:Egg" },
+		u2 = { itemId = "plain", source = "roll" },
+		u3 = { itemId = "plain" },
+		u4 = { itemId = "always", source = "roll" },
+		u5 = { itemId = "never", source = "paid:Egg" },
+		u6 = { itemId = "ghost", source = "roll" },
+		u7 = { itemId = "plain", source = "xpaid:Egg" },
+	}
+	it("keeps paid copies, wipes free ones, honours overrides, keeps unknown ids", function()
+		local kept, unknown = RebirthMath.keptInventory(INV, getDef)
+		expect(kept.u1).toBe(INV.u1)
+		expect(kept.u2).toBeNil()
+		expect(kept.u3).toBeNil()
+		expect(kept.u4).toBe(INV.u4)
+		expect(kept.u5).toBeNil()
+		expect(kept.u6).toBe(INV.u6)
+		expect(kept.u7).toBeNil()
+		expect(unknown).toEqual({ "ghost" })
+	end)
+	it("does not mutate the input inventory", function()
+		RebirthMath.keptInventory(INV, getDef)
+		expect(INV.u2.itemId).toBe("plain")
+	end)
+	it("keeps everything when no defs can be resolved", function()
+		local kept = RebirthMath.keptInventory(INV, function(): any
+			return nil
+		end)
+		local n = 0
+		for _ in kept do
+			n += 1
+		end
+		expect(n).toBe(7)
+	end)
+end)

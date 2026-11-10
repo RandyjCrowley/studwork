@@ -166,4 +166,125 @@ function RollMath.rollMutation(chance: any, mutations: { Types.Mutation }?, next
 	return RollMath.pickMutation(mutations, nextNumber())
 end
 
+export type PityRule = { threshold: number, minTier: RarityTier }
+export type StepResult = { entry: WeightedEntry, forced: boolean, mutation: string?, pityCount: number }
+
+-- The single roll step used by Rarity.rollInto (and the Monte Carlo spec): pity restriction,
+-- weighted pick, mutation, next pity count. RNG draw order: pick, then rollMutation's draws.
+-- `pity` must already be validated (validPity) or nil. Returns nil for an empty list.
+function RollMath.step(
+	list: WeightedList,
+	pity: PityRule?,
+	pityCount: number,
+	mutationChance: any,
+	mutations: { Types.Mutation }?,
+	nextNumber: () -> number
+): StepResult?
+	local forced = false
+	local useList = list
+	if pity and RollMath.pityForces(pityCount, pity.threshold) then
+		local restricted = RollMath.restrictTo(list, pity.minTier)
+		if restricted then
+			useList = restricted
+			forced = true
+		end
+	end
+	local entry = RollMath.pick(useList, nextNumber())
+	if entry == nil then
+		return nil
+	end
+	local mutation = RollMath.rollMutation(mutationChance, mutations, nextNumber)
+	local nextCount = if pity then RollMath.pityAfter(pityCount, entry.tier, pity.minTier) else 0
+	return { entry = entry, forced = forced, mutation = mutation, pityCount = nextCount }
+end
+
+-- Per-mutation probability on any roll, matching rollMutation/pickMutation exactly
+-- (default weight 1, non-positive/non-finite weights never picked, chance clamped to 0..1).
+-- Returns (effective chance of any mutation, list in config order).
+function RollMath.mutationOdds(
+	chance: any,
+	mutations: { Types.Mutation }?
+): (number, { { id: string, name: string, probability: number } })
+	local out: { { id: string, name: string, probability: number } } = {}
+	if mutations == nil or #mutations == 0 or not Validate.isPositiveNumber(chance) then
+		return 0, out
+	end
+	local c = math.min(chance :: number, 1)
+	local total = 0
+	for _, m in mutations do
+		local w = if m.weight == nil then 1 else m.weight
+		if Validate.isPositiveNumber(w) then
+			total += w
+		end
+	end
+	if total <= 0 then
+		return 0, out
+	end
+	-- duplicate ids are summed (pickMutation returns the id, so they are indistinguishable)
+	local index: { [string]: number } = {}
+	for _, m in mutations do
+		local w = if m.weight == nil then 1 else m.weight
+		if Validate.isPositiveNumber(w) then
+			local p = c * (w :: number) / total
+			local i = index[m.id]
+			if i then
+				out[i].probability += p
+			else
+				table.insert(out, { id = m.id, name = m.name or m.id, probability = p })
+				index[m.id] = #out
+			end
+		end
+	end
+	return c, out
+end
+
+-- Full disclosure (Types.OddsDetail shape) of a table with the given weights (no luck).
+function RollMath.oddsDetail(
+	tableId: string,
+	paid: boolean,
+	list: WeightedList,
+	pity: any,
+	mutationChance: any,
+	mutations: { Types.Mutation }?
+): Types.OddsDetail
+	local items = RollMath.odds(list)
+	local chance, mutOdds = RollMath.mutationOdds(mutationChance, mutations)
+	local itemIds: { string } = {}
+	for id in items do
+		table.insert(itemIds, id)
+	end
+	table.sort(itemIds)
+	local outcomes: { Types.OddsOutcome } = {}
+	for _, id in itemIds do
+		local p = items[id]
+		if chance < 1 then
+			table.insert(outcomes, { itemId = id, probability = p * (1 - chance) })
+		end
+		for _, m in mutOdds do
+			table.insert(outcomes, { itemId = id, mutation = m.id, probability = p * m.probability })
+		end
+	end
+	local pityDetail: Types.OddsPity? = nil
+	if RollMath.validPity(pity) then
+		local restricted = RollMath.restrictTo(list, pity.minTier)
+		if restricted then
+			pityDetail =
+				{ threshold = pity.threshold, minTier = pity.minTier, items = RollMath.odds(restricted) }
+		end
+	end
+	local mutationsOut: { Types.OddsMutation } = {}
+	for _, m in mutOdds do
+		table.insert(mutationsOut, { id = m.id, name = m.name, probability = m.probability })
+	end
+	return {
+		tableId = tableId,
+		paid = paid,
+		items = items,
+		mutationChance = chance,
+		mutations = mutationsOut,
+		outcomes = outcomes,
+		pity = pityDetail,
+	}
+end
+
 return RollMath

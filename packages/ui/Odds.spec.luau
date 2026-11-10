@@ -35,3 +35,52 @@ describe("Odds.rows", function()
 		expect(Odds.total(Odds.rows(ODDS, DEFS, ORDER))).toBeNear(1, 1e-9)
 	end)
 end)
+
+local DETAIL = {
+	tableId = "Egg",
+	paid = true,
+	items = { a = 0.9, c = 0.1 },
+	mutationChance = 0.1,
+	mutations = {
+		{ id = "Gold", name = "Golden", probability = 0.07 },
+		{ id = "Rainbow", name = "Rainbow", probability = 0.03 },
+		{ id = "Zero", name = "Zero", probability = 0 },
+	},
+	outcomes = {
+		{ itemId = "a", probability = 0.81 },
+		{ itemId = "a", mutation = "Gold", probability = 0.063 },
+		{ itemId = "a", mutation = "Rainbow", probability = 0.027 },
+		{ itemId = "c", probability = 0.09 },
+		{ itemId = "c", mutation = "Gold", probability = 0.007 },
+		{ itemId = "c", mutation = "Rainbow", probability = 0.003 },
+	},
+	pity = { threshold = 50, minTier = "Legendary", items = { c = 1 } },
+}
+
+describe("Odds detail", function()
+	it("mutationRows: most likely first, zero dropped", function()
+		local rows = Odds.mutationRows(DETAIL)
+		expect(#rows).toBe(2)
+		expect(rows[1].name).toBe("Golden")
+		expect(rows[2].probability).toBe(0.03)
+		expect(#Odds.mutationRows(nil)).toBe(0)
+	end)
+	it("outcomeRows: one row per item x mutation, named, summing to 1", function()
+		local rows = Odds.outcomeRows(DETAIL, DEFS, ORDER, "probability")
+		expect(#rows).toBe(6)
+		expect(rows[1].id).toBe("a|-")
+		expect(rows[1].name).toBe("Apple")
+		expect(rows[2].name).toBe("Crown")
+		expect(rows[3].name).toBe("Golden Apple")
+		expect(rows[#rows].name).toBe("Rainbow Crown")
+		expect(rows[#rows].rarity).toBe("Secret")
+		expect(Odds.total(rows)).toBeNear(1, 1e-9)
+	end)
+	it("pityLine", function()
+		expect(Odds.pityLine(DETAIL)).toBe("Guaranteed Legendary+ at least every 50 rolls")
+		expect(Odds.pityLine({ pity = { threshold = 1, minTier = "Epic" } })).toBe(
+			"Guaranteed Epic+ on every roll"
+		)
+		expect(Odds.pityLine({})).toBeNil()
+	end)
+end)

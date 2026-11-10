@@ -14,6 +14,7 @@
 		incomePerSec  finite number >= 0
 		tags          nil or an array of non-empty strings
 		model, icon, source   nil or string
+		keepOnRebirth nil or boolean
 ]]
 
 local Core = game:GetService("ReplicatedStorage"):WaitForChild("Core")
@@ -67,6 +68,9 @@ function ItemValidate.validateDef(def: any): string?
 	end
 	if not (optionalString(def.model) and optionalString(def.icon) and optionalString(def.source)) then
 		return label .. ": model, icon and source must be strings when set"
+	end
+	if def.keepOnRebirth ~= nil and type(def.keepOnRebirth) ~= "boolean" then
+		return label .. ": keepOnRebirth must be a boolean when set"
 	end
 	return nil
 end
