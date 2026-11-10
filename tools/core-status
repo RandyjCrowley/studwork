@@ -1,0 +1,6 @@
+#!/usr/bin/env bash
+# tools/core-status: list every game's core version (deploy.json coreVersion/coreCommit, written by
+# tools/publish) against the current core, and how many core commits each game is behind.
+source "$(dirname "$0")/_common.sh"
+
+lune run tools/lune/core-status

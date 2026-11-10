@@ -8,6 +8,8 @@
 #    The key needs the universe-places:write scope for that experience.
 # Ids come from games/<name>/deploy.json ("test" / "live"). --dry-run builds and prints the request
 # without uploading. Live publishes ask for confirmation.
+# Every run that builds (dry runs included) stamps deploy.json coreVersion/coreCommit and the
+# game's "Core" column in GAMES.md (tools/lune/deploy-stamp); tools/core-status reads them.
 source "$(dirname "$0")/_common.sh"
 
 usage() { die "usage: tools/publish <name> --test|--live [--dry-run]"; }
@@ -43,10 +45,15 @@ OUT="build/$NAME-$TARGET.rbxl"
 echo "== rojo build -> $OUT"
 rojo build "$GAME_DIR/default.project.json" -o "$OUT"
 
+stamp() {
+	lune run tools/lune/deploy-stamp "$NAME" "$1"
+}
+
 URL="https://apis.roblox.com/universes/v1/$UNIVERSE_ID/places/$PLACE_ID/versions?versionType=Published"
 
 if [ "$DRY_RUN" -eq 1 ]; then
 	echo "dry run: would POST $OUT ($(wc -c <"$OUT" | tr -d ' ') bytes) to $URL"
+	stamp "publish --$TARGET --dry-run"
 	exit 0
 fi
 
@@ -68,4 +75,5 @@ HTTP_CODE="$(curl -sS -o build/publish-response.json -w '%{http_code}' -X POST "
 cat build/publish-response.json
 echo
 [ "$HTTP_CODE" = "200" ] || die "upload failed (HTTP $HTTP_CODE)"
+stamp "publish --$TARGET"
 echo "published $NAME to $TARGET"

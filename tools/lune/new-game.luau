@@ -5,7 +5,8 @@
 	- assigns the next free Rojo servePort (highest existing + 1, starting at 34872)
 	- writes deploy.json (place/universe ids 0 until the experience exists on Roblox)
 	- sets the project name, servePort and GameConfig.gameId
-	- adds a row to GAMES.md and creates docs/games/<name>.md from templates/game-design.md
+	- adds a row to GAMES.md (Core column "—" until the first tools/publish) and creates
+	  docs/games/<name>.md from templates/game-design.md
 ]]
 
 local fs = require("@lune/fs")
@@ -112,7 +113,7 @@ end
 -- GAMES.md row
 local games = fs.readFile("GAMES.md")
 local row = string.format(
-	"| %s | scaffolded | %d | 0 | 0 | 0 | [docs/games/%s.md](docs/games/%s.md) |\n",
+	"| %s | scaffolded | %d | 0 | 0 | 0 | — | [docs/games/%s.md](docs/games/%s.md) |\n",
 	name,
 	port,
 	name,
