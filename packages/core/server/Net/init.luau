@@ -8,11 +8,20 @@
 	- Blink already rejects malformed payloads (types and ranges in core.blink). Handlers must
 	  still validate ownership and game rules and never trust amounts/ids/positions.
 
+	- Listens to every client event as soon as this module is required (CoreServer require), not
+	  at Core.start, so Blink's unbounded pre-listener queue never fills (L3). Requests that
+	  arrive before Net.start are rate-limited and parked in a bounded PendingQueue
+	  (PENDING_CAP; when full, new requests are dropped and one warning is printed), then
+	  dispatched in arrival order by Net.start once every handler is registered.
+	- Events without a handler (their module is not in GameConfig.modules) are dropped quietly:
+	  still rate-limited, never warned per request. `net` in the console shows drop counts.
+
 	Rate limits are anti-spam safety rails, not balance numbers, so they live here.
 ]]
 
 local Players = game:GetService("Players")
 
+local PendingQueue = require(script.PendingQueue)
 local RateLimit = require(script.RateLimit)
 local Generated = require(script.Generated)
 
@@ -47,10 +56,16 @@ local CLIENT_EVENTS = {
 	"ClientFunnel",
 }
 
+-- Max requests (all players, all events) held between CoreServer require and Core.start.
+local PENDING_CAP = 256
+
 local handlers: { [string]: Handler } = {}
 local limiter = RateLimit.new(os.clock)
-local droppedWarned: { [string]: boolean } = {}
+local unhandled: { [string]: number } = {}
 local started = false
+local pending = PendingQueue.new(PENDING_CAP, function(cap: number)
+	warn(`[Core.Net] {cap} client requests arrived before Core.start; dropping further early requests`)
+end)
 
 function Net.handle(eventName: string, handler: Handler)
 	assert(LIMITS[eventName] ~= nil, "[Core.Net] unknown client event " .. eventName)
@@ -67,22 +82,19 @@ function Net.feedback(player: Player, kind: string, text: string, rarity: string
 	})
 end
 
-local function dispatch(eventName: string, player: Player, ...: any)
-	if typeof(player) ~= "Instance" or not player:IsA("Player") or player.Parent ~= Players then
-		return
-	end
-	if not limiter:allow(player.UserId, eventName, LIMITS[eventName]) then
-		return -- silently drop spam
+local function validPlayer(player: any): boolean
+	return typeof(player) == "Instance" and player:IsA("Player") and player.Parent == Players
+end
+
+local function run(eventName: string, player: Player, args: { n: number, [number]: any })
+	if not validPlayer(player) then
+		return -- left while queued
 	end
 	local handler = handlers[eventName]
 	if handler == nil then
-		if not droppedWarned[eventName] then
-			droppedWarned[eventName] = true
-			warn("[Core.Net] no handler registered for " .. eventName .. "; requests are dropped")
-		end
+		unhandled[eventName] = (unhandled[eventName] or 0) + 1 -- module off: drop quietly
 		return
 	end
-	local args = table.pack(...)
 	local ok, err = pcall(function()
 		handler(player, table.unpack(args, 1, args.n))
 	end)
@@ -91,18 +103,49 @@ local function dispatch(eventName: string, player: Player, ...: any)
 	end
 end
 
+local function receive(eventName: string, player: Player, ...: any)
+	if not validPlayer(player) then
+		return
+	end
+	if not limiter:allow(player.UserId, eventName, LIMITS[eventName]) then
+		return -- silently drop spam
+	end
+	if not started then
+		pending:push(eventName, player, ...)
+		return
+	end
+	run(eventName, player, table.pack(...))
+end
+
+-- Listen now (require time). Blink allows one listener per event; Net owns all of them.
+for _, eventName in CLIENT_EVENTS do
+	local event = (Generated :: any)[eventName]
+	event.On(function(player: Player, ...: any)
+		receive(eventName, player, ...)
+	end)
+end
+Players.PlayerRemoving:Connect(function(player)
+	limiter:forget(player.UserId)
+end)
+
+-- Called by Server.start after every service registered its handlers.
 function Net.start()
 	assert(not started, "[Core.Net] already started")
 	started = true
-	for _, eventName in CLIENT_EVENTS do
-		local event = (Generated :: any)[eventName]
-		event.On(function(player: Player, ...: any)
-			dispatch(eventName, player, ...)
-		end)
+	for _, entry in pending:drain() do
+		task.spawn(run, entry.eventName, entry.player, entry.args)
 	end
-	Players.PlayerRemoving:Connect(function(player)
-		limiter:forget(player.UserId)
-	end)
+end
+
+-- Console summary: dropped-early and handler-less request counts.
+function Net.stats(): string
+	local lines = { `pending dropped (before start): {pending.dropped}` }
+	for _, eventName in CLIENT_EVENTS do
+		if handlers[eventName] == nil then
+			table.insert(lines, `{eventName}: no handler (module off), dropped {unhandled[eventName] or 0}`)
+		end
+	end
+	return table.concat(lines, "\n")
 end
 
 return Net

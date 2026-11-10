@@ -2,18 +2,20 @@
 --[[
 	Core server bootstrap. LEAD-OWNED. Required by the Core facade on the server.
 
-	Init order matters only for init() (no cross-calls allowed there); start() runs in the same
-	order. Data first (others react to Data.onLoaded), Plot before Replication-dependent UI,
-	Replication last so it sees every service's initial setReplicated values.
+	Boots only the foundation (Data, Policy, Analytics, Events, Shop + Replication, Net, Console)
+	and the modules enabled in GameConfig.modules. Order and the reasons for it: ModuleLoader.
+	Disabled modules are erroring proxies in ctx.services (ModuleLoader.disabledProxy).
+	Net is required here, so it listens to every client event from the moment CoreServer is
+	required and queues (bounded) what arrives before Core.start (L3).
 ]]
 
 local RunService = game:GetService("RunService")
 
 local Console = require(script.Console)
 local Context = require(script.Context)
+local ModuleLoader = require(script.ModuleLoader)
 local Net = require(script.Net)
 local CoreShared = game:GetService("ReplicatedStorage"):WaitForChild("Core")
-local Modules = require(CoreShared:WaitForChild("Modules"))
 local Types = require(CoreShared:WaitForChild("Types"))
 
 local services = {
@@ -37,27 +39,10 @@ local services = {
 
 local Replication = require(script.Replication)
 
-local ORDER = {
-	"Data",
-	"Items",
-	"Policy",
-	"Rarity",
-	"Inventory",
-	"Economy",
-	"Upgrades",
-	"Rebirth",
-	"Offline",
-	"Streak",
-	"Friends",
-	"Events",
-	"Shop",
-	"Analytics",
-	"Mail",
-	"Plot",
-}
-
 local Server = {}
 Server.services = services
+
+local booted = false
 
 function Server.start(
 	core: Types.CoreAPI,
@@ -65,15 +50,17 @@ function Server.start(
 	serverConfig: Types.ServerConfig,
 	moduleOrder: { string }
 )
-	local enabled: { [string]: boolean } = {}
-	for _, name in moduleOrder do
-		enabled[name] = true
+	assert(not booted, "[Core] Core.start was already called (call it once per side)")
+	booted = true
+	-- Defensive: ConfigValidate already rejected bad lists with the same messages.
+	local plan, problem = ModuleLoader.plan(moduleOrder)
+	if plan == nil then
+		error("[Core] invalid GameConfig.modules:\n" .. tostring(problem), 0)
 	end
-	-- Phase 0: every service still boots (agent E boots only the foundation + enabled modules
-	-- and replaces disabled ones with erroring proxies).
+	local active = ModuleLoader.services(services, plan)
 	local ctx: Context.ServerContext = {
 		config = config,
-		services = (services :: any) :: Context.ServerServices,
+		services = (active :: any) :: Context.ServerServices,
 		signals = core.Signals,
 		net = Net :: any,
 		setReplicated = function(player: Player, key: string, value: any)
@@ -86,19 +73,21 @@ function Server.start(
 		isStudio = RunService:IsStudio(),
 		serverConfig = serverConfig,
 		modules = moduleOrder,
-		isEnabled = function(name: string): boolean
-			return enabled[name] == true or Modules.isFoundation(name)
-		end,
+		isEnabled = ModuleLoader.isEnabledFn(moduleOrder),
 	}
 
 	Replication.init(ctx)
-	for _, name in ORDER do
+	for _, name in plan do
 		(services :: any)[name].init(ctx)
 	end
-	for _, name in ORDER do
+	for _, name in plan do
 		(services :: any)[name].start()
 	end
 	Replication.start()
+	Console.register("net", "net: dropped early / handler-less client request counts", Net.stats)
+	Console.register("modules", "modules: enabled optional modules in boot order", function()
+		return if #moduleOrder == 0 then "foundation only" else table.concat(moduleOrder, ", ")
+	end)
 	Net.start()
 	Console.start()
 end

@@ -1,7 +1,8 @@
 --!strict
 --[[
 	Core client bootstrap. LEAD-OWNED. Required by the Core facade on the client.
-	Builds Core.Client (Types.ClientAPI) and starts the client modules in order:
+	Builds Core.Client (Types.ClientAPI) and starts the client modules in order (Actions learns
+	the enabled modules first, so module-owned actions error when their module is off):
 	State -> Input -> Feedback -> (game calls Core.Client.Hud.mount when it wants the HUD).
 ]]
 
@@ -41,9 +42,10 @@ function Client.start(
 	_core: Types.CoreAPI,
 	config: Types.GameConfig,
 	_serverConfig: Types.ServerConfig,
-	_moduleOrder: { string }
+	moduleOrder: { string }
 )
-	local ctx = { config = config, net = require(script.Net.Generated) }
+	Actions.start(moduleOrder)
+	local ctx = { config = config, net = require(script.Net.Generated), isEnabled = Actions.isEnabled }
 	State.start(ctx)
 	Input.start(ctx)
 	Feedback.start(ctx)

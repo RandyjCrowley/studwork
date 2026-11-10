@@ -10,13 +10,14 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
 local Core = require(ReplicatedStorage:WaitForChild("Core"))
 local Config = require(ReplicatedStorage:WaitForChild("Game"):WaitForChild("Config"))
+local ServerConfig = require(script.Parent.ServerConfig)
 local World = require(script.Parent.World)
 
 local TOUCH_COOLDOWN = 1.5 -- seconds between block rewards per player (sandbox-only feel number)
 
 local block = World.build()
 
-Core.start(Config)
+Core.start(Config, ServerConfig)
 
 -- Collect: touching the block rolls the free "Block" table.
 local lastTouch: { [Player]: number } = {}

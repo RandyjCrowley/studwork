@@ -6,13 +6,15 @@
 	  - when a player's data loads (for them and for everyone already here) and every
 	    balance.friends.checkIntervalSec for everyone loaded.
 	  - player:IsFriendsWithAsync results are cached per pair (pcall; failures are retried on the
-	    next check, not cached). Cache entries are dropped when either player leaves.
+	    next check, not cached). Cache entries are dropped when either player leaves. Lookups are
+	    deduped in flight (PairDedupe, L4): one web call per pair at a time, shared by both
+	    players' recomputes.
 	  - co-play kind (CoPlay.kind): "invite" when GetJoinData().ReferredByPlayerId is a friend in
 	    the server, "private" in a private (VIP) server (game.PrivateServerId ~= "" and
 	    game.PrivateServerOwnerId ~= 0; reserved servers count as "server"), else "server".
 	  - CoPlay signal + onCoPlay handlers fire with the full current friend list only when the
 	    friend set GAINS someone (never on every interval).
-	  - balance.friends.coPlayMultiplier (optional) is applied with
+	  - balance.friends.coPlayMultiplier (optional, only when Economy is enabled) is applied with
 	    Economy.addMultiplier(player, "coplay", mult) while >= 1 friend is present and removed
 	    with Economy.removeMultiplier when the last friend leaves.
 
@@ -27,6 +29,7 @@ local Types = require(game:GetService("ReplicatedStorage"):WaitForChild("Core"):
 local HandlerList =
 	require(game:GetService("ReplicatedStorage"):WaitForChild("Core"):WaitForChild("HandlerList"))
 local CoPlay = require(script.CoPlay)
+local PairDedupe = require(script.PairDedupe)
 
 local MULTIPLIER_ID = "coplay"
 local MIN_INTERVAL = 5 -- seconds; floor for a misconfigured checkIntervalSec
@@ -36,7 +39,15 @@ local Friends = {}
 
 local ctx: any = nil
 local handlers = HandlerList.new()
-local pairCache: { [string]: boolean } = {}
+local pairs_ = PairDedupe.new(function(thread: thread, ok: boolean, value: boolean?)
+	task.spawn(thread, ok, value)
+end, function(key: string): boolean
+	-- cache only while both players are still here (key = "lowId:highId")
+	local a, b = string.match(key, "^(%d+):(%d+)$")
+	return a ~= nil
+		and Players:GetPlayerByUserId(tonumber(a) :: number) ~= nil
+		and Players:GetPlayerByUserId(tonumber(b) :: number) ~= nil
+end)
 local friendSets: { [Player]: { [number]: boolean } } = {}
 local referredBy: { [Player]: number } = {}
 local boosted: { [Player]: boolean } = {}
@@ -70,6 +81,9 @@ local function playersFrom(set: { [number]: boolean }): { Player }
 end
 
 local function applyMultiplier(player: Player)
+	if not ctx.isEnabled("Economy") then
+		return -- optional integration (Modules.SPECS.Friends.optional)
+	end
 	local set = friendSets[player]
 	local hasFriend = set ~= nil and next(set) ~= nil
 	local mult = coPlayMultiplier()
@@ -93,19 +107,11 @@ local function fireCoPlay(player: Player, friends: { Player }, kind: Types.CoPla
 end
 
 local function areFriends(a: Player, b: Player): boolean?
-	local key = CoPlay.pairKey(a.UserId, b.UserId)
-	local cached = pairCache[key]
-	if cached ~= nil then
-		return cached
-	end
-	local ok, result = pcall(function()
+	local ok, result = pairs_:get(CoPlay.pairKey(a.UserId, b.UserId), function(): boolean
 		return a:IsFriendsWithAsync(b.UserId)
 	end)
 	if not ok then
 		return nil -- unknown; retry next check
-	end
-	if a.Parent == Players and b.Parent == Players then
-		pairCache[key] = result == true
 	end
 	return result == true
 end
@@ -160,12 +166,7 @@ local function onRemoving(leaver: Player)
 	referredBy[leaver] = nil
 	boosted[leaver] = nil
 	busy[leaver] = nil
-	local prefix, suffix = tostring(leaver.UserId) .. ":", ":" .. tostring(leaver.UserId)
-	for key in pairCache do
-		if string.sub(key, 1, #prefix) == prefix or string.sub(key, -#suffix) == suffix then
-			pairCache[key] = nil
-		end
-	end
+	pairs_:forgetUser(leaver.UserId)
 	for player, set in friendSets do
 		if set[leaver.UserId] then
 			set[leaver.UserId] = nil

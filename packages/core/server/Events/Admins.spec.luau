@@ -1,0 +1,25 @@
+local Admins = require(script.Parent.Admins)
+
+describe("Events.Admins", function()
+	it("everyone is admin in Studio", function()
+		expect(Admins.isAdmin(1, true, nil, nil)).toBe(true)
+	end)
+
+	it("live servers read ServerConfig.admins", function()
+		expect(Admins.isAdmin(5, false, { 5 }, nil)).toBe(true)
+		expect(Admins.isAdmin(6, false, { 5 }, nil)).toBe(false)
+		expect(Admins.isAdmin(6, false, nil, nil)).toBe(false)
+		expect(Admins.isAdmin(6, false, {}, {})).toBe(false)
+	end)
+
+	it("still honours the deprecated GameConfig.admins", function()
+		expect(Admins.isAdmin(7, false, {}, { 7 })).toBe(true)
+		expect(Admins.isAdmin(7, false, nil, { 7 })).toBe(true)
+	end)
+
+	it("usesLegacy only for a non-empty GameConfig.admins", function()
+		expect(Admins.usesLegacy(nil)).toBe(false)
+		expect(Admins.usesLegacy({})).toBe(false)
+		expect(Admins.usesLegacy({ 1 })).toBe(true)
+	end)
+end)
