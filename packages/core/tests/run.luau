@@ -38,7 +38,7 @@ end
 
 local roots = process.args
 if #roots == 0 then
-	roots = { "packages", "games" }
+	roots = { "packages", "games", "tools" }
 end
 
 local specs = {}
