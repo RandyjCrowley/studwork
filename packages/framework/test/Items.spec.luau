@@ -96,11 +96,14 @@ describe("no item registration in core-v1.3.0", function()
 		walk(StudWork, "StudWork", {}, hits)
 		walk(ItemFields, "ItemFields", {}, hits)
 		expect(table.concat(hits, ",")).toBe("")
-		-- the only register* names on ctx are unrelated to items (random sources, console commands)
+		-- the only register* names on ctx are unrelated to items (currency spenders, random sources,
+		-- console commands)
 		local ctxHits = {}
 		walk(c, "ctx", {}, ctxHits)
 		table.sort(ctxHits)
-		expect(table.concat(ctxHits, ",")).toBe("ctx.compliance.registerRandomSource,ctx.console.register")
+		expect(table.concat(ctxHits, ",")).toBe(
+			"ctx.compliance.registerCurrencySpender,ctx.compliance.registerRandomSource,ctx.console.register"
+		)
 	end)
 
 	it("register-style calls error with the CHANGELOG message instead of no-op'ing", function()

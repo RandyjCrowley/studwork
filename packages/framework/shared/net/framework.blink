@@ -9,7 +9,7 @@
 -- Games define their own remotes in games/<name>/src/shared/net/game.blink with their own
 -- RemoteScope so they never collide with core.
 
-option RemoteScope = "CORE"
+option RemoteScope = "STUDWORK"
 option Casing = Pascal
 option ServerOutput = "../../server/Net/Generated.luau"
 option ClientOutput = "../../client/Net/Generated.luau"

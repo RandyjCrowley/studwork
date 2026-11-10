@@ -21,10 +21,26 @@ local Loader = {}
 
 local SURFACES = { "api", "txApi", "extensions", "purchaseOps", "actions" }
 
+-- ServerScriptService.Modules.<server>, or one level down in a kit folder
+-- (ServerScriptService.Modules.<Kit>.<server>), so a game's Rojo project can map each kit's
+-- server/modules folder as a whole.
 local function defaultLoadServer(ref: any): any
 	local folder = game:GetService("ServerScriptService"):FindFirstChild("Modules")
-	local part = folder and folder:FindFirstChild(ref.server)
+	if folder == nil then
+		return nil
+	end
+	local part = folder:FindFirstChild(ref.server)
 	if part == nil then
+		for _, child in folder:GetChildren() do
+			if child:IsA("Folder") then
+				part = child:FindFirstChild(ref.server)
+				if part then
+					break
+				end
+			end
+		end
+	end
+	if part == nil or not part:IsA("ModuleScript") then
 		return nil
 	end
 	return (require :: any)(part)

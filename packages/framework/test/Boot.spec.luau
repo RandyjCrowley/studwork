@@ -304,7 +304,7 @@ describe("ctx (§5)", function()
 		end
 	)
 
-	it("signals, console prefix and stubs behave", function()
+	it("signals, console prefix and framework services behave", function()
 		local c
 		local h = Harness.new({
 			modules = { Base },
@@ -329,10 +329,13 @@ describe("ctx (§5)", function()
 		expect(ok).toBe(true)
 		expect(res).toBe("ok")
 		expect(got).toBe(5)
+		-- step 4b: the framework services behind ctx are real (no stubs left)
 		expect(function()
 			c.compliance.roll()
-		end).toThrow("not implemented yet")
-		c.replicate.set("p", "rate", 3)
-		expect(c.replicate.sent("p", "rate")).toBe(true)
+		end).toThrow("must be the OPEN tx")
+		local p = h:addPlayer({ userId = 7 })
+		c.replicate.set(p, "rate", 3)
+		h:tick(1)
+		expect(h.runtime.replication.peek(p).modules.Base.extra.rate).toBe(3)
 	end)
 end)

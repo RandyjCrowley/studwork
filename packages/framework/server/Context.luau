@@ -4,10 +4,17 @@
 	table and nothing else; every field is scoped to the module (its config, its section, its
 	declared dependencies, its console prefix, its log tag).
 
-	Full implementations: name, config, gameConfig, deps, depsTx, depsExt, isEnabled, data
-	(ScopedData), tx, section, framework, signals, console, lifecycle, log, theme (read-only
-	merged tree), isStudio, serverConfig.
-	Minimal stubs (server/Stubs.luau): net, replicate, compliance, policy, analytics, events, shop.
+	name, config, gameConfig, deps, depsTx, depsExt, isEnabled, data (ScopedData, incl.
+	saveAsync and the cross-server `messages` channel), tx, section, framework (firstJoin,
+	lastSeen, sessions), signals, console, lifecycle, log, theme (read-only merged tree), isStudio,
+	serverConfig, and the framework services, each scoped to this module (core-v1.3.0 step 4b):
+	  net         Net.forModule          handle / handleEvent / feedback / fire / fireAll
+	  replicate   Replication.forModule  set / setAll / sent  (state.modules[<Name>].extra)
+	  compliance  Compliance.forModule   registerRandomSource / roll / spendForRoll / ...
+	  policy      Policy.api             paidRandomRestricted / isKnown (read-only)
+	  analytics   Analytics.api          funnel / economy / custom
+	  events      Events.forModule       schedule / trigger / isActive / onEnded
+	  shop        Shop.forModule         onProduct / onPassOwned / ownsPass
 ]]
 
 local Shared = require(script.Parent.Shared)
@@ -16,7 +23,6 @@ local Freeze = requireShared(Shared.Freeze)
 local Resolve = requireShared(Shared.Resolve)
 local Signal = requireShared(Shared.Signal)
 local StudWork = requireShared(Shared)
-local Stubs = require(script.Parent.Stubs)
 
 local Context = {}
 
@@ -86,6 +92,26 @@ function Context.build(rt: any, ref: any): any
 		sectionVersion = function(player: any): number
 			return data.sectionVersion(player, needKey("ctx.data.sectionVersion"))
 		end,
+		-- Yields until this player's save (every section) is confirmed written.
+		saveAsync = function(player: any): boolean
+			rt.assertUsable()
+			return data.saveAsync(player)
+		end,
+		-- Cross-server messages to another user's save, delivered to THIS module on the server
+		-- where that user next loads (ProfileStore messages; at-least-once: handlers call
+		-- processed() once the message is consumed, otherwise it is delivered again).
+		messages = table.freeze({
+			send = function(userId: number, payload: any): boolean
+				rt.assertUsable()
+				return data.sendMessage(name, userId, payload)
+			end,
+			onReceive = function(fn: (player: any, payload: any, processed: () -> ()) -> ())
+				data.onMessage(name, fn)
+			end,
+			nudge = function(userId: number)
+				data.nudge(userId)
+			end,
+		}),
 	})
 
 	local signals: any = {
@@ -123,7 +149,6 @@ function Context.build(rt: any, ref: any): any
 	end
 	local log = table.freeze({ info = tagged("info"), warn = tagged("warn"), debug = tagged("debug") })
 
-	local stubs = Stubs.build(rt, name)
 	local ctx = {
 		name = name,
 		config = rt.configs[name],
@@ -156,15 +181,19 @@ function Context.build(rt: any, ref: any): any
 			lastSeen = function(player: any): number
 				return data.frameworkField(player, "lastSeen")
 			end,
+			sessions = function(player: any): number
+				local stats = data.frameworkField(player, "stats")
+				return if type(stats) == "table" then stats.sessions or 0 else 0
+			end,
 		}),
 
-		net = stubs.net,
-		replicate = stubs.replicate,
-		compliance = stubs.compliance,
-		policy = stubs.policy,
-		analytics = stubs.analytics,
-		events = stubs.events,
-		shop = stubs.shop,
+		net = rt.net.forModule(name),
+		replicate = rt.replication.forModule(name),
+		compliance = rt.compliance.forModule(name),
+		policy = rt.policy.api,
+		analytics = rt.analytics.api,
+		events = rt.events.forModule(name),
+		shop = rt.shop.forModule(name),
 
 		signals = signals,
 		console = console,

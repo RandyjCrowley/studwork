@@ -1,5 +1,4 @@
 local Receipt = require(script.Parent.Receipt)
-local Transaction = require(script.Parent.Parent.Data.Transaction)
 
 local function deepCopy(v: any): any
 	if type(v) ~= "table" then
@@ -10,6 +9,36 @@ local function deepCopy(v: any): any
 		out[k] = deepCopy(x)
 	end
 	return out
+end
+
+-- Minimal all-or-nothing transaction with the framework Data rules that Receipt.commit relies
+-- on (work on a copy, commit only on success, an error discards and re-raises, a yield is
+-- refused, no nesting). The real one is framework Data.runTx, exercised by test/Shop.spec.luau.
+local Transaction = {}
+function Transaction.newState()
+	return { running = false }
+end
+function Transaction.run(state, memory, fn)
+	if state.running then
+		error("nested Data.update", 0)
+	end
+	state.running = true
+	local work = deepCopy(memory)
+	local co = coroutine.create(fn)
+	local ok, err = coroutine.resume(co, work)
+	state.running = false
+	if not ok then
+		error(err, 0)
+	end
+	if coroutine.status(co) ~= "dead" then
+		error("fn must not yield (change discarded)", 0)
+	end
+	for k in table.clone(memory) do
+		memory[k] = nil
+	end
+	for k, v in work do
+		memory[k] = v
+	end
 end
 
 local function buildTx(_player, _receipt, _data, queue, control)
@@ -27,7 +56,7 @@ end
 
 --[[
 	Fake world: one DataStore (persisted) + one server session (memory) for player 1.
-	update = the real Data.Transaction (all-or-nothing, rejects yields, nested errors).
+	update = the local Transaction above (all-or-nothing, rejects yields, nested errors).
 	The default handler grants 1 coin and queues one effect.
 ]]
 local function world(opts: any?)
