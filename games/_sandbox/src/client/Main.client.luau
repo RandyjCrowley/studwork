@@ -1,16 +1,31 @@
 --!strict
 --[[
-	Sandbox client: starts Core, mounts the HUD and a few buttons (upgrade, rebirth, chest roll).
-	Phase 0 uses plain Instances; the UI kit (packages/ui) replaces these in Phase 2.
+	Sandbox client: starts Core, mounts the core HUD, and a small action bar built from the UI kit
+	(upgrade, chest roll, Robux egg roll with its odds table, rebirth).
+
+	Paid random items: the egg's odds are shown before buying, and players whose policy restricts
+	paid random items never get the purchase prompt (the server refuses their paid rolls too).
 ]]
 
-local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local MarketplaceService = game:GetService("MarketplaceService")
 local Players = game:GetService("Players")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
 local Core = require(ReplicatedStorage:WaitForChild("Core"))
 local Config = require(ReplicatedStorage:WaitForChild("Game"):WaitForChild("Config"))
+local React = require(ReplicatedStorage:WaitForChild("Packages"):WaitForChild("React"))
+local ReactCharm = require(ReplicatedStorage:WaitForChild("Packages"):WaitForChild("ReactCharm"))
+local ReactRoblox = require(ReplicatedStorage:WaitForChild("Packages"):WaitForChild("ReactRoblox"))
+local UI = require(ReplicatedStorage:WaitForChild("UI"))
+
+local e = React.createElement
 
 Core.start(Config)
+
+local function rebirthCost(rebirths: number): number
+	local r = Config.balance.rebirth
+	return math.floor(r.baseCost * r.costGrowth ^ rebirths)
+end
 
 Core.Client.Hud.mount({
 	nextGoal = function()
@@ -18,45 +33,121 @@ Core.Client.Hud.mount({
 		if not state.data then
 			return nil
 		end
-		local coins = state.data.currency.Coins or 0
-		local rebirthCost = Config.balance.rebirth.baseCost
-			* Config.balance.rebirth.costGrowth ^ state.data.rebirths
-		if coins >= rebirthCost then
+		local coins = state.data.currency[Config.balance.primaryCurrency] or 0
+		local cost = rebirthCost(state.data.rebirths)
+		if coins >= cost then
 			return "Rebirth ready!"
 		end
-		return string.format("Next: rebirth at %d", math.floor(rebirthCost))
+		return "Next: rebirth at " .. UI.Format.abbreviate(cost)
 	end,
 })
 
-local gui = Instance.new("ScreenGui")
-gui.Name = "SandboxButtons"
-gui.ResetOnSpawn = false
-local list = Instance.new("Frame")
-list.BackgroundTransparency = 1
-list.Size = UDim2.fromScale(0.25, 0.3)
-list.Position = UDim2.fromScale(0.02, 0.6)
-list.Parent = gui
-local layout = Instance.new("UIListLayout")
-layout.Padding = UDim.new(0, 8)
-layout.Parent = list
-
-local function button(text: string, onClick: () -> ())
-	local b = Instance.new("TextButton")
-	b.Size = UDim2.new(1, 0, 0, 48)
-	b.Text = text
-	b.TextScaled = true
-	b.Parent = list
-	b.Activated:Connect(onClick)
+-- Odds from the same config weights the server rolls with (no luck on these tables).
+local function oddsFor(tableId: string): { [string]: number }
+	local t = Config.balance.rarityTables[tableId]
+	local total = 0
+	for _, entry in t.entries do
+		total += entry.weight
+	end
+	local odds = {}
+	for _, entry in t.entries do
+		odds[entry.itemId] = (odds[entry.itemId] or 0) + entry.weight / total
+	end
+	return odds
 end
 
-button("Upgrade income", function()
-	Core.Client.Actions.upgrade("IncomeBoost")
-end)
-button("Open chest (250)", function()
-	Core.Client.Actions.roll("Chest")
-end)
-button("Rebirth", function()
-	Core.Client.Actions.rebirth()
-end)
+local function upgradeCost(level: number): number
+	local u = (Config.balance.upgrades :: any).IncomeBoost
+	return math.floor(u.baseCost * u.costGrowth ^ level)
+end
 
-gui.Parent = Players.LocalPlayer:WaitForChild("PlayerGui")
+local function ActionBar()
+	local state = ReactCharm.useAtom(Core.Client.state)
+	local oddsOpen, setOddsOpen = React.useState(false)
+	local data = state.data
+	local level = if data then (data.upgrades.IncomeBoost or 0) else 0
+	local chestCost = (Config.balance.rarityTables.Chest.cost :: any).amount
+	local eggProduct = Config.products.devProducts.EggRoll
+
+	return e("Frame", {
+		BackgroundTransparency = 1,
+		Size = UDim2.fromScale(1, 1),
+	}, {
+		Bar = e("Frame", {
+			BackgroundTransparency = 1,
+			AutomaticSize = Enum.AutomaticSize.XY,
+			Size = UDim2.fromOffset(0, 0),
+			-- top-right: bottom-left is the touch thumbstick and bottom-right the jump button
+			Position = UDim2.new(1, -12, 0, 8),
+			AnchorPoint = Vector2.new(1, 0),
+		}, {
+			Layout = UI.Primitives.list(Enum.FillDirection.Vertical, 6, Enum.HorizontalAlignment.Right),
+			Upgrade = e(UI.Button, {
+				text = "Upgrade income (" .. UI.Format.abbreviate(upgradeCost(level)) .. ")",
+				layoutOrder = 1,
+				onActivated = function()
+					Core.Client.Actions.upgrade("IncomeBoost")
+				end,
+			}),
+			Chest = e(UI.Button, {
+				text = "Open chest (" .. UI.Format.abbreviate(chestCost) .. ")",
+				variant = "secondary",
+				layoutOrder = 2,
+				onActivated = function()
+					Core.Client.Actions.roll("Chest")
+				end,
+			}),
+			Egg = e(UI.Button, {
+				text = "Robux egg: odds",
+				variant = "secondary",
+				layoutOrder = 3,
+				onActivated = function()
+					setOddsOpen(true)
+				end,
+			}),
+			Rebirth = e(UI.Button, {
+				text = "Rebirth",
+				variant = "danger",
+				layoutOrder = 4,
+				onActivated = function()
+					Core.Client.Actions.rebirth()
+				end,
+			}),
+		}),
+		Odds = e(UI.Modal, {
+			open = oddsOpen,
+			title = "Robux egg",
+			onClose = function()
+				setOddsOpen(false)
+			end,
+		}, {
+			Table = e(UI.OddsTable, {
+				odds = oddsFor("Egg"),
+				items = Config.items,
+				restricted = state.paidRandomRestricted,
+				layoutOrder = 1,
+			}),
+			Buy = if not state.paidRandomRestricted
+				then e(UI.Button, {
+					text = if eggProduct == 0 then "Buy (product not created yet)" else "Buy egg",
+					disabled = eggProduct == 0,
+					layoutOrder = 2,
+					onActivated = function()
+						if eggProduct ~= 0 and not Core.Client.state().paidRandomRestricted then
+							MarketplaceService:PromptProductPurchase(Players.LocalPlayer, eggProduct)
+						end
+					end,
+				})
+				else nil,
+		}),
+	})
+end
+
+local screen = Instance.new("ScreenGui")
+screen.Name = "SandboxActions"
+screen.ResetOnSpawn = false
+screen.ScreenInsets = Enum.ScreenInsets.CoreUISafeInsets
+screen.Parent = Players.LocalPlayer:WaitForChild("PlayerGui")
+
+local root = ReactRoblox.createRoot(screen)
+root:render(e(UI.ScaledRoot, nil, { Actions = e(ActionBar) }))

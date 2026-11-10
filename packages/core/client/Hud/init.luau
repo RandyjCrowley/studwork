@@ -67,15 +67,11 @@ local function HudApp(props: AppProps)
 		goal = if ok and type(result) == "string" and result ~= "" then result else nil
 	end
 
-	return e("Frame", {
-		BackgroundTransparency = 1,
-		Size = UDim2.fromScale(1, 1),
-	}, {
-		Scale = e(UI.AutoScale, {}),
+	return e(UI.ScaledRoot, nil, {
 		Top = e("Frame", {
 			BackgroundTransparency = 1,
-			Size = UDim2.fromScale(1, 0),
-			AutomaticSize = Enum.AutomaticSize.Y,
+			Size = UDim2.fromScale(0, 0),
+			AutomaticSize = Enum.AutomaticSize.XY,
 			Position = UDim2.new(0.5, 0, 0, 8),
 			AnchorPoint = Vector2.new(0.5, 0),
 		}, {

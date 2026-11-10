@@ -46,21 +46,28 @@ local function Panel(props: Props)
 		Stroke = Primitives.stroke(),
 		Gradient = Primitives.gradient(base, 0.06),
 		Shadow = Primitives.shadow(),
-		Padding = Primitives.padding(),
-		Layout = Primitives.list(Enum.FillDirection.Vertical, 8),
-		Title = if props.title
-			then e("TextLabel", {
-				Text = props.title,
-				FontFace = Theme.font("display"),
-				TextSize = Theme.text.title,
-				TextColor3 = Theme.color("text"),
-				TextXAlignment = Enum.TextXAlignment.Left,
-				BackgroundTransparency = 1,
-				Size = UDim2.new(1, 0, 0, Theme.text.title + 6),
-				LayoutOrder = -1000,
-			})
-			else nil,
-		Content = e(React.Fragment, nil, props.children),
+		-- Body holds padding + layout so the Shadow sibling is never laid out (see CurrencyCounter).
+		Body = e("Frame", {
+			BackgroundTransparency = 1,
+			Size = UDim2.fromScale(1, if props.size then 1 else 0),
+			AutomaticSize = if props.size then Enum.AutomaticSize.None else Enum.AutomaticSize.Y,
+		}, {
+			Padding = Primitives.padding(),
+			Layout = Primitives.list(Enum.FillDirection.Vertical, 8),
+			Title = if props.title
+				then e("TextLabel", {
+					Text = props.title,
+					FontFace = Theme.font("display"),
+					TextSize = Theme.text.title,
+					TextColor3 = Theme.color("text"),
+					TextXAlignment = Enum.TextXAlignment.Left,
+					BackgroundTransparency = 1,
+					Size = UDim2.new(1, 0, 0, Theme.text.title + 6),
+					LayoutOrder = -1000,
+				})
+				else nil,
+			Content = e(React.Fragment, nil, props.children),
+		}),
 	})
 end
 

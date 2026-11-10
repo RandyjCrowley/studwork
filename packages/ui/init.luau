@@ -27,5 +27,6 @@ UI.Modal = require(script.Modal)
 UI.CurrencyCounter = require(script.CurrencyCounter)
 UI.OddsTable = require(script.OddsTable)
 UI.AutoScale = require(script.AutoScale)
+UI.ScaledRoot = require(script.ScaledRoot)
 
 return UI

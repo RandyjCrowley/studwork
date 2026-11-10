@@ -81,54 +81,62 @@ local function CurrencyCounter(props: Props)
 		Stroke = Primitives.stroke(),
 		Gradient = Primitives.gradient(Theme.color("surface"), 0.08),
 		Shadow = Primitives.shadow(3),
-		Padding = e("UIPadding", { PaddingLeft = UDim.new(0, 6), PaddingRight = UDim.new(0, 14) }),
-		Layout = Primitives.list(Enum.FillDirection.Horizontal, 8),
-		Icon = e(
-			if props.icon then "ImageLabel" else "Frame",
-			{
-				Image = props.icon,
-				BackgroundColor3 = Theme.color("currency"),
-				BackgroundTransparency = if props.icon then 1 else 0,
-				Size = UDim2.fromOffset(h - 12, h - 12),
-				LayoutOrder = 1,
-			} :: any,
-			{
-				Corner = e("UICorner", { CornerRadius = UDim.new(0.5, 0) }),
-				Aspect = e("UIAspectRatioConstraint", { AspectRatio = 1 }),
-			}
-		),
-		Text = e("Frame", {
+		-- Body holds the layout: a UIListLayout would also lay out the Shadow sibling and an
+		-- auto-sized parent with a scale-sized laid-out child grows without bound.
+		Body = e("Frame", {
 			BackgroundTransparency = 1,
-			Size = UDim2.fromScale(0, 1),
+			Size = UDim2.fromOffset(0, h),
 			AutomaticSize = Enum.AutomaticSize.X,
-			LayoutOrder = 2,
 		}, {
-			Layout = Primitives.list(Enum.FillDirection.Vertical, 0),
-			Amount = e("TextLabel", {
-				Text = shown:map(function(v: number)
-					return Format.abbreviate(math.floor(v))
-				end),
-				FontFace = Theme.font("display"),
-				TextSize = if props.rate then Theme.text.title else Theme.text.number,
-				TextColor3 = Theme.color("currency"),
-				TextStrokeTransparency = 0.5,
-				TextXAlignment = Enum.TextXAlignment.Left,
+			Padding = e("UIPadding", { PaddingLeft = UDim.new(0, 6), PaddingRight = UDim.new(0, 14) }),
+			Layout = Primitives.list(Enum.FillDirection.Horizontal, 8),
+			Icon = e(
+				if props.icon then "ImageLabel" else "Frame",
+				{
+					Image = props.icon,
+					BackgroundColor3 = Theme.color("currency"),
+					BackgroundTransparency = if props.icon then 1 else 0,
+					Size = UDim2.fromOffset(h - 12, h - 12),
+					LayoutOrder = 1,
+				} :: any,
+				{
+					Corner = e("UICorner", { CornerRadius = UDim.new(0.5, 0) }),
+					Aspect = e("UIAspectRatioConstraint", { AspectRatio = 1 }),
+				}
+			),
+			Text = e("Frame", {
 				BackgroundTransparency = 1,
-				AutomaticSize = Enum.AutomaticSize.XY,
-				LayoutOrder = 1,
-			}),
-			Rate = if props.rate
-				then e("TextLabel", {
-					Text = "+" .. Format.abbreviate(props.rate) .. "/s",
-					FontFace = Theme.font("bold"),
-					TextSize = Theme.text.small,
-					TextColor3 = Theme.color("textMuted"),
+				Size = UDim2.fromScale(0, 1),
+				AutomaticSize = Enum.AutomaticSize.X,
+				LayoutOrder = 2,
+			}, {
+				Layout = Primitives.list(Enum.FillDirection.Vertical, 0),
+				Amount = e("TextLabel", {
+					Text = shown:map(function(v: number)
+						return Format.abbreviate(math.floor(v))
+					end),
+					FontFace = Theme.font("display"),
+					TextSize = if props.rate then Theme.text.title else Theme.text.number,
+					TextColor3 = Theme.color("currency"),
+					TextStrokeTransparency = 0.5,
 					TextXAlignment = Enum.TextXAlignment.Left,
 					BackgroundTransparency = 1,
 					AutomaticSize = Enum.AutomaticSize.XY,
-					LayoutOrder = 2,
-				})
-				else nil,
+					LayoutOrder = 1,
+				}),
+				Rate = if props.rate
+					then e("TextLabel", {
+						Text = "+" .. Format.abbreviate(props.rate) .. "/s",
+						FontFace = Theme.font("bold"),
+						TextSize = Theme.text.small,
+						TextColor3 = Theme.color("textMuted"),
+						TextXAlignment = Enum.TextXAlignment.Left,
+						BackgroundTransparency = 1,
+						AutomaticSize = Enum.AutomaticSize.XY,
+						LayoutOrder = 2,
+					})
+					else nil,
+			}),
 		}),
 	})
 end

@@ -7,8 +7,9 @@ React-lua (jsdotlua React 17.2.1 + ReactRoblox) components themed from `Core.Pal
 local UI = require(ReplicatedStorage:WaitForChild("UI"))
 ```
 
-Sizes are **design pixels** for a phone-landscape baseline (short side 400 px). Put `UI.AutoScale`
-under your screen root so everything grows on tablets/desktop and never drops below
+Sizes are **design pixels** for a phone-landscape baseline (short side 400 px). Render your screen
+inside `UI.ScaledRoot` (full-screen root that applies the responsive UIScale and sizes itself to
+1/scale so nothing is pushed off screen) so everything grows on tablets/desktop and never drops below
 `Responsive.MIN_SCALE` (0.85). `Theme.touchTarget` (52) stays >= 44 real px at that scale.
 
 ## Components
@@ -24,7 +25,8 @@ under your screen root so everything grows on tablets/desktop and never drops be
 | `Modal` | `open`, `title?`, `onClose?` (X button + backdrop tap), `dismissOnBackdrop?`, `size?`, children. Dimmed backdrop, panel capped 320-640 px wide. |
 | `CurrencyCounter` | `value`, `rate?` (`+12/s` line), `icon?`, `label?`, `animate?` (default true), `duration?` (0.35 s), `size?`, `position?`, `anchorPoint?`, `layoutOrder?`. Abbreviated (1.2K / 3.4M / 5.6B ...). |
 | `OddsTable` | `odds` (`{[itemId]: probability}`), `items` (`{id,name,rarity}` defs), `sortBy?` (`"rarity"` = rarest last, default; or `"probability"`), `title?`, `restricted?`, `restrictedText?`, `maxHeight?`, `size?`, `position?`, `anchorPoint?`, `layoutOrder?`. Exact percentages; never `0%` for a non-zero chance. |
-| `AutoScale` | none. UIScale following the camera viewport. |
+| `ScaledRoot` | children. Full-screen root with the responsive UIScale (use this for screens). |
+| `AutoScale` | none. Bare UIScale following the viewport; only under a content-sized frame (under a full-screen frame it pushes content off screen - use `ScaledRoot`). |
 
 Helpers: `UI.Theme` (`color`, `rarity`, `font`, `gradient`, `setOverrides`, `metrics`, `text`,
 `touchTarget`), `UI.Primitives` (corner/stroke/padding/gradient/shadow/list/textSize elements),
@@ -70,8 +72,7 @@ screen.ResetOnSpawn = false
 screen.ScreenInsets = Enum.ScreenInsets.CoreUISafeInsets
 screen.Parent = Players.LocalPlayer:WaitForChild("PlayerGui")
 local root = ReactRoblox.createRoot(screen)
-root:render(e("Frame", { BackgroundTransparency = 1, Size = UDim2.fromScale(1, 1) }, {
-	Scale = e(UI.AutoScale),
+root:render(e(UI.ScaledRoot, nil, {
 	Chest = e(ChestScreen, { open = true, onClose = function() root:unmount() end, odds = odds }),
 }))
 ```
@@ -85,12 +86,15 @@ client-guessed odds for a Robux purchase if the server applies luck; send the se
 
 - ScreenGui: `ScreenInsets = CoreUISafeInsets` for interactive UI (clear of the top bar, notch and
   home indicator), `ResetOnSpawn = false`, `SafeAreaCompatibility = FullscreenExtension` (default).
-- One `UI.AutoScale` per screen root; author in design pixels, don't hand-scale per device.
+- One `UI.ScaledRoot` per screen; author in design pixels, don't hand-scale per device.
 - Touch targets: buttons/pills use `Theme.touchTarget` (>= 44 px at the smallest scale). Don't
   shrink them with your own `size`.
 - Text: fixed design sizes (`Theme.text`) + UIScale; when you use `TextScaled`, add
   `Primitives.textSize(12, max)` so it never becomes unreadable.
 - Shapes that must hold (cards, icons, coin dots) use `UIAspectRatioConstraint`.
+- Never put a `UIListLayout` next to a scale-sized sibling (e.g. a drop shadow) inside an
+  auto-sized frame: the layout lays the sibling out and the frame grows without bound. Put the
+  layout in an inner body frame (see `Panel`, `CurrencyCounter`).
 - Keep the bottom-right (jump/thumbstick area on touch) and bottom-left free of HUD elements.
 - Test in the Device Simulator on a small phone in landscape and portrait, plus a tablet.
 - Open/close each screen repeatedly; `root:unmount()` must leave no ScreenGui or connections.
