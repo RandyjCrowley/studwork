@@ -27,17 +27,26 @@ so pity isn't spent), `empty_table`.
 Exact probabilities of the non-pity roll with that luck; they sum to 1 and use the same weights as
 `roll`. Unknown items / bad weights are dropped from both. `tiers()` returns `RarityTiers.all()`.
 
+## getOddsDetail(tableId) -> Types.OddsDetail?
+
+Full disclosure without luck (pure `RollMath.oddsDetail`): `items` (base odds), `mutationChance`,
+`mutations` (each = chance * weight share; default weight 1, non-positive weights never rolled),
+`outcomes` (every item x (no mutation | mutation) with its final probability on a normal roll,
+sums to 1) and `pity = { threshold, minTier, items }` (forced-roll odds) when the table's pity
+rule is valid and has an entry >= minTier. `paid` = `paid = true` or priced in a
+`balance.paidCurrencies` currency. Rolls go through the same `RollMath.step`
+(`OddsDetail.spec.luau` checks 200k seeded rolls against `outcomes` within 4 standard errors).
+
 ### Showing odds in a game (required for paid random items)
 
+At start Rarity replicates `ReplicatedState.odds[tableId]` for every table with a `cost` or
+`paid = true`. Render it with the UI kit, never with odds computed on the client:
+
 ```lua
--- server: send the odds to the client however your game does UI (e.g. a game remote / attribute)
-local odds = Core.Rarity.getOdds("Egg")
-for itemId, p in odds do
-    local def = Core.Items.get(itemId)
-    print(def.name, def.rarity, string.format("%.2f%%", p * 100))
-end
+e(UI.OddsTable, { detail = Core.Client.state().odds.Egg, items = Config.items })
 ```
-Show every item with its percentage *before* the purchase prompt, and keep it in sync with config.
+Luck is NOT applied to the displayed odds. A game that passes `luck` to paid rolls must show its
+own luck-adjusted odds (`getOdds(tableId, luck)`) or request a luck-aware disclosure API.
 
 ## RequestRoll (client)
 
@@ -50,7 +59,7 @@ when full); then `Economy.spend`, then roll+grant; if the roll still fails the c
 - [ ] The table has `paid = true` and is only rolled from a `Shop.onProduct` handler.
 - [ ] Handler passes `{ paid = true, grant = true }`; returns `false` (not granted) when `info.ok` is false
       so the purchase is not consumed (or grant a non-random alternative).
-- [ ] The odds UI uses `getOdds(tableId)` and is shown before the prompt.
+- [ ] The odds UI renders `ReplicatedState.odds[tableId]` (`UI.OddsTable` `detail`) before the prompt.
 - [ ] Restricted players (`ReplicatedState.paidRandomRestricted`) don't see the purchase prompt; offer
       an earnable or direct-purchase alternative.
 - [ ] Items from paid rolls keep `source = "paid:<tableId>"` (trades are then blocked for restricted

@@ -11,8 +11,13 @@ Also reads `balance.startingCurrency` (reset value) and `balance.upgrades[*].res
 ## Behaviour
 `rebirth(player)` does ONE `Data.update` that re-checks max/balance, pays the cost (only when the
 cost currency is not reset anyway), resets `resetCurrencies` to their starting value (or 0),
-resets upgrades with `resetsOnRebirth ~= false`, clears inventory+displayed unless
-`keepInventory` (displayed also unless `keepDisplayed`), increments `rebirths`. Then fires
+runs the registered reset steps (Upgrades resets its levels, Plot drops displayed slots whose uid
+left the inventory), and with `keepInventory = false` filters the inventory with
+`RebirthMath.keptInventory`: a copy is kept when `ItemDef.keepOnRebirth == true`, or when it is
+nil and `instance.source` starts with `"paid:"` (bought with Robux); wiped when
+`keepOnRebirth == false` or not paid. Unknown item ids are kept (and warned). Without the Items
+module everything is kept. Increments `rebirths`. Rebirth itself writes only `currency`,
+`inventory` and `rebirths`. Then fires
 `CurrencyChanged` (reason `rebirth`) for changed currencies, `Rebirthed(player, n)` (listeners
 re-read everything; no per-item ItemRemoved, per the pinned contract), a `toast` feedback and
 analytics (`economy Sink rebirth`, `custom "Rebirth"`).

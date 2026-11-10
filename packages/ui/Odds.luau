@@ -10,6 +10,12 @@
 		        | "probability" (most likely first; ties rarest last)
 	Zero / negative / NaN probabilities are dropped (not obtainable). Ties end on name then id
 	so the order is deterministic.
+
+	Full disclosure (Types.OddsDetail from the server, Core.Client.state().odds[tableId]):
+	Odds.mutationRows(detail) -> { { id, name, probability } } most likely first (zero dropped)
+	Odds.outcomeRows(detail, defs, tierOrder, sortBy?) -> { OddsRow } one row per (item, mutation);
+		id = "<itemId>|<mutation or ->", name = "<Mutation> <Item>" (or just the item name).
+	Odds.pityLine(detail) -> string? "Guaranteed Legendary+ at least every 50 rolls"
 ]]
 
 export type ItemDefLike = { id: string, name: string, rarity: string }
@@ -80,6 +86,89 @@ function Odds.total(rows: { OddsRow }): number
 		sum += row.probability
 	end
 	return sum
+end
+
+local function positive(p: any): boolean
+	return type(p) == "number" and p == p and p > 0
+end
+
+export type MutationRow = { id: string, name: string, probability: number }
+
+function Odds.mutationRows(detail: any): { MutationRow }
+	local rows: { MutationRow } = {}
+	if type(detail) ~= "table" or type(detail.mutations) ~= "table" then
+		return rows
+	end
+	for _, m in detail.mutations do
+		if type(m) == "table" and type(m.id) == "string" and positive(m.probability) then
+			table.insert(rows, {
+				id = m.id,
+				name = if type(m.name) == "string" then m.name else m.id,
+				probability = m.probability,
+			})
+		end
+	end
+	table.sort(rows, function(a, b)
+		if a.probability ~= b.probability then
+			return a.probability > b.probability
+		end
+		return a.id < b.id
+	end)
+	return rows
+end
+
+function Odds.outcomeRows(
+	detail: any,
+	defs: { ItemDefLike },
+	tierOrder: { [string]: number },
+	sortBy: SortBy?
+): { OddsRow }
+	if type(detail) ~= "table" or type(detail.outcomes) ~= "table" then
+		return {}
+	end
+	local mutationName: { [string]: string } = {}
+	for _, m in Odds.mutationRows(detail) do
+		mutationName[m.id] = m.name
+	end
+	local probs: { [string]: number } = {}
+	local extra: { [string]: { itemId: string, mutation: string? } } = {}
+	for _, o in detail.outcomes do
+		if type(o) == "table" and type(o.itemId) == "string" and positive(o.probability) then
+			local mutation = if type(o.mutation) == "string" then o.mutation else nil
+			local id = o.itemId .. "|" .. (mutation or "-")
+			probs[id] = (probs[id] or 0) + o.probability
+			extra[id] = { itemId = o.itemId, mutation = mutation }
+		end
+	end
+	local byId: { [string]: ItemDefLike } = {}
+	for _, def in defs do
+		byId[def.id] = def
+	end
+	-- reuse rows() for sorting by mapping each outcome to a pseudo def
+	local pseudo: { ItemDefLike } = {}
+	for id, x in extra do
+		local def = byId[x.itemId]
+		local itemName = if def then def.name else x.itemId
+		local name = if x.mutation
+			then (mutationName[x.mutation] or x.mutation) .. " " .. itemName
+			else itemName
+		table.insert(pseudo, { id = id, name = name, rarity = if def then def.rarity else nil :: any })
+	end
+	return Odds.rows(probs, pseudo, tierOrder, sortBy)
+end
+
+function Odds.pityLine(detail: any): string?
+	if type(detail) ~= "table" or type(detail.pity) ~= "table" then
+		return nil
+	end
+	local p = detail.pity
+	if type(p.threshold) ~= "number" or p.threshold < 1 or type(p.minTier) ~= "string" then
+		return nil
+	end
+	if p.threshold == 1 then
+		return "Guaranteed " .. p.minTier .. "+ on every roll"
+	end
+	return string.format("Guaranteed %s+ at least every %d rolls", p.minTier, p.threshold)
 end
 
 return Odds

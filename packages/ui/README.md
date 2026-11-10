@@ -24,13 +24,13 @@ inside `UI.ScaledRoot` (full-screen root that applies the responsive UIScale and
 | `ToastHost` | `subscribe(push) -> unsubscribe`, `maxVisible?` (3), `duration?` (3 s), `position?`, `anchorPoint?`, `size?`. Queue + auto-dismiss + duplicate merge (pure `ToastQueue`). |
 | `Modal` | `open`, `title?`, `onClose?` (X button + backdrop tap), `dismissOnBackdrop?`, `size?`, children. Dimmed backdrop, panel capped 320-640 px wide. |
 | `CurrencyCounter` | `value`, `rate?` (`+12/s` line), `icon?`, `label?`, `animate?` (default true), `duration?` (0.35 s), `size?`, `position?`, `anchorPoint?`, `layoutOrder?`. Abbreviated (1.2K / 3.4M / 5.6B ...). |
-| `OddsTable` | `odds` (`{[itemId]: probability}`), `items` (`{id,name,rarity}` defs), `sortBy?` (`"rarity"` = rarest last, default; or `"probability"`), `title?`, `restricted?`, `restrictedText?`, `maxHeight?`, `size?`, `position?`, `anchorPoint?`, `layoutOrder?`. Exact percentages; never `0%` for a non-zero chance. |
+| `OddsTable` | `detail` (server `Types.OddsDetail`, `Core.Client.state().odds[tableId]`: item odds, mutation line, every item x mutation outcome, pity line "Guaranteed Legendary+ at least every N rolls"; preferred) or legacy `odds` (`{[itemId]: probability}`), `items` (`{id,name,rarity}` defs), `sortBy?` (`"rarity"` = rarest last, default; or `"probability"`), `title?`, `restricted?`, `restrictedText?`, `maxHeight?`, `size?`, `position?`, `anchorPoint?`, `layoutOrder?`. Exact percentages; never `0%` for a non-zero chance. |
 | `ScaledRoot` | children. Full-screen root with the responsive UIScale (use this for screens). |
 | `AutoScale` | none. Bare UIScale following the viewport; only under a content-sized frame (under a full-screen frame it pushes content off screen - use `ScaledRoot`). |
 
 Helpers: `UI.Theme` (`color`, `rarity`, `font`, `gradient`, `setOverrides`, `metrics`, `text`,
 `touchTarget`), `UI.Primitives` (corner/stroke/padding/gradient/shadow/list/textSize elements),
-pure `UI.Format` (`abbreviate`, `percent`), `UI.Odds` (`rows`, `total`), `UI.ToastQueue`,
+pure `UI.Format` (`abbreviate`, `percent`), `UI.Odds` (`rows`, `total`, `mutationRows`, `outcomeRows`, `pityLine`), `UI.ToastQueue`,
 `UI.Responsive`. The pure ones have `*.spec.luau` tests.
 
 ## Mounting a screen
@@ -50,7 +50,7 @@ local function ChestScreen(props: { open: boolean, onClose: () -> (), odds: { [s
 	local state = ReactCharm.useAtom(Core.Client.state)
 	return e(UI.Modal, { open = props.open, title = "Chest", onClose = props.onClose }, {
 		Odds = e(UI.OddsTable, {
-			odds = props.odds,
+			detail = state.odds and state.odds.Chest, -- server-computed, never client-side
 			items = Config.items,
 			-- required for Robux-bought rolls: tell restricted players up front
 			restricted = state.paidRandomRestricted,

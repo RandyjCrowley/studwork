@@ -14,6 +14,8 @@
 		ctx.net.feedback(player, "item", def.name, def.rarity).
 		opts.paid without grant: the caller grants and MUST use source "paid:<tableId>".
 	getOdds(tableId, luck?) -> exact per-item probabilities of the non-pity roll (sum to 1).
+	getOddsDetail(tableId) -> Types.OddsDetail (no luck; RollMath.oddsDetail). Replicated at start
+		as ReplicatedState.odds[tableId] for every table with a cost or paid = true.
 	tiers() -> RarityTiers.all().
 	RequestRoll (client): tableId must be a table with a currency `cost` and paid ~= true.
 		Capacity is checked first (no spend if full), then Economy.spend, then roll+grant; if the
@@ -89,6 +91,25 @@ local function validateTables()
 	end
 end
 
+local function currencyIsPaid(currency: any): boolean
+	local list = ctx.config.balance.paidCurrencies
+	return type(list) == "table" and table.find(list, currency) ~= nil
+end
+
+-- Every table a player can pay for (a currency cost or Robux) is disclosed to every client.
+local function replicateOdds()
+	local all: { [string]: Types.OddsDetail } = {}
+	for tableId, t in ctx.config.balance.rarityTables do
+		if type(t) == "table" and (t.paid == true or type(t.cost) == "table") then
+			local detail = Rarity.getOddsDetail(tableId)
+			if detail then
+				all[tableId] = detail
+			end
+		end
+	end
+	ctx.setReplicatedAll("odds", all)
+end
+
 local function targetPlayer(userId: any): Player?
 	local id = tonumber(userId)
 	if id then
@@ -99,11 +120,7 @@ end
 
 function Rarity.start()
 	validateTables()
-
-	local function currencyIsPaid(currency: string): boolean
-		local list = ctx.config.balance.paidCurrencies
-		return type(list) == "table" and table.find(list, currency) ~= nil
-	end
+	replicateOdds()
 
 	ctx.net.handle("RequestRoll", function(player: Player, tableId: any)
 		if not Validate.isId(tableId) then
@@ -122,6 +139,10 @@ function Rarity.start()
 		local paid = currencyIsPaid(cost.currency)
 		if paid and ctx.services.Policy.paidRandomRestricted(player) then
 			ctx.net.feedback(player, "toast", "Not available in your region")
+			return
+		end
+		-- ConfigValidate requires both for costed tables; stay defensive anyway
+		if not ctx.isEnabled("Economy") or not ctx.isEnabled("Inventory") then
 			return
 		end
 		if not ctx.services.Data.isLoaded(player) or not hasRoom(player) then
@@ -234,20 +255,13 @@ function Rarity.rollInto(
 	local list = weightsFor(t, luck)
 	local pityCfg = if t.pity ~= nil and RollMath.validPity(t.pity) then t.pity else nil
 	local pityCount = if pityCfg then ((data.pity or {})[tableId] or 0) else 0
-	local forced = false
-	if pityCfg and RollMath.pityForces(pityCount, pityCfg.threshold) then
-		local restrictedList = RollMath.restrictTo(list, pityCfg.minTier)
-		if restrictedList then
-			list = restrictedList
-			forced = true
-		end
-	end
-	local entry = RollMath.pick(list, nextNumber())
-	local def: Types.ItemDef? = if entry then ctx.services.Items.get(entry.itemId) else nil
-	if entry == nil or def == nil then
+	local result =
+		RollMath.step(list, pityCfg, pityCount, t.mutationChance, ctx.config.balance.mutations, nextNumber)
+	local def: Types.ItemDef? = if result then ctx.services.Items.get(result.entry.itemId) else nil
+	if result == nil or def == nil then
 		return fail("empty_table")
 	end
-	local mutation = RollMath.rollMutation(t.mutationChance, ctx.config.balance.mutations, nextNumber)
+	local forced, mutation = result.forced, result.mutation
 	local info: Types.RollInfo = { ok = true, pity = forced, mutation = mutation }
 
 	if o.grant == true then
@@ -267,7 +281,7 @@ function Rarity.rollInto(
 		if data.pity == nil then
 			data.pity = {}
 		end
-		data.pity[tableId] = RollMath.pityAfter(pityCount, def.rarity, pityCfg.minTier)
+		data.pity[tableId] = result.pityCount
 	end
 	if o.grant == true then
 		local name, rarity = def.name, def.rarity
@@ -308,27 +322,22 @@ function Rarity.getOdds(tableId: string, luck: number?): { [string]: number }
 	return RollMath.odds(weightsFor(t, luck))
 end
 
--- Phase 0 stub (agent B implements the full disclosure: mutation odds, outcomes x mutations,
--- pity odds; replicates it and renders it in UI.OddsTable). Base item odds only.
+-- Full disclosure of a table's odds (no luck): base item odds, mutation odds, every
+-- (item, mutation) outcome on a normal roll and the forced-roll odds of a pity rule that can apply.
 function Rarity.getOddsDetail(tableId: string): Types.OddsDetail?
 	local t = getTable(tableId)
 	if t == nil then
 		return nil
 	end
-	local items = RollMath.odds(weightsFor(t, nil))
-	local outcomes: { Types.OddsOutcome } = {}
-	for itemId, p in items do
-		table.insert(outcomes, { itemId = itemId, probability = p })
-	end
-	return {
-		tableId = tableId,
-		paid = t.paid == true,
-		items = items,
-		mutationChance = 0,
-		mutations = {},
-		outcomes = outcomes,
-		pity = nil,
-	}
+	local paid = t.paid == true or (type(t.cost) == "table" and currencyIsPaid(t.cost.currency))
+	return RollMath.oddsDetail(
+		tableId,
+		paid,
+		weightsFor(t, nil),
+		t.pity,
+		t.mutationChance,
+		ctx.config.balance.mutations
+	)
 end
 
 function Rarity.tiers(): { Types.RarityTierDef }

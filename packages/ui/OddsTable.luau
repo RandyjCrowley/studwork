@@ -5,8 +5,11 @@
 	Percentages never show 0% for a non-zero chance (Format.percent).
 
 	props:
-		odds: { [itemId]: probability }   e.g. Rarity.getOdds(tableId, luck) sent from the server,
-		                                  or computed from config on the client
+		detail: Types.OddsDetail?         full disclosure from the SERVER (preferred):
+		                                  Core.Client.state().odds[tableId]. Renders the item odds,
+		                                  mutation lines ("Rainbow 3%"), every final (item, mutation)
+		                                  outcome and the pity line. Takes precedence over `odds`.
+		odds: { [itemId]: probability }?  legacy: per-item odds only (e.g. Rarity.getOdds)
 		items: { { id: string, name: string, rarity: string } }  item defs (GameConfig.items)
 		sortBy: "rarity" | "probability" | nil  ("rarity": rarest last)
 		title: string?                    default "Odds"
@@ -30,7 +33,8 @@ local RarityTiers = require(ReplicatedStorage:WaitForChild("Core"):WaitForChild(
 local e = React.createElement
 
 export type Props = {
-	odds: { [string]: number },
+	detail: any?, -- Types.OddsDetail
+	odds: { [string]: number }?,
 	items: { Odds.ItemDefLike },
 	sortBy: Odds.SortBy?,
 	title: string?,
@@ -105,19 +109,74 @@ local function Row(props: { row: Odds.OddsRow, layoutOrder: number })
 	})
 end
 
+local HEADER_HEIGHT = 24
+
+local function Header(props: { text: string, layoutOrder: number })
+	return e("TextLabel", {
+		Text = props.text,
+		FontFace = Theme.font("bold"),
+		TextSize = Theme.text.small,
+		TextColor3 = Theme.color("textMuted"),
+		TextXAlignment = Enum.TextXAlignment.Left,
+		TextWrapped = true,
+		BackgroundTransparency = 1,
+		Size = UDim2.new(1, 0, 0, HEADER_HEIGHT),
+		AutomaticSize = Enum.AutomaticSize.Y, -- long mutation lists wrap on phones
+		LayoutOrder = props.layoutOrder,
+	})
+end
+
 local function OddsTable(props: Props)
-	local rows = React.useMemo(function()
-		return Odds.rows(props.odds, props.items, TIER_ORDER, props.sortBy)
-	end, { props.odds, props.items, props.sortBy } :: { any })
+	local detail = props.detail
+	local model = React.useMemo(function()
+		local itemOdds = if type(detail) == "table" and type(detail.items) == "table"
+			then detail.items
+			else (props.odds or {})
+		return {
+			items = Odds.rows(itemOdds, props.items, TIER_ORDER, props.sortBy),
+			mutations = Odds.mutationRows(detail),
+			outcomes = Odds.outcomeRows(detail, props.items, TIER_ORDER, props.sortBy),
+			pity = Odds.pityLine(detail),
+		}
+	end, { detail, props.odds, props.items, props.sortBy } :: { any })
+	local rows = model.items
 
 	local list: { [string]: any } = {
 		Layout = e("UIListLayout", { Padding = UDim.new(0, 4), SortOrder = Enum.SortOrder.LayoutOrder }),
 	}
-	for i, row in rows do
-		list["Row_" .. row.id] = e(Row, { row = row, layoutOrder = i })
+	local order = 0
+	local height = 0
+	local function add(key: string, element: any, h: number)
+		order += 1
+		list[key] = element
+		height += h + 4
+	end
+	local function addHeader(key: string, text: string)
+		add(key, e(Header, { text = text, layoutOrder = order + 1 }), HEADER_HEIGHT)
+	end
+	if model.pity then
+		addHeader("Pity", model.pity)
+	end
+	local showSections = #model.mutations > 0
+	if showSections then
+		addHeader("ItemsHeader", "Items")
+	end
+	for _, row in rows do
+		add("Row_" .. row.id, e(Row, { row = row, layoutOrder = order + 1 }), ROW_HEIGHT)
+	end
+	if showSections then
+		local parts = {}
+		for _, m in model.mutations do
+			table.insert(parts, m.name .. " " .. Format.percent(m.probability))
+		end
+		addHeader("MutationsHeader", "Mutations: " .. table.concat(parts, ", "))
+		addHeader("OutcomesHeader", "All outcomes")
+		for _, row in model.outcomes do
+			add("Outcome_" .. row.id, e(Row, { row = row, layoutOrder = order + 1 }), ROW_HEIGHT)
+		end
 	end
 	local maxHeight = props.maxHeight or 320
-	local listHeight = math.min(maxHeight, #rows * (ROW_HEIGHT + 4))
+	local listHeight = math.min(maxHeight, height)
 
 	return e(Panel, {
 		title = props.title or "Odds",

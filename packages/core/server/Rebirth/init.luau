@@ -7,8 +7,10 @@
 	- cost = floor(baseCost * costGrowth ^ rebirths); multiplier = 1 + rebirths * multiplierPerRebirth.
 	- rebirth(): ONE Data.update re-checks max + balance, pays the cost (if the cost currency is not
 	  in resetCurrencies), resets resetCurrencies to balance.startingCurrency[id] or 0, resets
-	  upgrades with resetsOnRebirth ~= false, wipes inventory+displayed unless keepInventory (and
-	  displayed unless keepDisplayed), increments rebirths. Then fires CurrencyChanged (reason
+	  keepInventory = false wipes inventory copies per RebirthMath.keptInventory (paid copies kept
+	  by default, ItemDef.keepOnRebirth overrides, unknown ids kept + warned), runs registered
+	  reset steps (Upgrades, Plot reset their own sections), increments rebirths. Rebirth itself
+	  writes only currency, inventory and rebirths. Then fires CurrencyChanged (reason
 	  "rebirth") per changed currency and Rebirthed (listeners re-read everything; no per-item
 	  ItemRemoved is fired, per the pinned contract), a "toast" feedback and analytics.
 ]]
@@ -84,6 +86,7 @@ function Rebirth.rebirth(player: Player): boolean
 	local newCount = 0
 	local paid = 0
 	local changes: { { id: string, newBalance: number, delta: number } } = {}
+	local unknownItems: { string } = {}
 
 	ctx.services.Data.update(player, function(data: Types.PlayerData)
 		local ok, _, cost = RebirthMath.check(data.rebirths, data.currency[payWith] or 0, r)
@@ -106,8 +109,18 @@ function Rebirth.rebirth(player: Player): boolean
 			end
 		end
 		if not r.keepInventory and ctx.isEnabled("Inventory") then
-			-- agent B: keep items per ItemDef.keepOnRebirth (Decision 2)
-			data.inventory = {}
+			-- Decision 2: keep Robux-bought copies (ItemDef.keepOnRebirth). Without the Items
+			-- module nothing can be classified, so everything is kept.
+			local getDef = if ctx.isEnabled("Items")
+				then function(itemId: string): Types.ItemDef?
+					return ctx.services.Items.get(itemId)
+				end
+				else function(_itemId: string): Types.ItemDef?
+					return nil
+				end
+			local kept, unknown = RebirthMath.keptInventory(data.inventory :: any, getDef)
+			data.inventory = kept :: any -- same instance tables, filtered
+			unknownItems = unknown
 		end
 		for _, step in resetSteps do
 			step.fn(data, player)
@@ -117,6 +130,14 @@ function Rebirth.rebirth(player: Player): boolean
 	end)
 	if not done then
 		return false
+	end
+	if #unknownItems > 0 then
+		warn(
+			"[Core.Rebirth] kept items with unknown ids on rebirth for "
+				.. player.Name
+				.. ": "
+				.. table.concat(unknownItems, ", ")
+		)
 	end
 
 	for _, c in changes do
