@@ -1,0 +1,64 @@
+{
+  "name": "_sandbox-foundation-only",
+  "servePort": 34873,
+  "globIgnorePaths": [
+    "**/*.spec.luau",
+    "**/README.md",
+    "**/SOURCE.md",
+    "**/*.blink",
+    "**/LICENSE"
+  ],
+  "tree": {
+    "$className": "DataModel",
+    "ReplicatedStorage": {
+      "Packages": {
+        "$path": "../../deps/Packages"
+      },
+      "Core": {
+        "$path": "../../packages/core/shared"
+      },
+      "CoreClient": {
+        "$path": "../../packages/core/client"
+      },
+      "UI": {
+        "$path": "../../packages/ui"
+      },
+      "Game": {
+        "$path": "foundation-only/shared"
+      }
+    },
+    "ServerScriptService": {
+      "CoreServer": {
+        "$path": "../../packages/core/server"
+      },
+      "Game": {
+        "$path": "foundation-only/server"
+      }
+    },
+    "ServerStorage": {
+      "ServerPackages": {
+        "$path": "../../deps/ServerPackages"
+      },
+      "Vendor": {
+        "$path": "../../packages/vendor"
+      }
+    },
+    "StarterPlayer": {
+      "StarterPlayerScripts": {
+        "Game": {
+          "$path": "foundation-only/client"
+        }
+      }
+    },
+    "Workspace": {
+      "$properties": {
+        "StreamingEnabled": true
+      }
+    },
+    "Lighting": {
+      "$properties": {
+        "Technology": "Future"
+      }
+    }
+  }
+}
