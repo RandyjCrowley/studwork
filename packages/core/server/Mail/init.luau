@@ -1,28 +1,28 @@
 --!strict
 --[[
-	Core.Mail. OWNED BY AGENT A (core/a-data). Public API: Types.MailAPI.
+	Core.Mail. OWNED BY AGENT C (core/v11-c-mail). Public API: Types.MailAPI. See README.md.
 
-	send(userId, kind, payload) -> boolean
-	  Validates (MailValidate: kind ^[%w_-]{1,32}$, payload = JSON-safe table <= 1000 bytes) and
-	  calls ProfileStore:MessageAsync("Player_" .. userId, { kind, payload, sentAt }) on the same
-	  store Data uses (real or Mock). YIELDS (DataStore write). Works for offline users and players
-	  in other servers: the message is queued inside their profile.
-	  Delivery timing (ProfileStore behaviour): the owning server is pinged over MessagingService
-	  and picks the message up on that profile's next save; for a player in THIS server Mail also
-	  calls profile:Save() so it arrives within one save round-trip. Offline -> on their next load.
+	send(userId, kind, payload, key?) -> boolean
+	  Validates (MailValidate: kind ^[%w_-]{1,32}$, payload = JSON-safe table <= 1000 bytes,
+	  key = short id string, default a new GUID) and calls
+	  ProfileStore:MessageAsync("Player_" .. userId, { id, kind, payload, sentAt }) on the same
+	  store Data uses (real or Mock). YIELDS (DataStore write). Works offline / cross-server.
 	onReceive(kind, handler) -> Connection
-	  handler(player, payload) runs (task.spawn) for every message of that kind while the player
-	  is online. A message is marked processed only when at least one handler exists for its kind;
-	  otherwise ProfileStore keeps it queued and re-delivers it next session (queue cap 1000).
-	  Delivery is at-least-once across server crashes: handlers should be idempotent
-	  (e.g. include an id in the payload).
+	  handler(player, payload, info) runs synchronously (pcall) per message. Failure = error or
+	  `false`. At-least-once with idempotency by id, retries with backoff, dead letters: the state
+	  machine lives in Delivery.luau. HANDLERS MUST BE SAFE TO RUN TWICE.
 ]]
 
 local HttpService = game:GetService("HttpService")
+local Players = game:GetService("Players")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
-local Types = require(game:GetService("ReplicatedStorage"):WaitForChild("Core"):WaitForChild("Types"))
+local Core = ReplicatedStorage:WaitForChild("Core")
+local Types = require(Core:WaitForChild("Types"))
+local Validate = require(Core:WaitForChild("Validate"))
 local Internal = require(script.Parent:WaitForChild("Data"):WaitForChild("Internal"))
 local MailValidate = require(script.MailValidate)
+local Delivery = require(script.Delivery)
 
 local STORE_WAIT = 20 -- seconds send() waits for Data to choose its store
 
@@ -30,53 +30,60 @@ local Mail = {}
 
 type Handler = (Player, { [string]: any }, Types.MailInfo) -> boolean?
 
-local handlers: { [string]: { Handler } } = {}
+local ctx: any = nil
+local delivery: any = nil
 
 local function encode(value: any): string
 	return HttpService:JSONEncode(value)
 end
 
--- Phase 0 stub of the v1.1 contract (agent C implements idempotency keys, retries with backoff
--- and dead letters): handlers run synchronously under pcall; processed() only if all succeed.
-local function deliver(player: Player, message: any, processed: () -> ())
-	if
-		type(message) ~= "table"
-		or not MailValidate.kind(message.kind)
-		or type(message.payload) ~= "table"
-	then
-		processed() -- malformed: consume so it doesn't clog the queue
-		return
-	end
-	local list = handlers[message.kind]
-	if list == nil or #list == 0 then
-		return
-	end
-	local info: Types.MailInfo = {
-		id = if type(message.id) == "string" then message.id else "",
-		kind = message.kind,
-		sentAt = if type(message.sentAt) == "number" then message.sentAt else 0,
-		attempt = 1,
-	}
-	for _, handler in table.clone(list) do
-		local ok, result = pcall(handler, player, message.payload, info)
-		if not ok or result == false then
-			warn(`[Core.Mail] handler for '{message.kind}' failed: {result}`)
-			return
-		end
-	end
-	processed()
+-- Created at require time (deps read ctx lazily) so onReceive works before Mail.init.
+delivery = Delivery.new({
+	now = os.time,
+	delay = function(seconds: number, fn: () -> ())
+		task.delay(seconds, fn)
+	end,
+	isActive = function(player: any): boolean
+		return ctx ~= nil and player.Parent == Players and ctx.services.Data.isLoaded(player)
+	end,
+	getMail = function(player: any): any
+		local data = ctx.services.Data.get(player)
+		return data and data.mail
+	end,
+	update = function(player: any, fn: (mail: any) -> ()): boolean
+		local ok, result = pcall(ctx.services.Data.update, player, function(data: Types.PlayerData)
+			fn(data.mail)
+		end)
+		return ok and result == true
+	end,
+	analytics = function(player: any, name: string, value: number)
+		ctx.services.Analytics.custom(player, name, value)
+	end,
+	warn = warn,
+})
+
+function Mail.init(context: any)
+	ctx = context
+	Internal.deliver = delivery.deliver
 end
 
-function Mail.init(_context: any)
-	Internal.deliver = deliver
+function Mail.start()
+	Players.PlayerRemoving:Connect(function(player: Player)
+		delivery.forget(player)
+	end)
+	game:BindToClose(function()
+		delivery.stop()
+	end)
 end
-
-function Mail.start() end
 
 function Mail.send(userId: number, kind: string, payload: { [string]: any }, key: string?): boolean
 	local ok, reason = MailValidate.message(userId, kind, payload, encode)
 	if not ok then
 		warn(`[Core.Mail] send rejected: {reason}`)
+		return false
+	end
+	if key ~= nil and not (Validate.isId(key, MailValidate.MAX_KEY_LENGTH) and MailValidate.key(key)) then
+		warn("[Core.Mail] send rejected: bad key")
 		return false
 	end
 	local store = Internal.waitStore(STORE_WAIT)
@@ -103,15 +110,13 @@ end
 
 function Mail.onReceive(kind: string, handler: Handler): Types.Connection
 	assert(MailValidate.kind(kind), "Mail.onReceive: invalid kind")
-	local list = handlers[kind] or {}
-	handlers[kind] = list
-	table.insert(list, handler)
+	assert(type(handler) == "function", "Mail.onReceive: handler must be a function")
+	local disconnect = delivery.register(kind, handler)
 	local connection = { Connected = true }
 	function connection.Disconnect(self: any)
-		self.Connected = false
-		local index = table.find(list, handler)
-		if index then
-			table.remove(list, index)
+		if self.Connected then
+			self.Connected = false
+			disconnect()
 		end
 	end
 	return (connection :: any) :: Types.Connection

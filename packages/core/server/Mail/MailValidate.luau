@@ -1,6 +1,6 @@
 --!strict
 --[[
-	Pure Mail message validation. OWNED BY AGENT A (core/a-data). No Roblox globals.
+	Pure Mail message validation. OWNED BY AGENT C (core/v11-c-mail). No Roblox globals.
 	encode is injected (HttpService:JSONEncode in production) so size is measured on the wire form.
 ]]
 
@@ -9,6 +9,8 @@ local MailValidate = {}
 MailValidate.MAX_KIND_LENGTH = 32
 MailValidate.MAX_PAYLOAD_BYTES = 1000 -- JSON bytes; profiles keep up to 1000 queued messages
 MailValidate.MAX_DEPTH = 4
+MailValidate.MAX_KEY_LENGTH = 64
+MailValidate.KEY_PATTERN = "^[%w_%-%.:]+$" -- same as shared Validate.ID_PATTERN
 
 local function isFinite(v: any): boolean
 	return type(v) == "number" and v == v and v ~= math.huge and v ~= -math.huge
@@ -46,6 +48,14 @@ end
 
 function MailValidate.userId(userId: any): boolean
 	return isFinite(userId) and userId > 0 and userId % 1 == 0
+end
+
+-- Idempotency key: short id string (Validate.isId rules).
+function MailValidate.key(key: any): boolean
+	return type(key) == "string"
+		and #key >= 1
+		and #key <= MailValidate.MAX_KEY_LENGTH
+		and string.match(key, MailValidate.KEY_PATTERN) ~= nil
 end
 
 -- Returns (ok, reason?).
