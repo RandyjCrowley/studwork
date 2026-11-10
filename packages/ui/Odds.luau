@@ -171,4 +171,21 @@ function Odds.pityLine(detail: any): string?
 	return string.format("Guaranteed %s+ at least every %d rolls", p.minTier, p.threshold)
 end
 
+-- v1.2 (N4): "Includes your luck x1.5" when the server says these odds include the player's
+-- luck (detail.luckDisclosed and detail.luck ~= 1); nil otherwise. Display only: the
+-- probabilities themselves already come luck-adjusted from the server.
+function Odds.luckLine(detail: any): string?
+	if type(detail) ~= "table" or detail.luckDisclosed ~= true then
+		return nil
+	end
+	local luck = detail.luck
+	if type(luck) ~= "number" or luck ~= luck or luck == 1 or luck <= 0 or luck == math.huge then
+		return nil
+	end
+	local text = string.format("%.2f", luck)
+	text = string.gsub(text, "0+$", "")
+	text = string.gsub(text, "%.$", "")
+	return "Includes your luck x" .. text
+end
+
 return Odds

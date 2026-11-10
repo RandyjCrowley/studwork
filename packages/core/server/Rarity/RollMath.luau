@@ -238,14 +238,19 @@ function RollMath.mutationOdds(
 	return c, out
 end
 
--- Full disclosure (Types.OddsDetail shape) of a table with the given weights (no luck).
+-- Full disclosure (Types.OddsDetail shape) of a table with the given weights. `list` must be
+-- built with the same luck (buildWeights(..., luck, ...)) that is reported: `luck` (default 1,
+-- sanitised) and `luckDisclosed` (default false) are copied into the detail as-is, so the
+-- probabilities are exactly the ones a roll with that list uses.
 function RollMath.oddsDetail(
 	tableId: string,
 	paid: boolean,
 	list: WeightedList,
 	pity: any,
 	mutationChance: any,
-	mutations: { Types.Mutation }?
+	mutations: { Types.Mutation }?,
+	luck: number?,
+	luckDisclosed: boolean?
 ): Types.OddsDetail
 	local items = RollMath.odds(list)
 	local chance, mutOdds = RollMath.mutationOdds(mutationChance, mutations)
@@ -284,6 +289,8 @@ function RollMath.oddsDetail(
 		mutations = mutationsOut,
 		outcomes = outcomes,
 		pity = pityDetail,
+		luck = RollMath.sanitizeLuck(luck),
+		luckDisclosed = luckDisclosed == true,
 	}
 end
 

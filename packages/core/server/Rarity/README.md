@@ -1,6 +1,6 @@
 # Core.Rarity
 
-Weighted rolls with luck, pity and mutations (`Types.RarityAPI`). Owner: agent C.
+Weighted rolls with luck, pity and mutations (`Types.RarityAPI`). Owner: agent C (v1.2 luck: agent B).
 Pure math lives in `RollMath.luau` (tests: `RollMath.spec.luau`, seeded with `SeededRng.luau`).
 
 ## roll(tableId, player, luck?, opts?) -> (ItemDef?, RollInfo)
@@ -27,9 +27,33 @@ so pity isn't spent), `empty_table`.
 Exact probabilities of the non-pity roll with that luck; they sum to 1 and use the same weights as
 `roll`. Unknown items / bad weights are dropped from both. `tiers()` returns `RarityTiers.all()`.
 
-## getOddsDetail(tableId) -> Types.OddsDetail?
+## Luck: setLuck(player, luck, tableId?) / getLuck(player, tableId?) (v1.2, N4)
 
-Full disclosure without luck (pure `RollMath.oddsDetail`): `items` (base odds), `mutationChance`,
+Session-only registry (`LuckRegistry.luau`): per player, for one table or every table (`tableId`
+nil); a per-table value wins over the all-table one, even a per-table 1. Values go through
+`RollMath.sanitizeLuck`. Cleared on PlayerRemoving. `roll`/`rollInto` with `luck == nil` use
+`getLuck(player, tableId)`, so Shop's `tx.roll(tableId)` inherits it. `setLuck` re-sends that
+player's odds.
+
+## Hard rule 11: luck on paid rolls
+
+A roll is *paid* when `opts.paid == true` or the table has `paid = true` (RequestRoll passes
+`paid = true` for a cost in `balance.paidCurrencies`; Shop's `tx.roll` always does). A paid roll
+whose effective luck is not 1 **errors** in `rollInto` (message names table, luck and reason)
+unless the table has `luckDisclosed = true` AND `ctx.sentReplicated(player, "odds")[tableId]`
+has `luckDisclosed = true` and exactly that `luck`. The decision is the pure `LuckRule.check`
+(order: free -> ok, luck 1 -> ok, `luck_not_disclosed`, `odds_not_sent`, `sent_luck_mismatch`).
+Inside a Robux handler the error means NotProcessedYet, so nobody is charged. RequestRoll checks
+the rule BEFORE spending and only toasts "Odds are updating, try again in a moment" (no spend, no
+error). Free rolls may use any luck. Passing an explicit `luck` that differs from `getLuck` to a
+paid roll always fails the rule (the client was sent `getLuck`'s odds): use `setLuck`.
+
+## getOddsDetail(tableId, player?) -> Types.OddsDetail?
+
+With `player` and a `luckDisclosed` table the probabilities include `getLuck(player, tableId)`
+and `detail.luck` says which; otherwise `luck = 1`. `detail.luckDisclosed` mirrors the table.
+
+Full disclosure (pure `RollMath.oddsDetail`): `items` (base odds), `mutationChance`,
 `mutations` (each = chance * weight share; default weight 1, non-positive weights never rolled),
 `outcomes` (every item x (no mutation | mutation) with its final probability on a normal roll,
 sums to 1) and `pity = { threshold, minTier, items }` (forced-roll odds) when the table's pity
@@ -39,14 +63,20 @@ rule is valid and has an entry >= minTier. `paid` = `paid = true` or priced in a
 
 ### Showing odds in a game (required for paid random items)
 
-At start Rarity replicates `ReplicatedState.odds[tableId]` for every table with a `cost` or
-`paid = true`. Render it with the UI kit, never with odds computed on the client:
+At start Rarity replicates `ReplicatedState.odds[tableId]` for every table with a `cost`,
+`paid = true` or `luckDisclosed = true`. Every player's `state.odds` equals the odds their own
+rolls use (`OddsSync.luau`): the shared luck-free map goes out once with `setReplicatedAll`; a
+player gets a per-player override (shared map + their luck-adjusted details) only while their
+luck differs from 1 on a luckDisclosed table, cleared back to the shared map (nil) afterwards.
+**N3:** every `Items.register` after start (`Items.onRegistered`) rebuilds and re-sends the shared
+map and every override; the start-time warning for unknown items stays. Render it with the UI
+kit, never with odds computed on the client:
 
 ```lua
 e(UI.OddsTable, { detail = Core.Client.state().odds.Egg, items = Config.items })
 ```
-Luck is NOT applied to the displayed odds. A game that passes `luck` to paid rolls must show its
-own luck-adjusted odds (`getOdds(tableId, luck)`) or request a luck-aware disclosure API.
+For a luckDisclosed table with luck ~= 1 the detail is luck-adjusted and `UI.OddsTable` shows
+"Includes your luck x1.5" above the items.
 
 ## RequestRoll (client)
 
@@ -67,4 +97,5 @@ when full); then `Economy.spend`, then roll+grant; if the roll still fails the c
 
 ## Studio console
 
-`roll <tableId> [userId]` (grants), `odds <tableId> [luck]`.
+`roll <tableId> [userId]` (grants), `odds <tableId> [luck|userId]` (a number above `MAX_LUCK` is
+a userId: shows that player's disclosed, luck-adjusted detail), `luck <userId> <luck> [tableId]`.

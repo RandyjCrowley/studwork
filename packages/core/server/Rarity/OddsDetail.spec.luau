@@ -146,3 +146,121 @@ describe("RollMath.step Monte Carlo (same step as Rarity.rollInto)", function()
 		)
 	end)
 end)
+
+describe("RollMath.oddsDetail with luck (v1.2, N4)", function()
+	it("reports luck / luckDisclosed and uses the luck-weighted list", function()
+		local plain =
+			RollMath.oddsDetail("T", true, RollMath.buildWeights(ENTRIES, tierOf, nil, nil), PITY, 0, nil)
+		expect(plain.luck).toBe(1)
+		expect(plain.luckDisclosed).toBe(false)
+		local lucky = RollMath.oddsDetail(
+			"T",
+			true,
+			RollMath.buildWeights(ENTRIES, tierOf, 2, nil),
+			PITY,
+			0,
+			nil,
+			2,
+			true
+		)
+		expect(lucky.luck).toBe(2)
+		expect(lucky.luckDisclosed).toBe(true)
+		-- weights 60 / 50 / 24 / 6 (total 140)
+		expect(lucky.items.legend).toBeNear(6 / 140, 1e-12)
+		expect(lucky.items.common).toBeNear(60 / 140, 1e-12)
+		local nanLuck = RollMath.oddsDetail(
+			"T",
+			true,
+			RollMath.buildWeights(ENTRIES, tierOf, nil, nil),
+			nil,
+			0,
+			nil,
+			0 / 0
+		)
+		expect(nanLuck.luck).toBe(1)
+	end)
+end)
+
+-- Hard requirement (W_B.md 6): >= 200k seeded rolls at luck 1, 1.5 and 3 through RollMath.step
+-- (with mutations; plus a pity table) against oddsDetail(..., luck): every outcome within 4 SE.
+describe("RollMath.step Monte Carlo at luck 1, 1.5, 3", function()
+	local N = 200000
+	for i, luck in { 1, 1.5, 3 } do
+		it(string.format("luck x%s: outcomes match oddsDetail within 4 SE", tostring(luck)), function()
+			local list = RollMath.buildWeights(ENTRIES, tierOf, luck, nil)
+			local d = RollMath.oddsDetail("T", true, list, PITY, CHANCE, MUTATIONS, luck, true)
+			expect(d.luck).toBe(luck)
+			local rng = SeededRng.new(4242 + i)
+			local counts: { [string]: number } = {}
+			for _ = 1, N do
+				local r = RollMath.step(list, nil, 0, CHANCE, MUTATIONS, rng) :: any
+				local k = key(r.entry.itemId, r.mutation)
+				counts[k] = (counts[k] or 0) + 1
+			end
+			local maxDev, maxZ, seen = 0, 0, 0
+			for _, o in d.outcomes do
+				local k = key(o.itemId, o.mutation)
+				local f = (counts[k] or 0) / N
+				seen += counts[k] or 0
+				local se = math.sqrt(o.probability * (1 - o.probability) / N)
+				local dev = math.abs(f - o.probability)
+				maxDev = math.max(maxDev, dev)
+				maxZ = math.max(maxZ, dev / se)
+				expect(dev).toBeLessThan(4 * se)
+			end
+			expect(seen).toBe(N)
+			print(
+				string.format(
+					"[MonteCarlo] luck x%s: %d rolls, %d outcomes: max |dev| = %.5f, max z = %.2f",
+					tostring(luck),
+					N,
+					#d.outcomes,
+					maxDev,
+					maxZ
+				)
+			)
+		end)
+
+		it(string.format("luck x%s: pity table forced rolls match pity.items", tostring(luck)), function()
+			local list = RollMath.buildWeights(ENTRIES, tierOf, luck, nil)
+			local d = RollMath.oddsDetail("T", true, list, PITY, CHANCE, MUTATIONS, luck, true)
+			local pityItems = (d.pity :: any).items
+			local rng = SeededRng.new(9000 + i)
+			local count, streak, maxStreak, forcedN = 0, 0, 0, 0
+			local forcedCounts: { [string]: number } = {}
+			for _ = 1, N do
+				local r = RollMath.step(list, PITY :: any, count, CHANCE, MUTATIONS, rng) :: any
+				if r.forced then
+					forcedN += 1
+					forcedCounts[r.entry.itemId] = (forcedCounts[r.entry.itemId] or 0) + 1
+				end
+				count = r.pityCount
+				if r.entry.tier == "Common" or r.entry.tier == "Rare" then
+					streak += 1
+					maxStreak = math.max(maxStreak, streak)
+				else
+					streak = 0
+				end
+			end
+			expect(maxStreak <= PITY.threshold - 1).toBe(true)
+			expect(forcedN).toBeGreaterThan(1000)
+			local maxZ = 0
+			for id, p in pityItems do
+				local f = (forcedCounts[id] or 0) / forcedN
+				local se = math.sqrt(p * (1 - p) / forcedN)
+				maxZ = math.max(maxZ, math.abs(f - p) / se)
+				expect(math.abs(f - p)).toBeLessThan(4 * se)
+			end
+			print(
+				string.format(
+					"[MonteCarlo] luck x%s pity: %d forced of %d, max z = %.2f, max miss streak = %d",
+					tostring(luck),
+					forcedN,
+					N,
+					maxZ,
+					maxStreak
+				)
+			)
+		end)
+	end
+end)
