@@ -3,7 +3,8 @@
 	Sandbox client: starts Core, mounts the core HUD, and a small action bar built from the UI kit
 	(upgrade, chest roll, Robux egg roll with its odds table, rebirth).
 
-	Paid random items: the egg's odds are shown before buying, and players whose policy restricts
+	Paid random items: the odds the server replicates (Core.Client.state().odds) are shown for
+	both the Chest and the Robux egg before rolling/buying, and players whose policy restricts
 	paid random items never get the purchase prompt (the server refuses their paid rolls too).
 ]]
 
@@ -23,7 +24,7 @@ local e = React.createElement
 Core.start(Config)
 
 local function rebirthCost(rebirths: number): number
-	local r = Config.balance.rebirth
+	local r = Config.balance.rebirth :: any
 	return math.floor(r.baseCost * r.costGrowth ^ rebirths)
 end
 
@@ -42,20 +43,6 @@ Core.Client.Hud.mount({
 	end,
 })
 
--- Odds from the same config weights the server rolls with (no luck on these tables).
-local function oddsFor(tableId: string): { [string]: number }
-	local t = Config.balance.rarityTables[tableId]
-	local total = 0
-	for _, entry in t.entries do
-		total += entry.weight
-	end
-	local odds = {}
-	for _, entry in t.entries do
-		odds[entry.itemId] = (odds[entry.itemId] or 0) + entry.weight / total
-	end
-	return odds
-end
-
 local function upgradeCost(level: number): number
 	local u = (Config.balance.upgrades :: any).IncomeBoost
 	return math.floor(u.baseCost * u.costGrowth ^ level)
@@ -66,7 +53,7 @@ local function ActionBar()
 	local oddsFor_, setOddsFor = React.useState("")
 	local data = state.data
 	local level = if data then (data.upgrades.IncomeBoost or 0) else 0
-	local chestCost = (Config.balance.rarityTables.Chest.cost :: any).amount
+	local chestCost = (Config.balance.rarityTables :: any).Chest.cost.amount
 	local eggProduct = Config.products.devProducts.EggRoll
 
 	return e("Frame", {
@@ -126,7 +113,8 @@ local function ActionBar()
 		}, {
 			Table = if oddsFor_ ~= ""
 				then e(UI.OddsTable, {
-					odds = oddsFor(oddsFor_),
+					-- the SERVER's full disclosure (Rarity.getOddsDetail), never computed here
+					detail = (state.odds or {})[oddsFor_],
 					items = Config.items,
 					restricted = state.paidRandomRestricted,
 					layoutOrder = 1,

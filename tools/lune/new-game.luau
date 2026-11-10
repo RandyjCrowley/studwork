@@ -31,14 +31,21 @@ if not fs.isDir("templates/new-game") then
 	process.exit(1)
 end
 
--- next free port
+-- next free port (deploy.json and every *.project.json, e.g. _sandbox/foundation-only)
 local highest = BASE_PORT - 1
+local function consider(path: string)
+	local ok, json = pcall(serde.decode, "json", fs.readFile(path))
+	if ok and type(json) == "table" and type(json.servePort) == "number" and json.servePort > highest then
+		highest = json.servePort
+	end
+end
 for _, entry in fs.readDir("games") do
-	local deployPath = "games/" .. entry .. "/deploy.json"
-	if fs.isFile(deployPath) then
-		local ok, deploy = pcall(serde.decode, "json", fs.readFile(deployPath))
-		if ok and type(deploy.servePort) == "number" and deploy.servePort > highest then
-			highest = deploy.servePort
+	local dir = "games/" .. entry
+	if fs.isDir(dir) then
+		for _, file in fs.readDir(dir) do
+			if file == "deploy.json" or string.match(file, "%.project%.json$") then
+				consider(dir .. "/" .. file)
+			end
 		end
 	end
 end

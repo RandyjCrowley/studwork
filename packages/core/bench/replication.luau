@@ -34,6 +34,7 @@ local process = require("@lune/process")
 local Harness = require("../tests/harness")
 local Snapshot = Harness.require("packages/core/server/Replication/Snapshot.luau")
 local SectionCache = Harness.require("packages/core/server/Replication/SectionCache.luau")
+local Transaction = Harness.require("packages/core/server/Data/Transaction.luau")
 
 local PLAYERS = 50
 local ITEMS = 100
@@ -196,7 +197,39 @@ end
 variants.AFTER = cached(false)
 variants["AFTER-STUB"] = cached(true)
 
-local ORDER = { "BEFORE", "AFTER", "AFTER-STUB" }
+-- MERGED (added by the lead after merging A + D): the tick goes through the REAL Data.update
+-- transaction (Data/Transaction.luau: copy-on-read proxy, deep-equal check, per-section
+-- versions) and Replication reads the real Transaction.version. Measures both halves together.
+local txStates: { [any]: any } = {}
+variants.MERGED = function(players)
+	local last, caches = {}, {}
+	local shared = { activeEvents = Snapshot.copy(SHARED.activeEvents) }
+	for i, p in players do
+		caches[i] = SectionCache.new()
+		txStates[p] = Transaction.newState()
+	end
+	local function sync(i, p)
+		local state = txStates[p]
+		local dataCopy = caches[i]:build(p.data, function(s)
+			return Transaction.version(state, s)
+		end)
+		local new = Snapshot.build(p.data, EXTRA, shared, { dataCopy = dataCopy, sanitized = true })
+		local d = diff(last[i], new)
+		last[i] = new
+		return d, new
+	end
+	return sync
+end
+local tickFns = {
+	MERGED = function(p: FakePlayer, tick: number)
+		Transaction.run(txStates[p], p.data, function(d)
+			d.currency.Coins += 10 + tick
+			d.stats.totalEarned += 10 + tick
+		end)
+	end,
+}
+
+local ORDER = { "BEFORE", "AFTER", "AFTER-STUB", "MERGED" }
 
 local function median(list: { number }): number
 	local s = table.clone(list)
@@ -230,6 +263,7 @@ end
 local function runOnce(name: string)
 	local players = newPlayers()
 	local sync = variants[name](players)
+	local tickFn = tickFns[name] or economyTick
 	-- warm-up: first sync builds the "init" state (not counted)
 	local prevSnaps = {}
 	for i, p in players do
@@ -244,7 +278,7 @@ local function runOnce(name: string)
 		local t0 = os.clock()
 		for i, p in players do
 			local kb0 = collectgarbage("count")
-			economyTick(p, tick)
+			tickFn(p, tick)
 			patches[i], snaps[i] = sync(i, p)
 			local delta = collectgarbage("count") - kb0
 			if delta > 0 then
