@@ -386,12 +386,15 @@ stops applying.
   the same way the existing guardrail bans raw `RemoteEvent`/`OnServerEvent` (§9).
 - **Shop also detects a replacement at runtime, not just at lint time:** on a short heartbeat-driven
   interval it checks `MarketplaceService.ProcessReceipt == <the function Shop assigned>`. A
-  mismatch is a loud `error`/analytics event (something reassigned it despite the lint rule — a
-  vendored library, a Studio command, a bug) and Shop immediately reassigns itself, so a receipt
-  arriving in the gap is not silently dropped by someone else's handler. This is defense in depth
-  under "guardrails stay on" (philosophy §4): the lint rule stops it at review time, the runtime
-  check catches what the lint rule can't see (dynamically generated assignments, a vendored
-  package with its own `ProcessReceipt`).
+  mismatch is a loud `warn` naming the offending source when it's detectable (the function's
+  debug info — script path — via `debug.info`, falling back to "unknown source" when Luau can't
+  resolve it) **and** an analytics event (`ProcessReceiptHijacked`, with that source string), so
+  the conflict is visible in logs and in Analytics rather than fought silently; Shop then
+  immediately reassigns itself. This is defense in depth under "guardrails stay on" (philosophy
+  §4): the lint rule stops it at review time, the runtime check catches what the lint rule can't
+  see (dynamically generated assignments, a vendored package with its own `ProcessReceipt`), and
+  the warning + analytics event mean a real conflict shows up instead of becoming an invisible
+  fight over who grants purchases.
 
 ---
 
@@ -515,6 +518,20 @@ framework, not Collection):
 - `rarity` is a **string** validated against the active tier list (§13). It's not a fixed union type any more.
 - Modules add namespaced fields: Economy adds `item.economy.incomePerSec` and `mutation.economy.incomeMultiplier`. The validator rejects namespaces that no enabled module declared.
 - A collection-only game: items without an `economy` table earn nothing, and that's valid.
+- **Items exist only through `GameConfig.items`, validated once at boot. Registering an item after
+  `StudWork.start` is a hard boot-time-style error, not a silent no-op or a deferred feature.**
+  (revised, per the user: design review M3's item-registration half isn't a silent
+  deferral. v1.2's `Items.register` can be called any time, with `Items.onRegistered` re-sending
+  odds for the new items (N3); v1.3 drops that path on purpose, because a late-registered item
+  could enter a paid random table before Compliance has disclosed its odds to anyone — exactly
+  the hole the paid-random guardrail exists to close. There is no `register` function on any
+  item-related API in v1.3: an attempt to add an item outside `GameConfig.items` (a module calling
+  something that doesn't exist, or a stray `Items`-shaped call left over from a v1.2 port) errors
+  immediately with "items must be declared in GameConfig.items; registering items after start is
+  not supported in core-v1.3.0" rather than failing quietly or partially working. This is listed
+  under Breaking in `packages/core/CHANGELOG.md`'s `core-v1.3.0` entry. Full post-boot
+  registration, with Compliance re-disclosing odds before the item can be rolled, is explicitly
+  left for a later version, not attempted here.)
 
 ---
 

@@ -317,13 +317,24 @@ strict. Every fold-in is marked `(revised: design review <id>)` in `module-api.m
   already confirmed the mapping is 1:1). Revisit if a future round needs to move a field between
   modules after both already shipped.
 - **M3, item-registration half** (v1.2's N3 `Items.onRegistered` re-sending odds after boot):
-  deferred, not folded in. In v1.3 `ItemDef` lives in the framework and items come from
-  `GameConfig.items`, validated at boot (§12); whether a kit can register items *after* boot, and
-  how Compliance would re-disclose odds for them, is a bigger design question than this review
-  raised, and no v1.2 game actually relies on it (rule 14 only recommends registering before
-  start). The sanitize-hook and `_framework` read-access halves of M3 *were* small and are folded
-  in (§5.2, §6).
+  **not deferred as a silent gap — made a hard error, per the user.** Items exist only through
+  `GameConfig.items`, validated at boot (§12); there is no `register`-style call in v1.3 at all,
+  so an attempt to add an item outside `GameConfig.items` errors immediately ("items must be
+  declared in GameConfig.items; registering items after start is not supported in
+  core-v1.3.0") instead of silently no-op'ing or partially working. Listed under Breaking in
+  `packages/core/CHANGELOG.md`. Full post-boot registration (with Compliance re-disclosing odds
+  before the item is rollable) stays out of scope for a later version — that part is still
+  deferred, just not silently.
 - **L1–L3** (gamepass handlers outside a transaction, non-atomic two-player transfers, module-name
   vs. Rojo-folder-name mismatch): left as Phase 1/2 implementation and test items, not module-API
   design changes; tracked in `docs/known-issues.md` once Phase 1 starts.
+
+### User conditions on the fold-in (approved, before freezing core-contract-v1.3)
+
+1. **M3 item-registration half is a hard error, not a silent deferral** (above) — logged in
+   `packages/core/CHANGELOG.md` under Breaking.
+2. **`ProcessReceipt` reassertion is loud, not silent.** §7.1's runtime-replacement check now
+   `warn`s naming the offending source when `debug.info` can resolve it (falls back to "unknown
+   source"), and fires an analytics event (`ProcessReceiptHijacked`) before reassigning itself, so
+   a real conflict is visible instead of an invisible fight over who grants purchases.
 

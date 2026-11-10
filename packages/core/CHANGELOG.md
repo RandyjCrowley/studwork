@@ -4,6 +4,22 @@ Core's public interface (`packages/core/shared/Types.luau`, `packages/core/share
 only gains things: no renames, no removals; old calls are marked deprecated instead.
 Every change is recorded here, newest first.
 
+## core-v1.3.0 (in progress — framework restructure)
+
+Contract frozen at `core-contract-v1.3` (Phase 0). Breaking changes are allowed this round, for
+the last time (only scaffolds exist, nothing is published): see `docs/decisions.md` and
+`docs/framework/module-api.md` for the full design.
+
+### Breaking (framework restructure)
+
+- **No post-boot item registration.** v1.2's `Items.register` could be called at any time, with
+  `Items.onRegistered` re-sending disclosed odds for the new items (N3). v1.3 has no equivalent:
+  items exist only through `GameConfig.items`, validated once at boot. Calling anything that
+  would register an item after `StudWork.start` errors ("items must be declared in
+  GameConfig.items; registering items after start is not supported in core-v1.3.0") rather than
+  silently no-op'ing, so no item can ever enter a paid random table before its odds are
+  disclosed. Full post-boot registration is left for a later version.
+
 ## core-v1.2.0 (2026-11-10)
 
 Finishing the platform: open findings N1, N3, N4, N6, N8, N9, game-agent guardrails, multi-player
