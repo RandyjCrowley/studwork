@@ -1,10 +1,11 @@
 --!strict
 --[[
-	Core public interface. FROZEN at tag core-contract-v0.
+	Core public interface. FROZEN at tag core-contract-v1.1 (previously core-contract-v0).
 
 	ADDITIVE ONLY: new fields/functions/types may be added; nothing is ever renamed or removed.
 	Deprecate instead (keep it working, mark it `-- @deprecated <why, replacement>`).
-	Every change is recorded in packages/core/CHANGELOG.md.
+	Every change is recorded in packages/core/CHANGELOG.md. The one-off non-additive changes
+	made before any game existed are listed there under "Breaking (pre-games)" (core-v1.1.0).
 
 	This module is pure (no Roblox globals at load time) so Lune tests and luau-lsp can read it.
 	Colours are hex strings ("#RRGGBB"); convert with Color3.fromHex at runtime (see Palette.luau).
@@ -44,6 +45,10 @@ export type ItemDef = {
 	icon: string?, -- "rbxassetid://..." image
 	source: string?, -- where it comes from: "drop" | "roll" | "shop" | "event" | "gift" | game-defined
 	tags: { string }?, -- free-form, e.g. {"Shelf"} for Example Shop evidence, {"Plant"}
+	-- Rebirth with keepInventory = false: is a copy of this item kept? nil (default) = kept only
+	-- when the copy came from a paid source (ItemInstance.source starts with "paid:"), wiped
+	-- otherwise. true = always kept, false = always wiped (even when bought with Robux).
+	keepOnRebirth: boolean?,
 }
 
 -- One owned copy of an item. Saved in PlayerData.inventory keyed by uid.
@@ -52,7 +57,10 @@ export type ItemInstance = {
 	itemId: string,
 	mutation: string?, -- Mutation.id
 	acquiredAt: number, -- unix seconds (os.time())
-	source: string?, -- how this copy was obtained ("roll", "gift", ...)
+	-- How this copy was obtained ("roll", "gift", ...). "paid:<id>" = obtained with Robux (a paid
+	-- roll, a roll priced in a paid currency, or PurchaseTx.addItem): untradeable for
+	-- paid-random-restricted players and kept on rebirth by default (ItemDef.keepOnRebirth).
+	source: string?,
 	meta: { [string]: string | number | boolean }?, -- small per-copy game data (keep tiny; it is saved)
 }
 
@@ -107,6 +115,23 @@ export type PlayerData = {
 	stats: { [string]: number }, -- free counters (totalEarned, itemsCollected, ...)
 	funnel: { [string]: number }, -- funnel step -> unix seconds first reached (each step logged once)
 	game: { [string]: any }, -- [GameConfig.gameId] = that game's own table (see GameDataConfig)
+	mail: MailState, -- Core.Mail bookkeeping (idempotency keys, retries, dead letters). Server-only.
+}
+
+-- Saved Core.Mail state. Not replicated to the client.
+export type MailDeadLetter = {
+	id: string, -- idempotency key
+	kind: string,
+	payload: { [string]: any },
+	attempts: number,
+	error: string, -- last handler error (truncated)
+	at: number, -- unix seconds it was dead-lettered
+}
+
+export type MailState = {
+	seen: { [string]: number }, -- idempotency key -> unix seconds processed (bounded, oldest pruned)
+	attempts: { [string]: number }, -- key -> failed attempts so far (cleared on success/dead letter)
+	dead: { MailDeadLetter }, -- messages that failed every attempt (bounded, oldest dropped)
 }
 
 --------------------------------------------------------------------------------
@@ -179,16 +204,18 @@ export type BalanceConfig = {
 	paidCurrencies: { string }?,
 	startingCurrency: { [string]: number }?,
 	starterItems: { string }?, -- item ids granted on first join (and displayed if possible)
-	income: IncomeConfig,
+	-- Module sections: required when that module is listed in GameConfig.modules (ConfigValidate
+	-- enforces it), ignored otherwise. Services of an enabled module may assume they exist.
+	income: IncomeConfig?, -- Economy
 	multiplierStacking: "multiply" | "add"?, -- default "multiply"
-	inventory: { cap: number },
-	rarityTables: { [string]: RarityTableConfig },
+	inventory: { cap: number }?, -- Inventory
+	rarityTables: { [string]: RarityTableConfig }?, -- Rarity
 	mutations: { Mutation }?,
-	upgrades: { [string]: UpgradeConfig }?,
-	rebirth: RebirthConfig,
-	offline: OfflineConfig,
-	streak: StreakConfig,
-	friends: FriendsConfig,
+	upgrades: { [string]: UpgradeConfig }?, -- Upgrades
+	rebirth: RebirthConfig?, -- Rebirth
+	offline: OfflineConfig?, -- Offline
+	streak: StreakConfig?, -- Streak
+	friends: FriendsConfig?, -- Friends
 	plot: { slotCount: number?, autoDisplay: boolean? }?, -- autoDisplay: new items go to a free slot
 }
 
@@ -224,14 +251,41 @@ export type AnalyticsConfig = {
 
 export type PaletteOverrides = { [string]: string } -- palette key -> hex
 
+-- Optional core modules a game switches on in GameConfig.modules. The foundation (Data, Net,
+-- Shop, Analytics, Policy, Events, Console, Replication; client UI kit, Feedback, Input, Hud) is
+-- always on. Dependencies: packages/core/shared/Modules.luau. Core.start errors on an unknown
+-- name or a missing dependency; calling a module that is not enabled errors with
+-- "<Name> is not enabled in GameConfig.modules".
+export type ModuleName =
+	"Economy"
+	| "Upgrades"
+	| "Inventory"
+	| "Rarity"
+	| "Items"
+	| "Plot"
+	| "Rebirth"
+	| "Offline"
+	| "Streak"
+	| "Friends"
+	| "Mail"
+
+-- Server-only settings, passed as the second argument of Core.start on the server. Keep this
+-- module under ServerScriptService/ServerStorage so clients never receive it.
+export type ServerConfig = {
+	admins: { number }?, -- user ids allowed to trigger events / admin commands on live servers
+}
+
 export type GameConfig = {
 	gameId: string, -- stable key: PlayerData.game[gameId], DataStore name suffix, remote scope
-	items: { ItemDef },
+	modules: { ModuleName }, -- optional modules to switch on (see ModuleName). {} = foundation only
+	items: { ItemDef }, -- {} when the Items module is off
 	balance: BalanceConfig,
 	products: ProductsConfig,
 	events: EventsConfig,
 	palette: PaletteOverrides?,
-	admins: { number }?, -- user ids allowed to trigger events / admin commands
+	-- @deprecated replicated to every client (L5). Use ServerConfig.admins (Core.start's second
+	-- argument on the server). Still honoured, with a warning.
+	admins: { number }?,
 	data: GameDataConfig?,
 	analytics: AnalyticsConfig?,
 	assetsFolderName: string?, -- child of ReplicatedStorage holding item models (default "GameAssets")
@@ -294,9 +348,42 @@ export type ItemsAPI = {
 	incomeOf: (instance: ItemInstance) -> number, -- incomePerSec * mutation multiplier
 }
 
+-- Full disclosure of a rarity table (paid-random-item odds). All probabilities are 0..1.
+export type OddsMutation = {
+	id: string,
+	name: string,
+	probability: number, -- chance of this mutation on any roll (mutationChance * weight share)
+}
+
+export type OddsOutcome = {
+	itemId: string,
+	mutation: string?, -- nil = no mutation
+	probability: number, -- final chance of exactly this (item, mutation) on a normal roll
+}
+
+export type OddsPity = {
+	threshold: number, -- every `threshold`-th roll without a result >= minTier is forced to >= minTier
+	minTier: RarityTier,
+	items: { [string]: number }, -- itemId -> probability on a forced (pity) roll
+}
+
+export type OddsDetail = {
+	tableId: string,
+	paid: boolean, -- bought with Robux, or priced in a balance.paidCurrencies currency
+	items: { [string]: number }, -- itemId -> base probability on a normal roll (sums to 1)
+	mutationChance: number, -- chance a roll gets any mutation
+	mutations: { OddsMutation },
+	outcomes: { OddsOutcome }, -- items x mutations on a normal roll (sums to 1)
+	pity: OddsPity?,
+}
+
 export type RarityAPI = {
 	roll: (tableId: string, player: Player, luck: number?, opts: RollOptions?) -> (ItemDef?, RollInfo),
 	getOdds: (tableId: string, luck: number?) -> { [string]: number }, -- itemId -> probability (sums to 1)
+	-- Everything a player needs to see before a paid roll: base odds, mutation odds, the final
+	-- probability of each outcome and the pity rule. nil = unknown table. Replicated to clients as
+	-- ReplicatedState.odds[tableId] for every table with a cost or `paid = true`.
+	getOddsDetail: (tableId: string) -> OddsDetail?,
 	tiers: () -> { RarityTierDef },
 }
 
@@ -374,10 +461,38 @@ export type ReceiptInfo = {
 	PlaceIdWherePurchased: number,
 }
 
+-- Passed to a ProductHandler. Every grant helper writes into the handler's `data` (the same
+-- transaction that records the receipt) and queues its signals/feedback until after the save.
+export type PurchaseTx = {
+	player: Player,
+	receipt: ReceiptInfo,
+	productName: string?, -- name in GameConfig.products.devProducts, if any
+	policyKnown: boolean, -- Policy.isKnown(player) when the handler started
+	paidRandomRestricted: boolean, -- Policy.paidRandomRestricted(player) (true while unknown)
+	grant: (amount: number, currency: string?) -> boolean, -- Economy currency (Economy module)
+	-- A fixed item. Source defaults to "paid:<productName or ProductId>" (kept on rebirth).
+	addItem: (itemId: string, opts: InventoryAddOptions?) -> ItemInstance?, -- Inventory module
+	-- A paid roll granted into the inventory (opts.paid/grant forced). Restricted players get
+	-- info.ok == false, reason "restricted": grant them a fixed non-random fallback instead.
+	roll: (tableId: string, luck: number?) -> (ItemDef?, RollInfo), -- Rarity + Inventory modules
+	-- Abort without granting: nothing is saved, the receipt stays unprocessed (NotProcessedYet)
+	-- and Roblox retries later (e.g. the policy lookup is still running). Does not return.
+	retryLater: (reason: string?) -> (),
+	-- Run fn once after the grant and receipt record committed (non-data side effects: VFX,
+	-- messages). Runs exactly once per real grant; never for a declined/erroring handler.
+	after: (fn: () -> ()) -> (),
+}
+
+-- Receipt-safe developer product handler (M4). Runs inside ONE Data.update together with the
+-- receipt record: it must only change `data` (directly or through `tx`), must not yield (core
+-- rejects it) and must not call other services' mutating APIs (Economy.grant, Inventory.add ...:
+-- nested Data.update errors). Erroring = nothing granted, nothing recorded, NotProcessedYet.
+-- PurchaseGranted is returned only after the save is confirmed, so a handler runs at most once
+-- per PurchaseId even across server crashes.
+export type ProductHandler = (data: PlayerData, receipt: ReceiptInfo, tx: PurchaseTx) -> ()
+
 export type ShopAPI = {
-	-- handler returns true when the product was granted. Core records the receipt before returning
-	-- PurchaseGranted, so the handler runs at most once per PurchaseId.
-	onProduct: (product: number | string, handler: (player: Player, receipt: ReceiptInfo) -> boolean) -> (),
+	onProduct: (product: number | string, handler: ProductHandler) -> (),
 	ownsPass: (player: Player, pass: number | string) -> boolean,
 	onPassOwned: (pass: number | string, handler: (player: Player) -> ()) -> (),
 }
@@ -401,10 +516,25 @@ export type DataAPI = {
 	saveAsync: (player: Player) -> boolean,
 }
 
+export type MailInfo = {
+	id: string, -- idempotency key (MailAPI.send's `key`, or a generated GUID)
+	kind: string,
+	sentAt: number, -- unix seconds
+	attempt: number, -- 1 on first delivery, +1 per retry
+}
+
 export type MailAPI = {
 	-- Deliver a small message to any user, online or not (cross-server/offline gifts, bottle arrivals).
-	send: (userId: number, kind: string, payload: { [string]: any }) -> boolean,
-	onReceive: (kind: string, handler: (player: Player, payload: { [string]: any }) -> ()) -> Connection,
+	-- `key` is the idempotency key: a second message with the same key to the same user is
+	-- dropped once the first was processed. Default: a new GUID per call.
+	send: (userId: number, kind: string, payload: { [string]: any }, key: string?) -> boolean,
+	-- At-least-once delivery: a message is marked processed only when every handler for its kind
+	-- returned without error (returning false also counts as a failure). Failures are retried with
+	-- backoff, then dead-lettered (PlayerData.mail.dead). Handlers MUST be safe to run twice.
+	onReceive: (
+		kind: string,
+		handler: (player: Player, payload: { [string]: any }, info: MailInfo) -> boolean?
+	) -> Connection,
 }
 
 export type AnalyticsAPI = {
@@ -429,12 +559,17 @@ export type Atom<T> = (() -> T) & ((state: T | (T) -> T) -> T)
 
 export type ReplicatedState = {
 	loaded: boolean,
+	-- The local player's data WITHOUT the server-only sections purchases, pity, funnel and mail
+	-- (they are absent/empty on the client; M2).
 	data: PlayerData?,
 	ratePerSec: number,
 	multiplier: number,
 	paidRandomRestricted: boolean,
 	activeEvents: { [string]: number }, -- eventId -> endsAt (unix seconds)
 	plotName: string?, -- name of the player's plot Model in Workspace
+	-- Server-computed odds of every player-facing rarity table (Rarity.getOddsDetail). Show these;
+	-- never recompute odds on the client.
+	odds: { [string]: OddsDetail }?,
 }
 
 export type FeedbackAPI = {
@@ -495,11 +630,15 @@ export type ClientAPI = {
 -- The facade
 --------------------------------------------------------------------------------
 
+-- The facade. Every namespace is a frozen table containing exactly the functions of its API type
+-- (no init/start). Namespaces of modules not in GameConfig.modules exist but every call errors.
 export type CoreAPI = {
 	version: string,
-	start: (gameConfig: GameConfig) -> (),
+	-- Once per side; a second call errors. Server: Core.start(Config, ServerConfig?).
+	start: (gameConfig: GameConfig, serverConfig: ServerConfig?) -> (),
 	isStarted: () -> boolean,
 	config: () -> GameConfig,
+	isEnabled: (moduleName: ModuleName) -> boolean, -- true for listed modules (valid after start)
 	Signals: CoreSignals,
 	-- server only (indexing these on the client errors)
 	Items: ItemsAPI,

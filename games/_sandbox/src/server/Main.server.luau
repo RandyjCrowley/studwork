@@ -76,22 +76,23 @@ Core.Events.schedule("SecretDrop", nil, function(ctx)
 	end
 end)
 
--- Robux roll (paid random item). Shop records the receipt; Rarity refuses restricted players.
-Core.Shop.onProduct("EggRoll", function(player, _receipt)
-	if not Core.Policy.isKnown(player) then
-		return false -- policy lookup still running (e.g. a receipt replayed on join): retry later
+-- Robux products: receipt-safe data-only handlers. Everything goes through `tx` inside the same
+-- transaction that records the receipt; erroring (or tx.retryLater) grants nothing.
+Core.Shop.onProduct("EggRoll", function(_data, _receipt, tx)
+	if not tx.policyKnown then
+		tx.retryLater("policy_unknown") -- e.g. a receipt replayed on join: Roblox retries later
 	end
-	if Core.Policy.paidRandomRestricted(player) then
-		-- The client never prompts restricted players, but if a purchase still arrives (policy
-		-- changed, prompt from elsewhere) they must not pay for nothing: grant a fixed,
-		-- non-random item instead of a roll.
-		return Core.Inventory.add(player, "crystal", { source = "egg_fallback" }) ~= nil
+	if tx.paidRandomRestricted then
+		-- The client never prompts restricted players, but if a purchase still arrives they must
+		-- not pay for nothing: grant a fixed, non-random item instead of a roll.
+		assert(tx.addItem("crystal"), "inventory full")
+		return
 	end
-	local def, info = Core.Rarity.roll("Egg", player, nil, { paid = true, grant = true, reason = "egg" })
-	return def ~= nil and info.ok
+	local def, info = tx.roll("Egg")
+	assert(def and info.ok, info.reason or "roll failed") -- e.g. inventory full: retried later
 end)
-Core.Shop.onProduct("CoinPack", function(player, _receipt)
-	return Core.Economy.grant(player, 1000, "coinpack")
+Core.Shop.onProduct("CoinPack", function(_data, _receipt, tx)
+	assert(tx.grant(1000), "grant failed")
 end)
 Core.Shop.onPassOwned("DoubleCoins", function(player)
 	Core.Economy.addMultiplier(player, "pass:DoubleCoins", 2)

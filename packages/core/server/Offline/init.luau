@@ -30,7 +30,7 @@ local function onLoaded(player: Player, data: Types.PlayerData)
 	if away == nil then
 		return
 	end
-	if o.autoPay then
+	if o.autoPay and ctx.isEnabled("Economy") then
 		local amount = OfflineMath.payout(ctx.services.Economy.getRate(player), away, o.payoutFraction)
 		if amount > 0 and ctx.services.Economy.grant(player, amount, "offline") then
 			ctx.net.feedback(player, "pop", "+" .. tostring(amount))

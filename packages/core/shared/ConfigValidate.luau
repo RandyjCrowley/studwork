@@ -4,6 +4,7 @@
 	runs in Core.start (asserts) and in Lune tests. Core.start refuses to boot on errors.
 ]]
 
+local Modules = require(script.Parent.Modules)
 local RarityTiers = require(script.Parent.RarityTiers)
 local Types = require(script.Parent.Types)
 local Validate = require(script.Parent.Validate)
@@ -23,6 +24,27 @@ function ConfigValidate.validate(config: any): { string }
 	end
 	if not Validate.isId(config.gameId, 32) then
 		err("gameId must be a short id string ([%w_-.:], <= 32 chars)")
+	end
+
+	-- modules (Modules.luau): unknown names / missing dependencies refuse to boot
+	local on: { [string]: boolean } = {}
+	local _, moduleErrors = Modules.resolve(config.modules)
+	if moduleErrors then
+		for _, e in moduleErrors do
+			err(e)
+		end
+	end
+	if type(config.modules) == "table" then
+		for _, name in config.modules do
+			if Modules.isModule(name) then
+				on[name] = true
+			end
+		end
+	end
+	local function needs(feature: string, moduleName: string)
+		if not on[moduleName] then
+			err(`{feature} needs the {moduleName} module: add "{moduleName}" to GameConfig.modules`)
+		end
 	end
 
 	-- items
@@ -52,6 +74,9 @@ function ConfigValidate.validate(config: any): { string }
 			if not Validate.isNonNegativeNumber(item.incomePerSec) then
 				err(where .. ".incomePerSec must be a finite number >= 0")
 			end
+			if item.keepOnRebirth ~= nil and type(item.keepOnRebirth) ~= "boolean" then
+				err(where .. ".keepOnRebirth must be a boolean (or nil = keep only paid copies)")
+			end
 		end
 	end
 
@@ -74,12 +99,20 @@ function ConfigValidate.validate(config: any): { string }
 			end
 		end
 	end
-	if type(b.income) ~= "table" or not Validate.isPositiveNumber(b.income.tickSeconds) then
+	-- selene: allow(empty_if)
+	if not on.Economy then
+		-- section ignored
+	elseif type(b.income) ~= "table" or not Validate.isPositiveNumber(b.income.tickSeconds) then
 		err("balance.income.tickSeconds must be > 0")
 	elseif b.income.source ~= "displayed" and b.income.source ~= "owned" then
 		err("balance.income.source must be 'displayed' or 'owned'")
+	elseif b.income.source == "displayed" then
+		needs('balance.income.source = "displayed"', "Plot")
 	end
-	if type(b.inventory) ~= "table" or not Validate.isInteger(b.inventory.cap) or b.inventory.cap < 1 then
+	if
+		on.Inventory
+		and (type(b.inventory) ~= "table" or not Validate.isInteger(b.inventory.cap) or b.inventory.cap < 1)
+	then
 		err("balance.inventory.cap must be an integer >= 1")
 	end
 
@@ -100,7 +133,10 @@ function ConfigValidate.validate(config: any): { string }
 	end
 
 	-- rarity tables
-	if type(b.rarityTables) ~= "table" then
+	-- selene: allow(empty_if)
+	if not on.Rarity then
+		-- section ignored
+	elseif type(b.rarityTables) ~= "table" then
 		err("balance.rarityTables must be a table")
 	else
 		for tableId, t in b.rarityTables do
@@ -135,12 +171,15 @@ function ConfigValidate.validate(config: any): { string }
 				if not Validate.isId(t.cost.currency, 32) or not Validate.isPositiveNumber(t.cost.amount) then
 					err(where .. ".cost needs currency id and amount > 0")
 				end
+				needs(where .. ".cost", "Economy")
+				needs(where .. ".cost (rolled items are granted)", "Inventory")
 			end
 		end
 	end
 
 	-- starter items
-	if b.starterItems ~= nil then
+	if b.starterItems ~= nil and #b.starterItems > 0 then
+		needs("balance.starterItems", "Inventory")
 		for _, id in b.starterItems do
 			if not itemIds[id] then
 				err("balance.starterItems: unknown item '" .. tostring(id) .. "'")
@@ -149,7 +188,7 @@ function ConfigValidate.validate(config: any): { string }
 	end
 
 	-- upgrades
-	if b.upgrades ~= nil then
+	if b.upgrades ~= nil and on.Upgrades then
 		for id, u in b.upgrades do
 			local where = "balance.upgrades." .. tostring(id)
 			if not Validate.isId(id) then
@@ -176,7 +215,10 @@ function ConfigValidate.validate(config: any): { string }
 
 	-- rebirth
 	local r = b.rebirth
-	if type(r) ~= "table" then
+	-- selene: allow(empty_if)
+	if not on.Rebirth then
+		-- section ignored
+	elseif type(r) ~= "table" then
 		err("balance.rebirth must be a table")
 	else
 		if not Validate.isPositiveNumber(r.baseCost) or not Validate.isPositiveNumber(r.costGrowth) then
@@ -192,7 +234,10 @@ function ConfigValidate.validate(config: any): { string }
 
 	-- offline
 	local o = b.offline
-	if type(o) ~= "table" then
+	-- selene: allow(empty_if)
+	if not on.Offline then
+		-- section ignored
+	elseif type(o) ~= "table" then
 		err("balance.offline must be a table")
 	else
 		if not Validate.isNonNegativeNumber(o.capSeconds) then
@@ -206,17 +251,29 @@ function ConfigValidate.validate(config: any): { string }
 		end
 		if type(o.autoPay) ~= "boolean" then
 			err("balance.offline.autoPay must be a boolean")
+		elseif o.autoPay then
+			needs("balance.offline.autoPay", "Economy")
 		end
 	end
 
 	-- streak
-	if type(b.streak) ~= "table" or not Validate.isNonNegativeNumber(b.streak.graceHours) then
+	-- selene: allow(empty_if)
+	if not on.Streak then
+		-- section ignored
+	elseif type(b.streak) ~= "table" or not Validate.isNonNegativeNumber(b.streak.graceHours) then
 		err("balance.streak.graceHours must be >= 0")
+	elseif b.streak.rewards ~= nil and #b.streak.rewards > 0 then
+		needs("balance.streak.rewards", "Economy")
 	end
 
 	-- friends
-	if type(b.friends) ~= "table" or not Validate.isPositiveNumber(b.friends.checkIntervalSec) then
+	-- selene: allow(empty_if)
+	if not on.Friends then
+		-- section ignored
+	elseif type(b.friends) ~= "table" or not Validate.isPositiveNumber(b.friends.checkIntervalSec) then
 		err("balance.friends.checkIntervalSec must be > 0")
+	elseif b.friends.coPlayMultiplier ~= nil then
+		needs("balance.friends.coPlayMultiplier", "Economy")
 	end
 
 	-- products

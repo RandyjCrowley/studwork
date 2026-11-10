@@ -54,6 +54,7 @@ type Entry = {
 	committedSeq: number, -- highest sequence seen in a SUCCESSFUL save (OnAfterSave payload)
 	ended: boolean,
 	lastSeenOverride: number?, -- Studio `lastseen` console: written instead of os.time()
+	version: number, -- Phase 0 stub of per-section versions: bumped on every update (agent A: per section)
 }
 
 local Data = {}
@@ -172,6 +173,7 @@ local function loadPlayer(player: Player)
 		saveSeq = loadedSeq,
 		committedSeq = loadedSeq,
 		ended = false,
+		version = 0,
 	}
 	entries[player] = entry
 
@@ -213,9 +215,9 @@ local function loadPlayer(player: Player)
 		if entries[player] ~= entry or deliver == nil then
 			return
 		end
-		if deliver(player, message) then
-			processed()
-		end
+		-- Mail owns the decision: it calls processed() once every handler succeeded (maybe later,
+		-- after retries) or the message was dead-lettered / was a duplicate / was malformed.
+		deliver(player, message, processed)
 	end)
 end
 
@@ -339,6 +341,7 @@ function Data.update(player: Player, fn: (data: PlayerData) -> ()): boolean
 	end
 	local co = coroutine.create(fn)
 	local ok, err = coroutine.resume(co, entry.data)
+	entry.version += 1
 	markDirty(player)
 	if not ok then
 		error(err, 2)
@@ -348,6 +351,13 @@ function Data.update(player: Player, fn: (data: PlayerData) -> ()): boolean
 		error("Data.update: fn must not yield", 2)
 	end
 	return true
+end
+
+-- ctx-only (Context.DataInternal). Phase 0 stub: one counter for every section, so callers that
+-- skip unchanged sections stay correct (they just never skip). Agent A makes it per section.
+function Data.sectionVersion(player: Player, _section: string): number
+	local entry = entries[player]
+	return if entry then entry.version else 0
 end
 
 function Data.onLoaded(handler: (player: Player, data: PlayerData) -> ()): Types.Connection

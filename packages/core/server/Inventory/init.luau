@@ -32,6 +32,7 @@ local Core = game:GetService("ReplicatedStorage"):WaitForChild("Core")
 local Types = require(Core:WaitForChild("Types"))
 local Validate = require(Core:WaitForChild("Validate"))
 local InventoryRules = require(script.InventoryRules)
+local Tx = require(script.Parent.Tx)
 
 local Inventory = {}
 
@@ -51,22 +52,17 @@ local function isDisplayed(data: Types.PlayerData, uid: string): boolean
 end
 
 -- Plot owns `displayed`; ask it to clear. Guarded so a Plot error can't block inventory changes.
+-- Plot also drops displayed entries whose uid left the inventory (ItemRemoved), so Inventory
+-- never writes `displayed` itself (M7).
 local function clearFromPlot(player: Player, uid: string)
+	if not ctx.isEnabled("Plot") then
+		return
+	end
 	local data = ctx.services.Data.get(player)
 	if data and isDisplayed(data, uid) then
 		local ok, err = pcall(ctx.services.Plot.clearDisplay, player, uid)
 		if not ok then
 			warn("[Core.Inventory] Plot.clearDisplay failed: " .. tostring(err))
-		end
-	end
-end
-
--- Defensive: drop dangling displayed references inside the same Data.update that removes the item
--- (only matters if Plot.clearDisplay did not clear it).
-local function scrubDisplayed(data: Types.PlayerData, uid: string)
-	for slotId, displayedUid in (data.displayed or {}) :: { [string]: string } do
-		if displayedUid == uid then
-			data.displayed[slotId] = nil
 		end
 	end
 end
@@ -123,8 +119,8 @@ end
 function Inventory.cap(player: Player): number
 	local balance = ctx.config.balance
 	return InventoryRules.capacity(
-		balance.inventory.cap,
-		balance.upgrades,
+		(balance.inventory :: { cap: number }).cap,
+		if ctx.isEnabled("Upgrades") then balance.upgrades else nil,
 		function(upgradeId: string): number
 			local ok, level = pcall(ctx.services.Upgrades.level, player, upgradeId)
 			return if ok and type(level) == "number" then level else 0
@@ -143,7 +139,17 @@ function Inventory.count(player: Player): number
 	return n
 end
 
-function Inventory.add(player: Player, itemId: string, opts: Types.InventoryAddOptions?): Types.ItemInstance?
+local function countOf(data: Types.PlayerData): number
+	local n = 0
+	for _ in data.inventory do
+		n += 1
+	end
+	return n
+end
+
+-- ctx-only (Context.InventoryInternal): add inside an open transaction (cap checked against the
+-- transaction's data); ItemAdded fires after the transaction commits.
+function Inventory.addInto(tx: Tx.Tx, itemId: string, opts: Types.InventoryAddOptions?): Types.ItemInstance?
 	if type(itemId) ~= "string" or ctx.services.Items.get(itemId) == nil then
 		return nil
 	end
@@ -160,7 +166,9 @@ function Inventory.add(player: Player, itemId: string, opts: Types.InventoryAddO
 		warn("[Core.Inventory] rejected meta: " .. tostring(metaErr))
 		return nil
 	end
-	if not ctx.services.Data.isLoaded(player) or Inventory.count(player) >= Inventory.cap(player) then
+	local player = tx.player
+	local data: Types.PlayerData = tx.data
+	if countOf(data) >= Inventory.cap(player) then
 		return nil
 	end
 	local instance: Types.ItemInstance = {
@@ -171,13 +179,17 @@ function Inventory.add(player: Player, itemId: string, opts: Types.InventoryAddO
 		source = o.source,
 		meta = if o.meta then table.clone(o.meta) else nil,
 	}
-	local ok = ctx.services.Data.update(player, function(data: Types.PlayerData)
-		data.inventory[instance.uid] = instance
+	data.inventory[instance.uid] = instance
+	tx.after(function()
+		ctx.signals.ItemAdded:Fire(player, instance)
 	end)
-	if not ok then
-		return nil
-	end
-	ctx.signals.ItemAdded:Fire(player, instance)
+	return instance
+end
+
+function Inventory.add(player: Player, itemId: string, opts: Types.InventoryAddOptions?): Types.ItemInstance?
+	local _, instance = Tx.run(ctx.services.Data, player, function(tx)
+		return Inventory.addInto(tx, itemId, opts)
+	end)
 	return instance
 end
 
@@ -190,7 +202,6 @@ function Inventory.remove(player: Player, uid: string, _reason: string?): Types.
 	ctx.services.Data.update(player, function(data: Types.PlayerData)
 		removed = data.inventory[uid]
 		data.inventory[uid] = nil
-		scrubDisplayed(data, uid)
 	end)
 	if removed then
 		ctx.signals.ItemRemoved:Fire(player, removed)
@@ -257,7 +268,6 @@ function Inventory.transfer(from: Player, to: Player, uid: string, _reason: stri
 	Data.update(from, function(data: Types.PlayerData)
 		moved = data.inventory[uid]
 		data.inventory[uid] = nil
-		scrubDisplayed(data, uid)
 	end)
 	local instance = moved
 	if instance == nil then

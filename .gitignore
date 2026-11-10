@@ -30,3 +30,6 @@ roblox.yaml
 
 # Agent handoff reports (never committed)
 REPORT_*.md
+
+# Parallel agent worktrees (local only)
+/.worktrees/

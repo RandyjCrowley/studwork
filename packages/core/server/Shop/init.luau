@@ -28,11 +28,15 @@ local Players = game:GetService("Players")
 
 local Types = require(game:GetService("ReplicatedStorage"):WaitForChild("Core"):WaitForChild("Types"))
 local Receipt = require(script.Receipt)
+local Tx = require(script.Parent.Tx)
 
 local PASS_CHECK_ATTEMPTS = 3
 local PASS_RETRY_DELAY = 1 -- seconds, doubles per attempt
 
-type ProductHandler = (Player, Types.ReceiptInfo) -> boolean
+type ProductHandler = Types.ProductHandler
+
+-- Sentinel raised by PurchaseTx.retryLater (caught by the receipt flow -> NotProcessedYet).
+local RETRY_LATER = "__core_shop_retry_later__"
 type PassHandler = (Player) -> ()
 
 local Shop = {}
@@ -108,9 +112,73 @@ local function grantFeedback(player: Player, receipt: Types.ReceiptInfo)
 	pcall(ctx.services.Analytics.custom, player, "ProductPurchased", receipt.CurrencySpent)
 end
 
+local function needModule(name: string, what: string)
+	if not ctx.isEnabled(name) then
+		error(`[Core.Shop] PurchaseTx.{what} needs the {name} module`, 3)
+	end
+end
+
+local function makePurchaseTx(
+	player: Player,
+	receipt: Types.ReceiptInfo,
+	data: Types.PlayerData,
+	queue: { () -> () }
+): Types.PurchaseTx
+	local tx = Tx.new(player, data, queue)
+	local name = productName(receipt.ProductId)
+	local tag = name or tostring(receipt.ProductId)
+	local Policy = ctx.services.Policy
+	return {
+		player = player,
+		receipt = receipt,
+		productName = name,
+		policyKnown = Policy.isKnown(player),
+		paidRandomRestricted = Policy.paidRandomRestricted(player),
+		grant = function(amount: number, currency: string?): boolean
+			needModule("Economy", "grant")
+			return ctx.services.Economy.grantInto(tx, amount, "product:" .. tag, currency)
+		end,
+		addItem = function(itemId: string, opts: Types.InventoryAddOptions?): Types.ItemInstance?
+			needModule("Inventory", "addItem")
+			local o: Types.InventoryAddOptions = if opts then table.clone(opts) else {}
+			o.source = o.source or ("paid:" .. tag)
+			return ctx.services.Inventory.addInto(tx, itemId, o)
+		end,
+		roll = function(tableId: string, luck: number?): (Types.ItemDef?, Types.RollInfo)
+			needModule("Rarity", "roll")
+			needModule("Inventory", "roll")
+			return ctx.services.Rarity.rollInto(
+				tx,
+				tableId,
+				luck,
+				{ paid = true, grant = true, reason = "product:" .. tag }
+			)
+		end,
+		retryLater = function(reason: string?)
+			error({ [RETRY_LATER] = true, reason = reason or "retry_later" }, 0)
+		end,
+		after = tx.after,
+	}
+end
+
+-- Phase 0 receipt-safe wrapper (agent A hardens it: L6 rollback, yield rejection tests, crash
+-- retries). The handler and purchases[PurchaseId] are written in ONE Data.update; effects queued
+-- with tx.after run once that update committed (exactly once per real grant).
+local function transactional(handler: ProductHandler, queue: { () -> () })
+	return function(player: Player, receipt: Types.ReceiptInfo): boolean
+		return ctx.services.Data.update(player, function(d: Types.PlayerData)
+			handler(d, receipt, makePurchaseTx(player, receipt, d, queue))
+			d.purchases = d.purchases or {}
+			d.purchases[receipt.PurchaseId] = os.time()
+		end) == true
+	end
+end
+
 -- handlerOverride lets the Studio console simulate a product whose id is still 0.
 local function processWith(receipt: Types.ReceiptInfo, handlerOverride: ProductHandler?): Receipt.Result
 	local Data = ctx.services.Data
+	local queue: { () -> () } = {}
+	local productHandler = handlerOverride or handlersById[receipt.ProductId]
 	local res = Receipt.process(receipt, {
 		inFlight = inFlight,
 		findPlayer = function(userId: number): Player?
@@ -123,18 +191,18 @@ local function processWith(receipt: Types.ReceiptInfo, handlerOverride: ProductH
 			local data: Types.PlayerData? = Data.get(player)
 			return data ~= nil and data.purchases ~= nil and data.purchases[purchaseId] ~= nil
 		end,
-		handler = handlerOverride or handlersById[receipt.ProductId],
+		handler = if productHandler then transactional(productHandler, queue) else nil,
 		record = function(player: Player, purchaseId: string): boolean
-			return Data.update(player, function(d: Types.PlayerData)
-				d.purchases = d.purchases or {}
-				d.purchases[purchaseId] = os.time()
-			end) == true
+			-- already written inside the handler's transaction
+			local d: Types.PlayerData? = Data.get(player)
+			return d ~= nil and d.purchases[purchaseId] ~= nil
 		end,
 		save = function(player: Player): boolean
 			return Data.saveAsync(player) == true
 		end,
 	})
 	if res.granted then
+		Tx.flush(queue) -- the grant is committed in memory (the save may still be retrying)
 		local player = Players:GetPlayerByUserId(receipt.PlayerId)
 		if player then
 			grantFeedback(player, receipt)
@@ -261,10 +329,7 @@ function Shop.start()
 	)
 end
 
-function Shop.onProduct(
-	product: number | string,
-	handler: (player: Player, receipt: Types.ReceiptInfo) -> boolean
-)
+function Shop.onProduct(product: number | string, handler: ProductHandler)
 	assert(type(handler) == "function", "[Core.Shop] onProduct handler must be a function")
 	if type(product) == "number" then
 		assert(handlersById[product] == nil, "[Core.Shop] product handler already set for " .. product)

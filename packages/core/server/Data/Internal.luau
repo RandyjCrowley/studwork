@@ -12,8 +12,10 @@ local Internal = {}
 Internal.store = nil :: any -- ProfileStore (or its .Mock) once chosen by Data.start
 Internal.isMock = false
 
--- Mail sets this. Return true when the message was consumed (marks it processed).
-Internal.deliver = nil :: ((player: Player, message: any) -> boolean)?
+-- Mail sets this. Mail calls processed() when the message is consumed: every handler succeeded,
+-- or it was a duplicate (idempotency key already seen), malformed, or dead-lettered. Not calling
+-- it leaves the message queued (ProfileStore re-delivers it next session).
+Internal.deliver = nil :: ((player: Player, message: any, processed: () -> ()) -> ())?
 
 -- Yields until Data has chosen a store (or `timeout` seconds pass). Returns nil on timeout.
 function Internal.waitStore(timeout: number): any

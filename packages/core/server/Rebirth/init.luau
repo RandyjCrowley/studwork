@@ -15,11 +15,21 @@
 
 local Types = require(game:GetService("ReplicatedStorage"):WaitForChild("Core"):WaitForChild("Types"))
 local RebirthMath = require(script.RebirthMath)
-local UpgradeMath = require(script.Parent.Upgrades.UpgradeMath)
 
 local Rebirth = {}
 
 local ctx: any = nil
+-- Reset steps other modules register (Context.RebirthInternal.addResetStep), run in
+-- registration order inside the rebirth Data.update. M7: Upgrades resets its own levels and
+-- Plot its own displayed slots; Rebirth never writes their sections.
+local resetSteps: { { id: string, fn: (Types.PlayerData, Player) -> () } } = {}
+
+function Rebirth.addResetStep(id: string, fn: (data: Types.PlayerData, player: Player) -> ())
+	for _, step in resetSteps do
+		assert(step.id ~= id, "[Core.Rebirth] reset step already registered: " .. id)
+	end
+	table.insert(resetSteps, { id = id, fn = fn })
+end
 
 local function count(player: Player): number
 	local data: Types.PlayerData? = ctx.services.Data.get(player)
@@ -95,12 +105,12 @@ function Rebirth.rebirth(player: Player): boolean
 				table.insert(changes, { id = id, newBalance = value, delta = value - old })
 			end
 		end
-		data.upgrades = UpgradeMath.afterRebirth(balance.upgrades, data.upgrades)
-		if not r.keepInventory then
+		if not r.keepInventory and ctx.isEnabled("Inventory") then
+			-- agent B: keep items per ItemDef.keepOnRebirth (Decision 2)
 			data.inventory = {}
-			data.displayed = {}
-		elseif r.keepDisplayed ~= true then
-			data.displayed = {}
+		end
+		for _, step in resetSteps do
+			step.fn(data, player)
 		end
 		data.rebirths += 1
 		newCount = data.rebirths

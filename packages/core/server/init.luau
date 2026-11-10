@@ -12,7 +12,9 @@ local RunService = game:GetService("RunService")
 local Console = require(script.Console)
 local Context = require(script.Context)
 local Net = require(script.Net)
-local Types = require(game:GetService("ReplicatedStorage"):WaitForChild("Core"):WaitForChild("Types"))
+local CoreShared = game:GetService("ReplicatedStorage"):WaitForChild("Core")
+local Modules = require(CoreShared:WaitForChild("Modules"))
+local Types = require(CoreShared:WaitForChild("Types"))
 
 local services = {
 	Data = require(script.Data),
@@ -57,7 +59,18 @@ local ORDER = {
 local Server = {}
 Server.services = services
 
-function Server.start(core: Types.CoreAPI, config: Types.GameConfig)
+function Server.start(
+	core: Types.CoreAPI,
+	config: Types.GameConfig,
+	serverConfig: Types.ServerConfig,
+	moduleOrder: { string }
+)
+	local enabled: { [string]: boolean } = {}
+	for _, name in moduleOrder do
+		enabled[name] = true
+	end
+	-- Phase 0: every service still boots (agent E boots only the foundation + enabled modules
+	-- and replaces disabled ones with erroring proxies).
 	local ctx: Context.ServerContext = {
 		config = config,
 		services = (services :: any) :: Context.ServerServices,
@@ -71,6 +84,11 @@ function Server.start(core: Types.CoreAPI, config: Types.GameConfig)
 		end,
 		console = Console,
 		isStudio = RunService:IsStudio(),
+		serverConfig = serverConfig,
+		modules = moduleOrder,
+		isEnabled = function(name: string): boolean
+			return enabled[name] == true or Modules.isFoundation(name)
+		end,
 	}
 
 	Replication.init(ctx)

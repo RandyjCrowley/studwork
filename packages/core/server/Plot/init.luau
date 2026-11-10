@@ -607,6 +607,18 @@ function Plot.start()
 	ctx.signals.Rebirthed:Connect(function(player: Player)
 		reconcile(player)
 	end)
+	if ctx.isEnabled("Rebirth") then
+		-- M7: Plot owns `displayed`. Inside Rebirth's Data.update: clear every slot unless
+		-- rebirth.keepDisplayed, and always drop slots whose item left the inventory.
+		ctx.services.Rebirth.addResetStep("Plot", function(data: Types.PlayerData)
+			local r = ctx.config.balance.rebirth
+			for slotId, uid in data.displayed do
+				if r.keepDisplayed ~= true or data.inventory[uid] == nil then
+					data.displayed[slotId] = nil
+				end
+			end
+		end)
+	end
 
 	ctx.net.handle("RequestDisplay", function(player: Player, uid: any, slotId: any)
 		if not validId(uid) or (slotId ~= nil and not validId(slotId)) then

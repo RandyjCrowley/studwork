@@ -15,16 +15,34 @@ local State = require(script.State)
 
 local Client = {}
 
-Client.api = {
-	state = State.atom,
-	Feedback = Feedback,
-	Input = Input,
-	Actions = Actions,
-	Hud = Hud,
-	onFeedbackEvent = Feedback.onFeedbackEvent,
-} :: Types.ClientAPI
+-- M7: frozen tables with only the Types.ClientAPI fields (no start/init).
+local function pick(source: { [string]: any }, names: { string }): any
+	local out: { [string]: any } = {}
+	for _, name in names do
+		assert(source[name] ~= nil, "[Core.Client] contract mismatch: missing " .. name)
+		out[name] = source[name]
+	end
+	return table.freeze(out)
+end
 
-function Client.start(_core: Types.CoreAPI, config: Types.GameConfig)
+Client.api = table.freeze({
+	state = State.atom,
+	Feedback = pick(Feedback, { "pop", "flash", "sound", "shake" }),
+	Input = pick(Input, { "device", "deviceChanged", "bind", "unbind" }),
+	Actions = pick(
+		Actions,
+		{ "display", "clearDisplay", "rebirth", "upgrade", "roll", "gift", "triggerEvent", "funnel" }
+	),
+	Hud = pick(Hud, { "mount", "unmount" }),
+	onFeedbackEvent = Feedback.onFeedbackEvent,
+}) :: Types.ClientAPI
+
+function Client.start(
+	_core: Types.CoreAPI,
+	config: Types.GameConfig,
+	_serverConfig: Types.ServerConfig,
+	_moduleOrder: { string }
+)
 	local ctx = { config = config, net = require(script.Net.Generated) }
 	State.start(ctx)
 	Input.start(ctx)

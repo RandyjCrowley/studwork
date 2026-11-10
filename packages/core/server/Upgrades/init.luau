@@ -33,6 +33,12 @@ function Upgrades.init(context: any)
 end
 
 function Upgrades.start()
+	if ctx.isEnabled("Rebirth") then
+		-- M7: Upgrades resets its own levels inside Rebirth's single Data.update.
+		ctx.services.Rebirth.addResetStep("Upgrades", function(data: Types.PlayerData)
+			data.upgrades = UpgradeMath.afterRebirth(ctx.config.balance.upgrades, data.upgrades)
+		end)
+	end
 	ctx.net.handle("RequestUpgrade", function(player: Player, upgradeId: any)
 		if configOf(upgradeId) == nil then
 			return -- unknown / malformed id from the client

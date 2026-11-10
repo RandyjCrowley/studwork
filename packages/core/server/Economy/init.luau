@@ -24,6 +24,7 @@ local Players = game:GetService("Players")
 
 local Types = require(game:GetService("ReplicatedStorage"):WaitForChild("Core"):WaitForChild("Types"))
 local RateMath = require(script.RateMath)
+local Tx = require(script.Parent.Tx)
 
 -- Engineering constants (not balance).
 local ANALYTICS_FLUSH_SECONDS = 60 -- income ticks are summed and logged once per this window
@@ -105,13 +106,16 @@ local function recompute(player: Player, s: State)
 	local now = os.time()
 	local factors: { number } = {}
 
-	local rebirthMult = ctx.services.Rebirth.multiplier(player)
-	if RateMath.isFinite(rebirthMult) and rebirthMult > 0 then
-		table.insert(factors, rebirthMult)
+	if ctx.isEnabled("Rebirth") then
+		local rebirthMult = ctx.services.Rebirth.multiplier(player)
+		if RateMath.isFinite(rebirthMult) and rebirthMult > 0 then
+			table.insert(factors, rebirthMult)
+		end
 	end
 	local base = 0
 	if data then
-		for id, upgrade in balance.upgrades or {} do
+		local upgrades = if ctx.isEnabled("Upgrades") then balance.upgrades else nil
+		for id, upgrade in upgrades or {} do
 			if upgrade.effect == "incomeMultiplier" then
 				local level = data.upgrades[id] or 0
 				if level > 0 then
@@ -119,12 +123,14 @@ local function recompute(player: Player, s: State)
 				end
 			end
 		end
-		base = RateMath.sumItems(
-			data.displayed,
-			data.inventory,
-			balance.income.source,
-			ctx.services.Items.incomeOf
-		)
+		if ctx.isEnabled("Items") then
+			base = RateMath.sumItems(
+				data.displayed,
+				data.inventory,
+				(balance.income :: Types.IncomeConfig).source,
+				ctx.services.Items.incomeOf
+			)
+		end
 	end
 
 	local e1 = RateMath.activeBoosts(factors, if data then data.multipliers else nil, now)
@@ -330,39 +336,48 @@ function Economy.balance(player: Player, currency: string?): number
 	return data.currency[id] or 0
 end
 
-function Economy.grant(player: Player, amount: number, reason: string, currency: string?): boolean
+-- ctx-only (Context.EconomyInternal): grant inside an open transaction; signals/analytics run
+-- after the transaction commits (tx.after).
+function Economy.grantInto(tx: Tx.Tx, amount: number, reason: string, currency: string?): boolean
 	if not RateMath.isPositiveAmount(amount) or type(reason) ~= "string" then
 		return false
 	end
-	local data: Types.PlayerData? = ctx.services.Data.get(player)
-	if data == nil then
-		return false
-	end
-	local id = resolveCurrency(currency, data)
+	local d: Types.PlayerData = tx.data
+	local id = resolveCurrency(currency, d)
 	if id == nil then
 		return false
 	end
 	local cid: string = id
-	local applied, newBalance = false, 0
-	local ok = ctx.services.Data.update(player, function(d: Types.PlayerData)
-		applied, newBalance = RateMath.applyGrant(d.currency, cid, amount)
-		if applied and cid == primary() then
-			d.stats.totalEarned = (d.stats.totalEarned or 0) + amount
-		end
-	end)
-	if not (ok and applied) then
+	local applied, newBalance = RateMath.applyGrant(d.currency, cid, amount)
+	if not applied then
 		return false
 	end
-	ctx.signals.CurrencyChanged:Fire(player, cid, newBalance, amount, reason)
-	if reason == "income" then
-		local s = states[player]
-		if s then
-			s.incomeAccum[cid] = (s.incomeAccum[cid] or 0) + amount
-		end
-	else
-		logEconomy(player, "Source", cid, amount, reason)
+	if cid == primary() then
+		d.stats.totalEarned = (d.stats.totalEarned or 0) + amount
 	end
+	local player = tx.player
+	tx.after(function()
+		ctx.signals.CurrencyChanged:Fire(player, cid, newBalance, amount, reason)
+		if reason == "income" then
+			local s = states[player]
+			if s then
+				s.incomeAccum[cid] = (s.incomeAccum[cid] or 0) + amount
+			end
+		else
+			logEconomy(player, "Source", cid, amount, reason)
+		end
+	end)
 	return true
+end
+
+function Economy.grant(player: Player, amount: number, reason: string, currency: string?): boolean
+	if not RateMath.isPositiveAmount(amount) or type(reason) ~= "string" then
+		return false
+	end
+	local committed, granted = Tx.run(ctx.services.Data, player, function(tx)
+		return Economy.grantInto(tx, amount, reason, currency)
+	end)
+	return committed and granted == true
 end
 
 function Economy.spend(player: Player, amount: number, reason: string, currency: string?): boolean

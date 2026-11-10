@@ -23,7 +23,7 @@ local e = React.createElement
 Core.start(Config)
 
 local function rebirthCost(rebirths: number): number
-	local r = Config.balance.rebirth
+	local r = Config.balance.rebirth :: any
 	return math.floor(r.baseCost * r.costGrowth ^ rebirths)
 end
 
@@ -44,7 +44,7 @@ Core.Client.Hud.mount({
 
 -- Odds from the same config weights the server rolls with (no luck on these tables).
 local function oddsFor(tableId: string): { [string]: number }
-	local t = Config.balance.rarityTables[tableId]
+	local t = (Config.balance.rarityTables :: any)[tableId]
 	local total = 0
 	for _, entry in t.entries do
 		total += entry.weight
@@ -66,7 +66,7 @@ local function ActionBar()
 	local oddsFor_, setOddsFor = React.useState("")
 	local data = state.data
 	local level = if data then (data.upgrades.IncomeBoost or 0) else 0
-	local chestCost = (Config.balance.rarityTables.Chest.cost :: any).amount
+	local chestCost = (Config.balance.rarityTables :: any).Chest.cost.amount
 	local eggProduct = Config.products.devProducts.EggRoll
 
 	return e("Frame", {

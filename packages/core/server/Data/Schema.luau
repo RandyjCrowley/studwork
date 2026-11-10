@@ -75,6 +75,7 @@ function Schema.default(config: Types.GameConfig, now: number): Types.PlayerData
 		stats = { sessions = 0 },
 		funnel = {},
 		game = { [config.gameId] = gameDefaults(config) },
+		mail = { seen = {}, attempts = {}, dead = {} },
 	}
 end
 

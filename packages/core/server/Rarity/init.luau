@@ -29,6 +29,7 @@ local RarityTiers = require(Core:WaitForChild("RarityTiers"))
 local Types = require(Core:WaitForChild("Types"))
 local Validate = require(Core:WaitForChild("Validate"))
 local RollMath = require(script.RollMath)
+local Tx = require(script.Parent.Tx)
 
 local Rarity = {}
 
@@ -190,9 +191,19 @@ function Rarity.start()
 	end
 end
 
-function Rarity.roll(
+local function countOf(data: Types.PlayerData): number
+	local n = 0
+	for _ in data.inventory do
+		n += 1
+	end
+	return n
+end
+
+-- ctx-only (Context.RarityInternal): roll inside an open transaction. Pity and the granted item
+-- are written into tx.data; the feedback and ItemAdded run after the transaction commits.
+function Rarity.rollInto(
+	tx: Tx.Tx,
 	tableId: string,
-	player: Player,
 	luck: number?,
 	opts: Types.RollOptions?
 ): (Types.ItemDef?, Types.RollInfo)
@@ -206,16 +217,18 @@ function Rarity.roll(
 		o = table.clone(o)
 		o.paid = true
 	end
+	local player = tx.player
 	if o.paid == true and ctx.services.Policy.paidRandomRestricted(player) then
 		return fail("restricted")
 	end
-	local Data = ctx.services.Data
-	local data: Types.PlayerData? = Data.get(player)
-	if data == nil then
-		return fail("not_loaded")
-	end
-	if o.grant == true and not hasRoom(player) then
-		return fail("inventory_full")
+	local data: Types.PlayerData = tx.data
+	if o.grant == true then
+		if not ctx.isEnabled("Inventory") then
+			error("[Core.Rarity] roll with grant = true needs the Inventory module", 2)
+		end
+		if countOf(data) >= ctx.services.Inventory.cap(player) then
+			return fail("inventory_full") -- checked before rolling, so pity is not consumed
+		end
 	end
 
 	local list = weightsFor(t, luck)
@@ -239,7 +252,7 @@ function Rarity.roll(
 
 	if o.grant == true then
 		local source = if o.paid == true then "paid:" .. tableId else (o.reason or "roll")
-		local instance = ctx.services.Inventory.add(player, def.id, {
+		local instance = ctx.services.Inventory.addInto(tx, def.id, {
 			mutation = mutation,
 			source = source,
 			reason = o.reason,
@@ -251,18 +264,40 @@ function Rarity.roll(
 	end
 
 	if pityCfg then
-		local nextCount = RollMath.pityAfter(pityCount, def.rarity, pityCfg.minTier)
-		Data.update(player, function(d: Types.PlayerData)
-			if d.pity == nil then
-				d.pity = {}
-			end
-			d.pity[tableId] = nextCount
-		end)
+		if data.pity == nil then
+			data.pity = {}
+		end
+		data.pity[tableId] = RollMath.pityAfter(pityCount, def.rarity, pityCfg.minTier)
 	end
 	if o.grant == true then
-		ctx.net.feedback(player, "item", def.name, def.rarity)
+		local name, rarity = def.name, def.rarity
+		tx.after(function()
+			ctx.net.feedback(player, "item", name, rarity)
+		end)
 	end
 	return def, info
+end
+
+function Rarity.roll(
+	tableId: string,
+	player: Player,
+	luck: number?,
+	opts: Types.RollOptions?
+): (Types.ItemDef?, Types.RollInfo)
+	local def: Types.ItemDef? = nil
+	local info: Types.RollInfo? = nil
+	local queue: { () -> () } = {}
+	local committed = ctx.services.Data.update(player, function(d: Types.PlayerData)
+		def, info = Rarity.rollInto(Tx.new(player, d, queue), tableId, luck, opts)
+	end)
+	if not committed or info == nil then
+		if getTable(tableId) == nil then
+			return fail("unknown_table")
+		end
+		return fail("not_loaded")
+	end
+	Tx.flush(queue)
+	return def, info :: Types.RollInfo
 end
 
 function Rarity.getOdds(tableId: string, luck: number?): { [string]: number }
@@ -271,6 +306,29 @@ function Rarity.getOdds(tableId: string, luck: number?): { [string]: number }
 		return {}
 	end
 	return RollMath.odds(weightsFor(t, luck))
+end
+
+-- Phase 0 stub (agent B implements the full disclosure: mutation odds, outcomes x mutations,
+-- pity odds; replicates it and renders it in UI.OddsTable). Base item odds only.
+function Rarity.getOddsDetail(tableId: string): Types.OddsDetail?
+	local t = getTable(tableId)
+	if t == nil then
+		return nil
+	end
+	local items = RollMath.odds(weightsFor(t, nil))
+	local outcomes: { Types.OddsOutcome } = {}
+	for itemId, p in items do
+		table.insert(outcomes, { itemId = itemId, probability = p })
+	end
+	return {
+		tableId = tableId,
+		paid = t.paid == true,
+		items = items,
+		mutationChance = 0,
+		mutations = {},
+		outcomes = outcomes,
+		pity = nil,
+	}
 end
 
 function Rarity.tiers(): { Types.RarityTierDef }

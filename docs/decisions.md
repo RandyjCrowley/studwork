@@ -85,3 +85,51 @@ Not used:
   if a game needs idle-game magnitudes, add a formatting/scientific layer then.
 - **Studio admin**: in Studio every player may trigger events (agent E implements), live servers use
   `GameConfig.admins`.
+
+## core-v1.1.0 (hardening before the games)
+
+User decisions (implemented as written):
+1. **Migration failure kicks the player** with "We couldn't load your save safely. Please rejoin.
+   Your progress is safe.", logs an analytics event, and never saves default data over an existing
+   profile.
+2. **Rebirth keeps Robux-bought items by default** (`ItemDef.keepOnRebirth`, nil = keep copies
+   whose `source` starts with `paid:`). Fixes L2.
+3. **Core is modular** (foundation + `GameConfig.modules`).
+4. **Each game records its core version** (`deploy.json` `coreVersion`/`coreCommit`,
+   `tools/core-status`, `GAMES.md` "Core" column).
+
+Contract choices (Phase 0, core-contract-v1.1):
+- **Module split as proposed**, with Items as its own module (Inventory and Rarity require it).
+  The code argued for these hard dependencies: Inventory → Items (ItemDef lookups), Rarity →
+  Items, Upgrades → Economy (spend), Rebirth → Economy (cost), Plot → Inventory (it displays owned
+  copies). Everything else is an optional integration guarded by `ctx.isEnabled`: Economy uses
+  Rebirth/Upgrades multipliers and Items income only when on; Offline autoPay, Streak rewards
+  and Friends' co-play multiplier need Economy only when configured (ConfigValidate enforces it).
+  Mail has no module dependency (it rides Data's ProfileStore, which is foundation).
+  `income.source = "displayed"` requires Plot.
+- **Manifest in a pure module** (`shared/Modules.luau`): module specs, boot order and the public
+  function names per namespace. The facade builds frozen tables from it (M7), and the loader and
+  ConfigValidate use the same `Modules.resolve`.
+- **Disabled modules are present but erroring**, not nil: `Core.Rebirth.rebirth()` errors with
+  "Rebirth is not enabled in GameConfig.modules" instead of a nil-index crash, and code that
+  captures `Core.Rebirth` before `Core.start` keeps working.
+- **Receipt-safe purchases (M4) use a transaction object.** The prompt's shape
+  `(data, receiptInfo) -> ()` got a third argument, `tx: PurchaseTx`, because a Robux grant usually
+  needs core logic (currency rules, inventory cap, a paid roll with pity) that must write into the
+  same `data`. `tx.grant/addItem/roll` call ctx-only `*Into` functions that write into the
+  transaction and queue their signals until it commits. `tx.retryLater()` replaces "return false".
+- **`paid:` means "obtained with Robux"**, random or not: `tx.addItem` tags `paid:<product>`. Such
+  copies are kept on rebirth and (conservatively) untradeable for paid-random-restricted players.
+- **Nested `Data.update` for the same player errors.** With working-copy semantics (L6) a nested
+  update would be overwritten by the outer commit; failing loudly is safer than merging.
+- **Per-section versions live in Data** (`Data.sectionVersion`, ctx-only) so Replication (M2) can
+  reuse unchanged sections; Data, not Replication, knows which sections a commit touched.
+- **M7 data ownership:** Rebirth runs registered reset steps inside its single update (Upgrades
+  resets levels, Plot drops displayed slots); Inventory no longer writes `displayed` (Plot clears
+  it on `ItemRemoved`); Rebirth no longer requires `Upgrades/UpgradeMath`.
+- **No new Blink events:** odds travel in `ReplicatedState.odds` via `StateSync`.
+- **Phase 1 file ownership deviations from the prompt:** L7 (sanitize logging) moved from agent E
+  to agent A because `Data/Sanitize.luau` is in A's folder. `games/_sandbox/src/client/Main.client.luau`
+  belongs to agent B (the sandbox must show server odds, M1); the rest of `games/_sandbox/` is E's.
+  `core/server/init.luau` and `core/client/init.luau` (boot code) go to E with
+  `core/shared/init.luau`, since the module loader lives there.

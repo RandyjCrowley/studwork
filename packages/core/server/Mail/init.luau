@@ -28,28 +28,43 @@ local STORE_WAIT = 20 -- seconds send() waits for Data to choose its store
 
 local Mail = {}
 
-local handlers: { [string]: { (Player, { [string]: any }) -> () } } = {}
+type Handler = (Player, { [string]: any }, Types.MailInfo) -> boolean?
+
+local handlers: { [string]: { Handler } } = {}
 
 local function encode(value: any): string
 	return HttpService:JSONEncode(value)
 end
 
-local function deliver(player: Player, message: any): boolean
+-- Phase 0 stub of the v1.1 contract (agent C implements idempotency keys, retries with backoff
+-- and dead letters): handlers run synchronously under pcall; processed() only if all succeed.
+local function deliver(player: Player, message: any, processed: () -> ())
 	if
 		type(message) ~= "table"
 		or not MailValidate.kind(message.kind)
 		or type(message.payload) ~= "table"
 	then
-		return true -- malformed: consume so it doesn't clog the queue
+		processed() -- malformed: consume so it doesn't clog the queue
+		return
 	end
 	local list = handlers[message.kind]
 	if list == nil or #list == 0 then
-		return false
+		return
 	end
+	local info: Types.MailInfo = {
+		id = if type(message.id) == "string" then message.id else "",
+		kind = message.kind,
+		sentAt = if type(message.sentAt) == "number" then message.sentAt else 0,
+		attempt = 1,
+	}
 	for _, handler in table.clone(list) do
-		task.spawn(handler, player, message.payload)
+		local ok, result = pcall(handler, player, message.payload, info)
+		if not ok or result == false then
+			warn(`[Core.Mail] handler for '{message.kind}' failed: {result}`)
+			return
+		end
 	end
-	return true
+	processed()
 end
 
 function Mail.init(_context: any)
@@ -58,7 +73,7 @@ end
 
 function Mail.start() end
 
-function Mail.send(userId: number, kind: string, payload: { [string]: any }): boolean
+function Mail.send(userId: number, kind: string, payload: { [string]: any }, key: string?): boolean
 	local ok, reason = MailValidate.message(userId, kind, payload, encode)
 	if not ok then
 		warn(`[Core.Mail] send rejected: {reason}`)
@@ -70,6 +85,7 @@ function Mail.send(userId: number, kind: string, payload: { [string]: any }): bo
 	end
 	local sent, result = pcall(function()
 		return store:MessageAsync("Player_" .. tostring(userId), {
+			id = key or HttpService:GenerateGUID(false),
 			kind = kind,
 			payload = payload,
 			sentAt = os.time(),
@@ -85,10 +101,7 @@ function Mail.send(userId: number, kind: string, payload: { [string]: any }): bo
 	return true
 end
 
-function Mail.onReceive(
-	kind: string,
-	handler: (player: Player, payload: { [string]: any }) -> ()
-): Types.Connection
+function Mail.onReceive(kind: string, handler: Handler): Types.Connection
 	assert(MailValidate.kind(kind), "Mail.onReceive: invalid kind")
 	local list = handlers[kind] or {}
 	handlers[kind] = list

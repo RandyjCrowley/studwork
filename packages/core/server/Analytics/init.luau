@@ -101,6 +101,9 @@ function Analytics.economy(
 		return
 	end
 	local cleanSku = AnalyticsUtil.sanitize(sku, MAX_NAME_LENGTH)
+	if not ctx.isEnabled("Economy") then
+		return -- economy events need an ending balance; games without Economy use custom events
+	end
 	local okBalance, ending = pcall(ctx.services.Economy.balance, player, currency)
 	if not okBalance or type(ending) ~= "number" or ending ~= ending then
 		return

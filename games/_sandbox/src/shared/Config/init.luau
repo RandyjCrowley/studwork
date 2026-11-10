@@ -8,6 +8,20 @@ local Types = require(game:GetService("ReplicatedStorage"):WaitForChild("Core"):
 
 local Config: Types.GameConfig = {
 	gameId = "sandbox",
+	-- Optional core modules (the foundation is always on). The sandbox exercises all of them.
+	modules = {
+		"Items",
+		"Inventory",
+		"Rarity",
+		"Economy",
+		"Upgrades",
+		"Rebirth",
+		"Offline",
+		"Streak",
+		"Friends",
+		"Mail",
+		"Plot",
+	},
 	items = require(script.Items),
 	balance = require(script.Balance),
 	products = require(script.Products),

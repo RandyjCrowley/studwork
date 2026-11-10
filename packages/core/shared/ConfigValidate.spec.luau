@@ -3,6 +3,17 @@ local ConfigValidate = require(script.Parent.ConfigValidate)
 local function baseConfig()
 	return {
 		gameId = "test",
+		modules = {
+			"Items",
+			"Inventory",
+			"Rarity",
+			"Economy",
+			"Rebirth",
+			"Offline",
+			"Streak",
+			"Friends",
+			"Plot",
+		},
 		items = {
 			{ id = "a", name = "A", rarity = "Common", incomePerSec = 1 },
 			{ id = "b", name = "B", rarity = "Rare", incomePerSec = 5 },

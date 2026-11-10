@@ -4,6 +4,45 @@ Core's public interface (`packages/core/shared/Types.luau`, `packages/core/share
 only gains things: no renames, no removals; old calls are marked deprecated instead.
 Every change is recorded here, newest first.
 
+## core-v1.1.0 (in progress)
+
+Hardening before the games: review findings M1–M7 and L1–L7, plus the user's decisions 1–4.
+
+### core-contract-v1.1 (Phase 0, frozen for Phase 1)
+
+Breaking (pre-games) — allowed once, before any game existed:
+- `GameConfig.modules: { ModuleName }` is required. Core is a foundation (Data, Net, Shop,
+  Analytics, Policy, Events, Console, Replication; client UI kit, Feedback, Input, Hud) plus
+  optional modules (`Items`, `Inventory`, `Rarity`, `Economy`, `Upgrades`, `Rebirth`, `Offline`,
+  `Streak`, `Friends`, `Mail`, `Plot`). Manifest: `shared/Modules.luau`.
+- `BalanceConfig` module sections (`income`, `inventory`, `rarityTables`, `rebirth`, `offline`,
+  `streak`, `friends`) are optional in the type; ConfigValidate requires each one only when its
+  module is enabled.
+- M7: the facade exposes frozen tables with only the `Types` functions; `init`/`start` and private
+  helpers are gone from `Core.<Namespace>` and `Core.Client.*`. Calling a server API before
+  `Core.start` errors; a second `Core.start` errors (it already asserted).
+- M4: `Shop.onProduct(product, handler)` takes a data-only `ProductHandler`
+  `(data, receipt, tx: PurchaseTx) -> ()` instead of `(player, receipt) -> boolean`. Decline with
+  `tx.retryLater()` or by erroring.
+- M3: `Mail.onReceive` handlers get a third `info: MailInfo` argument and may return `false` to
+  report failure (they were fire-and-forget).
+- `Data.update` (contract): working-copy semantics (L6), nested same-player updates error.
+- `ItemDef.keepOnRebirth` defaults to keeping `paid:` copies (Decision 2): rebirth with
+  `keepInventory = false` no longer wipes Robux-bought items.
+
+Added:
+- `Core.isEnabled(moduleName)`, `Core.start(config, serverConfig?)`, `Types.ServerConfig`
+  (`admins`; L5). `GameConfig.admins` is deprecated (still honoured, with a warning).
+- `Rarity.getOddsDetail(tableId) -> OddsDetail?` and `ReplicatedState.odds` (M1).
+- `Types.PurchaseTx`, `Types.ProductHandler` (M4).
+- `Mail.send(userId, kind, payload, key?)` idempotency key, `Types.MailInfo`,
+  `PlayerData.mail: MailState` (seen keys, attempts, dead letters; M3).
+- `ItemDef.keepOnRebirth: boolean?` (Decision 2).
+- Internal (ctx-only, not on the facade): `Context.Tx` + `server/Tx.luau`, `Data.sectionVersion`
+  (M2), `Economy.grantInto`, `Inventory.addInto`, `Rarity.rollInto`, `Rebirth.addResetStep`
+  (M7: Upgrades and Plot reset their own sections), `ctx.isEnabled/modules/serverConfig`.
+- `core.blink`: no new events (odds ride `StateSync`); comments updated.
+
 ## core-v1.0.0 (2026-11-10)
 
 Phase 1 real services merged (A Data, C Items, B Economy, D Plot, E Meta, G Client, F UI) and the

@@ -8,14 +8,15 @@ Read `docs/decisions.md` for why things are the way they are.
 
 1. **Games never edit `packages/core` or `packages/ui`.** Need something? Add an entry to
    `CORE_REQUESTS.md`. Only the core owner changes core.
-2. **Core's interface is additive only.** `packages/core/shared/Types.luau` and
-   `packages/core/shared/net/core.blink` gain things; nothing is renamed or removed. Mark old calls
-   `-- @deprecated <replacement>` and keep them working. Record every change in
-   `packages/core/CHANGELOG.md`.
+2. **Core's interface is additive only.** `packages/core/shared/Types.luau`,
+   `packages/core/shared/Modules.luau` and `packages/core/shared/net/core.blink` gain things;
+   nothing is renamed or removed. Mark old calls `-- @deprecated <replacement>` and keep them
+   working. Record every change in `packages/core/CHANGELOG.md`. (core-v1.1.0 made a one-off set
+   of breaking changes before any game existed, listed under "Breaking (pre-games)".)
 3. **The server is authoritative.** Clients only send requests. The server validates every argument
    (type, range, ownership) and every remote is rate-limited (`core/server/Net`). Never trust
    amounts, item ids, uids, prices or positions from a client. Robux purchases go through
-   `Shop.onProduct`, never through a remote.
+   `Shop.onProduct` (receipt-safe data-only handlers, see below), never through a remote.
 4. **Every balance number lives in the game's Config** (`games/<name>/src/shared/Config`). Core reads
    it through the GameConfig passed to `Core.start`; core code has no balance defaults.
 5. **No secrets in the repo.** Open Cloud keys come from env vars or the git-ignored `.env`.
@@ -37,10 +38,13 @@ Read `docs/decisions.md` for why things are the way they are.
 ## Folder map
 
 ```
-packages/core/shared/   ReplicatedStorage.Core        facade (init.luau), Types, Palette, RarityTiers,
-                                                      Sounds, Validate, ConfigValidate, Signals,
+packages/core/shared/   ReplicatedStorage.Core        facade (init.luau), Types, Modules (module
+                                                      manifest), Palette, RarityTiers, Sounds,
+                                                      Validate, ConfigValidate, Signals,
                                                       HandlerList, PlotLayout/, net/core.blink
-packages/core/server/   ServerScriptService.CoreServer bootstrap (init.luau), Context, Net/ (Blink +
+packages/core/server/   ServerScriptService.CoreServer bootstrap + module loader (init.luau),
+                                                      Context (ctx + internal types), Tx (data
+                                                      transactions), Console, Net/ (Blink +
                                                       rate limits), one folder per service:
                                                       Data Mail Items Policy Rarity Inventory Economy
                                                       Upgrades Rebirth Offline Streak Friends Events
@@ -64,11 +68,14 @@ docs/                   decisions.md, known-issues.md, research/, games/<name>.m
 
 ```lua
 local Core = require(ReplicatedStorage.Core)
-Core.start(Config)                                   -- once on the server, once on the client
+Core.start(Config)                                   -- client (once)
+Core.start(Config, ServerConfig)                     -- server (once); ServerConfig = { admins }
+Core.isEnabled("Rebirth") -> boolean / Core.config() / Core.isStarted() / Core.version
 -- server
 Core.Items.register(defs) / .get(id) / .all() / .byTag(tag) / .incomeOf(instance)
 Core.Rarity.roll(tableId, player, luck?, { paid?, grant?, reason? }) -> (ItemDef?, RollInfo)
 Core.Rarity.getOdds(tableId, luck?) -> { [itemId]: probability } / .tiers()
+Core.Rarity.getOddsDetail(tableId) -> OddsDetail? -- items, mutations, outcomes (item x mutation), pity
 Core.Economy.grant/spend(player, amount, reason, currency?) -> boolean / .balance(player, currency?)
 Core.Economy.addIncomeSource/removeIncomeSource(player, sourceId, perSec)
 Core.Economy.addMultiplier(player, id, mult, expiresAt?, persist?) / .removeMultiplier / .getMultiplier / .getRate
@@ -80,10 +87,10 @@ Core.Rebirth.canRebirth/rebirth/cost/multiplier(player)
 Core.Offline.onReturn(fn(player, secondsAway))        Core.Streak.onDaily(fn(player, day)) / .get
 Core.Friends.onCoPlay(fn(player, friends, "server"|"invite"|"private")) / .friendsInServer
 Core.Events.schedule(id, schedule?, fn(ctx)) / .trigger(id, by?) / .isActive / .onEnded
-Core.Shop.onProduct(product, fn(player, receipt) -> granted) / .ownsPass / .onPassOwned
+Core.Shop.onProduct(product, fn(data, receipt, tx)) / .ownsPass / .onPassOwned  -- see "Purchases"
 Core.Policy.paidRandomRestricted(player)
 Core.Data.get / .update(player, fn) / .onLoaded / .isLoaded / .getGame / .updateGame / .saveAsync
-Core.Mail.send(userId, kind, payload) / .onReceive(kind, fn)
+Core.Mail.send(userId, kind, payload, key?) / .onReceive(kind, fn(player, payload, info) -> false?)
 Core.Analytics.funnel(player, step) / .economy(player, flow, currency, amount, type, sku?) / .custom
 Core.Signals.DataLoaded, DataChanged, CurrencyChanged, ItemAdded, ItemRemoved, ItemDisplayed, ...
 -- client
@@ -94,6 +101,81 @@ Core.Client.Actions.display/clearDisplay/rebirth/upgrade/roll/gift/triggerEvent/
 Core.Client.Hud.mount({ nextGoal = fn }) / .unmount()
 ```
 
+## Modules
+
+Core is a **foundation** plus **optional modules**. The foundation is always on: Data, Net, Shop,
+Analytics, Policy, Events, Console, Replication on the server; the UI kit, Feedback, Input and Hud
+on the client. A game switches modules on in `GameConfig.modules`:
+
+| Module | Requires | Optional integrations | Config section it needs |
+|---|---|---|---|
+| Items | – | – | `items` |
+| Inventory | Items | Plot, Upgrades | `balance.inventory` |
+| Rarity | Items | Inventory (grants), Economy (`cost`) | `balance.rarityTables` |
+| Economy | – | Items, Rebirth, Upgrades, Friends | `balance.income` |
+| Upgrades | Economy | Rebirth | `balance.upgrades` |
+| Rebirth | Economy | Inventory, Upgrades, Plot, Items | `balance.rebirth` |
+| Offline | – | Economy (`autoPay`) | `balance.offline` |
+| Streak | – | Economy (`rewards`) | `balance.streak` |
+| Friends | – | Economy (`coPlayMultiplier`) | `balance.friends` |
+| Mail | – | – | – |
+| Plot | Inventory | Items | `balance.plot` (optional) |
+
+`packages/core/shared/Modules.luau` is the source of truth (requires, optional, public API names).
+
+```lua
+-- games/<name>/src/shared/Config/init.luau
+local Config: Types.GameConfig = {
+	gameId = "example-shop",
+	-- Foundation is implicit. List only what the game uses; dependencies must be listed too.
+	modules = { "Items", "Inventory", "Rarity", "Plot", "Economy", "Offline", "Friends" },
+	items = require(script.Items),
+	balance = require(script.Balance), -- needs income/inventory/rarityTables/offline/friends
+	...
+}
+-- foundation only: modules = {} (items = {}, and no module sections are needed)
+```
+
+- `Core.start` fails with a clear error for an unknown module name, a foundation name, a duplicate
+  or a missing dependency (`module 'Rebirth' requires 'Economy': add "Economy" ...`), and when a
+  config feature needs a module that is off (e.g. `balance.offline.autoPay` without Economy).
+- Disabled modules still exist on the facade, but every call errors:
+  `Rebirth is not enabled in GameConfig.modules`. Client Actions of a disabled module error too.
+- Inside core: `ctx.isEnabled(name)` guards every OPTIONAL dependency; a disabled module in
+  `ctx.services` is a proxy that errors the same way.
+
+## API rules (core-contract-v1.1)
+
+- **Frozen facade.** `Core.<Namespace>` is a frozen table with exactly the functions of
+  `Types.<Namespace>API` (listed in `Modules.API`). No `init`/`start`, no private helpers. A second
+  `Core.start` errors; calling a server API before `Core.start` errors.
+- **Services never write another module's PlayerData sections** and never require another
+  service's private modules. Cross-module work goes through public functions, the ctx-only
+  `*Internal` functions in `Context.luau`, or Rebirth reset steps (`addResetStep`).
+- **`Data.update(player, fn)`**: fn runs on a working copy and commits only if it returns without
+  error (an error discards every write); fn must not yield; a nested `Data.update` for the same
+  player errors. To combine several changes atomically use a transaction (`server/Tx.luau`) and
+  the `*Into` functions (`Economy.grantInto`, `Inventory.addInto`, `Rarity.rollInto`).
+- **Purchases (receipt-safe).** A product handler is data-only:
+  ```lua
+  Core.Shop.onProduct("EggRoll", function(data, receipt, tx)
+  	if not tx.policyKnown then tx.retryLater("policy_unknown") end -- NotProcessedYet, nothing saved
+  	if tx.paidRandomRestricted then assert(tx.addItem("crystal")) return end -- fixed fallback
+  	local def, info = tx.roll("Egg")          -- paid roll granted into `data`
+  	assert(def and info.ok, info.reason)      -- error = nothing granted, nothing recorded
+  end)
+  ```
+  The grant and `purchases[PurchaseId]` are one non-yielding `Data.update`; `PurchaseGranted` is
+  returned only after the save is confirmed. Never call `Economy.grant`/`Inventory.add` from a
+  handler (nested update error); use `tx.grant/addItem/roll` or write `data.game[gameId]`.
+- **Mail is at-least-once.** Handlers must be safe to run twice; pass an idempotency `key` to
+  `Mail.send` when a retry of the send could duplicate a message.
+- **Rebirth keeps Robux-bought items** (`source` starting with `paid:`) unless
+  `ItemDef.keepOnRebirth = false`; `keepOnRebirth = true` keeps any copy.
+- **Odds shown to players come from the server** (`ReplicatedState.odds`, `Rarity.getOddsDetail`),
+  including mutations and pity. Never recompute odds on the client.
+- **Admins are server-only**: `ServerConfig.admins`, kept in `ServerScriptService`/`ServerStorage`.
+
 ## Server console (Studio / admin)
 
 `game.ServerScriptService.CoreServer.CoreConsole:Invoke("help")` from the Studio command bar
@@ -103,8 +185,10 @@ Core.Client.Hud.mount({ nextGoal = fn }) / .unmount()
 
 - `src/shared/Config/init.luau` returns a `Types.GameConfig` (Items, Balance, Products, Events,
   Palette files). It must pass `ConfigValidate` (`tools/test` checks the sandbox config).
-- `src/server/Main.server.luau` builds/loads the world, calls `Core.start(Config)`, then wires the
-  game's unique system to core (`Core.Rarity.roll`, `Core.Inventory.add`, `Core.Offline.onReturn`, ...).
+- `src/server/ServerConfig.luau` (ServerScriptService.Game.ServerConfig) returns a
+  `Types.ServerConfig` (`admins`). It never reaches clients.
+- `src/server/Main.server.luau` builds/loads the world, calls `Core.start(Config, ServerConfig)`,
+  then wires the game's unique system to core (`Core.Rarity.roll`, `Core.Inventory.add`, `Core.Offline.onReturn`, ...).
 - `src/client/Main.client.luau` calls `Core.start(Config)`, mounts the HUD, reads `Core.Client.state`
   and sends requests with `Core.Client.Actions`.
 - A game's own remotes: `src/shared/net/game.blink` with `option RemoteScope = "<GAMEID>"`, compiled
@@ -120,14 +204,16 @@ Core.Client.Hud.mount({ nextGoal = fn }) / .unmount()
 ## How to add a core service (core owner only)
 
 1. Add its API type to `Types.luau` (additive) and its field to `CoreAPI`/`ServerServices`.
-2. Create `packages/core/server/<Name>/init.luau` with `init(ctx)`, `start()` and the API functions.
-   `init` stores ctx only (no cross-service calls, no yields); `start` connects events.
-3. Register it in `packages/core/server/init.luau` (`services` + `ORDER`) and in the facade's
-   `SERVER_ONLY` list.
-4. Client requests: add an event to `core.blink`, run `tools/net`, add a rate limit in
+2. Add it to `Modules.luau`: `API` (public function names), and for an optional module `SPECS`
+   (requires/optional), `MODULE_ORDER` and the `ModuleName` type.
+3. Create `packages/core/server/<Name>/init.luau` with `init(ctx)`, `start()` and the API functions.
+   `init` stores ctx only (no cross-service calls, no yields); `start` connects events. Guard
+   optional dependencies with `ctx.isEnabled`.
+4. Register it in `packages/core/server/init.luau` (`services`).
+5. Client requests: add an event to `core.blink`, run `tools/net`, add a rate limit in
    `core/server/Net/init.luau`, register exactly one handler with `ctx.net.handle(name, fn)`.
-5. Pure logic goes in zero-dependency modules (numbers in, numbers out) with `*.spec.luau` tests.
-6. CHANGELOG entry, README in the service folder, run the commands below.
+6. Pure logic goes in zero-dependency modules (numbers in, numbers out) with `*.spec.luau` tests.
+7. CHANGELOG entry, README in the service folder, run the commands below.
 
 Services talk to each other only through `ctx.services.<Name>.<public function>`.
 
