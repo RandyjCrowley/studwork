@@ -146,3 +146,45 @@ describe("InventoryRules misc", function()
 		expect(InventoryRules.validGiftTarget(1, "2")).toBe(false)
 	end)
 end)
+
+describe("InventoryRules.giftCheck (sendGift)", function()
+	local function gift(overrides: { [string]: any }?): any
+		local t: { [string]: any } = {
+			mailEnabled = true,
+			fromLoaded = true,
+			fromUserId = 1,
+			toUserId = 2,
+			owned = true,
+			source = "roll",
+		}
+		if overrides then
+			for k, v in overrides do
+				t[k] = v
+			end
+		end
+		return t
+	end
+	local function reason(o)
+		return select(2, InventoryRules.giftCheck(gift(o)))
+	end
+
+	it("passes a valid gift", function()
+		expect(InventoryRules.giftCheck(gift())).toBe(true)
+		expect(InventoryRules.giftCheck(gift({ source = nil }))).toBe(true)
+	end)
+
+	it("each reason, and the documented order wins when several fail", function()
+		expect(reason({ mailEnabled = false, fromLoaded = false, toUserId = 0 })).toBe("mail_off")
+		expect(reason({ fromLoaded = false, toUserId = 0 })).toBe("not_loaded")
+		expect(reason({ toUserId = 0, owned = false })).toBe("bad_target")
+		expect(reason({ toUserId = -3 })).toBe("bad_target")
+		expect(reason({ toUserId = 1.5 })).toBe("bad_target")
+		expect(reason({ toUserId = 0 / 0 })).toBe("bad_target")
+		expect(reason({ toUserId = math.huge })).toBe("bad_target")
+		expect(reason({ toUserId = "2" })).toBe("bad_target")
+		expect(reason({ toUserId = 1, owned = false })).toBe("same_player")
+		expect(reason({ owned = false, source = "paid:x" })).toBe("not_owned")
+		expect(reason({ source = "paid:egg" })).toBe("restricted_source")
+		expect(reason({ source = "paidcur:gems" })).toBe("restricted_source")
+	end)
+end)

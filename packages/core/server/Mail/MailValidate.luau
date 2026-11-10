@@ -46,6 +46,14 @@ function MailValidate.kind(kind: any): boolean
 		and string.match(kind, "^[%w_%-]+$") ~= nil
 end
 
+-- Kinds starting with "core_" belong to core (core_gift); games can't send or receive them.
+MailValidate.RESERVED_PREFIX = "core_"
+
+function MailValidate.isReserved(kind: any): boolean
+	return type(kind) == "string"
+		and string.sub(kind, 1, #MailValidate.RESERVED_PREFIX) == MailValidate.RESERVED_PREFIX
+end
+
 function MailValidate.userId(userId: any): boolean
 	return isFinite(userId) and userId > 0 and userId % 1 == 0
 end

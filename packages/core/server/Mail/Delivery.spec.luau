@@ -2,7 +2,7 @@ local Delivery = require(script.Parent.Delivery)
 
 -- Fake server: one clock, a manual scheduler, a persisted MailState per player.
 local function world()
-	local w = {
+	local w: any = {
 		t = 1000,
 		timers = {},
 		active = {},
@@ -37,6 +37,14 @@ local function world()
 		end,
 		warn = function(msg)
 			table.insert(w.warnings, msg)
+		end,
+		config = function()
+			return w.config
+		end,
+		onBoxChanged = function(p, held)
+			if w.onBoxChanged then
+				w.onBoxChanged(p, held)
+			end
 		end,
 	}
 	w.d = Delivery.new(deps)
@@ -133,16 +141,30 @@ describe("Mail.Delivery", function()
 		expect(w.saved[p].seen.a).toBeNil()
 	end)
 
-	it("returning false counts as a failure", function()
+	it("returning false holds the message in the mailbox: processed, no attempt counted", function()
 		local w = world()
 		local p = {}
 		w.join(p)
+		local changes = {}
+		w.onBoxChanged = function(_, held)
+			table.insert(changes, held)
+		end
 		w.d.register("gift", function()
 			return false
 		end)
+		w.t = 2000
 		w.d.deliver(p, msg("a"), w.processedFn())
-		expect(w.processed).toBe(0)
-		expect(w.saved[p].attempts.a).toBe(1)
+		expect(w.processed).toBe(1)
+		expect(w.saved[p].attempts.a).toBeNil()
+		local entry = w.saved[p].box.a
+		expect(entry.id).toBe("a")
+		expect(entry.kind).toBe("gift")
+		expect(entry.payload.n).toBe(1)
+		expect(entry.sentAt).toBe(1)
+		expect(entry.heldAt).toBe(2000)
+		expect(#w.timers).toBe(0)
+		expect(#changes).toBe(1)
+		expect(changes[1]).toBe(true)
 	end)
 
 	it("player leaves mid-delivery: not processed, attempts persisted, next session continues", function()
@@ -225,7 +247,10 @@ describe("Mail.Delivery", function()
 		local fail, runs2 = true, 0
 		w2.d.register("gift", function()
 			runs2 += 1
-			return not fail
+			if fail then
+				error("not yet")
+			end
+			return true
 		end)
 		w2.d.deliver(p, msg("k"), w2.processedFn())
 		w2.d.deliver(p, msg("k"), w2.processedFn())
@@ -247,7 +272,10 @@ describe("Mail.Delivery", function()
 		end)
 		w.d.register("gift", function()
 			b += 1
-			return not failB
+			if failB then
+				error("b failed")
+			end
+			return true
 		end)
 		w.d.deliver(p, msg("m"), w.processedFn())
 		expect(a).toBe(1)
@@ -368,5 +396,202 @@ describe("Mail.Delivery", function()
 		w.advance(100000)
 		expect(#w.saved[p].dead).toBe(Delivery.MAX_DEAD)
 		expect(w.saved[p].dead[1].id).toBe("d4")
+	end)
+end)
+
+describe("Mail.Delivery mailbox (N1)", function()
+	local function heldWorld(cfg)
+		local w = world()
+		w.config = cfg
+		local p = {}
+		w.join(p)
+		w.room = false
+		w.runs = 0
+		w.d.register("gift", function(_, _, info)
+			w.runs += 1
+			w.lastInfo = info
+			if w.boom then
+				error("boom")
+			end
+			if w.claimHook then
+				w.claimHook()
+			end
+			return w.room
+		end)
+		return w, p
+	end
+
+	it("errors count toward maxAttempts, false never does (config maxAttempts + backoff)", function()
+		local w, p = heldWorld({ maxAttempts = 3, backoff = { base = 1, factor = 3, max = 5 } })
+		w.boom = true
+		w.d.deliver(p, msg("e"), w.processedFn())
+		expect(w.saved[p].attempts.e).toBe(1)
+		expect(w.timers[1].seconds).toBe(1)
+		w.advance(1)
+		expect(w.timers[1].seconds).toBe(3)
+		w.advance(3)
+		expect(w.processed).toBe(1) -- 3rd error -> dead letter
+		expect(w.saved[p].dead[1].attempts).toBe(3)
+		-- false: held at once, whatever the attempts setting
+		w.boom = false
+		w.d.deliver(p, msg("f"), w.processedFn())
+		expect(w.saved[p].box.f).never.toBeNil()
+		expect(w.saved[p].attempts.f).toBeNil()
+		expect(w.processed).toBe(2)
+	end)
+
+	it("settings: defaults and config overrides, invalid values fall back", function()
+		local d = Delivery.settings(nil)
+		expect(d.maxAttempts).toBe(10)
+		expect(d.base).toBe(30)
+		expect(d.factor).toBe(2)
+		expect(d.max).toBe(900)
+		expect(d.mailboxCap).toBe(100)
+		local c = Delivery.settings({
+			maxAttempts = 2,
+			mailboxCap = 0 / 0,
+			backoff = { base = -1, factor = 4, max = 8 },
+		})
+		expect(c.maxAttempts).toBe(2)
+		expect(c.mailboxCap).toBe(100)
+		expect(c.base).toBe(30)
+		expect(Delivery.backoff(1, { backoff = { base = 2, factor = 4, max = 8 } })).toBe(2)
+		expect(Delivery.backoff(2, { backoff = { base = 2, factor = 4, max = 8 } })).toBe(8)
+		expect(Delivery.backoff(3, { backoff = { base = 2, factor = 4, max = 8 } })).toBe(8)
+		expect(Delivery.backoff(1)).toBe(30)
+		expect(Delivery.backoff(100)).toBe(900)
+	end)
+
+	it("an id already in the box is a duplicate: processed, handlers not run", function()
+		local w, p = heldWorld()
+		w.d.deliver(p, msg("h"), w.processedFn())
+		expect(w.runs).toBe(1)
+		w.d.deliver(p, msg("h"), w.processedFn())
+		expect(w.runs).toBe(1)
+		expect(w.processed).toBe(2)
+	end)
+
+	it("box at mailboxCap: nothing written, not processed, warned once", function()
+		local w, p = heldWorld({ mailboxCap = 2 })
+		w.d.deliver(p, msg("1"), w.processedFn())
+		w.d.deliver(p, msg("2"), w.processedFn())
+		w.d.deliver(p, msg("3"), w.processedFn())
+		w.d.deliver(p, msg("4"), w.processedFn())
+		expect(w.processed).toBe(2)
+		expect(w.saved[p].box["3"]).toBeNil()
+		expect(Delivery.boxCount(w.saved[p])).toBe(2)
+		local full = 0
+		for _, m in w.warnings do
+			if string.find(m, "mailbox full", 1, true) then
+				full += 1
+			end
+		end
+		expect(full).toBe(1)
+		-- next session (room in the box) the queued copy is offered again and held
+		w.room = true
+		expect(w.d.claim(p, "1")).toBe(true)
+		w.room = false
+		w.leave(p)
+		w.join(p)
+		w.d.deliver(p, msg("3"), w.processedFn())
+		expect(w.saved[p].box["3"]).never.toBeNil()
+	end)
+
+	it("pending: copies, oldest heldAt first, tie by id; empty when not loaded", function()
+		local w, p = heldWorld()
+		w.t = 50
+		w.d.deliver(p, msg("b"), w.processedFn())
+		w.d.deliver(p, msg("a"), w.processedFn())
+		w.t = 10
+		w.d.deliver(p, msg("z"), w.processedFn())
+		local list = w.d.pending(p)
+		expect(#list).toBe(3)
+		expect(list[1].id).toBe("z")
+		expect(list[2].id).toBe("a")
+		expect(list[3].id).toBe("b")
+		list[1].kind = "changed"
+		expect(w.saved[p].box.z.kind).toBe("gift")
+		w.active[p] = false
+		expect(#w.d.pending(p)).toBe(0)
+	end)
+
+	it("claim: ok removes from box, writes seen, notifies; attempt numbering", function()
+		local w, p = heldWorld()
+		local changes = {}
+		w.onBoxChanged = function(_, held)
+			table.insert(changes, held)
+		end
+		w.d.deliver(p, msg("c"), w.processedFn())
+		w.room = true
+		w.t = 3000
+		local ok, reason = w.d.claim(p, "c")
+		expect(ok).toBe(true)
+		expect(reason).toBeNil()
+		expect(w.lastInfo.attempt).toBe(1)
+		expect(w.saved[p].box.c).toBeNil()
+		expect(w.saved[p].seen.c).toBe(3000)
+		expect(changes[1]).toBe(true)
+		expect(changes[2]).toBe(false)
+		-- re-delivery of the same id afterwards is a duplicate
+		local runs = w.runs
+		w.d.deliver(p, msg("c"), w.processedFn())
+		expect(w.runs).toBe(runs)
+	end)
+
+	it("claim: still_held / error stay in the box (never dead-lettered); attempt grows on errors", function()
+		local w, p = heldWorld({ maxAttempts = 1 })
+		w.d.deliver(p, msg("s"), w.processedFn())
+		local ok, reason = w.d.claim(p, "s")
+		expect(ok).toBe(false)
+		expect(reason).toBe("still_held")
+		w.boom = true
+		ok, reason = w.d.claim(p, "s")
+		expect(reason).toBe("error")
+		ok, reason = w.d.claim(p, "s")
+		expect(reason).toBe("error")
+		expect(w.lastInfo.attempt).toBe(2)
+		expect(#w.saved[p].dead).toBe(0)
+		expect(w.saved[p].box.s).never.toBeNil()
+		w.boom = false
+		w.room = true
+		ok = w.d.claim(p, "s")
+		expect(ok).toBe(true)
+		expect(w.lastInfo.attempt).toBe(3)
+		expect(w.saved[p].attempts.s).toBeNil()
+	end)
+
+	it("claim reasons: not_found, not_loaded, no_handler, busy", function()
+		local w, p = heldWorld()
+		w.d.deliver(p, msg("x"), w.processedFn())
+		expect(select(2, w.d.claim(p, "nope"))).toBe("not_found")
+		expect(select(2, w.d.claim(p, 5))).toBe("not_found")
+		-- busy: a handler re-enters claim for the same message
+		local inner
+		w.claimHook = function()
+			w.claimHook = nil
+			inner = table.pack(w.d.claim(p, "x"))
+		end
+		w.room = true
+		expect(w.d.claim(p, "x")).toBe(true)
+		expect(inner[2]).toBe("busy")
+		-- no handler for the kind
+		w.saved[p].box.k = { id = "k", kind = "other", payload = {}, sentAt = 1, heldAt = 1 }
+		expect(select(2, w.d.claim(p, "k"))).toBe("no_handler")
+		w.active[p] = false
+		expect(select(2, w.d.claim(p, "k"))).toBe("not_loaded")
+	end)
+
+	it("replay moves a dead letter into the mailbox", function()
+		local w, p = heldWorld({ maxAttempts = 1 })
+		w.boom = true
+		w.d.deliver(p, msg("d"), w.processedFn())
+		expect(#w.saved[p].dead).toBe(1)
+		expect(select(2, w.d.replay(p, "missing"))).toBe("not_found")
+		expect(w.d.replay(p, "d")).toBe(true)
+		expect(#w.saved[p].dead).toBe(0)
+		expect(w.saved[p].box.d.kind).toBe("gift")
+		w.boom = false
+		w.room = true
+		expect(w.d.claim(p, "d")).toBe(true)
 	end)
 end)

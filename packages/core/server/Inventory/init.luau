@@ -21,8 +21,17 @@
 		runs first; then the SAME instance moves with no yield between removing it from the sender
 		and adding it to the receiver (rolled back to the sender if the receiver write fails).
 	Starter items: on Data.onLoaded with stats.sessions == 1 and an empty inventory.
-	RequestGift (client): toUserId positive integer in this server, not self; uid an id the sender
-		owns; per-player GIFT_COOLDOWN_SEC on top of Net's rate limit.
+	sendGift(from, toUserId, uid, reason?) -> (ok, reason?) (v1.2): any user, through Core.Mail.
+		Checks (InventoryRules.giftCheck): "mail_off" | "not_loaded" | "bad_target" | "same_player"
+		| "not_owned" | "restricted_source"; then Plot.clearDisplay, then ONE Data.update removes
+		inventory[uid] and writes the "core_gift" message to the sender's outbox (Mail.sendInto,
+		key "g-<GUID>"). ItemRemoved + analytics after commit. "failed" when the update failed.
+	core_gift receiver (Gift.receiveInto, registered in start when Mail is on): unknown item ->
+		error (retry/dead letter); uid already owned -> success; inventory full -> false (mailbox);
+		else the SAME instance (acquiredAt = now) in one update, then ItemAdded + toast.
+	RequestGift (client): toUserId positive integer, not self; uid an id the sender owns;
+		per-player GIFT_COOLDOWN_SEC on top of Net's rate limit. Receiver in this server ->
+		transfer (instant); otherwise sendGift when Mail is on.
 ]]
 
 local HttpService = game:GetService("HttpService")
@@ -32,6 +41,7 @@ local Core = game:GetService("ReplicatedStorage"):WaitForChild("Core")
 local Types = require(Core:WaitForChild("Types"))
 local Validate = require(Core:WaitForChild("Validate"))
 local InventoryRules = require(script.InventoryRules)
+local Gift = require(script.Gift)
 local Tx = require(script.Parent.Tx)
 
 local Inventory = {}
@@ -71,6 +81,9 @@ local function inServer(player: any): boolean
 	return typeof(player) == "Instance" and player:IsA("Player") and player.Parent == Players
 end
 
+-- "core_gift" handler body. Returns false (mailbox) when the inventory is full.
+local receiveGift: (player: Player, payload: { [string]: any }) -> boolean
+
 function Inventory.init(context: any)
 	ctx = context
 	for _, m in ctx.config.balance.mutations or {} do
@@ -101,15 +114,36 @@ function Inventory.start()
 		if last and now - last < GIFT_COOLDOWN_SEC then
 			return
 		end
-		local target = Players:GetPlayerByUserId(toUserId)
-		if target == nil or target == player or Inventory.get(player, uid) == nil then
+		if Inventory.get(player, uid) == nil then
 			return
 		end
-		local ok = Inventory.transfer(player, target, uid, "gift")
+		local target = Players:GetPlayerByUserId(toUserId)
+		local ok, why
+		if target ~= nil and target ~= player then
+			ok, why = Inventory.transfer(player, target, uid, "gift")
+		elseif target == nil and ctx.isEnabled("Mail") then
+			ok, why = Inventory.sendGift(player, toUserId, uid, "gift")
+		else
+			return
+		end
 		if ok then
 			lastGiftAt[player] = now
+			ctx.net.feedback(player, "toast", "Gift sent")
+		elseif why == "restricted" or why == "restricted_source" then
+			ctx.net.feedback(player, "toast", "This item can't be gifted")
+		elseif why == "inventory_full" then
+			ctx.net.feedback(player, "toast", "Their inventory is full")
 		end
 	end)
+
+	if ctx.isEnabled("Mail") then
+		ctx.services.Mail.onReceive(
+			Gift.KIND,
+			function(player: Player, payload: { [string]: any }, _info: any)
+				return receiveGift(player, payload)
+			end
+		)
+	end
 
 	Players.PlayerRemoving:Connect(function(player)
 		lastGiftAt[player] = nil
@@ -248,17 +282,82 @@ local function check(from: Player, to: Player, uid: string): (boolean, string?)
 	})
 end
 
--- v1.2 CONTRACT STUB (core-contract-v1.2): agent A implements (Types.InventoryAPI.sendGift).
-function Inventory.sendGift(
-	_from: Player,
-	_toUserId: number,
-	_uid: string,
-	_reason: string?
-): (boolean, string?)
-	if not ctx.isEnabled("Mail") then
-		return false, "mail_off"
+local function giftCheck(from: Player, toUserId: any, uid: any): (boolean, string?)
+	local loaded = Inventory.canTrade(from)
+	local instance = if loaded and type(uid) == "string" then Inventory.get(from, uid) else nil
+	return InventoryRules.giftCheck({
+		mailEnabled = ctx.isEnabled("Mail"),
+		fromLoaded = loaded,
+		fromUserId = from.UserId,
+		toUserId = toUserId,
+		owned = instance ~= nil,
+		source = if instance then instance.source else nil,
+	})
+end
+
+-- v1.2: gift an owned copy to any user through the sender's mail outbox (Types.InventoryAPI).
+function Inventory.sendGift(from: Player, toUserId: number, uid: string, reason: string?): (boolean, string?)
+	local ok, why = giftCheck(from, toUserId, uid)
+	if not ok then
+		return false, why
 	end
-	return false, "failed"
+	clearFromPlot(from, uid) -- may fire Plot signals; re-check afterwards in case state changed
+	ok, why = giftCheck(from, toUserId, uid)
+	if not ok then
+		return false, why
+	end
+	local Mail = ctx.services.Mail
+	local giftReason = if type(reason) == "string" and #reason <= 32 then reason else nil
+	local success, committed, removed = pcall(Tx.run, ctx.services.Data, from, function(tx)
+		local key = Gift.KEY_PREFIX .. HttpService:GenerateGUID(false) -- once, inside the update
+		local instance = Gift.takeInto(tx, toUserId, uid, key, giftReason, Mail.sendInto)
+		if instance then
+			tx.after(function()
+				ctx.signals.ItemRemoved:Fire(from, instance)
+				ctx.services.Analytics.custom(from, "GiftSent", 1)
+			end)
+		end
+		return instance
+	end)
+	if not success then
+		warn("[Core.Inventory] sendGift failed: " .. tostring(committed))
+		return false, "failed"
+	end
+	if not committed then
+		return false, "not_loaded"
+	end
+	if removed == nil then
+		return false, "not_owned"
+	end
+	return true, nil
+end
+
+function receiveGift(player: Player, payload: { [string]: any }): boolean
+	local result: string? = nil
+	local instance: any = nil
+	local cap = Inventory.cap(player)
+	local committed = ctx.services.Data.update(player, function(data: Types.PlayerData)
+		result, instance = Gift.receiveInto(data, payload, {
+			itemExists = function(itemId: string): boolean
+				return ctx.services.Items.get(itemId) ~= nil
+			end,
+			cap = cap,
+			now = os.time(),
+		})
+	end)
+	if not committed then
+		error("[Core.Inventory] gift receiver not loaded")
+	end
+	if result == "full" then
+		return false
+	end
+	if result == "added" and instance then
+		ctx.signals.ItemAdded:Fire(player, instance)
+		local def = ctx.services.Items.get(instance.itemId)
+		local name = if def and type(def.name) == "string" then def.name else instance.itemId
+		ctx.net.feedback(player, "toast", "You received a gift: " .. name)
+	end
+	return true
 end
 
 function Inventory.transfer(from: Player, to: Player, uid: string, _reason: string): (boolean, string?)
