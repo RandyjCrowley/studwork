@@ -1,0 +1,40 @@
+{
+  "name": "_sandbox",
+  "servePort": 34872,
+  "globIgnorePaths": [
+    "**/*.spec.luau",
+    "**/README.md",
+    "**/SOURCE.md",
+    "**/*.blink",
+    "**/LICENSE"
+  ],
+  "tree": {
+    "$className": "DataModel",
+    "ReplicatedStorage": {
+      "Packages": { "$path": "../../deps/Packages" },
+      "Core": { "$path": "../../packages/core/shared" },
+      "CoreClient": { "$path": "../../packages/core/client" },
+      "UI": { "$path": "../../packages/ui" },
+      "Game": { "$path": "src/shared" }
+    },
+    "ServerScriptService": {
+      "CoreServer": { "$path": "../../packages/core/server" },
+      "Game": { "$path": "src/server" }
+    },
+    "ServerStorage": {
+      "ServerPackages": { "$path": "../../deps/ServerPackages" },
+      "Vendor": { "$path": "../../packages/vendor" }
+    },
+    "StarterPlayer": {
+      "StarterPlayerScripts": {
+        "Game": { "$path": "src/client" }
+      }
+    },
+    "Workspace": {
+      "$properties": { "StreamingEnabled": true }
+    },
+    "Lighting": {
+      "$properties": { "Technology": "Future" }
+    }
+  }
+}

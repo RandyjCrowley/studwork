@@ -1,0 +1,6 @@
+#!/usr/bin/env bash
+# tools/new-game <name>: scaffold games/<name> from templates/new-game (see tools/lune/new-game.luau).
+source "$(dirname "$0")/_common.sh"
+
+[ $# -eq 1 ] || die "usage: tools/new-game <name>"
+lune run tools/lune/new-game "$1"

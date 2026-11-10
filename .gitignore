@@ -1,0 +1,32 @@
+# Wally output (wally.toml lives in deps/ because macOS is case-insensitive: Packages/ == packages/)
+/deps/Packages/
+/deps/ServerPackages/
+/deps/DevPackages/
+
+# Build output
+/build/
+*.rbxl
+*.rbxlx
+*.rbxm
+*.rbxmx
+*.rbxl.lock
+*.rbxlx.lock
+sourcemap.json
+
+# Tool caches (type definitions downloaded by tools/typecheck, selene std)
+/.cache/
+roblox.yml
+roblox.yaml
+
+# Secrets: Open Cloud API keys live in env vars or this git-ignored file
+.env
+.env.*
+!.env.example
+
+# OS / editor
+.DS_Store
+.vscode/
+*.swp
+
+# Agent handoff reports (never committed)
+REPORT_*.md

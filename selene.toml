@@ -1,0 +1,8 @@
+std = "testkit"
+exclude = ["deps/*", "packages/vendor/*", "**/Generated*.luau", ".cache/*", "**/*.d.luau"]
+
+[rules]
+unused_variable = "warn"
+shadowing = "allow"
+global_usage = "deny"
+mixed_table = "allow"

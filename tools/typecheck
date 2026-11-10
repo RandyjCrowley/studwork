@@ -1,0 +1,36 @@
+#!/usr/bin/env bash
+# tools/typecheck [game]: strict type-check core, ui and a game (default _sandbox) with luau-lsp,
+# using Roblox definitions pinned to the luau-lsp version in rokit.toml and a Rojo sourcemap.
+# Exit 1 on any type error.
+source "$(dirname "$0")/_common.sh"
+
+GAME="${1:-_sandbox}"
+LUAU_LSP_TAG="1.70.1"
+DEFS=".cache/globalTypes-$LUAU_LSP_TAG.d.luau"
+
+mkdir -p .cache
+if [ ! -f "$DEFS" ]; then
+	echo "downloading Roblox type definitions (luau-lsp $LUAU_LSP_TAG)"
+	curl -sfL -o "$DEFS" "https://raw.githubusercontent.com/JohnnyMorganz/luau-lsp/$LUAU_LSP_TAG/scripts/globalTypes.d.luau" \
+		|| die "could not download definitions"
+fi
+
+[ -f "games/$GAME/default.project.json" ] || die "no such game: $GAME"
+rojo sourcemap "games/$GAME/default.project.json" --absolute -o .cache/sourcemap.json >/dev/null
+
+OUT="$(luau-lsp analyze --platform roblox \
+	--sourcemap .cache/sourcemap.json \
+	--defs "@roblox=$DEFS" \
+	--defs "@testkit=tools/types/testkit.d.luau" \
+	--ignore "**/Generated*.luau" \
+	--ignore "**/deps/**" \
+	packages/core/shared packages/core/server packages/core/client packages/ui "games/$GAME/src" 2>&1 \
+	| grep -v '^\[INFO\]\|^\[WARN\]' || true)"
+
+if [ -n "$OUT" ]; then
+	echo "$OUT"
+	COUNT="$(echo "$OUT" | grep -c 'Error\|Warning\|Deprecated' || true)"
+	echo "typecheck: $COUNT problem(s)"
+	exit 1
+fi
+echo "typecheck: clean"

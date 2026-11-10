@@ -1,0 +1,8 @@
+#!/usr/bin/env bash
+# tools/install: install the pinned toolchain (rokit.toml) and Wally packages (deps/wally.toml).
+# Wally 0.3.2 ships only an x86_64 macOS binary: Apple Silicon needs Rosetta 2.
+source "$(dirname "$0")/_common.sh"
+
+rokit install
+(cd deps && wally install)
+echo "install: done (deps/Packages, deps/ServerPackages)"

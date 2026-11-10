@@ -1,0 +1,7 @@
+deps/
+packages/vendor/
+**/net/Generated*.luau
+**/Net/Generated*.luau
+.cache/
+build/
+**/*.d.luau

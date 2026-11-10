@@ -1,0 +1,24 @@
+[package]
+name = "randyjcrowley/studwork-deps"
+version = "0.1.0"
+registry = "https://github.com/UpliftGames/wally-index"
+realm = "shared"
+private = true
+
+# Exact pins (=x.y.z). Bump deliberately and record in docs/decisions.md.
+[dependencies]
+Charm = "littensy/charm@=0.11.1"
+CharmSync = "littensy/charm-sync@=0.4.1"
+React = "jsdotlua/react@=17.2.1"
+ReactRoblox = "jsdotlua/react-roblox@=17.2.1"
+ReactCharm = "littensy/react-charm@=0.4.1"
+Signal = "sleitnick/signal@=2.0.3"
+Trove = "sleitnick/trove@=1.8.0"
+Promise = "evaera/promise@=4.0.0"
+
+[server-dependencies]
+ProfileStore = "lm-loleris/profilestore@=1.0.3"
+
+[place]
+shared-packages = "game.ReplicatedStorage.Packages"
+server-packages = "game.ServerStorage.ServerPackages"

@@ -1,0 +1,71 @@
+#!/usr/bin/env bash
+# tools/publish <name> --test|--live [--dry-run]
+#
+# 1. rojo build games/<name>/default.project.json -> build/<name>.rbxl
+# 2. upload it with the Open Cloud place-publishing API:
+#    POST https://apis.roblox.com/universes/v1/{universeId}/places/{placeId}/versions?versionType=Published
+#    header x-api-key: $ROBLOX_OPEN_CLOUD_API_KEY (env var or git-ignored .env; never commit it)
+#    The key needs the universe-places:write scope for that experience.
+# Ids come from games/<name>/deploy.json ("test" / "live"). --dry-run builds and prints the request
+# without uploading. Live publishes ask for confirmation.
+source "$(dirname "$0")/_common.sh"
+
+usage() { die "usage: tools/publish <name> --test|--live [--dry-run]"; }
+
+NAME="${1:-}"
+TARGET=""
+DRY_RUN=0
+[ -n "$NAME" ] || usage
+shift
+for arg in "$@"; do
+	case "$arg" in
+	--test) TARGET="test" ;;
+	--live) TARGET="live" ;;
+	--dry-run) DRY_RUN=1 ;;
+	*) usage ;;
+	esac
+done
+[ -n "$TARGET" ] || usage
+
+GAME_DIR="games/$NAME"
+[ -f "$GAME_DIR/default.project.json" ] || die "no such game: $NAME"
+[ -f "$GAME_DIR/deploy.json" ] || die "missing $GAME_DIR/deploy.json"
+
+read_id() {
+	# read_id <test|live> <universeId|placeId> -- tiny JSON read via lune (no jq dependency)
+	lune run tools/lune/json-get "$GAME_DIR/deploy.json" "$1.$2"
+}
+UNIVERSE_ID="$(read_id "$TARGET" universeId)"
+PLACE_ID="$(read_id "$TARGET" placeId)"
+
+mkdir -p build
+OUT="build/$NAME-$TARGET.rbxl"
+echo "== rojo build -> $OUT"
+rojo build "$GAME_DIR/default.project.json" -o "$OUT"
+
+URL="https://apis.roblox.com/universes/v1/$UNIVERSE_ID/places/$PLACE_ID/versions?versionType=Published"
+
+if [ "$DRY_RUN" -eq 1 ]; then
+	echo "dry run: would POST $OUT ($(wc -c <"$OUT" | tr -d ' ') bytes) to $URL"
+	exit 0
+fi
+
+[ "$UNIVERSE_ID" != "0" ] && [ "$PLACE_ID" != "0" ] || die "deploy.json $TARGET ids are 0: create the experience first"
+load_env
+[ -n "${ROBLOX_OPEN_CLOUD_API_KEY:-}" ] || die "ROBLOX_OPEN_CLOUD_API_KEY is not set (env var or .env)"
+
+if [ "$TARGET" = "live" ]; then
+	printf "Publish %s to LIVE place %s? Type the game name to confirm: " "$NAME" "$PLACE_ID"
+	read -r CONFIRM
+	[ "$CONFIRM" = "$NAME" ] || die "aborted"
+fi
+
+echo "== uploading to $TARGET (universe $UNIVERSE_ID, place $PLACE_ID)"
+HTTP_CODE="$(curl -sS -o build/publish-response.json -w '%{http_code}' -X POST "$URL" \
+	-H "x-api-key: $ROBLOX_OPEN_CLOUD_API_KEY" \
+	-H "Content-Type: application/octet-stream" \
+	--data-binary "@$OUT")"
+cat build/publish-response.json
+echo
+[ "$HTTP_CODE" = "200" ] || die "upload failed (HTTP $HTTP_CODE)"
+echo "published $NAME to $TARGET"

@@ -1,0 +1,10 @@
+#!/usr/bin/env bash
+# tools/lint: selene + stylua --check over every Luau source (vendor, Packages, generated excluded).
+source "$(dirname "$0")/_common.sh"
+
+PATHS="packages games templates tools"
+echo "== selene"
+selene $PATHS
+echo "== stylua --check"
+stylua --check $PATHS
+echo "lint: clean"
