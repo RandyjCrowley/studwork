@@ -238,3 +238,33 @@ Phase 1/2 decisions (merge, playtest, review):
   games without Upgrades/Rebirth the client buttons and the rebirth goal were removed so lint
   (modules guardrail) passes. Scaffolds keep the sandbox loop otherwise (no gameplay code).
 
+## core-v1.3.0 (framework restructure)
+
+Phase 0 step 1-2 review of the drafts against the v1.2 code (`Modules.luau`, `Context.luau`,
+`Types.luau`, `Net/init.luau`, `Replication/init.luau`, `Data/ReadOnlyView.luau`):
+- **`philosophy.md`: no changes.** Every default and guardrail it lists matches the code
+  (`Types.RarityTier`'s 7-tier union, `BalanceConfig`'s module sections, the N8/N9/N4 guardrails).
+- **`module-api.md` §0: no changes.** Checked each row against the real v1.2 mechanism it
+  replaces, including the three the prompt called out: Replication's per-player `SectionCache` +
+  `sent` tracking (§10's `ctx.replicate.sent` is the same mechanism, renamed), Net's
+  `PendingQueue`/`PENDING_CAP` pre-start queue (§3's boot step 6 matches `Net.start()` draining
+  it), and `Data/ReadOnlyView.luau` (N8, §6's `ScopedData.get` frozen view). Mail's outbox
+  (`MailInternal.sendInto`) and Rarity's luck registry (`setLuck`/`getLuck`) are both already
+  covered by §0's Mail and Rarity rows.
+- **§17 open questions answered and revised in place** (marked `(revised: ...)`):
+  keep `ItemDef` in the framework (item-agnostic; Collection only owns and validates the tier
+  list); finer modules (today's 11) plus `Kits.<Name>` bundles; per-module Blink is workable and
+  scales linearly; `StudWork.use` typing needs a generic signature, no fallback accessor; the
+  compliance-at-commit check uses an internal `Tx` flag only Compliance sets and Shop reads, the
+  same pattern as `tx.after`; the v1.2→sections field mapping is complete, write and test the
+  `_framework` migration in step 4. (The runtime facade was renamed `Core`/`Framework` →
+  `StudWork` by the user directly in the drafts partway through this review; the first pass of
+  this entry committed under b8de7d3 landed against the pre-rename file and was clobbered by the
+  rename before the §17 answers were saved — redone here against the renamed, settled text, no
+  content change beyond the name.)
+- **The independent design-review subagent (Phase 0 step 3)** ran against the stale,
+  pre-rename/pre-revision draft because of the above race; its findings are about substance
+  (missing Data API shape, compliance-roll binding, cross-module section writes, etc.), not the
+  naming, so they stand and are being worked into the next module-api.md revision rather than
+  re-run from scratch.
+
