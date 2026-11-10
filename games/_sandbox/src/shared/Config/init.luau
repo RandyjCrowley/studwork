@@ -27,7 +27,6 @@ local Config: Types.GameConfig = {
 	products = require(script.Products),
 	events = require(script.Events),
 	palette = require(script.Palette),
-	admins = {}, -- add your Roblox user id; in Studio every player counts as admin (see Core.Events)
 	data = {
 		defaults = { blockTouches = 0 },
 		version = 1,

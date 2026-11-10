@@ -19,7 +19,8 @@
 	    to everyone (and to players who load mid-event). On end: EventState.FireAll(id, 0),
 	    replicate, EventEnded signal, onEnded handlers.
 	  - AdminTriggerEvent remote: eventId must be a known event id string; player.UserId must be in
-	    GameConfig.admins (in Studio everyone is allowed).
+	    ServerConfig.admins (Core.start's server-only 2nd argument; in Studio everyone is
+	    allowed). The deprecated GameConfig.admins is still honoured, with a one-time warning (L5).
 	  - Console: `event <id>` triggers now; `event` lists events and their next start.
 ]]
 
@@ -28,6 +29,7 @@ local Players = game:GetService("Players")
 local Types = require(game:GetService("ReplicatedStorage"):WaitForChild("Core"):WaitForChild("Types"))
 local HandlerList =
 	require(game:GetService("ReplicatedStorage"):WaitForChild("Core"):WaitForChild("HandlerList"))
+local Admins = require(script.Admins)
 local Schedule = require(script.Schedule)
 
 local TICK_SECONDS = 1
@@ -142,11 +144,8 @@ local function tick(now: number)
 end
 
 local function isAdmin(player: Player): boolean
-	if ctx.isStudio then
-		return true
-	end
-	local admins = ctx.config.admins
-	return admins ~= nil and table.find(admins, player.UserId) ~= nil
+	local serverConfig = ctx.serverConfig or {}
+	return Admins.isAdmin(player.UserId, ctx.isStudio, serverConfig.admins, ctx.config.admins)
 end
 
 local function consoleEvent(id: any): string?
@@ -175,6 +174,9 @@ function Events.init(context: any)
 end
 
 function Events.start()
+	if Admins.usesLegacy(ctx.config.admins) then
+		warn(Admins.LEGACY_WARNING)
+	end
 	for id, def in defs() do
 		if def.schedule and Schedule.validate(def.schedule) ~= nil then
 			warn(`[Core.Events] events.{id}.schedule invalid: {Schedule.validate(def.schedule)}`)
