@@ -11,6 +11,10 @@
 	transferCheck(input) -> (ok, reason?)  ordered checks, first failure wins:
 		"not_loaded" (either side) -> "same_player" -> "not_owned" -> "restricted" (either side
 		restricted AND the item source starts with "paid:") -> "inventory_full".
+	giftCheck(input) -> (ok, reason?)  Inventory.sendGift, ordered, first failure wins:
+		"mail_off" -> "not_loaded" (sender) -> "bad_target" (toUserId not a positive integer) ->
+		"same_player" -> "not_owned" -> "restricted_source" (source "paid:"/"paidcur:": the
+		receiver's paid-random policy is unknown while they may be offline, so fail closed).
 ]]
 
 local Core = game:GetService("ReplicatedStorage"):WaitForChild("Core")
@@ -123,6 +127,38 @@ function InventoryRules.transferCheck(input: TransferInput): (boolean, string?)
 	end
 	if input.toCount >= input.toCap then
 		return false, "inventory_full"
+	end
+	return true, nil
+end
+
+export type GiftInput = {
+	mailEnabled: boolean,
+	fromLoaded: boolean,
+	fromUserId: number,
+	toUserId: any,
+	owned: boolean,
+	source: string?,
+}
+
+function InventoryRules.giftCheck(input: GiftInput): (boolean, string?)
+	if not input.mailEnabled then
+		return false, "mail_off"
+	end
+	if not input.fromLoaded then
+		return false, "not_loaded"
+	end
+	local to = input.toUserId
+	if not (Validate.isInteger(to) and to > 0) then
+		return false, "bad_target"
+	end
+	if to == input.fromUserId then
+		return false, "same_player"
+	end
+	if not input.owned then
+		return false, "not_owned"
+	end
+	if InventoryRules.isPaidSource(input.source) then
+		return false, "restricted_source"
 	end
 	return true, nil
 end
