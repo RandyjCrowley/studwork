@@ -1,16 +1,29 @@
 #!/usr/bin/env bash
 # tools/publish <name> --test|--live [--dry-run]
 #
-# 1. rojo build games/<name>/default.project.json -> build/<name>.rbxl
-# 2. upload it with the Open Cloud place-publishing API:
-#    POST https://apis.roblox.com/universes/v1/{universeId}/places/{placeId}/versions?versionType=Published
-#    header x-api-key: $ROBLOX_OPEN_CLOUD_API_KEY (env var or git-ignored .env; never commit it)
-#    The key needs the universe-places:write scope for that experience.
-# Ids come from games/<name>/deploy.json ("test" / "live"). --dry-run builds and prints the request
-# without uploading. Live publishes ask for confirmation.
-# Every run that builds (dry runs included) stamps deploy.json coreVersion/coreCommit and the
-# game's "Core" column in GAMES.md (tools/lune/deploy-stamp); tools/core-status reads them.
+# Publishes games/<name> to its test or live place with Open Cloud (docs/publishing.md):
+#   1. gate (tools/lune/PublishGate.luau): ids not placeholders, clean game/core tree, key set,
+#      and --live only for a commit that went to --test first (deploy.json test.published)
+#   2. checks: tools/lint, tools/test packages games tools, tools/typecheck <name>
+#   3. rojo build games/<name>/default.project.json -> build/<name>-<target>.rbxl
+#   4. POST https://apis.roblox.com/universes/v1/{universeId}/places/{placeId}/versions?versionType=Published
+#      (Content-Type application/octet-stream, body = the .rbxl, header x-api-key; key scope
+#      universe-places:write; endpoint and scope checked on create.roblox.com 2026-11-10)
+#   5. stamp (tools/lune/deploy-stamp): deploy.json coreVersion/coreCommit/coreStamp, GAMES.md
+#      "Core" column, and <target>.published {commit, at, versionNumber}
+# --dry-run does 1-3 and 5 (recording <target>.dryRun {commit, at} instead of .published) and
+# prints the exact request with the key redacted; it never contacts Roblox. A placeholder id or a
+# missing key is only a warning in a dry run. `--live --dry-run` accepts a test dry run of HEAD;
+# a real --live needs a real --test of HEAD.
+#
+# Secrets: the key comes from the env or the git-ignored .env, is never put on a command line
+# (curl reads it from a 0600 temp header file written with printenv, so even `bash -x` never
+# expands it), and is never printed. xtrace is switched off for this script.
+{ set +x; } 2>/dev/null
 source "$(dirname "$0")/_common.sh"
+{ set +x; } 2>/dev/null
+
+KEY_VAR="ROBLOX_OPEN_CLOUD_API_KEY"
 
 usage() { die "usage: tools/publish <name> --test|--live [--dry-run]"; }
 
@@ -33,47 +46,80 @@ GAME_DIR="games/$NAME"
 [ -f "$GAME_DIR/default.project.json" ] || die "no such game: $NAME"
 [ -f "$GAME_DIR/deploy.json" ] || die "missing $GAME_DIR/deploy.json"
 
-read_id() {
-	# read_id <test|live> <universeId|placeId> -- tiny JSON read via lune (no jq dependency)
-	lune run tools/lune/json-get "$GAME_DIR/deploy.json" "$1.$2"
+MODE="publish"
+[ "$DRY_RUN" -eq 1 ] && MODE="dry run"
+echo "== tools/publish $NAME --$TARGET ($MODE)"
+
+load_env
+KEY_PRESENT=0
+if printenv "$KEY_VAR" 2>/dev/null | grep -q .; then KEY_PRESENT=1; fi
+
+echo "== gate"
+lune run tools/lune/publish-gate check "$NAME" "$TARGET" "$DRY_RUN" "$KEY_PRESENT" || die "publish refused (see above)"
+HEAD_COMMIT="$(git rev-parse HEAD)"
+
+LOG="$(mktemp "${TMPDIR:-/tmp}/publish-check.XXXXXX")"
+check() {
+	# check <label> <cmd...>: run quietly, print the last line; show the log and stop on failure
+	local label="$1"
+	shift
+	if "$@" >"$LOG" 2>&1; then
+		echo "$label: $(tail -1 "$LOG")"
+	else
+		cat "$LOG"
+		rm -f "$LOG"
+		die "$label failed: publish stopped"
+	fi
 }
-UNIVERSE_ID="$(read_id "$TARGET" universeId)"
-PLACE_ID="$(read_id "$TARGET" placeId)"
+echo "== checks"
+check lint tools/lint
+check test tools/test packages games tools
+check typecheck tools/typecheck "$NAME"
+rm -f "$LOG"
 
 mkdir -p build
 OUT="build/$NAME-$TARGET.rbxl"
 echo "== rojo build -> $OUT"
 rojo build "$GAME_DIR/default.project.json" -o "$OUT"
+BYTES="$(wc -c <"$OUT" | tr -d ' ')"
 
-stamp() {
-	lune run tools/lune/deploy-stamp "$NAME" "$1"
-}
-
-URL="https://apis.roblox.com/universes/v1/$UNIVERSE_ID/places/$PLACE_ID/versions?versionType=Published"
+echo "== request"
+lune run tools/lune/publish-gate preview "$NAME" "$TARGET" "$OUT" "$BYTES"
 
 if [ "$DRY_RUN" -eq 1 ]; then
-	echo "dry run: would POST $OUT ($(wc -c <"$OUT" | tr -d ' ') bytes) to $URL"
-	stamp "publish --$TARGET --dry-run"
+	echo "dry run: not contacting Roblox"
+	lune run tools/lune/deploy-stamp "$NAME" "publish --$TARGET --dry-run" \
+		--target "$TARGET" --commit "$HEAD_COMMIT" --dry-run
+	echo "dry run complete: $NAME $TARGET recorded as dryRun at ${HEAD_COMMIT:0:7}"
 	exit 0
 fi
 
-[ "$UNIVERSE_ID" != "0" ] && [ "$PLACE_ID" != "0" ] || die "deploy.json $TARGET ids are 0: create the experience first"
-load_env
-[ -n "${ROBLOX_OPEN_CLOUD_API_KEY:-}" ] || die "ROBLOX_OPEN_CLOUD_API_KEY is not set (env var or .env)"
+URL="$(lune run tools/lune/publish-gate url "$NAME" "$TARGET")"
 
 if [ "$TARGET" = "live" ]; then
-	printf "Publish %s to LIVE place %s? Type the game name to confirm: " "$NAME" "$PLACE_ID"
+	printf "Publish %s to the LIVE place? Type the game name to confirm: " "$NAME"
 	read -r CONFIRM
 	[ "$CONFIRM" = "$NAME" ] || die "aborted"
 fi
 
-echo "== uploading to $TARGET (universe $UNIVERSE_ID, place $PLACE_ID)"
-HTTP_CODE="$(curl -sS -o build/publish-response.json -w '%{http_code}' -X POST "$URL" \
-	-H "x-api-key: $ROBLOX_OPEN_CLOUD_API_KEY" \
+HDR="$(mktemp "${TMPDIR:-/tmp}/publish-hdr.XXXXXX")"
+trap 'rm -f "$HDR"' EXIT
+chmod 600 "$HDR"
+{
+	printf 'x-api-key: '
+	printenv "$KEY_VAR"
+} >"$HDR"
+
+echo "== uploading to $TARGET"
+RESP="build/publish-response.json"
+HTTP_CODE="$(curl -sS -o "$RESP" -w '%{http_code}' -X POST "$URL" \
+	-H @"$HDR" \
 	-H "Content-Type: application/octet-stream" \
-	--data-binary "@$OUT")"
-cat build/publish-response.json
-echo
-[ "$HTTP_CODE" = "200" ] || die "upload failed (HTTP $HTTP_CODE)"
-stamp "publish --$TARGET"
-echo "published $NAME to $TARGET"
+	--data-binary "@$OUT")" || HTTP_CODE="curl-error"
+rm -f "$HDR"
+echo "response (HTTP $HTTP_CODE): $(head -c 500 "$RESP" 2>/dev/null || true)"
+[ "$HTTP_CODE" = "200" ] || die "upload failed (HTTP $HTTP_CODE): 401 key/scope, 403 publish not allowed, 404 wrong ids, 409 place not in that universe"
+VERSION="$(lune run tools/lune/json-get "$RESP" versionNumber 2>/dev/null || echo "0")"
+lune run tools/lune/deploy-stamp "$NAME" "publish --$TARGET" \
+	--target "$TARGET" --commit "$HEAD_COMMIT" --version "$VERSION"
+echo "published $NAME to $TARGET (version $VERSION). Commit games/$NAME/deploy.json and GAMES.md."

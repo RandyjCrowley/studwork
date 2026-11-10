@@ -1,13 +1,21 @@
 --!nocheck
 --[[
 	tools/lune/core-status: every game's recorded core (deploy.json coreVersion/coreCommit, written
-	by tools/publish) against the current core. Exit 0 always; it is a report.
+	by tools/publish) against the current core, plus per target (test/live) whether the ids are
+	placeholders and whether that place is in sync with HEAD (PublishGate.syncStatus). Games
+	without a readable deploy.json are listed too. Exit 0 always; it is a report.
 ]]
 
 local fs = require("@lune/fs")
 local serde = require("@lune/serde")
 
+local process = require("@lune/process")
+
 local CoreInfo = require("./core-info")
+local PublishGate = require("./PublishGate")
+
+local headResult = process.exec("git", { "rev-parse", "HEAD" })
+local head = string.gsub(headResult.stdout, "%s+$", "")
 
 local currentVersion = CoreInfo.version()
 local currentCommit = CoreInfo.commit()
@@ -15,9 +23,13 @@ local currentCommit = CoreInfo.commit()
 local rows = {}
 for _, entry in fs.readDir("games") do
 	local path = "games/" .. entry .. "/deploy.json"
-	if fs.isFile(path) then
+	if fs.isDir("games/" .. entry) and not fs.isFile(path) then
+		table.insert(rows, { entry, "-", "-", "no deploy.json", "-", "-", "-" })
+	elseif fs.isFile(path) then
 		local ok, deploy = pcall(serde.decode, "json", fs.readFile(path))
-		if ok then
+		if not ok then
+			table.insert(rows, { entry, "-", "-", "deploy.json is not valid JSON", "-", "-", "-" })
+		else
 			local version = deploy.coreVersion
 			local commit = deploy.coreCommit
 			local status
@@ -38,7 +50,15 @@ for _, entry in fs.readDir("games") do
 			local how = if type(deploy.coreStamp) == "table"
 				then string.format("%s @ %s", tostring(deploy.coreStamp.how), tostring(deploy.coreStamp.at))
 				else "-"
-			table.insert(rows, { entry, version or "-", commit or "-", status, how })
+			table.insert(rows, {
+				entry,
+				version or "-",
+				commit or "-",
+				status,
+				PublishGate.syncStatus(deploy, "test", head),
+				PublishGate.syncStatus(deploy, "live", head),
+				how,
+			})
 		end
 	end
 end
@@ -46,8 +66,10 @@ table.sort(rows, function(a, b)
 	return a[1] < b[1]
 end)
 
-print(string.format("current core: %s (%s)\n", currentVersion, currentCommit))
-local header = { "game", "coreVersion", "coreCommit", "status", "last stamp" }
+print(
+	string.format("current core: %s (%s), HEAD %s\n", currentVersion, currentCommit, string.sub(head, 1, 7))
+)
+local header = { "game", "coreVersion", "coreCommit", "core status", "test", "live", "last stamp" }
 local widths = {}
 for c, h in header do
 	widths[c] = #h
