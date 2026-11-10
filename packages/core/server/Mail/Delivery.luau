@@ -1,36 +1,54 @@
 --!strict
 --[[
-	Pure Mail delivery state machine (M3). OWNED BY AGENT C (core/v11-c-mail). No Roblox globals:
-	every effect is injected, so Delivery.spec.luau drives it with fakes.
+	Pure Mail delivery state machine (M3, v1.2 mailbox N1). No Roblox globals: every effect is
+	injected, so Delivery.spec.luau drives it with fakes.
 
 	Guarantees (at-least-once, idempotent by message id):
-	  - id already in mail.seen          -> duplicate: processed(), handlers do not run.
+	  - id already in mail.seen or mail.box -> duplicate: processed(), handlers do not run.
 	  - same id already in flight        -> waits for the first copy; consumed with it.
 	  - no handler for the kind          -> pending (not consumed, no attempt counted); delivered
 	                                        when a handler for that kind registers.
 	  - every handler ok (no error, not false) -> one update: seen[id] = now, attempts[id] = nil,
 	                                        seen pruned to MAX_SEEN (oldest first) -> processed().
-	  - any handler failed               -> attempts[id] += 1 (persisted); retry after backoff while
-	                                        the player's session lasts; after MAX_ATTEMPTS ->
+	  - a handler returned false (held)  -> one update: box[id] = { id, kind, payload, sentAt,
+	                                        heldAt }, attempts[id] = nil -> processed(). No attempt
+	                                        counted. Box already at mailboxCap -> nothing written,
+	                                        NOT processed (stays queued in ProfileStore, offered
+	                                        again next session), one warning.
+	  - a handler threw                  -> attempts[id] += 1 (persisted); retry after backoff while
+	                                        the player's session lasts; after maxAttempts ->
 	                                        dead letter (bounded MAX_DEAD), analytics, processed().
 	  - session ended (leave/shutdown)   -> stop; processed() is never called for that message, so
 	                                        ProfileStore re-delivers it next session.
+	Mailbox: pending(player) (copies, oldest heldAt first), claim(player, id) (re-runs handlers),
+	replay(player, id) (dead letter -> mailbox, console tool). deps.onBoxChanged(player, held) runs
+	after every committed box change. Tuning comes from deps.config() (GameConfig.mail).
 ]]
 
 local MailValidate = require(script.Parent.MailValidate)
 
 local Delivery = {}
 
-Delivery.MAX_ATTEMPTS = 5 -- delivery attempts before a message is dead-lettered
-Delivery.BACKOFF_BASE = 2 -- seconds before the first retry
+-- Defaults (reliability rails; GameConfig.mail overrides them).
+Delivery.MAX_ATTEMPTS = 10 -- handler ERRORS before a message is dead-lettered
+Delivery.BACKOFF_BASE = 30 -- seconds before the first retry
 Delivery.BACKOFF_FACTOR = 2 -- each retry waits FACTOR times longer
-Delivery.BACKOFF_MAX = 60 -- seconds, cap for a single wait
+Delivery.BACKOFF_MAX = 900 -- seconds, cap for a single wait
+Delivery.MAILBOX_CAP = 100 -- held messages per player
 Delivery.MAX_SEEN = 500 -- remembered processed ids per player
 Delivery.MAX_DEAD = 25 -- kept dead letters per player
 Delivery.MAX_ERROR_LENGTH = 200
 
 export type Info = { id: string, kind: string, sentAt: number, attempt: number }
 export type Handler = (player: any, payload: { [string]: any }, info: Info) -> boolean?
+
+export type Settings = {
+	maxAttempts: number,
+	base: number,
+	factor: number,
+	max: number,
+	mailboxCap: number,
+}
 
 export type Deps = {
 	now: () -> number, -- unix seconds
@@ -40,6 +58,8 @@ export type Deps = {
 	update: (player: any, fn: (mail: any) -> ()) -> boolean, -- mutate MailState, commit
 	analytics: (player: any, name: string, value: number) -> (),
 	warn: (message: string) -> (),
+	config: (() -> any)?, -- GameConfig.mail (or nil)
+	onBoxChanged: ((player: any, held: boolean) -> ())?, -- after a committed box change
 }
 
 type Message = {
@@ -56,11 +76,57 @@ type Session = {
 	pending: { [string]: Message }, -- waiting for a handler
 }
 
-function Delivery.backoff(attempt: number): number
-	return math.min(
-		Delivery.BACKOFF_MAX,
-		Delivery.BACKOFF_BASE * Delivery.BACKOFF_FACTOR ^ math.max(0, attempt - 1)
-	)
+local function positive(v: any, default: number): number
+	if type(v) == "number" and v == v and v > 0 and v ~= math.huge then
+		return v
+	end
+	return default
+end
+
+-- Resolved tuning from a GameConfig.mail table (invalid/missing fields -> defaults).
+function Delivery.settings(config: any): Settings
+	local cfg = if type(config) == "table" then config else {}
+	local backoff = if type(cfg.backoff) == "table" then cfg.backoff else {}
+	return {
+		maxAttempts = math.floor(positive(cfg.maxAttempts, Delivery.MAX_ATTEMPTS)),
+		base = positive(backoff.base, Delivery.BACKOFF_BASE),
+		factor = positive(backoff.factor, Delivery.BACKOFF_FACTOR),
+		max = positive(backoff.max, Delivery.BACKOFF_MAX),
+		mailboxCap = math.floor(positive(cfg.mailboxCap, Delivery.MAILBOX_CAP)),
+	}
+end
+
+-- Wait before retry `attempt`: min(max, base * factor^(attempt-1)).
+function Delivery.backoff(attempt: number, config: any?): number
+	local st = Delivery.settings(config)
+	return math.min(st.max, st.base * st.factor ^ math.max(0, attempt - 1))
+end
+
+function Delivery.boxCount(mail: any): number
+	local n = 0
+	if type(mail) == "table" and type(mail.box) == "table" then
+		for _ in mail.box do
+			n += 1
+		end
+	end
+	return n
+end
+
+-- Copies of the mailbox entries, oldest heldAt first (tie: id).
+function Delivery.listBox(mail: any): { any }
+	local list = {}
+	if type(mail) == "table" and type(mail.box) == "table" then
+		for _, entry in mail.box do
+			table.insert(list, table.clone(entry))
+		end
+	end
+	table.sort(list, function(a: any, b: any): boolean
+		if a.heldAt == b.heldAt then
+			return a.id < b.id
+		end
+		return a.heldAt < b.heldAt
+	end)
+	return list
 end
 
 -- Removes the oldest entries of `seen` until at most `max` remain.
@@ -131,17 +197,52 @@ local function ensureMail(mail: any): any
 	return mail
 end
 
+local function inSet(mail: any, field: string, id: string): boolean
+	return type(mail) == "table" and type(mail[field]) == "table" and mail[field][id] ~= nil
+end
+
+-- Runs every handler (pcall) until one fails. Returns "ok" | "held" | "error", error text.
+local function runHandlers(list: { Handler }, player: any, payload: any, info: Info): (string, string?)
+	for _, handler in table.clone(list) do
+		local ok, result = pcall(handler, player, payload, table.clone(info))
+		if not ok then
+			return "error", tostring(result)
+		elseif result == false then
+			return "held", nil
+		end
+	end
+	return "ok", nil
+end
+
 function Delivery.new(deps: Deps)
 	local self = {}
 	local handlers: { [string]: { Handler } } = {}
 	local sessions: { [any]: Session } = {}
+	local claiming: { [any]: { [string]: boolean } } = {}
 	local stopped = false
 	local warned: { [string]: boolean } = {}
+
+	local function settings(): Settings
+		local get = deps.config
+		return Delivery.settings(if get then get() else nil)
+	end
 
 	local function warnOnce(reason: string, detail: string)
 		if not warned[reason] then
 			warned[reason] = true
 			deps.warn(`[Core.Mail] {detail} (further '{reason}' warnings suppressed)`)
+		end
+	end
+
+	local function boxChanged(player: any, held: boolean)
+		local fn = deps.onBoxChanged
+		if fn then
+			local ok, err = pcall(function()
+				fn(player, held)
+			end)
+			if not ok then
+				deps.warn("[Core.Mail] mailbox change hook failed: " .. tostring(err))
+			end
 		end
 	end
 
@@ -167,14 +268,43 @@ function Delivery.new(deps: Deps)
 
 	local attempt: (s: Session, msg: Message) -> ()
 
+	local function hold(s: Session, msg: Message, mail: any)
+		local st = settings()
+		if Delivery.boxCount(mail) >= st.mailboxCap then
+			-- Not processed: ProfileStore keeps it queued and offers it again next session.
+			s.inFlight[msg.id] = nil
+			warnOnce("mailbox_full", `mailbox full ({st.mailboxCap}): '{msg.kind}' {msg.id} left queued`)
+			return
+		end
+		local committed = deps.update(s.player, function(m: any)
+			ensureMail(m)
+			local box = if type(m.box) == "table" then m.box else {}
+			box[msg.id] = {
+				id = msg.id,
+				kind = msg.kind,
+				payload = msg.payload,
+				sentAt = msg.sentAt,
+				heldAt = deps.now(),
+			}
+			m.box = box
+			m.attempts[msg.id] = nil
+		end)
+		if committed then
+			finish(s, msg)
+			boxChanged(s.player, true)
+		else
+			s.inFlight[msg.id] = nil -- couldn't record: leave it queued
+		end
+	end
+
 	function attempt(s: Session, msg: Message)
 		if not alive(s) then
 			s.inFlight[msg.id] = nil
 			return -- abandoned: re-delivered next session
 		end
 		local mail = deps.getMail(s.player)
-		if type(mail) == "table" and type(mail.seen) == "table" and mail.seen[msg.id] ~= nil then
-			finish(s, msg) -- processed meanwhile (e.g. by a copy)
+		if inSet(mail, "seen", msg.id) or inSet(mail, "box", msg.id) then
+			finish(s, msg) -- processed or held meanwhile (e.g. by a copy)
 			return
 		end
 		local list = handlers[msg.kind]
@@ -187,23 +317,12 @@ function Delivery.new(deps: Deps)
 			then tonumber(mail.attempts[msg.id]) or 0
 			else 0
 		local info: Info = { id = msg.id, kind = msg.kind, sentAt = msg.sentAt, attempt = previous + 1 }
-		local failure: string? = nil
-		for _, handler in table.clone(list) do
-			local ok, result = pcall(handler, s.player, msg.payload, table.clone(info))
-			if not ok then
-				failure = tostring(result)
-			elseif result == false then
-				failure = "handler returned false"
-			end
-			if failure then
-				break
-			end
-		end
+		local outcome, failure = runHandlers(list, s.player, msg.payload, info)
 		if not alive(s) then
 			s.inFlight[msg.id] = nil
 			return -- player left while a handler yielded
 		end
-		if failure == nil then
+		if outcome == "ok" then
 			local committed = deps.update(s.player, function(m: any)
 				ensureMail(m)
 				m.seen[msg.id] = deps.now()
@@ -216,11 +335,15 @@ function Delivery.new(deps: Deps)
 				s.inFlight[msg.id] = nil -- couldn't record: leave it queued
 			end
 			return
+		elseif outcome == "held" then
+			hold(s, msg, deps.getMail(s.player))
+			return
 		end
+		local st = settings()
 		local count = info.attempt
-		local err = string.sub(failure, 1, Delivery.MAX_ERROR_LENGTH)
+		local err = string.sub(failure or "error", 1, Delivery.MAX_ERROR_LENGTH)
 		deps.warn(`[Core.Mail] '{msg.kind}' {msg.id} attempt {count} failed: {err}`)
-		if count >= Delivery.MAX_ATTEMPTS then
+		if count >= st.maxAttempts then
 			local committed = deps.update(s.player, function(m: any)
 				ensureMail(m)
 				m.attempts[msg.id] = nil
@@ -252,7 +375,7 @@ function Delivery.new(deps: Deps)
 			s.inFlight[msg.id] = nil
 			return
 		end
-		deps.delay(Delivery.backoff(count), function()
+		deps.delay(Delivery.backoff(count, if deps.config then deps.config() else nil), function()
 			attempt(s, msg)
 		end)
 	end
@@ -289,8 +412,8 @@ function Delivery.new(deps: Deps)
 		end
 		local s = sessionFor(player)
 		local mail = deps.getMail(player)
-		if type(mail) == "table" and type(mail.seen) == "table" and mail.seen[msg.id] ~= nil then
-			processed() -- duplicate
+		if inSet(mail, "seen", msg.id) or inSet(mail, "box", msg.id) then
+			processed() -- duplicate (already processed, or waiting in the mailbox)
 			return
 		end
 		local existing = s.inFlight[msg.id] or s.pending[msg.id]
@@ -324,9 +447,125 @@ function Delivery.new(deps: Deps)
 		end
 	end
 
+	-- The player's mailbox (copies), oldest first. {} when not loaded.
+	function self.pending(player: any): { any }
+		if not deps.isActive(player) then
+			return {}
+		end
+		return Delivery.listBox(deps.getMail(player))
+	end
+
+	-- Re-runs the handlers of a held message. (true) = delivered and removed from the box.
+	function self.claim(player: any, id: any): (boolean, string?)
+		if type(id) ~= "string" then
+			return false, "not_found"
+		end
+		local locks = claiming[player]
+		if locks and locks[id] then
+			return false, "busy"
+		end
+		if stopped or not deps.isActive(player) then
+			return false, "not_loaded"
+		end
+		local mail = deps.getMail(player)
+		local entry = if type(mail) == "table" and type(mail.box) == "table" then mail.box[id] else nil
+		if entry == nil then
+			return false, "not_found"
+		end
+		local list = handlers[entry.kind]
+		if list == nil or #list == 0 then
+			return false, "no_handler"
+		end
+		local lockTable: { [string]: boolean } = locks or {}
+		claiming[player] = lockTable
+		lockTable[id] = true
+		local previous = if type(mail.attempts) == "table" then tonumber(mail.attempts[id]) or 0 else 0
+		local info: Info = { id = id, kind = entry.kind, sentAt = entry.sentAt, attempt = previous + 1 }
+		local outcome, failure = runHandlers(list, player, entry.payload, info)
+		lockTable[id] = nil
+		if stopped or not deps.isActive(player) then
+			return false, "not_loaded"
+		end
+		if outcome == "held" then
+			return false, "still_held"
+		elseif outcome == "error" then
+			local err = string.sub(failure or "error", 1, Delivery.MAX_ERROR_LENGTH)
+			deps.warn(`[Core.Mail] claim '{entry.kind}' {id} attempt {info.attempt} failed: {err}`)
+			deps.update(player, function(m: any)
+				ensureMail(m)
+				if type(m.box) == "table" and m.box[id] ~= nil then
+					m.attempts[id] = info.attempt
+				end
+			end)
+			return false, "error" -- stays in the box: a held message is never dead-lettered
+		end
+		local committed = deps.update(player, function(m: any)
+			ensureMail(m)
+			if type(m.box) == "table" then
+				m.box[id] = nil
+			end
+			m.seen[id] = deps.now()
+			m.attempts[id] = nil
+			Delivery.pruneSeen(m.seen, Delivery.MAX_SEEN)
+		end)
+		if not committed then
+			return false, "error"
+		end
+		boxChanged(player, false)
+		return true, nil
+	end
+
+	-- Console tool: moves a dead letter back into the mailbox (ignores mailboxCap).
+	function self.replay(player: any, id: any): (boolean, string?)
+		if stopped or not deps.isActive(player) then
+			return false, "not_loaded"
+		end
+		local mail = deps.getMail(player)
+		local found = false
+		if type(mail) == "table" and type(mail.dead) == "table" then
+			for _, letter in mail.dead do
+				if letter.id == id then
+					found = true
+				end
+			end
+		end
+		if not found or type(id) ~= "string" then
+			return false, "not_found"
+		end
+		if inSet(mail, "box", id) then
+			return false, "already_held"
+		end
+		local committed = deps.update(player, function(m: any)
+			ensureMail(m)
+			for i = #m.dead, 1, -1 do
+				local letter = m.dead[i]
+				if letter.id == id then
+					table.remove(m.dead, i)
+					local box = if type(m.box) == "table" then m.box else {}
+					box[id] = {
+						id = id,
+						kind = letter.kind,
+						payload = letter.payload,
+						sentAt = letter.at,
+						heldAt = deps.now(),
+					}
+					m.box = box
+					m.attempts[id] = nil
+					break
+				end
+			end
+		end)
+		if not committed then
+			return false, "error"
+		end
+		boxChanged(player, true)
+		return true, nil
+	end
+
 	-- Player left: stop retries, drop pending (ProfileStore keeps the messages queued).
 	function self.forget(player: any)
 		sessions[player] = nil
+		claiming[player] = nil
 	end
 
 	-- Server shutting down: nothing more is processed.

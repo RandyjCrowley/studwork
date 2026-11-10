@@ -1,6 +1,8 @@
 # Core.Mail
 
-Owner: agent C (core/v11-c-mail). Logic: `Delivery.luau` (pure, specced); wiring: `init.luau`.
+Logic: `Delivery.luau` (delivery + mailbox), `Outbox.luau` (sendInto flush), `MailValidate.luau`
+(all pure, specced); wiring: `init.luau`. End-to-end gifting property test:
+`../Inventory/Gift.spec.luau`.
 
 ## HANDLERS MUST BE SAFE TO RUN TWICE
 
@@ -22,7 +24,9 @@ Core.Mail.onReceive("bottle", function(player, payload, info)
 end)
 ```
 
-Return `false` or error to fail; `nil`/`true` = success.
+`nil`/`true` = delivered. `false` = "can't accept it now" (e.g. inventory full): the message is
+**held in the player's mailbox** (see below), never counted as a failure. **Error** = failure:
+retried with backoff, dead-lettered after `maxAttempts` errors.
 
 ## API
 
@@ -33,6 +37,65 @@ Return `false` or error to fail; `nil`/`true` = success.
   once (dedupe by `PlayerData.mail.seen`, bounded to `Delivery.MAX_SEEN` = 500, oldest pruned, so
   a key is only remembered for the most recent 500 processed messages).
 - `Mail.onReceive(kind, handler(player, payload, info))` — `info = { id, kind, sentAt, attempt }`.
+- `Mail.pending(player) -> { MailboxEntry }` — the mailbox (copies), oldest `heldAt` first (tie: id).
+  Replicated as `ReplicatedState.mailbox`; pushed after every hold, claim and on load.
+- `Mail.claim(player, id) -> (ok, reason?)` — re-runs the kind's handlers for a held message
+  (`info.attempt` = 1 + earlier claim errors). Reasons: `busy` (a claim for that id is running),
+  `not_loaded`, `not_found`, `no_handler`, `still_held` (a handler returned false again), `error`
+  (a handler threw: warned, stays in the box, attempts counted but a held message is **never**
+  dead-lettered). Success = one update removes `box[id]` and writes `seen[id]`. Client:
+  `Actions.claimMail(id)` -> Blink `RequestMailClaim` (validated id; rate-limited by Net).
+- ctx-only `Mail.sendInto(tx, toUserId, kind, payload, key) -> boolean` — the outbox (below).
+
+## Reserved kinds
+
+Kinds starting with `core_` belong to core (`core_gift`). The public facade (`Core.Mail.send` /
+`Core.Mail.onReceive`, via the `Mail.facade` override) refuses them: `send` warns and returns
+false, `onReceive` errors. Core services use `ctx.services.Mail` and may use them.
+
+## Config (`GameConfig.mail`, all optional, reliability rails)
+
+| key | default | meaning |
+|---|---|---|
+| `maxAttempts` | 10 | handler ERRORS before dead-lettering (counted across sessions) |
+| `backoff = { base, factor, max }` | `{ 30, 2, 900 }` | wait before retry n: `min(max, base * factor^(n-1))` s |
+| `mailboxCap` | 100 | held messages per player; beyond it a message stays queued in ProfileStore |
+
+## Mailbox (N1)
+
+A handler returning `false` holds the message: ONE update writes
+`mail.box[id] = { id, kind, payload, sentAt, heldAt }` and clears `attempts[id]`, then
+`processed()` (core owns the message now). The player gets a toast "Mailbox: N item(s) waiting".
+When the box already holds `mailboxCap` entries nothing is written and `processed()` is NOT
+called: ProfileStore keeps it and offers it again next session (one warning per server).
+An id in `box` is a duplicate for `deliver` (like `seen`).
+
+Console (Studio): `mailbox [userId]` (box + dead letters), `mailclaim <userId> <id>`,
+`mailreplay <userId> <id>` (moves a dead letter back into the mailbox so it can be claimed).
+
+## Outbox (`sendInto`, used by `Inventory.sendGift`)
+
+`sendInto` validates like `send` (+ a required key) and writes
+`tx.data.mail.outbox[key] = { toUserId, kind, payload, key, at }` in the caller's transaction, so
+the cause (the item leaving) and the message are one atomic write. After commit (`tx.after`)
+`Outbox.flush(sender)`:
+1. `Data.saveAsync(sender)` first, if an entry was written this session and isn't known saved: the
+   message must not leave before its cause is durable (else a crash restores the item AND
+   delivers it).
+2. `MessageAsync` with `id = key` for each entry, oldest first; on success the entry is removed
+   in a `Data.update`.
+3. Any failure: retry with the config backoff while the sender is online. On the sender's next
+   load (`Data.onLoaded`) leftovers are flushed (no extra save: they came from the store).
+
+A crash after the send but before the removal is saved re-sends with the **same key**; the
+receiver's `seen`/`box` turns it into a duplicate.
+
+## At-least-once notes
+
+- Dedupe memory is bounded: `seen` keeps the last `MAX_SEEN` (500) ids. A re-send of a message
+  older than that would run again, which is why handlers must be idempotent on their own too
+  (`core_gift` is: a uid already in the inventory is a success).
+- A message held while the box is full is offered again next session, not this one.
 
 ## Delivery rules (Delivery.luau)
 
@@ -42,10 +105,12 @@ Return `false` or error to fail; `nil`/`true` = success.
 | same id already in flight | consumed together with the first copy |
 | no handler for kind | kept pending (no attempt counted); delivered when one registers |
 | all handlers ok | one Data.update: `seen[id]=now`, clear `attempts[id]`, prune -> `processed()` |
-| any handler failed | `attempts[id] += 1` (saved); retry after `2 * 2^(n-1)` s (cap 60) |
-| `MAX_ATTEMPTS` (5) failures | `mail.dead` += `{id,kind,payload,attempts,error,at}` (max 25), `Analytics.custom(player,"MailDeadLetter",attempts)`, consumed |
+| id in `mail.box` | duplicate: consumed, handlers not run |
+| a handler returned `false` | held in the mailbox (above), consumed; no attempt counted |
+| a handler threw | `attempts[id] += 1` (saved); retry after the config backoff |
+| `maxAttempts` (10) errors | `mail.dead` += `{id,kind,payload,attempts,error,at}` (max 25), `Analytics.custom(player,"MailDeadLetter",attempts)`, consumed |
 | malformed | consumed, one warning per server |
-| v1.0 message without id | id `legacy-<kind>-<sentAt>` |
+| v1.0 message without id | id `legacy-<kind>-<sentAt>-<fnv1a(payload)>` |
 | player left / server shutting down | stop; never `processed()` -> re-delivered next session, attempts keep counting |
 
 ## ProfileStore 1.0.3 behaviour (read from deps/.../ProfileStore.luau)
