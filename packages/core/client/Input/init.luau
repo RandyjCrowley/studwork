@@ -1,51 +1,84 @@
 --!strict
 --[[
-	Core.Client.Input. OWNED BY AGENT G (core/g-client). Public API: Types.InputAPI.
+	Core.Client.Input. OWNED BY AGENT G (core/g-client). Public API: Types.InputAPI. See README.md.
 
-	PHASE 0 STUB: device detection from UserInputService.PreferredInput / last input type and
-	bind() through ContextActionService (touch button via createTouchButton). Agent G: robust
-	device switching, gamepad UI hints, custom touch button styling from the palette.
+	device() -> "KeyboardMouse" | "Touch" | "Gamepad"
+	    From UserInputService.PreferredInput (Enum.PreferredInput, observed with
+	    GetPropertyChangedSignal); falls back to LastInputTypeChanged + capability flags when the
+	    property is unavailable.
+	deviceChanged: Signal<InputDevice>  fires only on an actual change.
+	bind(actionId, binding, handler)  ContextActionService:BindAction with binding.keys +
+	    binding.gamepad; handler("Began"/"Ended") (Cancel counts as "Ended"). Input passes
+	    through (ContextActionResult.Pass) so default controls keep working. With
+	    touchButton = true an on-screen button is created (shown on touch devices by Roblox),
+	    titled binding.title and tinted with the palette accent. Re-binding an id replaces it.
+	unbind(actionId)
 ]]
 
 local ContextActionService = game:GetService("ContextActionService")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local UserInputService = game:GetService("UserInputService")
 
+local Core = ReplicatedStorage:WaitForChild("Core")
+local Palette = require(Core:WaitForChild("Palette"))
 local Signal = require(ReplicatedStorage:WaitForChild("Packages"):WaitForChild("Signal"))
-local Types = require(ReplicatedStorage:WaitForChild("Core"):WaitForChild("Types"))
+local Types = require(Core:WaitForChild("Types"))
+
+local Classify = require(script.Classify)
 
 local Input = {}
 
 local current: Types.InputDevice = "KeyboardMouse"
 Input.deviceChanged = (Signal.new() :: any) :: Types.Signal<Types.InputDevice>
 
-local function classify(inputType: Enum.UserInputType): Types.InputDevice?
-	if inputType == Enum.UserInputType.Touch then
-		return "Touch"
-	elseif string.find(inputType.Name, "Gamepad") then
-		return "Gamepad"
-	elseif
-		inputType == Enum.UserInputType.Keyboard
-		or inputType == Enum.UserInputType.MouseButton1
-		or inputType == Enum.UserInputType.MouseMovement
-	then
-		return "KeyboardMouse"
-	end
-	return nil
-end
+local bound: { [string]: boolean } = {}
+local paletteOverrides: { [string]: string }? = nil
 
-local function setDevice(device: Types.InputDevice)
-	if device ~= current then
+local function setDevice(device: Types.InputDevice?)
+	if device ~= nil and device ~= current then
 		current = device
 		Input.deviceChanged:Fire(device)
 	end
+end
+
+local function readPreferred(): Types.InputDevice?
+	local ok, value = pcall(function()
+		return (UserInputService :: any).PreferredInput
+	end)
+	if ok and typeof(value) == "EnumItem" then
+		return Classify.fromPreferredInput(value.Name) :: Types.InputDevice?
+	end
+	return nil
 end
 
 function Input.device(): Types.InputDevice
 	return current
 end
 
+local function styleTouchButton(actionId: string, title: string?)
+	if title then
+		ContextActionService:SetTitle(actionId, title)
+	end
+	local button = ContextActionService:GetButton(actionId)
+	if button and button:IsA("ImageButton") then
+		button.ImageColor3 = Palette.color("accent", paletteOverrides)
+		local minSize = Palette.metrics.minTouchTarget
+		if button.AbsoluteSize.X < minSize then
+			button.Size = UDim2.fromOffset(minSize * 1.4, minSize * 1.4)
+		end
+		local titleLabel = button:FindFirstChild("ActionTitle")
+		if titleLabel and titleLabel:IsA("TextLabel") then
+			titleLabel.TextColor3 = Palette.color("text", paletteOverrides)
+			titleLabel.FontFace = Font.new(Palette.fonts.display, Enum.FontWeight.Bold)
+		end
+	end
+end
+
 function Input.bind(actionId: string, binding: Types.InputBinding, handler: (state: "Began" | "Ended") -> ())
+	assert(type(actionId) == "string" and actionId ~= "", "Input.bind: actionId must be a non-empty string")
+	if bound[actionId] then
+		ContextActionService:UnbindAction(actionId)
+	end
 	local inputs: { any } = {}
 	if binding.keys then
 		for _, key in binding.keys do
@@ -57,35 +90,63 @@ function Input.bind(actionId: string, binding: Types.InputBinding, handler: (sta
 			table.insert(inputs, key)
 		end
 	end
-	ContextActionService:BindAction(actionId, function(_, state)
+	local pressed = false
+	ContextActionService:BindAction(actionId, function(_, state: Enum.UserInputState)
 		if state == Enum.UserInputState.Begin then
+			pressed = true
 			handler("Began")
-		elseif state == Enum.UserInputState.End then
-			handler("Ended")
+		elseif state == Enum.UserInputState.End or state == Enum.UserInputState.Cancel then
+			if pressed then
+				pressed = false
+				handler("Ended")
+			end
 		end
 		return Enum.ContextActionResult.Pass
 	end, binding.touchButton == true, table.unpack(inputs))
-	if binding.title and binding.touchButton then
-		ContextActionService:SetTitle(actionId, binding.title)
+	bound[actionId] = true
+	if binding.touchButton then
+		styleTouchButton(actionId, binding.title)
 	end
 end
 
 function Input.unbind(actionId: string)
-	ContextActionService:UnbindAction(actionId)
+	if bound[actionId] then
+		bound[actionId] = nil
+		ContextActionService:UnbindAction(actionId)
+	end
 end
 
-function Input.start(_ctx: any)
-	if UserInputService.TouchEnabled and not UserInputService.KeyboardEnabled then
-		current = "Touch" :: Types.InputDevice
-	elseif UserInputService.GamepadEnabled and not UserInputService.KeyboardEnabled then
-		current = "Gamepad" :: Types.InputDevice
+local started = false
+
+function Input.start(ctx: any)
+	if started then
+		return
 	end
-	UserInputService.LastInputTypeChanged:Connect(function(inputType)
-		local device = classify(inputType)
-		if device then
-			setDevice(device :: Types.InputDevice)
+	started = true
+	if ctx and ctx.config and type(ctx.config.palette) == "table" then
+		paletteOverrides = ctx.config.palette
+	end
+
+	local preferred = readPreferred()
+	if preferred then
+		current = preferred :: any
+		UserInputService:GetPropertyChangedSignal("PreferredInput" :: any):Connect(function()
+			setDevice(readPreferred())
+		end)
+	else
+		current = Classify.fromCapabilities(
+			UserInputService.TouchEnabled,
+			UserInputService.KeyboardEnabled,
+			UserInputService.GamepadEnabled
+		) :: any
+		local last = Classify.fromInputType(UserInputService:GetLastInputType().Name)
+		if last then
+			current = last :: Types.InputDevice
 		end
-	end)
+		UserInputService.LastInputTypeChanged:Connect(function(inputType: Enum.UserInputType)
+			setDevice(Classify.fromInputType(inputType.Name) :: Types.InputDevice?)
+		end)
+	end
 end
 
 return Input
