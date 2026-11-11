@@ -22,17 +22,28 @@
 	        every leaf of `old` must be covered by one entry (an entry covers its path and
 	        everything under it). A string target: the value at <section.path> in the StudWork
 	        save (`<dataKey>.<field>...`, e.g. "economy.currency.Coins") must equal the old value
-	        (tables compared deeply). { "items": path }: the old value is a list (or map) of item
-	        ids and the inventory map/list at path holds exactly those ids (by `itemId`), count
-	        included.
+	        (tables compared deeply). Exception: the target "_framework.legacyPurchases" compares
+	        the SET of old receipt ids (the keys of an old map, or the strings of an old list)
+	        with the keys StudWork stores ({ [id]: unixTime }), whatever the old values were.
+	        { "items": path }: the old value is a list (or map) of items, each a plain id string
+	        or a table with `itemId` or `id` (other fields, e.g. an old uid, are ignored), and
+	        the inventory map/list at path holds exactly those ids (by `itemId`), count included.
 	    "dropped": { "<old.path>": "<reason>" },       old fields deliberately not brought over
 	    "changed": { ... },                            optional: the old save as an old server
 	                                                   changed it after the import (check 5)
 	    "afterMerge": { "<section.path>": <value> },   expected values after the merge
-	    "sold":    { "<old.path>": "currency" | "items" },   fields a product sold (check 7)
+	    "sold":    { "<old.path>": "currency" | "items" | "<other>" },   fields a product sold
+	                                                   (check 7). "currency" and "items" are
+	                                                   checked; any other non-empty string (e.g.
+	                                                   "stat" for a sold rebirth) is reported as
+	                                                   "not checked"
 	    "overCap": { "path": "<old.path>", "count": 60 }     optional (check 6): that list is
 	                                                   grown to `count` entries (its items repeated)
 	  }
+	Check 4 removes each top-level key of `old` in turn. When that leaves no source at all (a map
+	of sources where the fixture has only one), the expected outcome is "nothing found": the player
+	loads with an import marker found = false.
+
 	Paths use dots; list indexes are numbers ("inventory.1"). Keys containing dots aren't
 	addressable (rename them in `old`'s description instead).
 
@@ -47,6 +58,9 @@
 	  compare(old, saved, fixture) -> { string }      check 1: coverage + every expect matches
 	  afterMerge(saved, fixture) -> { string }        check 5 expectations
 	  checkSold(fixture, paidCurrencies, itemTag) -> { string }   check 7
+	  soldUnchecked(fixture) -> { string }            check 7 notes: sold kinds that aren't checked
+	  receiptIds(value) -> { [string]: true }?        the receipt-id set of an old/new receipts value
+	  seedsNothing(source, value) -> boolean          check 4: the value stores no source at all
 	  withoutField(old, key) -> table                 check 4 (a deep copy without one field)
 	  inflate(old, path, count) -> table              check 6
 	  seedOps(source, userId, value, at) -> { op }    how the old value is stored per source kind:
@@ -203,11 +217,14 @@ function MigrationCheck.validate(f: any): { string }
 	end
 	if f.sold ~= nil then
 		if type(f.sold) ~= "table" then
-			table.insert(errs, '`sold` is a map of old path -> "currency" | "items"')
+			table.insert(errs, '`sold` is a map of old path -> "currency" | "items" | "<other kind>"')
 		else
 			for k, v in f.sold do
-				if v ~= "currency" and v ~= "items" then
-					table.insert(errs, `sold["{tostring(k)}"] must be "currency" or "items"`)
+				if type(v) ~= "string" or v == "" then
+					table.insert(
+						errs,
+						`sold["{tostring(k)}"] must be a non-empty string ("currency", "items", or e.g. "stat")`
+					)
 				end
 			end
 		end
@@ -263,11 +280,44 @@ local function itemIds(v: any): { [string]: number }?
 	end
 	local out: { [string]: number } = {}
 	for _, x in v do
-		local id = if type(x) == "table" then x.itemId else x
+		local id = x
+		if type(x) == "table" then
+			id = if x.itemId ~= nil then x.itemId else x.id
+		end
 		if type(id) ~= "string" then
 			return nil
 		end
 		out[id] = (out[id] or 0) + 1
+	end
+	return out
+end
+
+MigrationCheck.LEGACY_PURCHASES = "_framework.legacyPurchases"
+
+-- The receipt ids of a receipts value: a list of id strings, or a map keyed by id (any values).
+function MigrationCheck.receiptIds(v: any): { [string]: boolean }?
+	if type(v) ~= "table" then
+		return nil
+	end
+	local out: { [string]: boolean } = {}
+	local n = #v
+	local isList = n > 0
+	if isList then
+		local count = 0
+		for _ in v do
+			count += 1
+		end
+		isList = count == n
+	end
+	for k, x in v do
+		local id = if isList then x else k
+		if type(id) == "number" then
+			id = tostring(id)
+		end
+		if type(id) ~= "string" then
+			return nil
+		end
+		out[id] = true
 	end
 	return out
 end
@@ -299,7 +349,19 @@ function MigrationCheck.compare(old: any, saved: any, f: any): { string }
 			end
 		else
 			local now = MigrationCheck.get(saved, target)
-			if not deepEqual(was, now) then
+			if target == MigrationCheck.LEGACY_PURCHASES then
+				local want, got = MigrationCheck.receiptIds(was), MigrationCheck.receiptIds(now or {})
+				if want == nil then
+					table.insert(errs, `old '{k}' is not a list or map of receipt ids ({show(was)})`)
+				elseif not deepEqual(want, got) then
+					table.insert(
+						errs,
+						`'{k}' -> '{target}': receipt ids differ: old {show(sortedKeys(want))}, StudWork {show(
+							sortedKeys(got or {})
+						)}`
+					)
+				end
+			elseif not deepEqual(was, now) then
 				table.insert(errs, `'{k}' -> '{target}': old {show(was)}, StudWork {show(now)}`)
 			end
 		end
@@ -348,6 +410,21 @@ function MigrationCheck.checkSold(f: any, paidCurrencies: { string }, itemTag: s
 		end
 	end
 	return errs
+end
+
+-- Check 7 notes: sold kinds other than "currency" / "items" (e.g. "stat") aren't checked.
+function MigrationCheck.soldUnchecked(f: any): { string }
+	local out = {}
+	for _, path in sortedKeys(f.sold or {}) do
+		local kind = f.sold[path]
+		if kind ~= "currency" and kind ~= "items" then
+			table.insert(
+				out,
+				`sold '{path}' ({tostring(kind)}): not checked (only "currency" and "items" are)`
+			)
+		end
+	end
+	return out
 end
 
 function MigrationCheck.withoutField(old: any, key: any): any
@@ -457,6 +534,11 @@ function MigrationCheck.seedOps(source: any, userId: number, value: any, at: num
 		end
 	end
 	return ops
+end
+
+-- Check 4: true when `value` stores nothing in `source` (e.g. a map of sources with none left).
+function MigrationCheck.seedsNothing(source: any, value: any): boolean
+	return #MigrationCheck.seedOps(source, 1, value, 0) == 0
 end
 
 -- What a rejoin must leave unchanged: every module section, plus the import markers and the old

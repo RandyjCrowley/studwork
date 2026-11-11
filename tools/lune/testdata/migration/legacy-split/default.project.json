@@ -1,0 +1,80 @@
+{
+  "name": "legacy-split",
+  "globIgnorePaths": [
+    "**/*.spec.luau",
+    "**/README.md",
+    "**/*.json"
+  ],
+  "tree": {
+    "$className": "DataModel",
+    "ReplicatedStorage": {
+      "Packages": {
+        "$path": "../../../../../deps/Packages"
+      },
+      "Framework": {
+        "$path": "../../../../../packages/framework/shared"
+      },
+      "Game": {
+        "$path": "src/shared"
+      },
+      "GameModule": {
+        "$className": "Folder",
+        "module": {
+          "$path": "modules/legacygame/module.luau"
+        }
+      },
+      "Modules": {
+        "$className": "Folder",
+        "Items": {
+          "$className": "Folder",
+          "module": {
+            "$path": "../../../../../packages/kits/collection/Items/module.luau"
+          }
+        },
+        "Inventory": {
+          "$className": "Folder",
+          "module": {
+            "$path": "../../../../../packages/kits/collection/Inventory/module.luau"
+          }
+        },
+        "Economy": {
+          "$className": "Folder",
+          "module": {
+            "$path": "../../../../../packages/kits/economy/Economy/module.luau"
+          }
+        }
+      }
+    },
+    "ServerScriptService": {
+      "Framework": {
+        "$path": "../../../../../packages/framework/server"
+      },
+      "Game": {
+        "$path": "src/server"
+      },
+      "Modules": {
+        "$className": "Folder",
+        "LegacyGame": {
+          "$path": "modules/legacygame/server"
+        },
+        "Items": {
+          "$path": "../../../../../packages/kits/collection/Items/server"
+        },
+        "Inventory": {
+          "$path": "../../../../../packages/kits/collection/Inventory/server"
+        },
+        "Economy": {
+          "$path": "../../../../../packages/kits/economy/Economy/server"
+        }
+      }
+    },
+    "ServerStorage": {
+      "ServerPackages": {
+        "$path": "../../../../../deps/ServerPackages"
+      },
+      "Vendor": {
+        "$path": "../../../../../packages/vendor"
+      }
+    }
+  }
+}

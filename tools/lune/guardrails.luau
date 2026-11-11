@@ -12,6 +12,8 @@
 	  lune run tools/lune/guardrails <dir> ...    scan only these game folders (no git checks)
 	  lune run tools/lune/guardrails --raw [<dir> ...]   (v1.6.0) every finding, ignoring an
 	                                              adopted project's studwork-legacy.json
+	  lune run tools/lune/guardrails --legacy-files [<dir>] (v1.6.0) the list's valid entries,
+	                                              `<path>\t<reason>` per line (tools/lint)
 	  lune run tools/lune/guardrails --legacy-check <dir>  (v1.6.0) scan the project at <dir> as a
 	                                              root game and apply its studwork-legacy.json
 	(v1.6.0) Transitional guardrails (docs/framework/adopting.md §5): in an adopted project
@@ -370,8 +372,85 @@ local NORMALIZED_RULES = {
 	{ '"OnServer', "remotes", "RemoteEvent/RemoteFunction in game code: define remotes in game.blink", true },
 }
 
+-- (v1.6.0) line -> the line its statement starts on. A line continues the statement above when
+-- it starts inside an open bracket, when the line above ends with an operator, `=` or `,`, or
+-- when it starts with an operator, `.` or `:` (the places stylua breaks a long line). Strings are
+-- skipped; comments are already stripped (codeLines). A line right after a block opens (the
+-- first line of a function body) starts a statement even if the header ended with `(` or `,`.
+local CONT_END = {
+	"[%(%[{,=]%s*$",
+	"%.%.%s*$",
+	"[%+%-%*/%%%^<>]%s*$",
+	"%f[%w_]and%s*$",
+	"%f[%w_]or%s*$",
+	"%f[%w_]not%s*$",
+}
+local CONT_START = { "^%s*[%.:%+%-%*/%%%^<>=~%)%]}]", "^%s*and%f[^%w_]", "^%s*or%f[^%w_]" }
+function Guard.statementLines(codeLines: { string }): { number }
+	local out = {}
+	local depth = 0
+	local blocks: { number } = {}
+	local start = 1
+	local prev = ""
+	for lineNo, code in codeLines do
+		local cont = false
+		if lineNo > 1 and not string.match(code, "^%s*$") then
+			cont = depth > 0
+			for _, pat in CONT_END do
+				cont = cont or string.find(prev, pat) ~= nil
+			end
+			for _, pat in CONT_START do
+				cont = cont or string.find(code, pat) ~= nil
+			end
+		end
+		if not cont then
+			start = lineNo
+		end
+		out[lineNo] = start
+		-- bracket depth at the end of this line, outside strings. A block body (function, if, do,
+		-- repeat) starts statements of its own: its opening saves the depth and resets it, its
+		-- end / until restores it (so a callback passed to a call isn't one long statement).
+		local i = 1
+		while i <= #code do
+			local c = string.sub(code, i, i)
+			if c == '"' or c == "'" or c == "`" then
+				local j = i + 1
+				while j <= #code do
+					local d = string.sub(code, j, j)
+					if d == "\\" then
+						j += 1
+					elseif d == c then
+						break
+					end
+					j += 1
+				end
+				i = j
+			elseif c == "(" or c == "{" or c == "[" then
+				depth += 1
+			elseif c == ")" or c == "}" or c == "]" then
+				depth = math.max(0, depth - 1)
+			elseif string.match(c, "[%a_]") then
+				local word = string.match(code, "^[%w_]+", i) :: string
+				if word == "function" or word == "if" or word == "do" or word == "repeat" then
+					table.insert(blocks, depth)
+					depth = 0
+				elseif (word == "end" or word == "until") and #blocks > 0 then
+					depth = table.remove(blocks) :: number
+				end
+				i += #word - 1
+			end
+			i += 1
+		end
+		if not string.match(code, "^%s*$") then
+			prev = code
+		end
+	end
+	return out
+end
+
 function Guard.normalizedFindings(codeLines: { string }, rawLines: { string }, ctx): { any }
 	local norm, lines = Guard.normalize(codeLines)
+	local stmt = Guard.statementLines(codeLines)
 	local out = {}
 	local seen = {}
 	local function hit(pos: number, check: string, message: string)
@@ -382,7 +461,10 @@ function Guard.normalizedFindings(codeLines: { string }, rawLines: { string }, c
 		if allowed(rawLines[line] or "", check) then
 			return
 		end
-		local key = `{line}|{check}|{message}`
+		-- (v1.6.0) one finding per (statement, check, message), not per line: a pure re-wrap
+		-- (stylua splitting a call or an expression over lines) leaves the count an adopted
+		-- project's legacy baseline compares unchanged (Guard.statementLines)
+		local key = `{stmt[line] or line}|{check}|{message}`
 		if not seen[key] then
 			seen[key] = true
 			table.insert(out, { line = line, check = check, message = message })
@@ -1638,45 +1720,11 @@ local function canonicalJson(v: any): string
 end
 Guard.canonicalJson = canonicalJson
 
---[[
-	Pure evaluation (specs and --self-test plant every rule here). input:
-	  adopted      boolean: studwork.json has "adopted": true
-	  list         the decoded studwork-legacy.json (nil = no list), or listError (a parse error)
-	  baseline     studwork.json's legacyBaseline (the working copy), may be nil
-	  anchor       { status = "ok", baseline = <first-commit legacyBaseline>, commit = hash }
-	               | { status = "no-commit" } | { status = "shallow" } | { status = "unavailable", detail }
-	  inspect      fn(path) -> "file" | "missing" | "symlink" | "case" | "not-canonical"
-	findings: every raw finding (root-relative paths).
-	-> (failures, warnings, notes): failures fail lint; warnings and notes are printed only.
-]]
-function Guard.applyLegacy(findings: { string }, input: any): ({ string }, { string }, { string })
-	local failures, warnings, notes = {}, {}, {}
+-- The list's entries, validated (the shape, reasons, paths on disk, checks). `fail(msg)` gets one
+-- message per problem; an entry with a broken path or a duplicate is left out, one with a bad
+-- reason or bad checks is kept (its problems already failed). -> (entries by path, count)
+function Guard.legacyEntries(input: any, fail: (string) -> ()): ({ [string]: any }, number)
 	local L = Guard.LEGACY_LIST
-	if input.list == nil and input.listError == nil then
-		for _, f in findings do
-			table.insert(failures, f)
-		end
-		return failures, warnings, notes
-	end
-	local function fail(msg: string)
-		table.insert(failures, `{L}: [legacy] {msg}`)
-	end
-	if not input.adopted then
-		fail('only adopted projects may have a legacy list (studwork.json has no "adopted": true)')
-		for _, f in findings do
-			table.insert(failures, f)
-		end
-		return failures, warnings, notes
-	end
-	if input.listError ~= nil then
-		fail("can't read the list: " .. tostring(input.listError))
-		for _, f in findings do
-			table.insert(failures, f)
-		end
-		return failures, warnings, notes
-	end
-
-	-- the entries
 	local entries: { [string]: { checks: { [string]: boolean }, reason: string } } = {}
 	local count = 0
 	local files = if type(input.list) == "table" then input.list.files else nil
@@ -1732,6 +1780,48 @@ function Guard.applyLegacy(findings: { string }, input: any): ({ string }, { str
 		count += 1
 		entries[path] = { checks = checks, reason = if type(e.reason) == "string" then e.reason else "" }
 	end
+	return entries, count
+end
+
+--[[
+	Pure evaluation (specs and --self-test plant every rule here). input:
+	  adopted      boolean: studwork.json has "adopted": true
+	  list         the decoded studwork-legacy.json (nil = no list), or listError (a parse error)
+	  baseline     studwork.json's legacyBaseline (the working copy), may be nil
+	  anchor       { status = "ok", baseline = <first-commit legacyBaseline>, commit = hash }
+	               | { status = "no-commit" } | { status = "shallow" } | { status = "unavailable", detail }
+	  inspect      fn(path) -> "file" | "missing" | "symlink" | "case" | "not-canonical"
+	findings: every raw finding (root-relative paths).
+	-> (failures, warnings, notes): failures fail lint; warnings and notes are printed only.
+]]
+function Guard.applyLegacy(findings: { string }, input: any): ({ string }, { string }, { string })
+	local failures, warnings, notes = {}, {}, {}
+	local L = Guard.LEGACY_LIST
+	if input.list == nil and input.listError == nil then
+		for _, f in findings do
+			table.insert(failures, f)
+		end
+		return failures, warnings, notes
+	end
+	local function fail(msg: string)
+		table.insert(failures, `{L}: [legacy] {msg}`)
+	end
+	if not input.adopted then
+		fail('only adopted projects may have a legacy list (studwork.json has no "adopted": true)')
+		for _, f in findings do
+			table.insert(failures, f)
+		end
+		return failures, warnings, notes
+	end
+	if input.listError ~= nil then
+		fail("can't read the list: " .. tostring(input.listError))
+		for _, f in findings do
+			table.insert(failures, f)
+		end
+		return failures, warnings, notes
+	end
+
+	local entries, count = Guard.legacyEntries(input, fail)
 
 	-- the baseline, anchored in git
 	local baseline = input.baseline
@@ -2764,6 +2854,26 @@ local raw = false
 if args[1] == "--raw" then
 	raw = true
 	args = table.move(args, 2, #args, 1, {})
+end
+-- (v1.6.0) --legacy-files [<dir>]: the valid entries of the project's studwork-legacy.json, one
+-- `<path>\t<reason>` line each (tools/lint skips selene/stylua for them). Prints nothing for no list,
+-- a non-adopted project or an unreadable list (the guardrails step of lint fails those); always exits 0.
+if args[1] == "--legacy-files" then
+	local root = args[2] or "."
+	local input = Guard.legacyInput(root)
+	if input.adopted and input.list ~= nil and input.listError == nil then
+		local entries = Guard.legacyEntries(input, function() end)
+		local paths = {}
+		for path in entries do
+			table.insert(paths, path)
+		end
+		table.sort(paths)
+		for _, path in paths do
+			local reason = string.gsub(entries[path].reason, "[\t\r\n]+", " ")
+			print(path .. "\t" .. reason)
+		end
+	end
+	process.exit(0)
 end
 -- (v1.6.0) --legacy-check <dir>: scan the project at <dir> as a root game and apply its
 -- studwork-legacy.json (paths relative to <dir>); the transitional rules' end-to-end hook (specs)

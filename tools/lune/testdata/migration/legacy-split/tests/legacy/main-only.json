@@ -1,0 +1,32 @@
+{
+  "description": "only the main store exists (no backup) (synthetic)",
+  "userId": 2002,
+  "old": {
+    "main": {
+      "coins": 50,
+      "rebirths": 2,
+      "pets": [
+        {
+          "id": "pebble",
+          "uid": "old-1"
+        },
+        {
+          "id": "gem",
+          "uid": "old-2"
+        }
+      ],
+      "purchases": {
+        "synthetic-receipt-1": true,
+        "synthetic-receipt-2": true
+      }
+    }
+  },
+  "expect": {
+    "main.coins": "economy.currency.Coins",
+    "main.rebirths": "legacy-split.rebirths",
+    "main.pets": {
+      "items": "inventory.inventory"
+    },
+    "main.purchases": "_framework.legacyPurchases"
+  }
+}

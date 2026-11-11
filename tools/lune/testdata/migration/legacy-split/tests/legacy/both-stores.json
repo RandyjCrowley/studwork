@@ -1,0 +1,40 @@
+{
+  "description": "both stores, pets as tables, receipts as true, a sold stat (synthetic)",
+  "userId": 2001,
+  "old": {
+    "main": {
+      "coins": 50,
+      "rebirths": 2,
+      "pets": [
+        {
+          "id": "pebble",
+          "uid": "old-1"
+        },
+        {
+          "id": "gem",
+          "uid": "old-2"
+        }
+      ],
+      "purchases": {
+        "synthetic-receipt-1": true,
+        "synthetic-receipt-2": true
+      }
+    },
+    "backup": {
+      "coins": 50
+    }
+  },
+  "expect": {
+    "main.coins": "economy.currency.Coins",
+    "backup.coins": "economy.currency.Coins",
+    "main.rebirths": "legacy-split.rebirths",
+    "main.pets": {
+      "items": "inventory.inventory"
+    },
+    "main.purchases": "_framework.legacyPurchases"
+  },
+  "sold": {
+    "main.coins": "currency",
+    "main.rebirths": "stat"
+  }
+}
