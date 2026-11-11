@@ -246,8 +246,11 @@ local function checkItemFields(itemFields: any, errors: { string })
 end
 
 local function checkTheme(theme: any, errors: { string })
+	if type(theme) == "function" then
+		return -- theme = function(config) -> table (Phase 2): checked at boot, with the merged config
+	end
 	if type(theme) ~= "table" then
-		table.insert(errors, "theme must be a table of token groups")
+		table.insert(errors, "theme must be a table of token groups, or a function(config) -> table")
 		return
 	end
 	for k, group in theme do

@@ -14,7 +14,7 @@
 	data: section 'rarity' = { pity = { [tableId]: number } } (the v1.2 PlayerData field, unchanged;
 	server-only). Version 1; migration 1 normalises a split v1.2 section, sanitize keeps only
 	non-negative integer counters.
-	theme: theme.rarity.tiers = the standard7 preset (see the server part for a custom list).
+	theme: theme.rarity.tiers = the resolved config.Rarity.tiers (theme = function(config), Phase 2).
 	optional: Inventory (rolls that grant), Economy (coin-priced RequestRoll of a free currency).
 	client: the `roll` action (RequestRoll), served by ../shared/ModuleClients.luau.
 ]]
@@ -74,6 +74,11 @@ return StudWork.defineModule({
 		sanitize = sanitize,
 		replicate = false,
 	},
-	theme = { rarity = { tiers = Tiers.PRESETS.standard7 } },
+	-- config-driven theme (framework Phase 2): the resolved config.Rarity.tiers, so a game with
+	-- custom tiers lists them once, in config (an invalid list fails boot in the server part)
+	theme = function(config: any): any
+		local tiers = Tiers.resolve(if type(config) == "table" then config.tiers else nil)
+		return { rarity = { tiers = tiers or Tiers.PRESETS.standard7 } }
+	end,
 	client = "Rarity",
 })

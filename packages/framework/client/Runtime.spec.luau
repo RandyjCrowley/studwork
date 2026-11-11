@@ -129,4 +129,36 @@ describe("StudWork client runtime", function()
 		expect(string.find(tostring(err), "already called", 1, true) ~= nil).toBe(true)
 		Boot.attach(nil)
 	end)
+
+	it("a module's theme(config) reaches the client theme: 4 custom Rarity tiers in config only", function()
+		local Collection = ReplicatedStorage:WaitForChild("Kits"):WaitForChild("Collection")
+		local Items = require(Collection:WaitForChild("Items"))
+		local Rarity = require(Collection:WaitForChild("Rarity"))
+		local tiers = {
+			{ id = "Low", color = "#111111" },
+			{ id = "Mid" },
+			{ id = "High", soundKey = "r_high" },
+			{ id = "Top", glow = "#FFFFFF", glowStrength = 1 },
+		}
+		local rt = start({
+			config = {
+				gameId = "t",
+				modules = { Items, Rarity },
+				items = {
+					{ id = "dust", name = "Dust", rarity = "Low" },
+					{ id = "crown", name = "Crown", rarity = "Top" },
+				},
+				config = { Rarity = { tiers = tiers } }, -- no GameConfig.theme
+			},
+			parts = {},
+		})
+		local got = rt.theme.rarity.tiers
+		expect(#got).toBe(4)
+		expect(got[1].id).toBe("Low")
+		expect(got[1].color).toBe("#111111")
+		expect(got[2].id).toBe("Mid")
+		expect(got[3].soundKey).toBe("r_high")
+		expect(got[4].id).toBe("Top")
+		expect(got[4].glow).toBe("#FFFFFF")
+	end)
 end)

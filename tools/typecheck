@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # tools/typecheck [game]: strict type-check framework, kits, ui, the v1.2 shared files the kits still
-# read (packages/core/shared) and a game (default _sandbox) with luau-lsp,
+# read (packages/core/shared), a game (default _sandbox) and the example modules (examples/) with luau-lsp,
 # using Roblox definitions pinned to the luau-lsp version in rokit.toml and a Rojo sourcemap.
 # Exit 1 on any type error.
 source "$(dirname "$0")/_common.sh"
@@ -45,6 +45,23 @@ for EXTRA in games/$GAME/*.project.json; do
 		--ignore "**/Generated*.luau" \
 		--ignore "**/deps/**" \
 		"$SUB" 2>&1 \
+		| grep -v '^\[INFO\]\|^\[WARN\]' || true)"
+done
+
+# The example modules (examples/modules/<m>), each against its fixture game's Rojo project
+# (tests/fixture-game/default.project.json); specs are Lune-only (Phase 2).
+for FIXTURE in examples/modules/*/tests/fixture-game/default.project.json; do
+	[ -f "$FIXTURE" ] || continue
+	MOD="$(dirname "$(dirname "$(dirname "$FIXTURE")")")"
+	rojo sourcemap "$FIXTURE" --absolute -o .cache/sourcemap-example.json >/dev/null
+	OUT="$OUT$(luau-lsp analyze --platform roblox \
+		--sourcemap .cache/sourcemap-example.json \
+		--defs "@roblox=$DEFS" \
+		--defs "@testkit=tools/types/testkit.d.luau" \
+		--ignore "**/Generated*.luau" \
+		--ignore "**/deps/**" \
+		--ignore "**/*.spec.luau" \
+		"$MOD" 2>&1 \
 		| grep -v '^\[INFO\]\|^\[WARN\]' || true)"
 done
 

@@ -17,6 +17,8 @@
 	                custom(p, name, value, fields?) }   fields: { [string]: string } -> customFields
 	  makeSync(hooks) -> replication transport (Replication.luau)
 	  makeStore(gameId) -> Data store (Store.luau)
+	  makeShared(gameId) -> shared-store backend (SharedStore.luau; ctx.data.shared). Optional:
+	                                   without it the runtime uses SharedStore.memory()
 	  installConsole(run(...) -> string)
 	  gameModule() -> ModuleRef?       the game's implicit module (§7, C4): live, the definition at
 	                                   ReplicatedStorage.GameModule.module (games/<g>/modules/<gameId>)
@@ -24,6 +26,7 @@
 	}
 ]]
 
+local SharedStore = require(script.Parent.SharedStore)
 local Store = require(script.Parent.Store)
 
 local Platform = {}
@@ -93,6 +96,9 @@ function Platform.inert(overrides: any?): any
 		end,
 		makeStore = function(_gameId: string): any
 			return Store.memory()
+		end,
+		makeShared = function(_gameId: string): any
+			return SharedStore.memory()
 		end,
 		installConsole = function(_run: any) end,
 	}
@@ -279,6 +285,14 @@ function Platform.live(): any
 				spawn = task.spawn,
 				log = warn,
 				isPlayer = isPlayer,
+			})
+		end,
+		-- ctx.data.shared: one framework-owned DataStore (the only DataStore outside Data)
+		makeShared = function(gameId: string): any
+			local name = "StudWorkShared_" .. tostring(gameId) .. (if isStudio then "_Studio" else "")
+			return SharedStore.dataStore(game:GetService("DataStoreService"), name, {
+				isStudio = isStudio,
+				log = warn,
 			})
 		end,
 		gameModule = function(): any

@@ -755,3 +755,55 @@ return M
 The example uses no internals, and it shows: its own config with defaults, its own save section,
 an optional dependency and its signals, the shared ticker, replicated state, and a HUD
 contribution. Every feature a built-in kit uses is available to it.
+
+## 19. Phase 2 additions (core-v1.3.0)
+
+Additive surfaces added after the `core-contract-v1.3` freeze. Nothing above changed.
+
+### 19.1 `ctx.data.shared`: the cross-server shared store (added in Phase 2: R1 gift cap and return-to-sender need one atomic record per recipient that every server can update)
+
+```lua
+local ok, new = ctx.data.shared.update(key, function(old) return new end)
+```
+
+- One durable store shared by every server of the experience: a framework-owned DataStore
+  (`StudWorkShared_<gameId>`, `_Studio` suffix in Studio) behind `UpdateAsync`, so the
+  read-modify-write is atomic across servers.
+- Keys are the module's own. The framework prefixes every key with `<ModuleName>/`, so a module
+  can't read or write another module's keys. The full key, prefix included, is at most 50
+  characters (the DataStore key limit).
+- `fn(old)` returns the new value. Returning `nil` deletes the key. `fn` can run more than once
+  (UpdateAsync retries on a conflict), so it must only compute from `old`.
+- `update` yields. Call it from a thread, never in the body of `init` or `start`. A failing call
+  is retried with backoff. The final failure returns `(false, nil)` and logs a warning. An error
+  inside `fn` writes nothing and isn't retried.
+- In Studio without API access, the store falls back to an in-memory one with a warning, like
+  Data does. The test harness uses an in-memory store. In the multi-server sim, every sim server
+  shares the World's mock DataStore, which also supports failure injection.
+- The store is durable and has no expiry. A MemoryStore fast path wasn't added because R1 needs
+  durability, and R3/R7 didn't need one (see decisions).
+- `DataStoreService` and `MemoryStoreService` stay framework-only (guardrails `purchases` check).
+
+### 19.2 `ctx.now()`: the framework clock (added in Phase 2: time-based modules and their tests need the clock that stamps `lastSeen`, not `os.time()`)
+
+`ctx.now() -> number` returns unix seconds from the runtime's clock. That's `os.time()` live,
+the harness clock in `harness.luau` (`h:tick`, `h:rejoin({ secondsAway })`), and the World clock
+in the sim. It's the same clock as `ctx.framework.lastSeen`. Kit code uses it instead of
+`os.time()` (Offline, Streak, Mail gift expiry, Economy boost expiry, Inventory `acquiredAt`).
+
+### 19.3 `theme = function(config) -> table` (added in Phase 2: Rarity's tiers come from `config.Rarity.tiers`, so games stop repeating them in `GameConfig.theme`)
+
+A definition's `theme` (§13) can also be a function. It receives the module's merged and
+validated config, on the server and the client (both merge through the shared `ConfigValidate`).
+It returns the same token-group table a static `theme` would. The merge order is unchanged:
+preset → each enabled module's contribution in boot order → `GameConfig.theme`. A function
+that errors, or returns something other than a table, is a boot error. Rarity contributes
+`theme.rarity.tiers` from `config.Rarity.tiers`.
+
+### 19.4 HUD widgets: `UI.registerWidget` (added in Phase 2: §13 says modules contribute widgets but named no call)
+
+`UI.registerWidget(id, spec | false)` (`packages/ui`) is the one documented call. `id` is
+`"<Module>.<widget>"` and `spec = { slot, order?, component }`. `false` removes the widget.
+`StudWork.Client.Hud.addWidget` is the same function, also listed in `Types.HudAPI`. Call it from
+a module's client `start` or from a game's client script. Games hide a widget with
+`GameConfig.client.hud = { widgets = { [id] = false } }`.

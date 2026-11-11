@@ -14,10 +14,9 @@
 
 	core-v1.3.0 (step 4b-IIa): charm-sync now patches State.raw, the replicated state as the
 	server sends it (StudWork.Client.state(), module-api.md §10: { loaded, framework, modules }).
-	State.atom is a selector over it through State.setView: the COMPAT client selector
-	(packages/kits/compat/shared/FlatState.luau, installed by the client bootstrap; deleted in
-	Phase 2) derives the v1.2 flat ReplicatedState the v1.2 UI here (Hud, Visibility, onMailbox)
-	still reads. A v1.2 server's flat state passes through it unchanged.
+	State.atom is a selector over it through State.setView. Since Phase 2 the client bootstrap no
+	longer installs the compat FlatState view (Hud reads State.raw through Hud/Slices, onMailbox
+	reads either shape), so State.atom is the raw state unless a caller installs a view.
 ]]
 
 local Players = game:GetService("Players")
@@ -56,7 +55,7 @@ State.atom = (
 	end) :: any
 ) :: Types.Atom<Types.ReplicatedState>
 
--- Installed by the client bootstrap before State.start (the compat FlatState selector).
+-- An optional view over the raw state (none is installed since Phase 2).
 function State.setView(fn: (raw: any) -> any)
 	view = fn
 end

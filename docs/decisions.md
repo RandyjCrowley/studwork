@@ -485,3 +485,24 @@ lead re-running lint, typecheck (6 games), tests (582), test-sim (51) and 8 rojo
    kit definitions.
 9. **Open:** the bench's `MERGED` variant still times the v1.2 `Data/Transaction.luau`. It gets
    ported in Phase 2 step 7.
+
+## core-v1.3.0 Phase 1 merge and Phase 2 (P2-A)
+
+- **Phase 1 merged A→E** on `core/v13-integration` with the full gate after each merge. Lead
+  glue: Upgrades registers `Inventory.capBonus`; Plot registers `Economy.extensions.displayedSource`
+  (both optional deps; removes compat shims); `compatServices` serves the sim when every kit is real;
+  two lead-owned specs corrected (Adapters per-module count; the real v1.2 accent `#FFB547`).
+- **Shared cross-server store (added per the user; module-api.md §19):** `ctx.data.shared.update(key, fn)`
+  on one framework DataStore via `UpdateAsync`, keys namespaced per module, retries, Studio fallback. No
+  MemoryStore surface was needed for R1. **R1 is live:** per-recipient undelivered-gift cap (100) and
+  return-to-sender after 14 days; the 2400-gift test passes on the real path (3 sim servers, real
+  ProfileStore queue dropping past 1000, plus intermittent store failures), with a control proving the
+  cap is what saves the items. CLAUDE.md's "only gift recently active players" rule is removed.
+- **R3 stays partial:** clearing a sender's outbox from another server would need that sender's session;
+  unsent outboxes are resent on leave and at next login.
+- **Framework clock `ctx.now()`**; kit code no longer calls `os.time()`; streak/offline/gift-expiry tests run
+  on the harness/sim clock.
+- **Config-driven theme:** a module's `theme` may be `function(config) -> table`; Rarity contributes
+  `theme.rarity.tiers` from `config.Rarity.tiers` (no duplication in GameConfig.theme).
+- **HUD widgets:** `UI.registerWidget` is the one documented call; `Hud.addWidget` on the client facade.
+- `examples/` is linted, typechecked, simmed and tested by default; game specs see their project tree.

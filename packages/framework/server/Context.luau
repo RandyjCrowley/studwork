@@ -6,7 +6,8 @@
 
 	name, config, gameConfig, deps, depsTx, depsExt, isEnabled, data (ScopedData, incl.
 	saveAsync and the cross-server `messages` channel), tx, section, framework (firstJoin,
-	lastSeen, sessions), signals, console, lifecycle, log, theme (read-only merged tree), isStudio,
+	lastSeen, sessions), now (the framework clock, unix seconds; Phase 2), data.shared (the
+	cross-server shared store, SharedStore.luau; Phase 2), signals, console, lifecycle, log, theme (read-only merged tree), isStudio,
 	serverConfig, and the framework services, each scoped to this module (core-v1.3.0 step 4b):
 	  net         Net.forModule          handle / handleEvent / feedback / fire / fireAll
 	  replicate   Replication.forModule  set / setAll / sent  (state.modules[<Name>].extra)
@@ -112,6 +113,9 @@ function Context.build(rt: any, ref: any): any
 				data.nudge(userId)
 			end,
 		}),
+		-- Durable, atomic, cross-server key-value store; keys are this module's own (prefixed with
+		-- its name). update(key, fn(old) -> new) -> (ok, new); yields (SharedStore.luau).
+		shared = rt.shared.forModule(name, rt.assertUsable),
 	})
 
 	local signals: any = {
@@ -201,6 +205,10 @@ function Context.build(rt: any, ref: any): any
 		log = log,
 		theme = rt.theme,
 		isStudio = rt.isStudio,
+		-- the framework clock (unix seconds): the same clock that stamps lastSeen; tests drive it
+		now = function(): number
+			return rt.now()
+		end,
 		serverConfig = Freeze.freezeCopy(
 			if type(rt.serverConfig) == "table" then rt.serverConfig[name] else nil
 		),

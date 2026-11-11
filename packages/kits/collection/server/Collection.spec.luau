@@ -249,8 +249,12 @@ describe("Rarity tiers from config", function()
 		expect(h:use(Rarity).tiers()[2].id).toBe("Silver")
 		expect(h:use(Rarity).getOdds("Mine", 2).bar).toBeNear(2 / 7, 6)
 		expect(h:use(Rarity).getOddsDetail("Mine").pity.items.bar).toBe(1)
-		-- no matching theme list: a warning names the fix
-		expect(warned(h, "theme.rarity.tiers differs")).toBe(true)
+		-- config only, no GameConfig.theme: Rarity's theme(config) contributes the list (Phase 2;
+		-- this used to warn "theme.rarity.tiers differs" and ask the game to repeat the list)
+		expect(warned(h, "theme.rarity.tiers")).toBe(false)
+		expect(#h.runtime.theme.rarity.tiers).toBe(3)
+		expect(h.runtime.theme.rarity.tiers[1].id).toBe("Bronze")
+		expect(h.runtime.theme.rarity.tiers[3].id).toBe("Gold")
 		-- an item with a standard7 rarity in a Bronze/Silver/Gold game is a boot error
 		local bad = table.clone(items)
 		table.insert(bad, { id = "rock", name = "Rock", rarity = "Common" })

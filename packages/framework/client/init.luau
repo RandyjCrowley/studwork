@@ -5,10 +5,11 @@
 	StudWork.start(Config). That boots the client modules (StudWork.use(X) = X's ClientAPI with
 	its actions, §9) and this framework client UI, exposed as StudWork.Client:
 	  state()            the replicated state, as sent (§10: { loaded, framework, modules })
-	  Hud, Feedback, Input, onFeedbackEvent, onMailbox   the v1.2 client UI (agent D rebuilds it
-	                     on theme tokens + HUD slots in Phase 1)
-	The v1.2 UI reads the flat v1.2 ReplicatedState through the compat selector
-	(ReplicatedStorage.CompatShared.FlatState; deleted in Phase 2).
+	  Hud, Feedback, Input, onFeedbackEvent, onMailbox   the client UI on theme tokens + HUD slots
+	  Hud.addWidget(id, spec | false)   the one call a module or game uses to contribute (or
+	                     remove) a HUD widget (= UI.registerWidget; Phase 2)
+	The UI reads the replicated state as sent (State.raw through Hud/Slices); the compat FlatState
+	view is no longer installed (Phase 2).
 
 	v1.2 path (kept until step 4b-IIb converts the scaffolds): the Core facade requires this file
 	on the client and calls Client.start(core, config, serverConfig, moduleOrder).
@@ -84,7 +85,7 @@ Client.api = table.freeze({
 		"funnel",
 		"claimMail",
 	}),
-	Hud = pick(Hud, { "mount", "unmount" }),
+	Hud = pick(Hud, { "mount", "unmount", "addWidget" }),
 	onFeedbackEvent = Feedback.onFeedbackEvent,
 	onMailbox = onMailbox,
 }) :: Types.ClientAPI
@@ -119,20 +120,13 @@ local function compat(name: string): any
 	return if m and m:IsA("ModuleScript") then (require :: any)(m) else nil
 end
 
--- Step 4 of the client boot: the framework client UI on the v1.2 config view + flat state.
+-- Step 4 of the client boot: the framework client UI on the v1.2 config view. The state is the
+-- replicated state as sent (no flat compat view since Phase 2: Hud and onMailbox read it raw).
 local function startUi(info: any): any
 	local V12Config = compat("V12Config")
-	local FlatState = compat("FlatState")
 	local view = if V12Config
 		then V12Config.view(info.gameConfig, info.configs, info.gameModule)
 		else { gameId = info.gameConfig.gameId, balance = { primaryCurrency = "Coins" }, modules = {} }
-	if FlatState then
-		local gameModuleName = if info.gameModule then info.gameModule.name else nil
-		local gameId = info.gameConfig.gameId
-		State.setView(function(raw: any): any
-			return FlatState.flatten(raw, gameModuleName, gameId)
-		end)
-	end
 	local names: { string } = {}
 	for _, ref in info.order do
 		table.insert(names, ref.name)

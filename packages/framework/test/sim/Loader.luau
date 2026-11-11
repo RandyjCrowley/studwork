@@ -39,6 +39,8 @@ local ROOTS = {
 	-- game projects (Fixtures.gameServer boots a real game's Config through its Rojo project)
 	"games",
 	"templates",
+	-- example modules + their fixture games (examples/modules/*/tests; Phase 2)
+	"examples",
 }
 
 local kinds: { [string]: "file" | "dir" } = {}

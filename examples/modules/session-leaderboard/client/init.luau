@@ -25,11 +25,9 @@ local SessionLeaderboardClient = {}
 
 function SessionLeaderboardClient.start(_ctx: any)
 	UI.registerScreen("Leaderboard", Screen)
-	-- HUD widgets (§13 "Modules contribute widgets"): the registration call is the UI owner's;
-	-- skipped while the UI package doesn't offer it yet.
-	if type(UI.registerWidget) == "function" then
-		UI.registerWidget("SessionLeaderboard.top", { slot = "right", component = Widget })
-	end
+	-- HUD widgets (§13 "Modules contribute widgets"): UI.registerWidget is the one documented
+	-- call (StudWork.Client.Hud.addWidget is the same function)
+	UI.registerWidget("SessionLeaderboard.top", { slot = "right", component = Widget })
 end
 
 SessionLeaderboardClient.api = {

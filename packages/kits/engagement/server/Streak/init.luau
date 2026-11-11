@@ -20,7 +20,6 @@
 	signals.StreakAdvanced. Console: `streak dump [userId]`, `streak advance [userId]` (Studio).
 ]]
 
-local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
 local StreakMath = require(script.StreakMath)
@@ -102,9 +101,19 @@ local function evaluate(player: any, now: number): number?
 	return day
 end
 
+-- players whose save is loaded in this server (no Players service: the module only sees ctx)
+local online: { [any]: boolean } = {}
+
 local function targetPlayer(arg: any): any
 	local id = tonumber(arg)
-	return (id and Players:GetPlayerByUserId(id)) or Players:GetPlayers()[1]
+	local first = nil
+	for player in online do
+		if id ~= nil and player.UserId == id then
+			return player
+		end
+		first = first or player
+	end
+	return if id == nil then first else nil
 end
 
 function Streak.init(context: any)
@@ -116,7 +125,7 @@ function Streak.init(context: any)
 		if state == nil then
 			return "no loaded player"
 		end
-		local today = StreakMath.dayIndex(os.time(), offsetHours())
+		local today = StreakMath.dayIndex(ctx.now(), offsetHours())
 		return `day {state.day}, lastDay {state.lastDay} (today {today}, UTC{offsetHours()})`
 	end, "streak dump [userId]: show a player's streak")
 	ctx.console.register("advance", function(_player: any, userId: any): string
@@ -128,7 +137,7 @@ function Streak.init(context: any)
 		if state == nil then
 			return "no loaded player"
 		end
-		local now = os.time()
+		local now = ctx.now()
 		-- pretend the last counted day was yesterday, then evaluate now
 		ctx.data.update(player, function(section: any)
 			section.streak = {
@@ -143,11 +152,15 @@ end
 
 function Streak.start(_context: any)
 	ctx.data.onLoaded(function(player: any)
-		evaluate(player, os.time())
+		online[player] = true
+		evaluate(player, ctx.now())
+	end)
+	ctx.lifecycle.onPlayerRemoving(function(player: any)
+		online[player] = nil
 	end)
 	ctx.lifecycle.onTick(CHECK_INTERVAL, function()
-		local now = os.time()
-		for _, player in Players:GetPlayers() do
+		local now = ctx.now()
+		for player in table.clone(online) do
 			if ctx.data.isLoaded(player) then
 				task.spawn(evaluate, player, now)
 			end

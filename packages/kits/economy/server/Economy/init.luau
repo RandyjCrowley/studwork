@@ -219,7 +219,7 @@ function Economy.new(): any
 	-- state), so it is right the moment data is loaded, whatever order onLoaded handlers run in.
 	local function recompute(player: any, s: State)
 		local data = view(player)
-		local now = os.time()
+		local now = ctx.now()
 		local list: { number } = {}
 		for _, f in factors do
 			local ok, value = pcall(f.fn, player)
@@ -263,7 +263,7 @@ function Economy.new(): any
 
 	local function fresh(player: any): State
 		local s = getState(player)
-		if s.dirty or (s.nextExpiry ~= nil and os.time() >= (s.nextExpiry :: number)) then
+		if s.dirty or (s.nextExpiry ~= nil and ctx.now() >= (s.nextExpiry :: number)) then
 			recompute(player, s)
 		end
 		return s
@@ -520,7 +520,7 @@ function Economy.new(): any
 	------------------------------------------------------------------------------------------
 
 	local function tick(dt: number)
-		local now = os.time()
+		local now = ctx.now()
 		local currency = primary()
 		for player, s in states do
 			if not ctx.data.isLoaded(player) then
@@ -581,7 +581,7 @@ function Economy.new(): any
 					balances[id] = if first then amount else 0
 				end
 			end
-			RateMath.pruneExpired(section.multipliers, os.time())
+			RateMath.pruneExpired(section.multipliers, ctx.now())
 		end)
 		recompute(player, getState(player))
 	end
