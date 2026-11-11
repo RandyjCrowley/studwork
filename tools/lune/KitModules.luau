@@ -1,18 +1,20 @@
 --!strict
 --[[
 	tools/lune/KitModules: the kit module manifest for tools (core-v1.3.0 step 4b-IIb), read from
-	the kit module DEFINITIONS (packages/kits/<kit>/shared/<Module>.luau, defineModule) instead of
-	the deleted v1.2 module manifest. Pure helpers (no requires); the file reading is in
-	KitModules.load(fs).
+	the kit module DEFINITIONS (core-v1.3.1 R19, one folder per module:
+	packages/kits/<kit>/<Module>/module.luau, defineModule) instead of the deleted v1.2 module
+	manifest. Pure helpers; the file reading is in KitModules.load(fs) (module folders found by
+	tools/lune/ModuleDiscovery.luau, the same discovery as the testkit, the sim and sync-projects).
 
 	KitModules.parse(files)  files = { [path] = source } -> manifest
-	KitModules.load(fs)      reads packages/kits/*/shared/*.luau -> manifest
+	                         (packages/kits/<kit>/<Module>/module.luau and .../client/init.luau)
+	KitModules.load(fs)      reads every kit module folder -> manifest
 	manifest = {
 	  ORDER     { string }                       the template's boot order (GameConfig.modules)
 	  SPECS     { [name] = { kit, requires } }   requires = hard deps (defineModule dependsOn)
-	  ACTIONS   { [action] = owner module }      client actions (shared/ModuleClients.luau ACTIONS)
+	  ACTIONS   { [action] = owner module }      client actions (<Module>/client/init.luau `actions`)
 	  FOUNDATION, isFoundation(name)             framework services (never listed)
-	  kitFolder(name) -> "Collection" | ...      ReplicatedStorage.Kits.<folder> of a module
+	  kitFolder(name) -> "Collection" | ...      the kit a module ships in (packages/kits/<kit>)
 	  isModule(name) -> boolean
 	  resolve(names) -> (ordered?, errors?)      hard deps listed, in ORDER
 	}
@@ -50,8 +52,13 @@ local function parseDefinition(source: string): (string?, { string })
 	if deps then
 		-- `dependsOn = { Items }` (a local required from script.Parent.<Name>) or
 		-- `require(X:WaitForChild("Name"))`
-		for quoted in string.gmatch(deps, 'WaitForChild%("([%w_]+)"%)%)') do
+		for quoted in string.gmatch(deps, 'WaitForChild%("([%w_]+)"%):WaitForChild%("module"%)%)') do
 			table.insert(requires, quoted)
+		end
+		if #requires == 0 then
+			for quoted in string.gmatch(deps, 'WaitForChild%("([%w_]+)"%)%)') do
+				table.insert(requires, quoted)
+			end
 		end
 		if #requires == 0 then
 			for ident in string.gmatch(string.sub(deps, 2, -2), "([%a_][%w_]*)") do
@@ -72,21 +79,27 @@ function KitModules.parse(files: { [string]: string }): any
 	table.sort(paths)
 	for _, path in paths do
 		local source = files[path]
-		local kit = string.match(path, "packages/kits/([%w_%-]+)/shared/")
-		if string.match(path, "/ModuleClients%.luau$") then
-			local block = string.match(source, "ACTIONS%s*=%s*table%.freeze%((%b{})%)")
-				or string.match(source, "ACTIONS%s*=%s*(%b{})")
-			if block then
-				for owner, inner in string.gmatch(block, "([%a_][%w_]*)%s*=%s*(%b{})") do
-					for action in string.gmatch(inner, "([%a_][%w_]*)%s*=") do
-						actions[action] = owner
-					end
-				end
-			end
-		elseif kit then
+		local kit, folder = string.match(path, "packages/kits/([%w_%-]+)/([%w_]+)/module%.luau$")
+		local ckit, cfolder = string.match(path, "packages/kits/([%w_%-]+)/([%w_]+)/client/init%.luau$")
+		if kit then
 			local name, requires = parseDefinition(source)
 			if name then
-				specs[name] = { kit = kit, requires = requires }
+				specs[name] = { kit = kit, folder = folder, requires = requires }
+			end
+		elseif ckit then
+			-- `actions = { name = "Event", ... }` or `actions = { "name", ... }` (module-api.md §9)
+			local block = string.match(source, "actions%s*=%s*(%b{})")
+			if block then
+				local inner = string.sub(block, 2, -2)
+				for action in string.gmatch(inner, "([%a_][%w_]*)%s*=") do
+					actions[action] = cfolder
+				end
+				for action in string.gmatch(inner, '^%s*"([%a_][%w_]*)"') do
+					actions[action] = cfolder
+				end
+				for action in string.gmatch(inner, ',%s*"([%a_][%w_]*)"') do
+					actions[action] = cfolder
+				end
 			end
 		end
 	end
@@ -159,16 +172,17 @@ function KitModules.parse(files: { [string]: string }): any
 	return manifest
 end
 
--- fs = @lune/fs
-function KitModules.load(fs: any): any
+-- fs = @lune/fs; discovery = tools/lune/ModuleDiscovery (Lune scripts may omit it; a spec loaded
+-- through the testkit passes require("tools/lune/ModuleDiscovery.luau"))
+function KitModules.load(fs: any, discovery: any?): any
+	local ModuleDiscovery = discovery or (require :: any)("./ModuleDiscovery")
 	local files: { [string]: string } = {}
-	for _, kit in fs.readDir("packages/kits") do
-		local dir = "packages/kits/" .. kit .. "/shared"
-		if kit ~= "compat" and fs.isDir("packages/kits/" .. kit) and fs.isDir(dir) then
-			for _, entry in fs.readDir(dir) do
-				if string.match(entry, "%.luau$") and not string.match(entry, "%.spec%.luau$") then
-					files[dir .. "/" .. entry] = fs.readFile(dir .. "/" .. entry)
-				end
+	for _, entry in ModuleDiscovery.discover(fs) do
+		if entry.kit ~= nil then
+			files[entry.module] = fs.readFile(entry.module)
+			local client = entry.dir .. "/client/init.luau"
+			if fs.isFile(client) then
+				files[client] = fs.readFile(client)
 			end
 		end
 	end

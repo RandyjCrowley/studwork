@@ -88,10 +88,29 @@ What can **only be guided**:
 
 The built-in kits use only the public module API. The `special` lint check fails any kit, example
 or game module that reaches framework internals (`CompatDoor`, `RuntimeSlot`,
-`ServerScriptService.Framework`, other kits' server internals), including by enumerating
-`ServerScriptService` / `Framework` children (`GetChildren` / `GetDescendants`). A paid currency
-spent on a non-random good goes through the public `ctx.compliance.spendPaid`, which any module
-can call (module-api.md §19.6); the kits hold no private token.
+`ServerScriptService.Framework`, another module's server part `ServerScriptService.Modules.<Other>`),
+including by enumerating `ServerScriptService` / `Framework` children (`GetChildren` /
+`GetDescendants`). A paid currency spent on a non-random good goes through the public
+`ctx.compliance.spendPaid`, which any module can call (module-api.md §19.6); the kits hold no
+private token.
+
+**The framework half (core-v1.3.1, R19).** The framework knows no kit either. `special` also scans
+framework code (`packages/framework/{shared,server,client}/**`; not `test/`, specs or the
+generated Blink outputs) and `packages/framework/shared/net/framework.blink`, comments stripped,
+and fails on:
+
+- any kit module name as a whole word, case-sensitive (the names are read from every
+  `packages/kits/*/*/module.luau` `name = "..."`, so a new kit module is covered automatically);
+- any Blink event a kit declares in its own `net.blink`, and the v1.2 kit request events
+  (`RequestUpgrade`, ...);
+- the pre-v1.3.1 kit layout names `Kits`, `ModuleServers`, `ModuleClients`, `kitLoadServer`.
+
+It reads both each comment-stripped line (so `return Mail` and `"Ma" .. "il"` are seen) and the
+normalised file (whitespace removed, concatenations folded, `x["Mail"]` read as `x.Mail`), so a
+string literal, a field, an index or a split name all count; a mention in a comment does not.
+The only allow-list is `TRANSITIONAL_V131` in `tools/lune/guardrails.luau`: the seven kit request
+events still in `framework.blink` / `Net.LIMITS` and the `net = "framework"` client marker, until
+each kit ships its own `net.blink` (core-v1.3.1 Phase 2); Phase 3 deletes it.
 
 ## Game-code guardrails (lint)
 

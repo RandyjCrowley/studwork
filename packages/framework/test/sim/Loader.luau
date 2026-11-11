@@ -21,16 +21,7 @@ local Loader = {}
 local ROOTS = {
 	"packages/framework/server",
 	"packages/framework/shared",
-	"packages/kits/collection/shared",
-	"packages/kits/economy/shared",
-	"packages/kits/base/shared",
-	"packages/kits/social/shared",
-	"packages/kits/engagement/shared",
-	"packages/kits/collection/server",
-	"packages/kits/economy/server",
-	"packages/kits/base/server",
-	"packages/kits/social/server",
-	"packages/kits/engagement/server",
+	"packages/kits", -- every module folder (packages/kits/<kit>/<Module>, core-v1.3.1 R19)
 	"deps/ServerPackages",
 	"deps/Packages/_Index/sleitnick_trove@1.8.0/trove",
 	-- game projects (Fixtures.gameServer boots a real game's Config through its Rojo project)
@@ -68,6 +59,14 @@ end
 for _, root in ROOTS do
 	indexTree(root)
 end
+
+-- The repo's module folders mapped like Rojo (ReplicatedStorage.Modules.<Name>.{module, client,
+-- shared}, ServerScriptService.Modules.<Name>): the same discovery as the Lune testkit and
+-- tools/sync-projects (tools/lune/ModuleDiscovery.luau), read once here on the main thread.
+local ModuleDiscovery = luau.load(fs.readFile("tools/lune/ModuleDiscovery.luau"), {
+	debugName = "tools/lune/ModuleDiscovery.luau",
+})()
+Loader.moduleChildren = ModuleDiscovery.children(ModuleDiscovery.discover(fs))
 
 -- Rojo maps a wally package folder to its main file (default.project.json $path).
 local ALIASES = {
@@ -179,7 +178,7 @@ function Loader.readProject(projectPath: string): any
 	return { dir = dirname(projectPath), tree = serde.decode("json", fs.readFile(projectPath)).tree }
 end
 
--- A folder whose children are named nodes (ReplicatedStorage.Kits, ServerStorage.ServerPackages).
+-- A folder whose children are named nodes (ReplicatedStorage.Modules, ServerStorage.ServerPackages).
 function Loader.folder(children: { [string]: any })
 	local function find(_, childName)
 		local child = children[childName]

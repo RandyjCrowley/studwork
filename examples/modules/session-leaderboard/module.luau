@@ -18,7 +18,7 @@ local StudWork = require(ReplicatedStorage:WaitForChild("Framework"))
 -- Economy's definition (a ModuleRef). Requiring a definition has no side effects, and an optional
 -- dependency doesn't have to be enabled: ctx.isEnabled(Economy) says whether it is.
 local Economy =
-	require(ReplicatedStorage:WaitForChild("Kits"):WaitForChild("Economy"):WaitForChild("Economy"))
+	require(ReplicatedStorage:WaitForChild("Modules"):WaitForChild("Economy"):WaitForChild("module"))
 
 return StudWork.defineModule({
 	name = "SessionLeaderboard",

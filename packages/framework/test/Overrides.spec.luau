@@ -25,9 +25,10 @@ local ThemeTokens = require("packages/ui/ThemeTokens.luau")
 local HudLayout = require("packages/ui/HudLayout.luau")
 local Screens = require("packages/ui/Screens.luau")
 
-local Kits = ReplicatedStorage:WaitForChild("Kits")
+local Modules = ReplicatedStorage:WaitForChild("Modules")
 local function kit(k: string, m: string): any
-	return require(Kits:WaitForChild(k):WaitForChild(m))
+	local _ = k -- the kit folder name (pre-v1.3.1 layout); modules are found by name
+	return require(Modules:WaitForChild(m):WaitForChild("module"))
 end
 local Items = kit("Collection", "Items")
 local Rarity = kit("Collection", "Rarity")

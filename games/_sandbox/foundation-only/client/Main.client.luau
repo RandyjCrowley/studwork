@@ -6,8 +6,9 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
 local StudWork = require(ReplicatedStorage:WaitForChild("Framework"))
 local Config = require(ReplicatedStorage:WaitForChild("Game"):WaitForChild("Config"))
+-- deliberately NOT in GameConfig.modules: this game shows the "not enabled" error
 local Rebirth =
-	require(ReplicatedStorage:WaitForChild("Kits"):WaitForChild("Economy"):WaitForChild("Rebirth"))
+	require(ReplicatedStorage:WaitForChild("Modules"):WaitForChild("Rebirth"):WaitForChild("module")) -- guard: allow modules
 
 StudWork.start(Config)
 StudWork.Client.Hud.mount()

@@ -10,11 +10,7 @@
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local StudWork = require(ReplicatedStorage:WaitForChild("Framework"))
 local GameConfig = require(ReplicatedStorage:WaitForChild("Game"):WaitForChild("Config"))
-local KitDefs = ReplicatedStorage:WaitForChild("Kits")
-local Collection = KitDefs:WaitForChild("Collection")
-local EconomyKit = KitDefs:WaitForChild("Economy")
-local Social = KitDefs:WaitForChild("Social")
-local Engagement = KitDefs:WaitForChild("Engagement")
+local KitDefs = ReplicatedStorage:WaitForChild("Modules")
 
 return StudWork.defineModule({
 	name = "Sandbox",
@@ -22,15 +18,15 @@ return StudWork.defineModule({
 	framework = "^1.3.0",
 	description = "The sandbox game: touch the block, collect, earn; products, gifts and events",
 	dependsOn = {
-		require(Collection:WaitForChild("Rarity")),
-		require(Collection:WaitForChild("Inventory")),
-		require(EconomyKit:WaitForChild("Economy")),
-		require(EconomyKit:WaitForChild("Upgrades")),
-		require(EconomyKit:WaitForChild("Rebirth")),
-		require(EconomyKit:WaitForChild("Offline")),
-		require(Engagement:WaitForChild("Streak")),
-		require(Social:WaitForChild("Friends")),
-		require(Social:WaitForChild("Mail")),
+		require(KitDefs:WaitForChild("Rarity"):WaitForChild("module")),
+		require(KitDefs:WaitForChild("Inventory"):WaitForChild("module")),
+		require(KitDefs:WaitForChild("Economy"):WaitForChild("module")),
+		require(KitDefs:WaitForChild("Upgrades"):WaitForChild("module")),
+		require(KitDefs:WaitForChild("Rebirth"):WaitForChild("module")),
+		require(KitDefs:WaitForChild("Offline"):WaitForChild("module")),
+		require(KitDefs:WaitForChild("Streak"):WaitForChild("module")),
+		require(KitDefs:WaitForChild("Friends"):WaitForChild("module")),
+		require(KitDefs:WaitForChild("Mail"):WaitForChild("module")),
 	},
 	data = {
 		key = GameConfig.gameId,

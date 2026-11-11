@@ -113,7 +113,21 @@ print(string.format("framework: %s   kits: %s   ui: packages/ui", Layout.FRAMEWO
 local function exists(path: string): boolean
 	return fs.isFile(path) or fs.isDir(path)
 end
-for _, issue in Layout.repoIssues(exists, kits) do
+local function kitModules(): { [string]: { string } }
+	local out = {}
+	for _, kit in kits do
+		local list = {}
+		for _, m in fs.readDir(Layout.KITS_DIR .. "/" .. kit) do
+			if fs.isFile(Layout.KITS_DIR .. "/" .. kit .. "/" .. m .. "/module.luau") then
+				table.insert(list, m)
+			end
+		end
+		table.sort(list)
+		out[kit] = list
+	end
+	return out
+end
+for _, issue in Layout.repoIssues(exists, kits, kitModules()) do
 	print("layout: " .. issue)
 end
 print("")

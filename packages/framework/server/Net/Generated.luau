@@ -172,7 +172,7 @@ Queue.Reliable[7] = table.create(256)
 Queue.Reliable[8] = table.create(256)
 Queue.Reliable[9] = table.create(256)
 export type Id = string
-export type FeedbackMessage = { Kind: string, Text: string, Rarity: string?, Position: Vector3? }
+export type FeedbackMessage = { Kind: string, Text: string, Tier: string?, Position: Vector3? }
 function SerdesFunctions.ReadEVENT_StateInit(): (nil)
 	return nil
 end
@@ -278,7 +278,7 @@ function SerdesFunctions.WriteEVENT_StateSync(Value: any): ()
 	table.insert(SendInstances, if Value == nil then Null else Value)
 end
 
-function SerdesFunctions.WriteEVENT_Feedback(Value: { Kind: string, Text: string, Rarity: string?, Position: Vector3? }): ()
+function SerdesFunctions.WriteEVENT_Feedback(Value: { Kind: string, Text: string, Tier: string?, Position: Vector3? }): ()
 	-- Allocate BLOCK: 5 bytes
 	local BLOCK_START = Allocate(5)
 	buffer.writeu8(SendBuffer, BLOCK_START + 0, 11)
@@ -290,14 +290,14 @@ function SerdesFunctions.WriteEVENT_Feedback(Value: { Kind: string, Text: string
 	buffer.writeu8(SendBuffer, BLOCK_START + 2, Length)
 	Allocate(Length)
 	buffer.writestring(SendBuffer, SendOffset, Value.Text, Length)
-	buffer.writeu8(SendBuffer, BLOCK_START + 3, Value.Rarity ~= nil and 1 or 0)
-	if Value.Rarity ~= nil then
+	buffer.writeu8(SendBuffer, BLOCK_START + 3, Value.Tier ~= nil and 1 or 0)
+	if Value.Tier ~= nil then
 		-- Allocate BLOCK: 1 bytes
 		local BLOCK_START = Allocate(1)
-		local Length = #Value.Rarity
+		local Length = #Value.Tier
 		buffer.writeu8(SendBuffer, BLOCK_START + 0, Length)
 		Allocate(Length)
-		buffer.writestring(SendBuffer, SendOffset, Value.Rarity, Length)
+		buffer.writestring(SendBuffer, SendOffset, Value.Tier, Length)
 	end
 	buffer.writeu8(SendBuffer, BLOCK_START + 4, Value.Position ~= nil and 1 or 0)
 	if Value.Position ~= nil then
@@ -746,12 +746,12 @@ local Returns = table.freeze({
 		end,
 	},
 	Feedback = {
-		Fire = function(Player: Player, Value: { Kind: string, Text: string, Rarity: string?, Position: Vector3? }): ()
+		Fire = function(Player: Player, Value: { Kind: string, Text: string, Tier: string?, Position: Vector3? }): ()
 			Load(PlayersMap[Player])
 			SerdesFunctions.WriteEVENT_Feedback(Value)
 			PlayersMap[Player] = Save()
 		end,
-		FireAll = function(Value: { Kind: string, Text: string, Rarity: string?, Position: Vector3? }): ()
+		FireAll = function(Value: { Kind: string, Text: string, Tier: string?, Position: Vector3? }): ()
 			Load()
 			SerdesFunctions.WriteEVENT_Feedback(Value)
 			local Buffer, Size, Instances = SendBuffer, SendCursor, SendInstances
@@ -763,7 +763,7 @@ local Returns = table.freeze({
 				PlayersMap[Player] = Save()
 			end
 		end,
-		FireList = function(List: {Player}, Value: { Kind: string, Text: string, Rarity: string?, Position: Vector3? }): ()
+		FireList = function(List: {Player}, Value: { Kind: string, Text: string, Tier: string?, Position: Vector3? }): ()
 			Load()
 			SerdesFunctions.WriteEVENT_Feedback(Value)
 			local Buffer, Size, Instances = SendBuffer, SendCursor, SendInstances
@@ -775,7 +775,7 @@ local Returns = table.freeze({
 				PlayersMap[Player] = Save()
 			end
 		end,
-		FireExcept = function(Except: Player, Value: { Kind: string, Text: string, Rarity: string?, Position: Vector3? }): ()
+		FireExcept = function(Except: Player, Value: { Kind: string, Text: string, Tier: string?, Position: Vector3? }): ()
 			Load()
 			SerdesFunctions.WriteEVENT_Feedback(Value)
 			local Buffer, Size, Instances = SendBuffer, SendCursor, SendInstances

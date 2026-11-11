@@ -1,16 +1,16 @@
 # Collection kit: Items, Rarity, Inventory
 
 Items, weighted rolls with luck, pity and mutations, and owned item copies. Code:
-`packages/kits/collection`. Phase 1 status: being rebuilt on the module API (agent A). Every entry
+`packages/kits/collection/<Module>/` (one folder per module since core-v1.3.1: `module.luau`, `server/`, `client/`; Rojo `ReplicatedStorage.Modules.<Module>`, `ServerScriptService.Modules.<Module>`). Phase 1 status: being rebuilt on the module API (agent A). Every entry
 marked **(contract)** is pinned by
 [PHASE1-CONTRACT.md]((internal build report, not public)) and offered today through
 the compat bridge; names and meanings don't change when the real module lands.
 
 ```lua
-local Collection = ReplicatedStorage:WaitForChild("Kits"):WaitForChild("Collection")
-local Items = require(Collection:WaitForChild("Items"))
-local Rarity = require(Collection:WaitForChild("Rarity"))       -- needs Items
-local Inventory = require(Collection:WaitForChild("Inventory")) -- needs Items
+local Modules = ReplicatedStorage:WaitForChild("Modules")
+local Items = require(Modules:WaitForChild("Items"):WaitForChild("module"))
+local Rarity = require(Modules:WaitForChild("Rarity"):WaitForChild("module"))       -- needs Items
+local Inventory = require(Modules:WaitForChild("Inventory"):WaitForChild("module")) -- needs Items
 ```
 
 ## Items

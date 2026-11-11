@@ -13,7 +13,7 @@
 	  h:saved(p)                                           -- the stored (sectioned) save
 
 	Options beyond Harness.new: every module's server part is found like a live game finds it
-	(the kits' own server parts), so kit modules run for real; `servers = { Name = part }` injects
+	(ServerScriptService.Modules.<Name>, module-api.md §19.9), so kit modules run for real; `servers = { Name = part }` injects
 	a part (a test double, or the module under test) and wins over the live lookup. Several harnesses given the
 	same `store = StudWork.test.memoryStore()` share one store (store.failNext(n) injects failures).
 
@@ -29,25 +29,18 @@
 ]]
 
 local Harness = require(script.Parent.harness)
-local Packages = script.Parent.Parent.Parent
-
--- The kits' own server-part loaders (packages/kits/<kit>/server/ModuleServers.luau): what a live
--- game's ServerScriptService.Kits.<Kit> resolves to.
-local KITS = { "collection", "economy", "base", "social", "engagement" }
-local function kitServer(ref: any): any
-	for _, kit in KITS do
-		local impl = require(Packages.kits[kit].server.ModuleServers).loadServer(ref)
-		if impl ~= nil then
-			return impl
-		end
-	end
-	return nil
-end
+-- The live server-part lookup (module-api.md §19.9): ServerScriptService.Modules[ref.server],
+-- new() for a part factory, the Net child as `net`. The testkit's fake `game` maps every module
+-- folder (packages/kits/*/*, examples/modules/*) there exactly like Rojo
+-- (tools/lune/ModuleDiscovery.luau), so this is what a live game resolves to.
+local Loader = require(script.Parent.Parent.server.Loader)
+-- no Blink wire under Lune: drive actions with h:action; a generated Net.luau is never required
+local NO_NET = { bindNet = false }
 
 local Test = {}
 
 -- A plain table, built up front (Lune file reads yield, so no lazy metamethod lookup).
-local function withKits(opts: any): any
+local function withModules(opts: any): any
 	local injected = opts.servers or {}
 	local servers = {}
 	for _, ref in opts.modules or {} do
@@ -55,7 +48,7 @@ local function withKits(opts: any): any
 			if injected[ref.name] ~= nil then
 				servers[ref.name] = injected[ref.name]
 			else
-				servers[ref.name] = kitServer(ref)
+				servers[ref.name] = Loader.defaultLoadServer(ref, nil, NO_NET)
 			end
 		end
 	end
@@ -65,11 +58,11 @@ local function withKits(opts: any): any
 end
 
 function Test.harness(opts: any): any
-	return Harness.new(withKits(opts))
+	return Harness.new(withModules(opts))
 end
 
 function Test.boot(opts: any): (any, string?)
-	return Harness.boot(withKits(opts))
+	return Harness.boot(withModules(opts))
 end
 
 Test.memoryStore = Harness.memoryStore

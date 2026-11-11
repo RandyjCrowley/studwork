@@ -166,7 +166,7 @@ Queue.Reliable[11] = table.create(256)
 Events.Reliable[12] = {}
 Queue.Reliable[12] = table.create(256)
 export type Id = string
-export type FeedbackMessage = { Kind: string, Text: string, Rarity: string?, Position: Vector3? }
+export type FeedbackMessage = { Kind: string, Text: string, Tier: string?, Position: Vector3? }
 function SerdesFunctions.WriteEVENT_StateInit(Value: nil): ()
 	-- Allocate BLOCK: 1 bytes
 	local BLOCK_START = Allocate(1)
@@ -275,7 +275,7 @@ function SerdesFunctions.ReadEVENT_StateSync(): (any)
 	return Value
 end
 
-function SerdesFunctions.ReadEVENT_Feedback(): ({ Kind: string, Text: string, Rarity: string?, Position: Vector3? })
+function SerdesFunctions.ReadEVENT_Feedback(): ({ Kind: string, Text: string, Tier: string?, Position: Vector3? })
 	-- Read BLOCK: 4 bytes
 	local BLOCK_START = Read(4)
 	local Value = {} :: any
@@ -291,9 +291,9 @@ function SerdesFunctions.ReadEVENT_Feedback(): ({ Kind: string, Text: string, Ra
 		-- Read BLOCK: 1 bytes
 		local BLOCK_START = Read(1)
 		Length = buffer.readu8(RecieveBuffer, BLOCK_START + 0)
-		Value.Rarity = buffer.readstring(RecieveBuffer, Read(Length), Length)
-		if #Value.Rarity < 1 then error(`Expected length of "Value.Rarity" to be larger than or equal to 1, got {#Value.Rarity} instead.`) end
-		if #Value.Rarity > 16 then error(`Expected length of "Value.Rarity" to be smaller than or equal to  16, got {#Value.Rarity} instead.`) end
+		Value.Tier = buffer.readstring(RecieveBuffer, Read(Length), Length)
+		if #Value.Tier < 1 then error(`Expected length of "Value.Tier" to be larger than or equal to 1, got {#Value.Tier} instead.`) end
+		if #Value.Tier > 16 then error(`Expected length of "Value.Tier" to be smaller than or equal to  16, got {#Value.Tier} instead.`) end
 	end
 	if buffer.readu8(RecieveBuffer, BLOCK_START + 3) == 1 then
 		-- Read BLOCK: 12 bytes
@@ -412,7 +412,7 @@ Reliable.OnClientEvent:Connect(function(Buffer: buffer, Instances: {Instance})
 				table.insert(Queue.Reliable[10], {Value} :: {any})
 			end
 		elseif Index == 11 then
-			local Value: { Kind: string, Text: string, Rarity: string?, Position: Vector3? } = SerdesFunctions.ReadEVENT_Feedback()
+			local Value: { Kind: string, Text: string, Tier: string?, Position: Vector3? } = SerdesFunctions.ReadEVENT_Feedback()
 			if #Events.Reliable[11] > 0 then
 				for _, Listener in Events.Reliable[11] do
 					task.spawn(Listener, Value)
@@ -525,7 +525,7 @@ local Returns = table.freeze({
 		end
 	},
 	Feedback = {
-		On = function(Listener: (Value: { Kind: string, Text: string, Rarity: string?, Position: Vector3? }) -> ()): () -> ()
+		On = function(Listener: (Value: { Kind: string, Text: string, Tier: string?, Position: Vector3? }) -> ()): () -> ()
 			table.insert(Events.Reliable[11], Listener)
 			for Index, Arguments in Queue.Reliable[11] do
 				task.spawn(Listener, table.unpack(Arguments))

@@ -13,28 +13,23 @@
 ]]
 
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
-local KitDefs = ReplicatedStorage:WaitForChild("Kits")
-local Collection = KitDefs:WaitForChild("Collection")
-local Economy = KitDefs:WaitForChild("Economy")
-local Base = KitDefs:WaitForChild("Base")
-local Social = KitDefs:WaitForChild("Social")
-local Engagement = KitDefs:WaitForChild("Engagement")
+local Modules = ReplicatedStorage:WaitForChild("Modules")
 
 local Config = {
 	gameId = "sandbox",
 	-- The sandbox exercises every kit module.
 	modules = {
-		require(Collection:WaitForChild("Items")),
-		require(Collection:WaitForChild("Rarity")),
-		require(Collection:WaitForChild("Inventory")),
-		require(Economy:WaitForChild("Economy")),
-		require(Economy:WaitForChild("Upgrades")),
-		require(Economy:WaitForChild("Rebirth")),
-		require(Economy:WaitForChild("Offline")),
-		require(Engagement:WaitForChild("Streak")),
-		require(Social:WaitForChild("Friends")),
-		require(Social:WaitForChild("Mail")),
-		require(Base:WaitForChild("Plot")),
+		require(Modules:WaitForChild("Items"):WaitForChild("module")),
+		require(Modules:WaitForChild("Rarity"):WaitForChild("module")),
+		require(Modules:WaitForChild("Inventory"):WaitForChild("module")),
+		require(Modules:WaitForChild("Economy"):WaitForChild("module")),
+		require(Modules:WaitForChild("Upgrades"):WaitForChild("module")),
+		require(Modules:WaitForChild("Rebirth"):WaitForChild("module")),
+		require(Modules:WaitForChild("Offline"):WaitForChild("module")),
+		require(Modules:WaitForChild("Streak"):WaitForChild("module")),
+		require(Modules:WaitForChild("Friends"):WaitForChild("module")),
+		require(Modules:WaitForChild("Mail"):WaitForChild("module")),
+		require(Modules:WaitForChild("Plot"):WaitForChild("module")),
 	} :: { any },
 	config = require(script.Balance),
 	-- Coins are sold for Robux (CoinPack), so the Coin-priced Chest is a paid random item too.

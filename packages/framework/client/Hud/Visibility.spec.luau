@@ -1,5 +1,7 @@
 local Visibility = require(script.Parent.Visibility)
 
+-- core-v1.3.1 (R19): the currency / rate / mailbox visibility moved with their assertions to the
+-- economy and mail modules' client/State.spec.luau (each module gates its own widget).
 local function enabled(list)
 	return function(name)
 		return table.find(list, name) ~= nil
@@ -11,38 +13,14 @@ local goal = function()
 end
 
 describe("Hud.Visibility", function()
-	it("shows everything with Economy and Rebirth", function()
-		expect(Visibility.of(enabled({ "Economy", "Rebirth" }), { nextGoal = goal })).toEqual({
-			currency = true,
-			rate = true,
-			goal = true,
-			mailbox = false,
-		})
-	end)
-
-	it("shows the mailbox slot only with Mail", function()
-		expect(Visibility.of(enabled({ "Mail" }), {}).mailbox).toBe(true)
-		expect(Visibility.of(enabled({ "Economy" }), {}).mailbox).toBe(false)
-	end)
-
-	it("counts mailbox entries", function()
-		expect(Visibility.mailboxCount({ mailbox = { {}, {}, {} } })).toBe(3)
-		expect(Visibility.mailboxCount({})).toBe(0)
-		expect(Visibility.mailboxCount({ mailbox = "bad" })).toBe(0)
-		expect(Visibility.mailboxCount(nil)).toBe(0)
-	end)
-
-	it("hides currency and rate without Economy", function()
+	it("shows the goal with any module set", function()
+		expect(Visibility.of(enabled({ "Economy", "Rebirth" }), { nextGoal = goal })).toEqual({ goal = true })
 		local shown = Visibility.of(enabled({}), { nextGoal = goal })
-		expect(shown.currency).toBe(false)
-		expect(shown.rate).toBe(false)
 		expect(shown.goal).toBe(true) -- game-defined goal text works with any module set
 	end)
 
-	it("hides the goal without nextGoal, and the rate when showRate = false", function()
+	it("hides the goal without nextGoal", function()
 		local shown = Visibility.of(enabled({ "Economy" }), { showRate = false })
-		expect(shown.currency).toBe(true)
-		expect(shown.rate).toBe(false)
 		expect(shown.goal).toBe(false)
 	end)
 end)

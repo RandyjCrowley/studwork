@@ -1,27 +1,13 @@
 --!strict
 --[[
-	Module gate for Core.Client.Actions (pure). An action owned by a kit module
-	(ActionGate.CLIENT_ACTIONS) errors with Resolve.notEnabledMessage(module) when that module is
-	not in GameConfig.modules; every action errors before Core.start.
-	core-v1.3.0 Phase 2: the action -> module table and the framework-service names moved here from
-	the deleted v1.2 module manifest; the message is the framework's.
+	Start gate for StudWork.Client's framework actions (pure): every action errors before
+	StudWork.start. core-v1.3.1 (R19): the framework knows no module's actions any more (the v1.2
+	action -> kit module table is gone); a module's client actions are
+	StudWork.use(<ModuleRef>).actions.<name>, whose not-enabled error is the client runtime's
+	erroring proxy (Resolve.notEnabledMessage).
 ]]
 
-local Resolve =
-	require(game:GetService("ReplicatedStorage"):WaitForChild("Framework"):WaitForChild("Resolve"))
-
 local ActionGate = {}
-
--- Client Actions that belong to a kit module (calling them with the module off errors).
-ActionGate.CLIENT_ACTIONS = table.freeze({
-	display = "Plot",
-	clearDisplay = "Plot",
-	rebirth = "Rebirth",
-	upgrade = "Upgrades",
-	roll = "Rarity",
-	gift = "Inventory",
-	claimMail = "Mail",
-} :: { [string]: string })
 
 -- Framework services: always on.
 ActionGate.FOUNDATION = table.freeze({ "Data", "Policy", "Analytics", "Events", "Shop", "Net" })
@@ -46,10 +32,6 @@ end
 function ActionGate.check(gate: Gate, action: string): string?
 	if not gate.started then
 		return `[Core] Core.Client.Actions.{action} called before Core.start`
-	end
-	local owner = ActionGate.CLIENT_ACTIONS[action]
-	if owner ~= nil and not gate.enabled[owner] then
-		return "[Core] " .. Resolve.notEnabledMessage(owner)
 	end
 	return nil
 end

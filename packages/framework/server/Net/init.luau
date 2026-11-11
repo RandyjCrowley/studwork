@@ -349,7 +349,7 @@ function Net.new(opts: any): any
 		events.Feedback.Fire(player, {
 			Kind = string.sub(tostring(kind), 1, 32),
 			Text = string.sub(tostring(text), 1, 120),
-			Rarity = rarity,
+			Tier = rarity,
 			Position = position,
 		})
 	end

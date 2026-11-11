@@ -7,9 +7,9 @@
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local StudWork = require(ReplicatedStorage:WaitForChild("Framework"))
 
-local Kits = ReplicatedStorage:WaitForChild("Kits")
-local Economy = require(Kits:WaitForChild("Economy"):WaitForChild("Economy"))
-local Offline = require(Kits:WaitForChild("Economy"):WaitForChild("Offline"))
+local Modules = ReplicatedStorage:WaitForChild("Modules")
+local Economy = require(Modules:WaitForChild("Economy"):WaitForChild("module"))
+local Offline = require(Modules:WaitForChild("Offline"):WaitForChild("module"))
 
 local PRODUCTS = { passes = {}, devProducts = { Coins100 = 1001 } }
 

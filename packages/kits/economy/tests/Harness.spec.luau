@@ -1,19 +1,19 @@
 --!nocheck
 --[[
 	Economy kit modules on the plain StudWork test harness (no Collection): the
-	real server parts from ModuleServers, a tiny third-party module that rolls with a paid
+	real server parts (ServerScriptService.Modules.<Name>, the live lookup), a tiny third-party module that rolls with a paid
 	currency through compliance.spendForRoll, and the config guardrails.
 ]]
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local Harness = require("packages/framework/test/harness.luau")
 local StudWork = require(ReplicatedStorage:WaitForChild("Framework"))
-local ModuleServers = require("packages/kits/economy/server/ModuleServers.luau")
+local Loader = require("packages/framework/server/Loader.luau") -- the live part lookup (§19.9)
 
-local Kit = ReplicatedStorage:WaitForChild("Kits"):WaitForChild("Economy")
-local Economy = require(Kit:WaitForChild("Economy"))
-local Upgrades = require(Kit:WaitForChild("Upgrades"))
-local Rebirth = require(Kit:WaitForChild("Rebirth"))
-local Offline = require(Kit:WaitForChild("Offline"))
+local Modules = ReplicatedStorage:WaitForChild("Modules")
+local Economy = require(Modules:WaitForChild("Economy"):WaitForChild("module"))
+local Upgrades = require(Modules:WaitForChild("Upgrades"):WaitForChild("module"))
+local Rebirth = require(Modules:WaitForChild("Rebirth"):WaitForChild("module"))
+local Offline = require(Modules:WaitForChild("Offline"):WaitForChild("module"))
 
 local Box = StudWork.defineModule({
 	name = "Box",
@@ -51,8 +51,8 @@ end
 
 local function servers()
 	local out = { Box = boxServer() }
-	for _, name in ModuleServers.names do
-		out[name] = ModuleServers.loadServer({ name = name, server = name })
+	for _, name in { "Economy", "Upgrades", "Rebirth", "Offline" } do
+		out[name] = Loader.defaultLoadServer({ name = name, server = name })
 	end
 	return out
 end

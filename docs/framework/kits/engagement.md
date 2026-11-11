@@ -1,11 +1,11 @@
 # Engagement kit: Streak
 
-Daily streaks on UTC days with a grace window. Code: `packages/kits/engagement`. Phase 1 status:
+Daily streaks on UTC days with a grace window. Code: `packages/kits/engagement/<Module>/` (one folder per module since core-v1.3.1: `module.luau`, `server/`, `client/`; Rojo `ReplicatedStorage.Modules.<Module>`, `ServerScriptService.Modules.<Module>`). Phase 1 status:
 being rebuilt on the module API (agent C). Entries marked **(contract)** are pinned by
 [PHASE1-CONTRACT.md]((internal build report, not public)).
 
 ```lua
-local Streak = require(ReplicatedStorage:WaitForChild("Kits"):WaitForChild("Engagement"):WaitForChild("Streak"))
+local Streak = require(ReplicatedStorage:WaitForChild("Modules"):WaitForChild("Streak"):WaitForChild("module"))
 ```
 
 ## Config (`config.Streak`)

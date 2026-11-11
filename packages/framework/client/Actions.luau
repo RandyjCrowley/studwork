@@ -2,9 +2,8 @@
 --[[
 	Core.Client.Actions: thin client -> server requests. LEAD-OWNED.
 	Never assume success: the server validates and the result arrives through Core.Client.state.
-	Actions of a module that is not in GameConfig.modules error with
-	"<Name> is not enabled in GameConfig.modules" (ActionGate, Modules.CLIENT_ACTIONS); every
-	action errors before Core.start.
+	Every action errors before Core.start. core-v1.3.1 (R19): only the framework's own actions
+	(triggerEvent, funnel); a module's actions are StudWork.use(<ModuleRef>).actions.<name>.
 ]]
 
 local ActionGate = require(script.Parent.ActionGate)
@@ -30,44 +29,9 @@ function Actions.isEnabled(name: string): boolean
 	return ActionGate.isEnabled(gate, name)
 end
 
-function Actions.display(uid: string, slotId: string?)
-	check("display")
-	Generated.RequestDisplay.Fire(uid, slotId)
-end
-
-function Actions.clearDisplay(uid: string)
-	check("clearDisplay")
-	Generated.RequestClearDisplay.Fire(uid)
-end
-
-function Actions.rebirth()
-	check("rebirth")
-	Generated.RequestRebirth.Fire()
-end
-
-function Actions.upgrade(upgradeId: string)
-	check("upgrade")
-	Generated.RequestUpgrade.Fire(upgradeId)
-end
-
-function Actions.roll(tableId: string)
-	check("roll")
-	Generated.RequestRoll.Fire(tableId)
-end
-
-function Actions.gift(toUserId: number, uid: string)
-	check("gift")
-	Generated.RequestGift.Fire(toUserId, uid)
-end
-
 function Actions.triggerEvent(eventId: string)
 	check("triggerEvent")
 	Generated.AdminTriggerEvent.Fire(eventId)
-end
-
-function Actions.claimMail(messageId: string)
-	check("claimMail")
-	Generated.RequestMailClaim.Fire(messageId)
 end
 
 function Actions.funnel(step: string)

@@ -30,6 +30,8 @@ local serde = require("@lune/serde")
 
 local KitModules = require("./KitModules")
 local NewGame = require("./NewGame")
+local ModuleDiscovery = require("./ModuleDiscovery")
+local SyncProjects = require("./SyncProjects")
 
 local Modules = KitModules.load(fs)
 
@@ -150,16 +152,30 @@ end
 
 -- project file
 local projectPath = target .. "/default.project.json"
-local project = serde.decode("json", fs.readFile(projectPath))
-project.name = name
-project.servePort = port
-local tree = project.tree
-tree.ReplicatedStorage.GameModule.module["$path"] = "modules/" .. name .. "/module.luau"
-tree.ServerScriptService.Modules = {
-	["$className"] = "Folder",
-	[moduleName] = { ["$path"] = "modules/" .. name .. "/server" },
-}
-fs.writeFile(projectPath, serde.encode("json", project, true) .. "\n")
+-- order-preserving JSON (tools/sync-projects), so the project keeps the template's layout and its
+-- generated kit module entries (core-v1.3.1 R19); only the game module's entries change
+local project = SyncProjects.decode(fs.readFile(projectPath))
+project.vals.name = name
+project.vals.servePort = port
+local tree = project.vals.tree
+tree.vals.ReplicatedStorage.vals.GameModule.vals.module.vals["$path"] = "modules/" .. name .. "/module.luau"
+local sssModules = tree.vals.ServerScriptService.vals.Modules
+local rebuilt = SyncProjects.newObject()
+for _, key in sssModules.keys do
+	-- the template's own game module (templates/new-game/modules/sandbox) is replaced
+	local value = sssModules.vals[key]
+	local p = type(value) == "table" and value.vals and value.vals["$path"]
+	if not (type(p) == "string" and string.match(p, "^modules/")) then
+		SyncProjects.set(rebuilt, key, value)
+	end
+end
+local own = SyncProjects.newObject()
+SyncProjects.set(own, "$path", "modules/" .. name .. "/server")
+SyncProjects.set(rebuilt, moduleName, own)
+tree.vals.ServerScriptService.vals.Modules = rebuilt
+-- the generated module entries in their canonical place (tools/sync-projects --check stays clean)
+local synced = SyncProjects.sync(projectPath, SyncProjects.encode(project), ModuleDiscovery.discover(fs))
+fs.writeFile(projectPath, synced)
 
 -- deploy.json
 fs.writeFile(target .. "/deploy.json", serde.encode("json", NewGame.deployJson(name, port), true) .. "\n")
@@ -173,7 +189,7 @@ if count ~= 1 then
 	process.exit(1)
 end
 if chosenModules then
-	local rewritten, rewriteError = NewGame.rewriteModulesBlock(replaced, chosenModules, Modules.kitFolder)
+	local rewritten, rewriteError = NewGame.rewriteModulesBlock(replaced, chosenModules)
 	if rewritten == nil then
 		print("error: " .. tostring(rewriteError) .. " (" .. configPath .. ")")
 		process.exit(1)

@@ -301,9 +301,10 @@ variants.KITS = function(players)
 	Harness.mapGame(nil)
 	local ReplicatedStorage = Harness.game:GetService("ReplicatedStorage")
 	local StudWork = Harness.require(ReplicatedStorage.Framework)
-	local Kits = ReplicatedStorage.Kits
+	local Modules = ReplicatedStorage.Modules
 	local function kit(k, m)
-		return Harness.require(Kits[k][m])
+		local _ = k -- kit folder (pre-v1.3.1); modules are found by name
+		return Harness.require(Modules[m].module)
 	end
 	local Inventory = kit("Collection", "Inventory")
 	local items = {}

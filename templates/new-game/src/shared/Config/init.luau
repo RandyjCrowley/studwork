@@ -16,27 +16,22 @@
 ]]
 
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
-local KitDefs = ReplicatedStorage:WaitForChild("Kits")
-local Collection = KitDefs:WaitForChild("Collection")
-local Economy = KitDefs:WaitForChild("Economy")
-local Base = KitDefs:WaitForChild("Base")
-local Social = KitDefs:WaitForChild("Social")
-local Engagement = KitDefs:WaitForChild("Engagement")
+local Modules = ReplicatedStorage:WaitForChild("Modules")
 
 local Config = {
 	gameId = "sandbox",
 	modules = {
-		require(Collection:WaitForChild("Items")), -- item definitions; needed by Inventory and Rarity
-		require(Collection:WaitForChild("Rarity")), -- weighted rolls, luck, pity, mutations, odds (needs Items)
-		require(Collection:WaitForChild("Inventory")), -- owned item copies, gifting, cap (needs Items)
-		require(Economy:WaitForChild("Economy")), -- currencies, income ticks, multipliers
-		require(Economy:WaitForChild("Upgrades")), -- level upgrades bought with currency (needs Economy)
-		require(Economy:WaitForChild("Rebirth")), -- reset for a permanent multiplier (needs Economy)
-		require(Economy:WaitForChild("Offline")), -- payout for time away (autoPay needs Economy)
-		require(Engagement:WaitForChild("Streak")), -- daily UTC streak with grace (rewards need Economy)
-		require(Social:WaitForChild("Friends")), -- co-play detection + optional income bonus
-		require(Social:WaitForChild("Mail")), -- cross-server / offline messages + mailbox (idempotent handlers)
-		require(Base:WaitForChild("Plot")), -- per-player plots with item display slots (needs Inventory)
+		require(Modules:WaitForChild("Items"):WaitForChild("module")), -- item definitions; needed by Inventory and Rarity
+		require(Modules:WaitForChild("Rarity"):WaitForChild("module")), -- weighted rolls, luck, pity, mutations, odds (needs Items)
+		require(Modules:WaitForChild("Inventory"):WaitForChild("module")), -- owned item copies, gifting, cap (needs Items)
+		require(Modules:WaitForChild("Economy"):WaitForChild("module")), -- currencies, income ticks, multipliers
+		require(Modules:WaitForChild("Upgrades"):WaitForChild("module")), -- level upgrades bought with currency (needs Economy)
+		require(Modules:WaitForChild("Rebirth"):WaitForChild("module")), -- reset for a permanent multiplier (needs Economy)
+		require(Modules:WaitForChild("Offline"):WaitForChild("module")), -- payout for time away (autoPay needs Economy)
+		require(Modules:WaitForChild("Streak"):WaitForChild("module")), -- daily UTC streak with grace (rewards need Economy)
+		require(Modules:WaitForChild("Friends"):WaitForChild("module")), -- co-play detection + optional income bonus
+		require(Modules:WaitForChild("Mail"):WaitForChild("module")), -- cross-server / offline messages + mailbox (idempotent handlers)
+		require(Modules:WaitForChild("Plot"):WaitForChild("module")), -- per-player plots with item display slots (needs Inventory)
 	} :: { any },
 	config = require(script.Balance),
 	-- @if Economy

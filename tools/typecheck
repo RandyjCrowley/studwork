@@ -24,6 +24,7 @@ OUT="$(luau-lsp analyze --platform roblox \
 	--defs "@roblox=$DEFS" \
 	--defs "@testkit=tools/types/testkit.d.luau" \
 	--ignore "**/Generated*.luau" \
+	--ignore "**/kits/*/*/server/Net.luau" --ignore "**/kits/*/*/client/Net.luau" \
 	--ignore "**/deps/**" \
 	packages/framework/client \
 	packages/framework/shared packages/framework/server packages/kits packages/ui \
@@ -43,6 +44,7 @@ for EXTRA in games/$GAME/*.project.json; do
 		--defs "@roblox=$DEFS" \
 		--defs "@testkit=tools/types/testkit.d.luau" \
 		--ignore "**/Generated*.luau" \
+	--ignore "**/kits/*/*/server/Net.luau" --ignore "**/kits/*/*/client/Net.luau" \
 		--ignore "**/deps/**" \
 		"$SUB" 2>&1 \
 		| grep -v '^\[INFO\]\|^\[WARN\]' || true)"
@@ -59,6 +61,7 @@ for FIXTURE in examples/modules/*/tests/fixture-game/default.project.json; do
 		--defs "@roblox=$DEFS" \
 		--defs "@testkit=tools/types/testkit.d.luau" \
 		--ignore "**/Generated*.luau" \
+	--ignore "**/kits/*/*/server/Net.luau" --ignore "**/kits/*/*/client/Net.luau" \
 		--ignore "**/deps/**" \
 		--ignore "**/*.spec.luau" \
 		"$MOD" 2>&1 \

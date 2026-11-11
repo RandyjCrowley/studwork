@@ -131,9 +131,9 @@ describe("StudWork client runtime", function()
 	end)
 
 	it("a module's theme(config) reaches the client theme: 4 custom Rarity tiers in config only", function()
-		local Collection = ReplicatedStorage:WaitForChild("Kits"):WaitForChild("Collection")
-		local Items = require(Collection:WaitForChild("Items"))
-		local Rarity = require(Collection:WaitForChild("Rarity"))
+		local Modules = ReplicatedStorage:WaitForChild("Modules")
+		local Items = require(Modules:WaitForChild("Items"):WaitForChild("module"))
+		local Rarity = require(Modules:WaitForChild("Rarity"):WaitForChild("module"))
 		local tiers = {
 			{ id = "Low", color = "#111111" },
 			{ id = "Mid" },

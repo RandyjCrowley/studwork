@@ -50,11 +50,12 @@ local function income(server, itemId: string): number
 end
 
 describe("Economy kit: real modules", function()
-	it("are real server parts (built by the kit's own ModuleServers)", function()
+	it("are real server parts (the kit's own module folders, ServerScriptService.Modules)", function()
 		local _, server = sandbox(701)
-		local kitServers = server.require("packages/kits/economy/server/ModuleServers.luau")
 		for _, name in { "Economy", "Upgrades", "Rebirth", "Offline" } do
-			expect(name .. "=" .. tostring(kitServers.isReal(server:ref(name)))).toBe(name .. "=true")
+			expect(name .. "=" .. tostring(server.partPaths[name])).toBe(
+				name .. "=packages/kits/economy/" .. name .. "/server"
+			)
 		end
 		-- config defaults merged under the game's config
 		local configs = server.runtime.configs

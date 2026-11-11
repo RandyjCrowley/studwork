@@ -10,13 +10,15 @@
 	  camel("SessionBoard")  -> "sessionBoard"    (the default data.key)
 
 	make-module (module-api.md §1 anatomy)
-	  moduleFiles(name, dir) -> { [relativePath] = source }
+	  moduleFiles(name, dir, opts?) -> { [relativePath] = source }
 	      module.luau (definition: config with defaults, a save section that replicates, server +
 	      client names), server/init.luau (init/start/api through ctx only), client/init.luau,
-	      tests/<Name>.spec.luau (a passing harness test), README.md. No migrations/ folder yet:
+	      tests/<Name>.spec.luau (a passing harness test), README.md; opts.net (--net): net.blink,
+	      the module's own messages (RemoteScope "STUDWORK_<NAME>", ServerOutput server/Net.luau,
+	      ClientOutput client/Net.luau: the core-v1.3.1 convention). No migrations/ folder yet:
 	      tools/make-migration creates it with the first migration (an empty or README-only folder
 	      would be read as migrations)
-	  writeModule(fs, name, dir) -> (files?, error?)       refuses an existing folder
+	  writeModule(fs, name, dir, opts?) -> (files?, error?) refuses an existing folder
 	  addToProject(project, name, rel) -> project           maps ReplicatedStorage.Modules.<Name>
 	      (module, client, migrations) and ServerScriptService.Modules.<Name> (server) in a decoded
 	      default.project.json; `rel` = the module folder relative to the project file
@@ -152,7 +154,7 @@ local CLIENT_TEMPLATE = [=[
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local StudWork = require(ReplicatedStorage:WaitForChild("Framework"))
 
-local Definition = require(script.Parent.module)
+local Definition = require(script.Parent:WaitForChild("module"))
 
 local {{Name}}Client = {}
 
@@ -164,6 +166,27 @@ local {{Name}}Client = {}
 }
 
 return {{Name}}Client
+]=]
+
+-- net.blink (tools/make-module --net): this module's own client <-> server messages (module-api.md
+-- §1, §9; core-v1.3.1 R19 convention). tools/net compiles it into server/Net.luau and
+-- client/Net.luau; the framework binds each as the part's `net` (module-api.md §19.9), so a server
+-- action `{{camel}}Ping = { handler = ... }` / client `actions = { "ping" }` fires the event.
+local NET_TEMPLATE = [=[
+-- {{Name}} network contract (Blink IDL; compiled by tools/net). Only this module uses these events.
+-- Every client -> server event is a REQUEST: the server validates it in the action handler.
+option RemoteScope = "STUDWORK_{{UPPER}}"
+option Casing = Pascal
+option ServerOutput = "server/Net.luau"
+option ClientOutput = "client/Net.luau"
+
+-- An example client action (server: actions.ping = { handler = function(player, note) ... end }).
+event Ping {
+    From: Client,
+    Type: Reliable,
+    Call: SingleAsync,
+    Data: string(0..32)
+}
 ]=]
 
 local SPEC_TEMPLATE = [=[
@@ -236,15 +259,26 @@ None yet. `tools/make-migration {{dir}}` writes `migrations/002_*.luau`, a test 
 `tools/test {{dir}}`
 ]=]
 
-function MakeGen.moduleFiles(name: string, dir: string): { [string]: string }
-	local vars = { Name = name, key = MakeGen.camel(name), dir = dir, range = FRAMEWORK_RANGE }
-	return {
+function MakeGen.moduleFiles(name: string, dir: string, opts: { net: boolean? }?): { [string]: string }
+	local vars = {
+		Name = name,
+		UPPER = string.upper(name),
+		camel = MakeGen.camel(name),
+		key = MakeGen.camel(name),
+		dir = dir,
+		range = FRAMEWORK_RANGE,
+	}
+	local files = {
 		["module.luau"] = fill(MODULE_TEMPLATE, vars),
 		["server/init.luau"] = fill(SERVER_TEMPLATE, vars),
 		["client/init.luau"] = fill(CLIENT_TEMPLATE, vars),
 		[`tests/{name}.spec.luau`] = fill(SPEC_TEMPLATE, vars),
 		["README.md"] = fill(README_TEMPLATE, vars),
 	}
+	if opts and opts.net then
+		files["net.blink"] = fill(NET_TEMPLATE, vars)
+	end
+	return files
 end
 
 local function writeFiles(fs: any, dir: string, files: { [string]: string })
@@ -263,7 +297,12 @@ local function writeFiles(fs: any, dir: string, files: { [string]: string })
 	end
 end
 
-function MakeGen.writeModule(fs: any, name: string, dir: string): ({ [string]: string }?, string?)
+function MakeGen.writeModule(
+	fs: any,
+	name: string,
+	dir: string,
+	opts: { net: boolean? }?
+): ({ [string]: string }?, string?)
 	if not MakeGen.isModuleName(name) then
 		return nil,
 			`bad module name '{name}': PascalCase letters and digits, starting upper-case, <= 48 chars`
@@ -271,7 +310,7 @@ function MakeGen.writeModule(fs: any, name: string, dir: string): ({ [string]: s
 	if fs.isDir(dir) or fs.isFile(dir) then
 		return nil, dir .. " already exists"
 	end
-	local files = MakeGen.moduleFiles(name, dir)
+	local files = MakeGen.moduleFiles(name, dir, opts)
 	writeFiles(fs, dir, files)
 	return files, nil
 end

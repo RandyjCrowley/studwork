@@ -17,7 +17,8 @@ local KITS = {
 local refs, servers, names = {}, {}, {}
 for kit, list in KITS do
 	for _, name in list do
-		local ref = require(ReplicatedStorage:WaitForChild("Kits"):WaitForChild(kit):WaitForChild(name))
+		local ref =
+			require(ReplicatedStorage:WaitForChild("Modules"):WaitForChild(name):WaitForChild("module"))
 		refs[name] = ref
 		servers[name] = { api = {
 			kit = function()

@@ -108,11 +108,12 @@ event StateSync {
     Data: unknown
 }
 
--- Cosmetic feedback: number pops, rarity reveals, toasts.
+-- Cosmetic feedback: number pops, tier reveals, toasts. Tier: a theme tier id (core-v1.3.1:
+-- was `Rarity`; the framework wire names no kit).
 struct FeedbackMessage {
     Kind: string(1..32),
     Text: string(0..120),
-    Rarity: string(1..16)?,
+    Tier: string(1..16)?,
     Position: vector?
 }
 

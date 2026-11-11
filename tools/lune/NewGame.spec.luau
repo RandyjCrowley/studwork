@@ -4,7 +4,7 @@ local NewGame = require("tools/lune/NewGame.luau")
 -- the kit module manifest, read from the kit module definitions (core-v1.3.0 step 4b-IIb; was
 -- the v1.2 module manifest)
 local fs = (getmetatable(getfenv(1)) :: any).__index.require("@lune/fs")
-local Modules = require("tools/lune/KitModules.luau").load(fs)
+local Modules = require("tools/lune/KitModules.luau").load(fs, require("tools/lune/ModuleDiscovery.luau"))
 
 local TEMPLATE_CONFIG = [[
 local Config = {
@@ -160,19 +160,18 @@ describe("NewGame.deployJson / readme", function()
 	end)
 end)
 
+-- core-v1.3.1 (R19): module refs are ReplicatedStorage.Modules.<Name>.module
 local TEMPLATE_V13 = [[
-local KitDefs = ReplicatedStorage:WaitForChild("Kits")
-local Collection = KitDefs:WaitForChild("Collection")
-local Economy = KitDefs:WaitForChild("Economy")
-local Base = KitDefs:WaitForChild("Base")
+local Modules = ReplicatedStorage:WaitForChild("Modules")
+local Unused = ReplicatedStorage:WaitForChild("Modules")
 
 local Config = {
 	gameId = "sandbox",
 	modules = {
-		require(Collection:WaitForChild("Items")), -- item definitions
-		require(Collection:WaitForChild("Inventory")), -- owned copies (needs Items)
-		require(Economy:WaitForChild("Economy")), -- currencies
-		require(Base:WaitForChild("Plot")), -- needs Inventory
+		require(Modules:WaitForChild("Items"):WaitForChild("module")), -- item definitions
+		require(Modules:WaitForChild("Inventory"):WaitForChild("module")), -- owned copies (needs Items)
+		require(Modules:WaitForChild("Economy"):WaitForChild("module")), -- currencies
+		require(Modules:WaitForChild("Plot"):WaitForChild("module")), -- needs Inventory
 	} :: { any },
 }
 ]]
@@ -189,24 +188,31 @@ describe("NewGame v1.3 module refs (core-v1.3.0 step 4b-IIb)", function()
 	end)
 
 	it("keeps the ref lines of chosen modules and adds a ref line for a missing one", function()
-		local out =
-			NewGame.rewriteModulesBlock(TEMPLATE_V13, { "Items", "Economy", "Mail" }, Modules.kitFolder)
+		local out = NewGame.rewriteModulesBlock(TEMPLATE_V13, { "Items", "Economy", "Mail" })
 		expect(
-			string.find(out, 'require(Collection:WaitForChild("Items")), -- item definitions', 1, true) ~= nil
+			string.find(
+				out,
+				'require(Modules:WaitForChild("Items"):WaitForChild("module")), -- item definitions',
+				1,
+				true
+			) ~= nil
 		).toBe(true)
 		expect(string.find(out, 'WaitForChild("Inventory")', 1, true)).toBeNil()
 		expect(string.find(out, 'WaitForChild("Plot")', 1, true)).toBeNil()
-		expect(string.find(out, '\t\trequire(Social:WaitForChild("Mail")),', 1, true) ~= nil).toBe(true)
+		expect(
+			string.find(out, '\t\trequire(Modules:WaitForChild("Mail"):WaitForChild("module")),', 1, true)
+				~= nil
+		).toBe(true)
 		expect(string.find(out, "} :: { any },", 1, true) ~= nil).toBe(true)
 	end)
 
 	it("pruneKitLocals drops kit folder locals nothing uses any more", function()
-		local out = NewGame.rewriteModulesBlock(TEMPLATE_V13, { "Items", "Inventory" }, Modules.kitFolder)
+		local out = NewGame.rewriteModulesBlock(TEMPLATE_V13, { "Items", "Inventory" })
 		out = NewGame.pruneKitLocals(out)
-		expect(string.find(out, "local Collection =", 1, true) ~= nil).toBe(true)
-		expect(string.find(out, "local Economy =", 1, true)).toBeNil()
-		expect(string.find(out, "local Base =", 1, true)).toBeNil()
-		expect(string.find(out, 'local KitDefs = ReplicatedStorage:WaitForChild("Kits")', 1, true) ~= nil).toBe(
+		expect(string.find(out, "local Unused =", 1, true)).toBeNil()
+		expect(string.find(out, 'WaitForChild("Economy")', 1, true)).toBeNil()
+		expect(string.find(out, 'WaitForChild("Plot")', 1, true)).toBeNil()
+		expect(string.find(out, 'local Modules = ReplicatedStorage:WaitForChild("Modules")', 1, true) ~= nil).toBe(
 			true
 		)
 	end)
@@ -329,9 +335,8 @@ describe("NewGame.applyMarkers (tools/new-game --modules, core-v1.3.0 Phase 1 E)
 		local src = table.concat({
 			'local ReplicatedStorage = game:GetService("ReplicatedStorage")',
 			'local Players = game:GetService("Players")',
-			'local KitDefs = ReplicatedStorage:WaitForChild("Kits")',
-			'local Collection = KitDefs:WaitForChild("Collection")',
-			'local Rarity = require(Collection:WaitForChild("Rarity")) -- Rarity is mentioned here only',
+			'local Modules = ReplicatedStorage:WaitForChild("Modules")',
+			'local Rarity = require(Modules:WaitForChild("Rarity"):WaitForChild("module")) -- Rarity is mentioned here only',
 			"print(Players)",
 		}, "\n")
 		expect(NewGame.pruneKitLocals(src)).toBe('local Players = game:GetService("Players")\nprint(Players)')

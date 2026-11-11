@@ -4,6 +4,65 @@ Core's public interface (v1.2: `Types.luau`, now `packages/framework/shared/Type
 `docs/framework/module-api.md`) only gains things: no renames, no removals; old calls are marked deprecated instead.
 Every change is recorded here, newest first.
 
+## core-v1.3.1 (unreleased)
+
+### Phase 1 (R19 framework half): one folder per module
+
+#### Breaking (v1.3.1)
+
+R19 ("nothing is special, for real") forces these; nothing else changes shape.
+
+- **Kit Rojo paths.** Kits moved to one folder per module (`packages/kits/<kit>/<Module>/`:
+  `module.luau`, `server/`, optional `client/`, `shared/`, `net.blink`). `ReplicatedStorage.Kits`
+  and `ServerScriptService.Kits` are gone: a definition is
+  `ReplicatedStorage.Modules.<Name>.module`, a server part `ServerScriptService.Modules.<Name>`.
+  Every game, the template, `_sandbox` / `foundation-only` and the example fixture use the new
+  paths; `tools/sync-projects` generates the project entries.
+- **Collection kit's `Tiers`** moved to the Rarity module: `ReplicatedStorage.Modules.Rarity.shared.Tiers`
+  (was `ReplicatedStorage.Kits.Collection.Tiers`).
+- **Kit loader fallbacks removed.** `packages/kits/*/server/ModuleServers.luau`,
+  `packages/kits/*/shared/ModuleClients.luau`, the server Loader's `kitLoadServer` and its
+  one-level-down `ServerScriptService.Modules.<Folder>.<Name>` scan, and the client
+  `defaultLoadClient` Kits scan are deleted (module-api.md §19.9 is the only lookup).
+- **Kit-named client actions removed from the framework client.** `Actions.display`,
+  `clearDisplay`, `rebirth`, `upgrade`, `roll`, `gift`, `claimMail` and `ActionGate.CLIENT_ACTIONS`
+  are gone (the v1.2 `Core.Client.Actions` surface); use `StudWork.use(<Ref>).actions.<name>` from
+  each kit's client part (same names). `Types.ActionsAPI` keeps `triggerEvent` and `funnel` only.
+- **`StudWork.Client.onMailbox` moved** to the Mail client part: `StudWork.use(Mail).onMailbox(fn)`.
+  `Types.ClientAPI.onMailbox` is removed.
+- **HUD default widgets moved to the kits.** `"Economy.currency"` and `"Social.mailbox"` are
+  registered by the Economy and Mail client parts (`UI.registerWidget`, same ids, slots, orders,
+  module gates), so overrides and custom layouts keep working; `Hud.DEFAULT_WIDGETS` holds only
+  `"Game.nextGoal"`. The widget prop `primary` is always `"Coins"` now (deprecated; the framework
+  reads no module config); the Economy widget reads `config.Economy.primaryCurrency` itself.
+- **`Hud/Slices` and `Hud/Visibility` name no module.** `Slices.currency/ratePerSec/mailbox/odds/
+  inventory/plotName` and `Visibility.mailboxCount` moved to the kits (`<Module>/client/State.luau`,
+  exposed as `StudWork.use(<Ref>).read`); `Visibility.of` returns `{ goal }` only.
+- **`Feedback` Blink struct field `Rarity` -> `Tier`** (framework wire only; `ctx.net.feedback` and
+  `onFeedbackEvent` are unchanged).
+- **`Types`:** `ModuleName` is `string`; the kit namespaces of the dead v1.2 `CoreAPI` facade type
+  (`Items`, `Rarity`, ..., `Mail`) are removed.
+
+#### Added
+
+- **module-api.md §19.9**: the live part lookups. Server: `ServerScriptService.Modules[ref.server]`;
+  a part factory (`new`, no `init`/`start`) is built fresh per runtime; a `Net` child (generated
+  from `net.blink`) is bound as the part's `net`. Client: `ReplicatedStorage.Modules[ref.client].client`
+  with the same `Net` default. `Loader.defaultLoadServer(ref)` / `Runtime.defaultLoadClient(ref)`.
+- **Kit client parts** (`<Module>/client/init.luau`) for Plot, Upgrades, Rebirth, Rarity, Inventory,
+  Mail (actions) and Economy (currency widget). Transitional: they fire the framework Blink file's
+  request events (`net = "framework"`) until Phase 2 gives each kit its own `net.blink`.
+- **`tools/sync-projects [--check]`**: generates every project's kit (and example) module entries;
+  `tools/lint` fails on drift. **`tools/lune/ModuleDiscovery.luau`**: the one module discovery used by
+  the Lune testkit, the sim, sync-projects, KitModules and the guardrails.
+- **`tools/make-module --net`**: a `net.blink` with the per-module convention
+  (`RemoteScope = "STUDWORK_<NAME>"`, outputs `server/Net.luau` / `client/Net.luau`).
+- **`special` guardrail, framework half**: framework code and `framework.blink` may not name a kit
+  module (names read from the kits), a kit's Blink event, a v1.2 kit request event, or the
+  pre-v1.3.1 loader names; the only allow-list is `TRANSITIONAL_V131` (Phase 3 deletes it). The
+  kit/example half also flags `ServerScriptService.Modules.<Other>`.
+- **Doctor / core-status** check the per-module kit layout and that projects have no `Kits` folder.
+
 ## core-v1.3.0 (2026-11-10) — StudWork framework restructure
 
 Contract frozen at `core-contract-v1.3` (Phase 0). Breaking changes are allowed this round, for

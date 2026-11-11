@@ -54,7 +54,7 @@ style member errors (items exist only through `GameConfig.items`).
 -- module.luau
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local StudWork = require(ReplicatedStorage:WaitForChild("Framework"))
-local Economy = require(ReplicatedStorage:WaitForChild("Kits"):WaitForChild("Economy"):WaitForChild("Economy"))
+local Economy = require(ReplicatedStorage:WaitForChild("Modules"):WaitForChild("Economy"):WaitForChild("module"))
 
 return StudWork.defineModule({
 	name = "Quests",                 -- unique, PascalCase, <= 48 chars; also the config key
@@ -373,12 +373,16 @@ registering items after start is not supported in core v1.3.0.
 | `module.luau` | `ReplicatedStorage.Modules.<Name>.module` |
 | `client/` | `ReplicatedStorage.Modules.<Name>.client` |
 | `migrations/` | `ReplicatedStorage.Modules.<Name>.migrations` (next to `module.luau`: `script.Parent.migrations`) |
-| `server/` | `ServerScriptService.Modules.<Name>` (or `ServerScriptService.Modules.<Folder>.<Name>`) |
+| `shared/` | `ReplicatedStorage.Modules.<Name>.shared` |
+| `server/` | `ServerScriptService.Modules.<Name>` (a direct child; core-v1.3.1 dropped the `<Folder>.<Name>` scan) |
 
-The loaders find parts by name (`ref.server`, `ref.client`). The game's own module is mapped as
+The loaders find parts by name (`ref.server`, `ref.client`; module-api.md §19.9): a server part
+that is a factory (`new`, no `init`/`start`) is built fresh per runtime, and a `Net` child
+(generated from `net.blink`) becomes the part's `net`. The game's own module is mapped as
 `ReplicatedStorage.GameModule.module` + `ServerScriptService.Modules.<GameModuleName>`.
-`tools/make-module --game` writes these entries. In core v1.3.0 the built-in kits are still mapped
-the Phase 0 way (`ReplicatedStorage.Kits.<Kit>`, `ServerScriptService.Kits.<Kit>`).
+`tools/make-module --game` writes these entries. Since core v1.3.1 the built-in kits use the same
+layout (`packages/kits/<kit>/<Module>/`), and `tools/sync-projects` generates their entries in
+every project (lint fails on drift).
 
 ## Testing
 

@@ -9,10 +9,11 @@
 	  .env       each key of .env.example: present / missing (NEVER the value)   (WARN)
 	  ports      each game's servePort: free or in use (lsof)                    (WARN)
 	  framework  the core v1.3.0 layout (Layout.luau): packages/framework/{shared,server,client},
-	             StudWork.VERSION, packages/kits/<kit>/{shared,server}, no packages/core   (FAIL)
+	             StudWork.VERSION, packages/kits/<kit>/<Module>/module.luau (one folder per
+	             module, core-v1.3.1), no packages/kits/<kit>/{shared,server}, no packages/core (FAIL)
 	  projects   every games/*/*.project.json and templates/new-game maps Framework,
-	             FrameworkClient and each kit it lists to that layout, nothing into
-	             packages/core                                                   (FAIL)
+	             FrameworkClient and each kit module it lists to that layout (Modules.<M>), no
+	             Kits folder, nothing into packages/core                         (FAIL)
 ]]
 
 local fs = require("@lune/fs")
@@ -147,7 +148,8 @@ for _, entry in entries do
 	end
 end
 
--- framework layout (core v1.3.0: StudWork in packages/framework, kits in packages/kits)
+-- framework layout (core v1.3.0: StudWork in packages/framework, kits in packages/kits; one folder
+-- per kit module since core v1.3.1)
 local kits = {}
 if fs.isDir(Layout.KITS_DIR) then
 	for _, entry in fs.readDir(Layout.KITS_DIR) do
@@ -160,10 +162,27 @@ table.sort(kits)
 local function exists(path: string): boolean
 	return fs.isFile(path) or fs.isDir(path)
 end
-local layoutIssues = Layout.repoIssues(exists, kits)
+local function kitModules(): { [string]: { string } }
+	local out = {}
+	for _, kit in kits do
+		local list = {}
+		for _, m in fs.readDir(Layout.KITS_DIR .. "/" .. kit) do
+			if fs.isFile(Layout.KITS_DIR .. "/" .. kit .. "/" .. m .. "/module.luau") then
+				table.insert(list, m)
+			end
+		end
+		table.sort(list)
+		out[kit] = list
+	end
+	return out
+end
+local layoutIssues = Layout.repoIssues(exists, kits, kitModules())
 for _, issue in layoutIssues do
 	local fix = if string.find(issue, "still exists", 1, true)
 		then "delete it (git rm -r): its code lives in packages/framework and packages/kits since core v1.3.0"
+		elseif
+			string.find(issue, "pre-v1.3.1", 1, true)
+		then "move each module to packages/kits/<kit>/<Module>/ (git mv; module-api.md §1)"
 		else "restore it from git (git status / git checkout -- <path>)"
 	add("fail", "framework layout", issue, fix)
 end
@@ -196,7 +215,12 @@ for _, proj in projects do
 		local issues = if ok then Layout.projectIssues(decoded, proj.dir, kits) else { "not valid JSON" }
 		for _, issue in issues do
 			badProjects += 1
-			add("fail", "project " .. proj.file, issue, "map it like templates/new-game/default.project.json")
+			add(
+				"fail",
+				"project " .. proj.file,
+				issue,
+				"run tools/sync-projects (kit module entries are generated)"
+			)
 		end
 	end
 end

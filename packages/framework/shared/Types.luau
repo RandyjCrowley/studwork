@@ -304,18 +304,7 @@ export type PaletteOverrides = { [string]: string } -- palette key -> hex
 -- always on. Dependencies: each module's definition (dependsOn). Core.start errors on an unknown
 -- name or a missing dependency; calling a module that is not enabled errors with
 -- "<Name> is not enabled in GameConfig.modules".
-export type ModuleName =
-	"Economy"
-	| "Upgrades"
-	| "Inventory"
-	| "Rarity"
-	| "Items"
-	| "Plot"
-	| "Rebirth"
-	| "Offline"
-	| "Streak"
-	| "Friends"
-	| "Mail"
+export type ModuleName = string -- core-v1.3.1 (R19): any module's name (was the 11 kit names)
 
 -- Server-only settings, passed as the second argument of Core.start on the server. Keep this
 -- module under ServerScriptService/ServerStorage so clients never receive it.
@@ -702,15 +691,10 @@ export type InputAPI = {
 
 -- Thin client -> server requests. The server validates everything; these never assume success.
 export type ActionsAPI = {
-	display: (uid: string, slotId: string?) -> (),
-	clearDisplay: (uid: string) -> (),
-	rebirth: () -> (),
-	upgrade: (upgradeId: string) -> (),
-	roll: (tableId: string) -> (),
-	gift: (toUserId: number, uid: string) -> (),
+	-- core-v1.3.1 (R19): the framework's own client actions only. A module's actions are
+	-- StudWork.use(<ModuleRef>).actions.<name> (module-api.md §9).
 	triggerEvent: (eventId: string) -> (), -- admin only (server checks GameConfig.admins)
 	funnel: (step: string) -> (), -- only AnalyticsConfig.clientSteps are accepted
-	claimMail: (messageId: string) -> (), -- v1.2: Mail.claim for a mailbox entry (Mail module)
 }
 
 export type HudOptions = {
@@ -736,9 +720,8 @@ export type ClientAPI = {
 	Actions: ActionsAPI,
 	Hud: HudAPI,
 	onFeedbackEvent: (handler: (kind: string, text: string, rarity: RarityTier?) -> ()) -> Connection,
-	-- v1.2 (N1): fires with the mailbox item count whenever it changes (and once on connect when
-	-- the state is loaded).
-	onMailbox: (handler: (count: number) -> ()) -> Connection,
+	-- core-v1.3.1 (R19): onMailbox moved to the mail module's client API
+	-- (StudWork.use(<mail module ref>).onMailbox).
 }
 
 --------------------------------------------------------------------------------
@@ -755,22 +738,12 @@ export type CoreAPI = {
 	config: () -> GameConfig,
 	isEnabled: (moduleName: ModuleName) -> boolean, -- true for listed modules (valid after start)
 	Signals: CoreSignals,
-	-- server only (indexing these on the client errors)
-	Items: ItemsAPI,
-	Rarity: RarityAPI,
-	Economy: EconomyAPI,
-	Inventory: InventoryAPI,
-	Plot: PlotAPI,
-	Rebirth: RebirthAPI,
-	Upgrades: UpgradesAPI,
-	Offline: OfflineAPI,
-	Streak: StreakAPI,
-	Friends: FriendsAPI,
+	-- server only (indexing these on the client errors). core-v1.3.1 (R19): the kit module
+	-- namespaces of the v1.2 facade are gone; a module's API is StudWork.use(<ModuleRef>).
 	Events: EventsAPI,
 	Shop: ShopAPI,
 	Policy: PolicyAPI,
 	Data: DataAPI,
-	Mail: MailAPI,
 	Analytics: AnalyticsAPI,
 	Net: NetAPI, -- v1.2: game remotes (foundation)
 	-- client only
