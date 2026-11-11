@@ -646,3 +646,14 @@ lead re-running lint, typecheck (6 games), tests (582), test-sim (51) and 8 rojo
   temp copy only), not a symlink, so the pin check, `git -C roblox-core` stamping and the documented
   `protocol.file.allow=always` flow are exercised; auto-gc is off in the temp repos (a background gc
   packed objects mid-clone and broke `submodule add`).
+
+## The split (2026-11-11)
+
+- **This repo was split out of an earlier monorepo** after `core-v1.3.1`, with built-in
+  `git filter-branch --index-filter` on a fresh clone (git-filter-repo would have needed an install).
+  The history of every core path is kept; `core-v1.0.0` ... `core-v1.3.1` are `v1.0.0` ... `v1.3.1`.
+  The full monorepo history (other branches' paths, intermediate tags) stays in the earlier monorepo, which is a
+  read-only archive (`ARCHIVED.md`).
+- **`v1.3.1` stays exactly the archived commit**; the standalone layout and the games-repo tooling are
+  later commits, released as **v1.4.0** (user's decision: a new capability is a minor release). The games
+  repo pins v1.4.0. Reports: `(internal build report, not public)`.

@@ -140,3 +140,20 @@ Mediums/Lows were fixed before the tag (`P2F-REPORT.md`).
 - **R27 (Low, review 7). The sim R22 spec passes without the R22 bumps** (ProfileStore's `beforeSave`
   bumps the version during the save). The unit spec `SaveNowVersion.spec` is the regression guard.
 
+
+## v1.4.0 open items (games-repo mode)
+
+- **V1 (Medium). The games-repo pre-commit hook template trips the pin check.** Git runs hooks with
+  `GIT_INDEX_FILE=.git/index` (relative), so `templates/games-repo/.githooks/pre-commit` -> `tools/lint`
+  -> the pin check's `git -C roblox-core ...` fails with "not a git checkout" on every commit.
+  `tools/test-games-repo` doesn't commit through the hook, so it didn't catch it. Workaround (in
+  the games repo's own hook): unset the default `GIT_INDEX_FILE` and refuse partial commits
+  (`git commit <paths>`). Fix: clear `GIT_INDEX_FILE`/`GIT_DIR` in `_common.sh` games mode and run the
+  hook in `test-games-repo`. Filed in the games repo `FRAMEWORK_REQUESTS.md`.
+- **V2 (Low). The module README that `make-module` writes links `../../../../docs/framework/...`**,
+  wrong inside a games repo (kept byte-identical to v1.3.1 output). Filed in FRAMEWORK_REQUESTS.md.
+- **V3 (Low). Games mode links Rokit's tool storage** (`~/.rokit/tool-storage/<owner>/<repo>/<version>`)
+  into `.cache/studwork-bin/`, because Rokit can't be pointed at the core's `rokit.toml`. A Rokit
+  storage-layout change breaks it (one place: `tools/_common.sh`).
+- **V4 (Low). The pin guardrail runs from the pinned core**, so pinning a tag older than v1.4.0 disables
+  it. Bump only forward.
