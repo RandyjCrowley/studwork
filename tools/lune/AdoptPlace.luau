@@ -18,7 +18,8 @@
 	    meta `Name` property (it warns), so the instance syncs under the file name and code that
 	    finds it by its old name must be updated
 	  - every target resolves (after symlinks, `realpath`) inside --out
-	  - a fresh --out must be empty or not exist (the place file itself, dotfiles and old audit
+	  - a fresh --out may hold other files (v1.6.0 dogfood: a game's saves/, notes); any file at a
+	    path the run writes is refused unless an earlier run's manifest knows it unchanged (the old audit
 	    reports are allowed); a later run overwrites only files listed in .studwork-from-place.json
 	    with an unchanged hash, any other existing file stops the run
 	The place file is never modified. The audit report of the extracted project is written last.
@@ -378,18 +379,10 @@ function Place.run(env, placeAbs: string, outAbs: string)
 		end
 		old = v
 	elseif fs.isDir(outAbs) then
-		for _, e in fs.readDir(outAbs) do
-			local abs = outAbs .. "/" .. e
-			if string.sub(e, 1, 1) == "." or ALLOWED_IN_FRESH[e] or abs == placeAbs then
-				continue
-			end
-			return nil,
-				"--out is not empty ("
-					.. e
-					.. ") and has no "
-					.. Audit.MANIFEST
-					.. "; use an empty folder; nothing was written"
-		end
+		-- (v1.6.0 dogfood) a fresh --out may hold anything the run doesn't write (the game's own
+		-- notes, saves/ ...): only an existing file at a path the plan writes stops it (below;
+		-- without a manifest every such file is refused) or something in the way of a folder (1.)
+		local _ = ALLOWED_IN_FRESH
 	elseif fs.isFile(outAbs) then
 		return nil, "--out is a file; nothing was written"
 	end

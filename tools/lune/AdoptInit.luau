@@ -15,7 +15,7 @@
 	isSafeRel(rel) -> boolean            a relative path that stays inside the project (lexically)
 	REQUIRED(gameId) -> { { service, name, node } }   the entries StudWork adds to the tree
 	isOurs(node, gameId) -> boolean      an existing entry that StudWork wrote (every $path is under
-	                                     studwork/ or modules/<gameId>/): kept, never a clash
+	                                     studwork/, modules/<gameId>/, studwork-boot/ or is src/shared/Config): kept, never a clash
 	mergeProject(SP, text, gameId) -> (newText?, added { string }, clashes { string })
 	    adds the StudWork entries after the existing keys (existing keys keep their order and
 	    values), the game module's server part under ServerScriptService.Modules, and the missing
@@ -192,6 +192,10 @@ function AdoptInit.REQUIRED(SP, gameId: string, moduleName: string): { any }
 			"Modules",
 			folder({ { moduleName, path("modules/" .. gameId .. "/server") } }),
 		},
+		-- (v1.6.0 dogfood: every migration needed these) GameConfig and the two boot scripts
+		{ "ReplicatedStorage", "Game", folder({ { "Config", path("src/shared/Config") } }) },
+		{ "ServerScriptService", "StudWorkBoot", path("studwork-boot/server") },
+		{ "ReplicatedFirst", "StudWorkBoot", path("studwork-boot/client") },
 		{ "ServerStorage", "ServerPackages", path(core .. "/deps/ServerPackages") },
 		{ "ServerStorage", "Vendor", path(core .. "/packages/vendor") },
 	}
@@ -211,6 +215,8 @@ function AdoptInit.isOurs(node: any, gameId: string): boolean
 					or not (
 						string.sub(v, 1, #AdoptInit.CORE + 1) == AdoptInit.CORE .. "/"
 						or string.sub(v, 1, #gameId + 9) == "modules/" .. gameId .. "/"
+						or string.sub(v, 1, 14) == "studwork-boot/"
+						or v == "src/shared/Config"
 					)
 				then
 					ok = false
@@ -238,7 +244,15 @@ function AdoptInit.moduleName(gameId: string): string
 	return table.concat(out)
 end
 
-function AdoptInit.mergeProject(SP, text: string, gameId: string): (string?, { string }, { string })
+-- pathHas(path, name) -> boolean (optional): does the folder a "$path" maps hold an entry that
+-- syncs as `name`? A service mapped with "$path" can still get StudWork's children (Rojo merges
+-- explicit children with the folder's), unless that folder already has a child of the same name.
+function AdoptInit.mergeProject(
+	SP,
+	text: string,
+	gameId: string,
+	pathHas: ((path: string, name: string) -> boolean)?
+): (string?, { string }, { string })
 	local project = SP.decode(text)
 	local added, clashes = {}, {}
 	if type(project) ~= "table" or not project.__object then
@@ -264,12 +278,22 @@ function AdoptInit.mergeProject(SP, text: string, gameId: string): (string?, { s
 			badService[serviceName] = true
 			continue
 		elseif service.vals["$path"] ~= nil then
-			table.insert(
-				clashes,
-				serviceName .. ' (mapped with "$path"; StudWork needs to add children to it)'
-			)
-			badService[serviceName] = true
-			continue
+			local mapped = service.vals["$path"]
+			if pathHas == nil or type(mapped) ~= "string" then
+				table.insert(
+					clashes,
+					serviceName .. ' (mapped with "$path"; StudWork needs to add children to it)'
+				)
+				badService[serviceName] = true
+				continue
+			end
+			if service.vals[name] == nil and pathHas(mapped, name) then
+				table.insert(
+					clashes,
+					`{serviceName}.{name} (the folder {mapped} that "$path" maps already has a child named {name})`
+				)
+				continue
+			end
 		end
 		local existing = service.vals[name]
 		if existing == nil then

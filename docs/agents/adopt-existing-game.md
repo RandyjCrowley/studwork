@@ -82,6 +82,10 @@ cd <studwork>
 tools/adopt --from-place <game>/<Place>.rbxl --out <game>
 ```
 
+Other files already in `<game>` (notes, sample saves) are left alone; the run stops only if a
+file it would write already exists. Every renamed instance (a name that isn't a safe file name) is
+printed: fix code that finds it by its old name.
+
 Commit the generated files (`git -C <game> add` the new files, including `.studwork-from-place.json`,
 then commit "Extract code from the place file").
 
@@ -157,10 +161,18 @@ tools/adopt --init <game> --name <gameId> --modules Items,Rarity,Inventory,Econo
 ```
 
 Init needs a clean git tree. It adds the `studwork/` submodule pinned to a release tag (from
-GitHub; if there's no network, add `--url <studwork>` and note in the report that the user must
-point `.gitmodules` at the real URL), `studwork.json` (`"adopted": true`), the `tools/` wrappers,
-the game module `modules/<gameId>/`, merges `default.project.json`, and writes
-`studwork-legacy.json` with every old file that breaks a guardrail. It never overwrites an
+GitHub), `studwork.json` (`"adopted": true`), the `tools/` wrappers, the game module
+`modules/<gameId>/`, the boot scripts `studwork-boot/` (`StudWork.start` on the server and the
+client; StudWork saves only to its own store, so booting it next to the old scripts is safe),
+`src/shared/Config/` when missing (mapped as `ReplicatedStorage.Game.Config`), merges
+`default.project.json`, and writes `studwork-legacy.json` with every old file that breaks a
+guardrail. A service the old project maps with `"$path"` (e.g. `"ServerScriptService": {
+"$path": "src/server" }`) is fine: StudWork's entries are added next to it.
+
+**If init says the tag doesn't exist on GitHub** (an unreleased StudWork, or no network), it prints
+the exact `--url <studwork>` to rerun with. Use it, and write in your report that the user must run
+`git submodule set-url studwork https://github.com/RandyjCrowley/studwork.git` once the tag is
+published (a local path in `.gitmodules` must not be shared). It never overwrites an
 existing project entry; a name clash stops it with a message naming the entry (rename the old
 entry in `default.project.json`, commit, run again).
 
@@ -171,7 +183,7 @@ cd <game>
 tools/install
 tools/doctor
 tools/lint && tools/typecheck && tools/test && tools/build
-git add studwork studwork.json studwork-legacy.json .gitmodules tools modules src default.project.json
+git add studwork studwork.json studwork-legacy.json .gitmodules .gitignore .githooks tools modules studwork-boot src default.project.json
 git commit -m "Adopt StudWork"
 ```
 

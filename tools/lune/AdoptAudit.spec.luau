@@ -189,6 +189,52 @@ describe("AdoptAudit: save libraries", function()
 	end)
 end)
 
+describe("AdoptAudit: dogfood findings (v1.6.0)", function()
+	it("resolves a product id from a constants module and skips a vendored library's own calls", function()
+		local root = tmpRoot()
+		write(
+			root .. "/default.project.json",
+			'{ "name": "x", "tree": { "$className": "DataModel", "ServerScriptService": { "$path": "src" }, "ServerStorage": { "Lib": { "$path": "lib" } } } }'
+		)
+		write(root .. "/src/Ids.luau", "return { GemPack = 4444, VIP = 2222 }\n")
+		write(
+			root .. "/src/Shop.server.luau",
+			[[local MarketplaceService = game:GetService("MarketplaceService")
+local Ids = require(script.Parent.Ids)
+local Sessions = {}
+MarketplaceService.ProcessReceipt = function(receipt)
+	local data = Sessions[receipt.PlayerId]
+	if data.Purchases[receipt.PurchaseId] then
+		return Enum.ProductPurchaseDecision.PurchaseGranted
+	end
+	if receipt.ProductId == Ids.GemPack then
+		data.gems += 100
+	end
+	data.Purchases[receipt.PurchaseId] = true
+	return Enum.ProductPurchaseDecision.PurchaseGranted
+end
+]]
+		)
+		write(
+			root .. "/lib/ProfileService.luau",
+			[[local DataStoreService = game:GetService("DataStoreService")
+local P = {}
+function P.GetProfileStore(name, template)
+	local store = DataStoreService:GetDataStore(name)
+	return { load = function(key) return store:UpdateAsync(key, function(v) return v end) end }
+end
+return P
+]]
+		)
+		local report = Audit.run(env, { root }, { write = false })
+		expect(report.purchases.products[1].id).toBe(4444)
+		expect(table.find(report.purchases.products[1].sold, "gems")).never.toBeNil()
+		expect(riskKinds(report, "critical")).toEqual({})
+		expect(riskKinds(report).library_implementation).toBe(true)
+		fs.removeDir(root)
+	end)
+end)
+
 describe("AdoptAudit: several places of one universe", function()
 	it("lists shared stores and rates a store another place writes critical", function()
 		local report = audit("raw-datastore", "lobby")

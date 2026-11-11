@@ -20,6 +20,9 @@
 
 local Audit = {}
 
+-- vendored save-library implementations, by lower-case file name (no extension)
+Audit.LIBRARY_FILES = { profileservice = true, profilestore = true, datastore2 = true }
+
 Audit.REPORT_JSON = "studwork-adopt-report.json"
 Audit.REPORT_MD = "studwork-adopt-report.md"
 Audit.MANIFEST = ".studwork-from-place.json"
@@ -870,10 +873,17 @@ function Audit.build(env, projects, reportDir: string)
 				table.insert(all, { s = s, extracted = false })
 			end
 		end
+		local moduleSources = {}
+		for _, item in all do
+			if item.s.class == "ModuleScript" then
+				table.insert(moduleSources, item.s.source)
+			end
+		end
+		local constants = Scan.constants(moduleSources)
 		for _, item in all do
 			local s = item.s
 			local file = fileLabel(s.path)
-			local scan = Scan.scan(s.source)
+			local scan = Scan.scan(s.source, constants)
 			fileScan[file] = { scan = scan, script = s }
 			if item.extracted then
 				table.insert(report.scripts, {
@@ -898,6 +908,29 @@ function Audit.build(env, projects, reportDir: string)
 						nil
 					)
 				end
+			end
+
+			-- (v1.6.0 dogfood) a vendored save library's own implementation (ProfileService.lua,
+			-- ProfileStore, DataStore2): its internal DataStore calls are the library's, built from
+			-- runtime names by design; the game's USE of it is what the import reads. Not a risk.
+			local base = string.lower(string.match(file, "([^/]+)$") or file)
+			base = string.gsub(base, "%.luau?$", "")
+			base = string.gsub(base, "/init$", "")
+			if base == "init" then
+				base = string.lower(string.match(file, "([^/]+)/init%.luau?$") or "")
+			end
+			if Audit.LIBRARY_FILES[base] then
+				scan.datastores = {}
+				scan.libraries = {}
+				risk(
+					"library_implementation",
+					"low",
+					"vendored save library ("
+						.. base
+						.. "): its own DataStore calls aren't audited; remove it once nothing requires it",
+					file,
+					nil
+				)
 			end
 
 			-- datastores

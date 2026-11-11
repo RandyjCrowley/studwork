@@ -197,7 +197,12 @@ if [ ! -e studwork/.git ]; then
 			rm -f .gitmodules
 		fi
 		git config --remove-section submodule.studwork 2>/dev/null || true
-		die "tag $P_TAG does not exist in $SUB_URL (tags: $TAGS). Nothing was kept."
+		HINT=""
+		if git -C "$CORE_ROOT" rev-parse -q --verify "refs/tags/$P_TAG" >/dev/null 2>&1; then
+			# (v1.6.0 dogfood) an unreleased tag: it exists only in this StudWork checkout
+			HINT=" This StudWork checkout has $P_TAG (not published at $SUB_URL yet): rerun with --url \"$CORE_ROOT\" and, before sharing the project, git submodule set-url studwork $SUB_URL once the tag is published (docs/agents/adopt-existing-game.md step 3)."
+		fi
+		die "tag $P_TAG does not exist in $SUB_URL (tags: $TAGS). Nothing was kept.$HINT"
 	fi
 	git -C studwork checkout -q "$P_TAG" || die "could not check out $P_TAG"
 	git add studwork

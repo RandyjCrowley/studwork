@@ -110,6 +110,35 @@ describe("AdoptInit.isSafeRel", function()
 end)
 
 describe("AdoptInit.mergeProject", function()
+	it(
+		"adds children to a service mapped with $path (Rojo merges them), unless that folder has the name",
+		function()
+			local text = [[{ "name": "g", "tree": { "$className": "DataModel",
+			"ServerScriptService": { "$path": "src/server" }, "ReplicatedStorage": { "$path": "src/shared" } } }]]
+			local none = AdoptInit.mergeProject(SyncProjects, text, "my-game", function()
+				return false
+			end)
+			expect(none).never.toBeNil()
+			local tree = SyncProjects.decode(none).vals.tree
+			expect(tree.vals.ServerScriptService.vals["$path"]).toBe("src/server")
+			expect(tree.vals.ServerScriptService.vals.Framework.vals["$path"]).toBe(
+				"studwork/packages/framework/server"
+			)
+			local again = AdoptInit.mergeProject(SyncProjects, none, "my-game", function()
+				return false
+			end)
+			expect(again).toBe(none)
+			local out, _, clashes = AdoptInit.mergeProject(SyncProjects, text, "my-game", function(path, name)
+				return path == "src/shared" and name == "Modules"
+			end)
+			expect(out).toBeNil()
+			expect(clashes[1]).toContain("ReplicatedStorage.Modules")
+			-- without the folder check (pure callers) it stays a clash
+			local _, _, plain = AdoptInit.mergeProject(SyncProjects, text, "my-game")
+			expect(#plain > 0).toBe(true)
+		end
+	)
+
 	it("adds the StudWork entries after the existing ones, keeping their order and values", function()
 		local out, added, clashes = AdoptInit.mergeProject(SyncProjects, LEGACY_PROJECT, "legacy-example-a")
 		expect(clashes).toEqual({})
@@ -123,6 +152,7 @@ describe("AdoptInit.mergeProject", function()
 			"ServerScriptService",
 			"ReplicatedStorage",
 			"Workspace",
+			"ReplicatedFirst",
 			"ServerStorage",
 		})
 		local rs = tree.vals.ReplicatedStorage
@@ -134,12 +164,15 @@ describe("AdoptInit.mergeProject", function()
 			"UI",
 			"GameModule",
 			"Modules",
+			"Game",
 		})
+		expect(rs.vals.Game.vals.Config.vals["$path"]).toBe("src/shared/Config")
+		expect(tree.vals.ReplicatedFirst.vals.StudWorkBoot.vals["$path"]).toBe("studwork-boot/client")
 		expect(rs.vals.Shared.vals["$path"]).toBe("src/shared")
 		expect(rs.vals.Framework.vals["$path"]).toBe("studwork/packages/framework/shared")
 		expect(rs.vals.GameModule.vals.module.vals["$path"]).toBe("modules/legacy-example-a/module.luau")
 		local sss = tree.vals.ServerScriptService
-		expect(sss.keys).toEqual({ "Server", "Framework", "Modules" })
+		expect(sss.keys).toEqual({ "Server", "Framework", "Modules", "StudWorkBoot" })
 		expect(sss.vals.Modules.vals.LegacyExampleA.vals["$path"]).toBe("modules/legacy-example-a/server")
 		expect(tree.vals.ServerStorage.vals.ServerPackages.vals["$path"]).toBe("studwork/deps/ServerPackages")
 		expect(tree.vals.Workspace.vals["$properties"].vals.StreamingEnabled).toBe(true)

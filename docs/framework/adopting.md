@@ -198,8 +198,15 @@ audit ──> init ──> migrate system by system ──> verify ──> cutov
   StudWork wrapper is left alone and reported).
 - Creates the game module `modules/<gameId>/` (`module.luau`, `server/init.luau`) with the
   `importLegacy` and bridge calls stubbed and commented, and `src/shared/Config/` if missing.
+- Creates the boot scripts `studwork-boot/server/Main.server.luau` (+ `ServerConfig.luau`) and
+  `studwork-boot/client/Main.client.luau` (`StudWork.start`), mapped as
+  `ServerScriptService.StudWorkBoot` and `ReplicatedFirst.StudWorkBoot`, and maps
+  `src/shared/Config` as `ReplicatedStorage.Game.Config` (added after the v1.6.0 dogfood: every
+  migration needed them).
 - **Merges** the existing `default.project.json` instead of replacing it: it adds the framework,
   UI, Packages and `Modules` entries and the game module; existing entries are kept as they are.
+  A service the old project maps with `"$path"` gets StudWork's entries as explicit children
+  (Rojo merges them with the folder's), unless that folder already has a child of the same name.
   If an existing entry occupies a name StudWork needs (`ReplicatedStorage.Framework`, `.Modules`,
   `.Packages`, `.UI`, `.GameModule`, `ServerScriptService.Framework`, `.Modules`), it stops and
   reports the clash instead of overwriting it.

@@ -242,10 +242,19 @@ describe("AdoptPlace.run", function()
 		local other = root .. "/other"
 		fs.writeDir(other)
 		fs.writeFile(other .. "/notes.txt", "mine")
-		local refused2, err4 = Place.run(env, placePath, other)
-		expect(refused2).toBeNil()
-		expect(err4).toContain("not empty")
-		expect(allFiles(other)).toEqual({ "notes.txt" })
+		-- (v1.6.0 dogfood) unrelated files in a fresh --out (a game's saves/, notes) are kept
+		local ok2, err4 = Place.run(env, placePath, other)
+		expect(err4).toBeNil()
+		expect(ok2 ~= nil).toBe(true)
+		expect(fs.readFile(other .. "/notes.txt")).toBe("mine")
+		-- ...but a file at a path the run writes, with no manifest, is refused and left alone
+		local third = root .. "/third"
+		fs.writeDir(third)
+		fs.writeFile(third .. "/default.project.json", "{}")
+		local refused3, err5 = Place.run(env, placePath, third)
+		expect(refused3).toBeNil()
+		expect(err5).toContain("default.project.json")
+		expect(allFiles(third)).toEqual({ "default.project.json" })
 		fs.removeDir(root)
 	end)
 

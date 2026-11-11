@@ -127,7 +127,32 @@ if cmd == "plan" then
 		)
 	end
 	local oldProject = fs.readFile(at(projectFile))
-	local okMerge, merged, added, clashes = pcall(AdoptInit.mergeProject, SyncProjects, oldProject, gameId)
+	local okMerge, merged, added, clashes = pcall(
+		AdoptInit.mergeProject,
+		SyncProjects,
+		oldProject,
+		gameId,
+		function(path: string, name: string): boolean
+			local dir = at(path)
+			if not fs.isDir(dir) then
+				return false
+			end
+			for _, e in fs.readDir(dir) do
+				-- Rojo's sync name: the file name without .server/.client/.luau/.lua/.meta.json/.model.json
+				local base = string.gsub(e, "%.server%.luau$", "")
+				base = string.gsub(base, "%.client%.luau$", "")
+				base = string.gsub(base, "%.server%.lua$", "")
+				base = string.gsub(base, "%.client%.lua$", "")
+				base = string.gsub(base, "%.model%.json$", "")
+				base = string.gsub(base, "%.luau$", "")
+				base = string.gsub(base, "%.lua$", "")
+				if base == name then
+					return true
+				end
+			end
+			return false
+		end
+	)
 	if not okMerge then
 		print("error: " .. projectFile .. ": " .. tostring(merged))
 		process.exit(1)
@@ -223,6 +248,11 @@ if cmd == "plan" then
 	create(moduleDir .. "/server/init.luau", render(templates .. "/adopt/server/init.luau.tmpl", vars))
 	create(moduleDir .. "/module.spec.luau", render(templates .. "/adopt/module.spec.luau.tmpl", vars))
 	create(moduleDir .. "/README.md", render(templates .. "/adopt/README.md.tmpl", vars))
+
+	-- the boot scripts (StudWork.start on both sides), mapped by the merged project file
+	for _, f in { "server/Main.server.luau", "server/ServerConfig.luau", "client/Main.client.luau" } do
+		create("studwork-boot/" .. f, fs.readFile(templates .. "/adopt/boot/" .. f))
+	end
 
 	-- src/shared/Config (only when the game has none): templates/new-game's, for the chosen modules
 	if not fs.isDir(at("src/shared/Config")) then

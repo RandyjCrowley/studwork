@@ -284,6 +284,7 @@ check "game module: data key = the game id" grep -q 'key = "legacy-example-a"' "
 check "game module server: stubbed importLegacy / legacyReceipts / onLegacyProduct" sh -c \
 	"grep -q '_ctx.data.importLegacy' '$G/modules/legacy-example-a/server/init.luau' && grep -q '_ctx.shop.legacyReceipts' '$G/modules/legacy-example-a/server/init.luau' && grep -q '_ctx.shop.onLegacyProduct' '$G/modules/legacy-example-a/server/init.luau'"
 check "game module README: the save-map table" grep -q '| Old store | Old field | New home | Notes |' "$G/modules/legacy-example-a/README.md"
+check "boot scripts (StudWork.start) mapped" sh -c "grep -q 'StudWork.start(Config, ServerConfig)' '$G/studwork-boot/server/Main.server.luau' && grep -q '\"studwork-boot/server\"' '$G/default.project.json' && grep -q '\"studwork-boot/client\"' '$G/default.project.json' && grep -q '\"src/shared/Config\"' '$G/default.project.json'"
 check "src/shared/Config (was missing) with the game id" grep -q 'gameId = "legacy-example-a"' "$G/src/shared/Config/init.luau"
 PJ="$G/default.project.json"
 check "project file keeps the old entries" sh -c "grep -q '\"src/server\"' '$PJ' && grep -q '\"src/shared\"' '$PJ' && grep -q '\"src/client\"' '$PJ'"

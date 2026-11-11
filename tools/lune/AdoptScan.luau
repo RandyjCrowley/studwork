@@ -415,8 +415,33 @@ local function userIdVars(code: string): { [string]: boolean }
 	return set
 end
 
-local function newCtx(m)
-	return { m = m, vars = localAssignments(m.code), uid = userIdVars(m.code) }
+local function newCtx(m, constants)
+	return { m = m, vars = localAssignments(m.code), uid = userIdVars(m.code), constants = constants or {} }
+end
+
+-- (v1.6.0 dogfood) project-wide id constants: `Name = 1234` (4+ digits) in a ModuleScript, so a
+-- handler comparing `receipt.ProductId == Ids.GemPack` (Ids required from another module) still
+-- resolves. A name bound to two different numbers in the project is left out (ambiguous).
+function Scan.constants(sources: { string }): { [string]: number }
+	local found: { [string]: number | boolean } = {}
+	for _, source in sources do
+		local code = Scan.mask(source).code
+		for name, n in string.gmatch(code, "%f[%w_]([%a_][%w_]*)%s*=%s*(%d%d%d%d+)%f[^%w_]") do
+			local v = tonumber(n)
+			if found[name] == nil then
+				found[name] = v :: number
+			elseif found[name] ~= v then
+				found[name] = false
+			end
+		end
+	end
+	local out = {}
+	for name, v in found do
+		if type(v) == "number" then
+			out[name] = v
+		end
+	end
+	return out
 end
 
 -- splits at top-level `..`
@@ -587,6 +612,9 @@ local function numericId(ctx, expr: string?): number?
 		local v = string.match(ctx.m.code, "%f[%w_]" .. last .. "%s*=%s*(%d%d%d%d+)")
 		if v then
 			return tonumber(v)
+		end
+		if string.find(expr, ".", 1, true) and ctx.constants[last] then
+			return ctx.constants[last]
 		end
 	end
 	return nil
@@ -1184,9 +1212,9 @@ local function scanGlobals(ctx, res)
 end
 
 -- Every finding of one script's source.
-function Scan.scan(source: string)
+function Scan.scan(source: string, constants: { [string]: number }?)
 	local m = Scan.mask(source)
-	local ctx = newCtx(m)
+	local ctx = newCtx(m, constants)
 	local res = {}
 	scanDataStores(ctx, res)
 	scanLibraries(ctx, res)
