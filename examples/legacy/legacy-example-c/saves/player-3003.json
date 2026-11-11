@@ -1,0 +1,29 @@
+{
+  "userId": 3003,
+  "ordered": {
+    "store": "DATA/3003",
+    "entries": [
+      {
+        "key": "1",
+        "value": 1
+      }
+    ]
+  },
+  "datastore": {
+    "store": "DATA/3003",
+    "entries": [
+      {
+        "key": "1",
+        "value": {
+          "coins": 777,
+          "xp": 12000,
+          "rebirths": 5,
+          "inventory": {
+            "boostsBought": 9
+          },
+          "boostUntil": 1999999999
+        }
+      }
+    ]
+  }
+}

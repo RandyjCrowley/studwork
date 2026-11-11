@@ -1,0 +1,34 @@
+{
+  "name": "legacy-example-b",
+  "servePort": 34901,
+  "tree": {
+    "$className": "DataModel",
+    "ReplicatedStorage": {
+      "Shared": { "$path": "src/shared" },
+      "Remotes": {
+        "$className": "Folder",
+        "Hatch": { "$className": "RemoteEvent" },
+        "Equip": { "$className": "RemoteEvent" },
+        "Collect": { "$className": "RemoteEvent" },
+        "StateChanged": { "$className": "RemoteEvent" }
+      }
+    },
+    "ServerStorage": {
+      "Lib": { "$path": "lib" }
+    },
+    "ServerScriptService": {
+      "Server": { "$path": "src/server" }
+    },
+    "StarterPlayer": {
+      "StarterPlayerScripts": {
+        "Client": { "$path": "src/client" }
+      }
+    },
+    "Workspace": {
+      "Baseplate": {
+        "$className": "Part",
+        "$properties": { "Anchored": true, "Size": [256, 4, 256], "Position": [0, -2, 0] }
+      }
+    }
+  }
+}

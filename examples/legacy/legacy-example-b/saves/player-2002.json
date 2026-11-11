@@ -1,0 +1,118 @@
+{
+  "store": "PlayerData",
+  "key": "Player_2002",
+  "value": {
+    "Data": {
+      "coins": 250000,
+      "gems": 1210,
+      "pets": [
+        {
+          "id": "puppy",
+          "uid": "p-2002-00"
+        },
+        {
+          "id": "kitten",
+          "uid": "p-2002-01"
+        },
+        {
+          "id": "fox",
+          "uid": "p-2002-02"
+        },
+        {
+          "id": "owl",
+          "uid": "p-2002-03"
+        },
+        {
+          "id": "dragon",
+          "uid": "p-2002-04"
+        },
+        {
+          "id": "puppy",
+          "uid": "p-2002-05"
+        },
+        {
+          "id": "kitten",
+          "uid": "p-2002-06"
+        },
+        {
+          "id": "fox",
+          "uid": "p-2002-07"
+        },
+        {
+          "id": "owl",
+          "uid": "p-2002-08"
+        },
+        {
+          "id": "dragon",
+          "uid": "p-2002-09"
+        },
+        {
+          "id": "puppy",
+          "uid": "p-2002-10"
+        },
+        {
+          "id": "kitten",
+          "uid": "p-2002-11"
+        },
+        {
+          "id": "fox",
+          "uid": "p-2002-12"
+        },
+        {
+          "id": "owl",
+          "uid": "p-2002-13"
+        },
+        {
+          "id": "dragon",
+          "uid": "p-2002-14"
+        },
+        {
+          "id": "puppy",
+          "uid": "p-2002-15"
+        },
+        {
+          "id": "kitten",
+          "uid": "p-2002-16"
+        },
+        {
+          "id": "fox",
+          "uid": "p-2002-17"
+        },
+        {
+          "id": "owl",
+          "uid": "p-2002-18"
+        },
+        {
+          "id": "dragon",
+          "uid": "p-2002-19"
+        }
+      ],
+      "equipped": [
+        "p-2002-04",
+        "p-2002-09",
+        "p-2002-14"
+      ],
+      "stats": {
+        "hatched": 20,
+        "collected": 91000
+      },
+      "Purchases": {
+        "b7d1e0aa-0001": true,
+        "b7d1e0aa-0002": true,
+        "b7d1e0aa-0003": true
+      }
+    },
+    "MetaData": {
+      "ProfileCreateTime": 1760000000,
+      "SessionLoadCount": 42,
+      "ActiveSession": null,
+      "ForceLoadSession": null,
+      "MetaTags": {},
+      "LastUpdate": 1767200000
+    },
+    "GlobalUpdates": [
+      0,
+      []
+    ]
+  }
+}

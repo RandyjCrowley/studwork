@@ -1,0 +1,9 @@
+{
+  "store": "PlayerSave_v3",
+  "key": "Player_1002",
+  "value": {
+    "coins": 40,
+    "inventory": [],
+    "settings": { "music": true }
+  }
+}

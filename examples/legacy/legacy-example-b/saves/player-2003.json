@@ -1,0 +1,29 @@
+{
+  "store": "PlayerData",
+  "key": "Player_2003",
+  "value": {
+    "Data": {
+      "coins": 0,
+      "gems": 0,
+      "pets": [],
+      "equipped": [],
+      "stats": {
+        "hatched": 0,
+        "collected": 0
+      },
+      "Purchases": {}
+    },
+    "MetaData": {
+      "ProfileCreateTime": 1760000000,
+      "SessionLoadCount": 42,
+      "ActiveSession": null,
+      "ForceLoadSession": null,
+      "MetaTags": {},
+      "LastUpdate": 1767200000
+    },
+    "GlobalUpdates": [
+      0,
+      []
+    ]
+  }
+}

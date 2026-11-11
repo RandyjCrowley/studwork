@@ -1,0 +1,503 @@
+<roblox version="4">
+  <Item class="ReplicatedStorage" referent="0">
+    <Properties>
+      <string name="Name">ReplicatedStorage</string>
+    </Properties>
+    <Item class="Folder" referent="1">
+      <Properties>
+        <string name="Name">Remotes</string>
+      </Properties>
+      <Item class="RemoteEvent" referent="2">
+        <Properties>
+          <string name="Name">BuyItem</string>
+        </Properties>
+      </Item>
+      <Item class="RemoteEvent" referent="3">
+        <Properties>
+          <string name="Name">ClaimDaily</string>
+        </Properties>
+      </Item>
+      <Item class="RemoteEvent" referent="4">
+        <Properties>
+          <string name="Name">ToggleMusic</string>
+        </Properties>
+      </Item>
+      <Item class="RemoteFunction" referent="5">
+        <Properties>
+          <string name="Name">GetShop</string>
+        </Properties>
+      </Item>
+    </Item>
+    <Item class="ModuleScript" referent="6">
+      <Properties>
+        <string name="Name">ShopItems</string>
+        <string name="Source"><![CDATA[-- ShopItems: what the coin shop sells.
+return {
+	sword = { name = "Sword", price = 100 },
+	shield = { name = "Shield", price = 250 },
+	hat = { name = "Party Hat", price = 50 },
+}
+]]></string>
+      </Properties>
+    </Item>
+  </Item>
+  <Item class="ServerScriptService" referent="7">
+    <Properties>
+      <string name="Name">ServerScriptService</string>
+    </Properties>
+    <Item class="Script" referent="8">
+      <Properties>
+        <string name="Name">DataManager</string>
+        <string name="Source"><![CDATA[-- DataManager: loads and saves every player's data (coins, inventory, settings).
+local DataStoreService = game:GetService("DataStoreService")
+local Players = game:GetService("Players")
+
+local store = DataStoreService:GetDataStore("PlayerSave_v3")
+
+local DEFAULT = {
+	coins = 0,
+	inventory = {},
+	settings = { music = true, sfx = true },
+	lastDaily = 0,
+}
+
+local sessions = {}
+_G.PlayerData = sessions
+
+local function copy(t)
+	local out = {}
+	for k, v in pairs(t) do
+		out[k] = if type(v) == "table" then copy(v) else v
+	end
+	return out
+end
+
+local function keyFor(player)
+	return "Player_" .. player.UserId
+end
+
+local function makeLeaderstats(player, data)
+	local stats = Instance.new("Folder")
+	stats.Name = "leaderstats"
+	local coins = Instance.new("IntValue")
+	coins.Name = "Coins"
+	coins.Value = data.coins
+	coins.Parent = stats
+	stats.Parent = player
+end
+
+local function onJoin(player)
+	local ok, saved = pcall(function()
+		return store:GetAsync(keyFor(player))
+	end)
+	if not ok then
+		player:Kick("Could not load your data, please rejoin")
+		return
+	end
+	local data = copy(DEFAULT)
+	if type(saved) == "table" then
+		for k, v in pairs(saved) do
+			data[k] = v
+		end
+	end
+	sessions[player] = data
+	makeLeaderstats(player, data)
+end
+
+local function save(player)
+	local data = sessions[player]
+	if not data then
+		return
+	end
+	local ok, err = pcall(function()
+		store:SetAsync(keyFor(player), data)
+	end)
+	if not ok then
+		warn("save failed for", player.Name, err)
+	end
+end
+
+function _G.AddCoins(player, amount)
+	local data = sessions[player]
+	if not data then
+		return
+	end
+	data.coins += amount
+	local stats = player:FindFirstChild("leaderstats")
+	if stats then
+		stats.Coins.Value = data.coins
+	end
+end
+
+Players.PlayerAdded:Connect(onJoin)
+Players.PlayerRemoving:Connect(function(player)
+	save(player)
+	sessions[player] = nil
+end)
+
+game:BindToClose(function()
+	for _, player in ipairs(Players:GetPlayers()) do
+		save(player)
+	end
+end)
+
+task.spawn(function()
+	while true do
+		task.wait(60)
+		for _, player in ipairs(Players:GetPlayers()) do
+			save(player)
+		end
+	end
+end)
+]]></string>
+      </Properties>
+    </Item>
+    <Item class="Script" referent="9">
+      <Properties>
+        <string name="Name">ShopServer</string>
+        <string name="Source"><![CDATA[-- ShopServer: buying items with coins, the daily reward, settings, and the shop list.
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local Remotes = ReplicatedStorage:WaitForChild("Remotes")
+local ShopItems = require(ReplicatedStorage:WaitForChild("ShopItems"))
+
+local DAILY_REWARD = 100
+local DAILY_SECONDS = 24 * 60 * 60
+
+Remotes.BuyItem.OnServerEvent:Connect(function(player, itemId)
+	local data = _G.PlayerData[player]
+	local item = ShopItems[itemId]
+	if not data or not item then
+		return
+	end
+	if table.find(data.inventory, itemId) then
+		return
+	end
+	if data.coins < item.price then
+		return
+	end
+	_G.AddCoins(player, -item.price)
+	table.insert(data.inventory, itemId)
+end)
+
+Remotes.ClaimDaily.OnServerEvent:Connect(function(player)
+	local data = _G.PlayerData[player]
+	if not data then
+		return
+	end
+	if os.time() - data.lastDaily < DAILY_SECONDS then
+		return
+	end
+	data.lastDaily = os.time()
+	_G.AddCoins(player, DAILY_REWARD)
+end)
+
+Remotes.ToggleMusic.OnServerEvent:Connect(function(player, on)
+	local data = _G.PlayerData[player]
+	if data and type(on) == "boolean" then
+		data.settings.music = on
+	end
+end)
+
+Remotes.GetShop.OnServerInvoke = function(player)
+	local data = _G.PlayerData[player]
+	return ShopItems, data and data.inventory or {}
+end
+]]></string>
+      </Properties>
+    </Item>
+    <Item class="Script" referent="10">
+      <Properties>
+        <string name="Name">Purchases</string>
+        <string name="Source"><![CDATA[-- Purchases: developer products (Robux), the Roblox sample pattern with a purchase history store.
+local MarketplaceService = game:GetService("MarketplaceService")
+local DataStoreService = game:GetService("DataStoreService")
+local Players = game:GetService("Players")
+
+local purchaseHistory = DataStoreService:GetDataStore("PurchaseHistory")
+
+local COIN_PACK = 1234567 -- 1000 coins
+
+local handlers = {
+	[COIN_PACK] = function(player)
+		_G.AddCoins(player, 1000)
+		return true
+	end,
+}
+
+MarketplaceService.ProcessReceipt = function(receiptInfo)
+	local playerProductKey = receiptInfo.PlayerId .. "_" .. receiptInfo.PurchaseId
+	local ok, purchased = pcall(function()
+		return purchaseHistory:GetAsync(playerProductKey)
+	end)
+	if ok and purchased then
+		return Enum.ProductPurchaseDecision.PurchaseGranted
+	end
+	local player = Players:GetPlayerByUserId(receiptInfo.PlayerId)
+	if not player then
+		return Enum.ProductPurchaseDecision.NotProcessedYet
+	end
+	local handler = handlers[receiptInfo.ProductId]
+	if not handler then
+		return Enum.ProductPurchaseDecision.NotProcessedYet
+	end
+	local okGrant = pcall(handler, player)
+	if not okGrant then
+		return Enum.ProductPurchaseDecision.NotProcessedYet
+	end
+	local okSave = pcall(function()
+		purchaseHistory:SetAsync(playerProductKey, true)
+	end)
+	if not okSave then
+		return Enum.ProductPurchaseDecision.NotProcessedYet
+	end
+	return Enum.ProductPurchaseDecision.PurchaseGranted
+end
+]]></string>
+      </Properties>
+    </Item>
+  </Item>
+  <Item class="Workspace" referent="11">
+    <Properties>
+      <string name="Name">Workspace</string>
+    </Properties>
+    <Item class="Part" referent="12">
+      <Properties>
+        <string name="Name">Baseplate</string>
+        <bool name="Anchored">true</bool>
+        <Vector3 name="Position">
+          <X>0</X>
+          <Y>-2</Y>
+          <Z>0</Z>
+        </Vector3>
+        <Vector3 name="size">
+          <X>256</X>
+          <Y>4</Y>
+          <Z>256</Z>
+        </Vector3>
+      </Properties>
+    </Item>
+    <Item class="Part" referent="13">
+      <Properties>
+        <string name="Name">CoinPad</string>
+        <bool name="Anchored">true</bool>
+        <Color3uint8 name="Color">16108848</Color3uint8>
+        <Vector3 name="Position">
+          <X>0</X>
+          <Y>0.5</Y>
+          <Z>12</Z>
+        </Vector3>
+        <Vector3 name="size">
+          <X>8</X>
+          <Y>1</Y>
+          <Z>8</Z>
+        </Vector3>
+      </Properties>
+      <Item class="Script" referent="14">
+        <Properties>
+          <string name="Name">CoinPadScript</string>
+          <string name="Source"><![CDATA[-- CoinPad: stand on the pad to collect coins (once every 2 seconds per player).
+local Players = game:GetService("Players")
+local pad = script.Parent
+local last = {}
+
+pad.Touched:Connect(function(hit)
+	local player = Players:GetPlayerFromCharacter(hit.Parent)
+	if not player then
+		return
+	end
+	if last[player] and os.clock() - last[player] < 2 then
+		return
+	end
+	last[player] = os.clock()
+	_G.AddCoins(player, 5)
+end)
+]]></string>
+        </Properties>
+      </Item>
+    </Item>
+    <Item class="SpawnLocation" referent="15">
+      <Properties>
+        <string name="Name">SpawnLocation</string>
+        <bool name="Anchored">true</bool>
+        <Vector3 name="Position">
+          <X>0</X>
+          <Y>0.5</Y>
+          <Z>0</Z>
+        </Vector3>
+      </Properties>
+    </Item>
+  </Item>
+  <Item class="StarterGui" referent="16">
+    <Properties>
+      <string name="Name">StarterGui</string>
+    </Properties>
+    <Item class="ScreenGui" referent="17">
+      <Properties>
+        <string name="Name">ShopGui</string>
+        <bool name="ResetOnSpawn">false</bool>
+      </Properties>
+      <Item class="Frame" referent="18">
+        <Properties>
+          <string name="Name">Frame</string>
+          <UDim2 name="Position">
+            <XS>0</XS>
+            <XO>16</XO>
+            <YS>0.5</YS>
+            <YO>-160</YO>
+          </UDim2>
+          <UDim2 name="Size">
+            <XS>0</XS>
+            <XO>260</XO>
+            <YS>0</YS>
+            <YO>320</YO>
+          </UDim2>
+        </Properties>
+        <Item class="ScrollingFrame" referent="19">
+          <Properties>
+            <string name="Name">List</string>
+            <UDim2 name="Position">
+              <XS>0</XS>
+              <XO>8</XO>
+              <YS>0</YS>
+              <YO>8</YO>
+            </UDim2>
+            <UDim2 name="Size">
+              <XS>1</XS>
+              <XO>-16</XO>
+              <YS>1</YS>
+              <YO>-96</YO>
+            </UDim2>
+          </Properties>
+          <Item class="UIListLayout" referent="20">
+            <Properties>
+              <string name="Name">Layout</string>
+            </Properties>
+          </Item>
+        </Item>
+        <Item class="TextButton" referent="21">
+          <Properties>
+            <string name="Name">Daily</string>
+            <UDim2 name="Position">
+              <XS>0</XS>
+              <XO>8</XO>
+              <YS>1</YS>
+              <YO>-84</YO>
+            </UDim2>
+            <UDim2 name="Size">
+              <XS>1</XS>
+              <XO>-16</XO>
+              <YS>0</YS>
+              <YO>36</YO>
+            </UDim2>
+            <string name="Text">Daily reward</string>
+          </Properties>
+        </Item>
+        <Item class="TextButton" referent="22">
+          <Properties>
+            <string name="Name">CoinPack</string>
+            <UDim2 name="Position">
+              <XS>0</XS>
+              <XO>8</XO>
+              <YS>1</YS>
+              <YO>-44</YO>
+            </UDim2>
+            <UDim2 name="Size">
+              <XS>1</XS>
+              <XO>-16</XO>
+              <YS>0</YS>
+              <YO>36</YO>
+            </UDim2>
+            <string name="Text">1000 coins (Robux)</string>
+          </Properties>
+        </Item>
+      </Item>
+      <Item class="LocalScript" referent="23">
+        <Properties>
+          <string name="Name">ShopGuiClient</string>
+          <string name="Source"><![CDATA[-- ShopGui: the coin shop window, the daily button and the coin pack button.
+local Players = game:GetService("Players")
+local MarketplaceService = game:GetService("MarketplaceService")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local Remotes = ReplicatedStorage:WaitForChild("Remotes")
+
+local gui = script.Parent
+local frame = gui:WaitForChild("Frame")
+local list = frame:WaitForChild("List")
+local player = Players.LocalPlayer
+
+local COIN_PACK = 1234567
+
+local function refresh()
+	local items, owned = Remotes.GetShop:InvokeServer()
+	for _, child in ipairs(list:GetChildren()) do
+		if child:IsA("TextButton") then
+			child:Destroy()
+		end
+	end
+	for id, item in pairs(items) do
+		local button = Instance.new("TextButton")
+		button.Size = UDim2.new(1, 0, 0, 30)
+		button.Text = item.name .. " - " .. item.price .. " coins" .. (table.find(owned, id) and " (owned)" or "")
+		button.Parent = list
+		button.MouseButton1Click:Connect(function()
+			Remotes.BuyItem:FireServer(id)
+			task.wait(0.5)
+			refresh()
+		end)
+	end
+end
+
+frame:WaitForChild("Daily").MouseButton1Click:Connect(function()
+	Remotes.ClaimDaily:FireServer()
+end)
+frame:WaitForChild("CoinPack").MouseButton1Click:Connect(function()
+	MarketplaceService:PromptProductPurchase(player, COIN_PACK)
+end)
+
+refresh()
+]]></string>
+        </Properties>
+      </Item>
+    </Item>
+  </Item>
+  <Item class="StarterPlayer" referent="24">
+    <Properties>
+      <string name="Name">StarterPlayer</string>
+    </Properties>
+    <Item class="StarterPlayerScripts" referent="25">
+      <Properties>
+        <string name="Name">StarterPlayerScripts</string>
+      </Properties>
+      <Item class="LocalScript" referent="26">
+        <Properties>
+          <string name="Name">MusicClient</string>
+          <string name="Source"><![CDATA[-- MusicClient: background music with an on/off key (M); the choice is saved on the server.
+local UserInputService = game:GetService("UserInputService")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local Remotes = ReplicatedStorage:WaitForChild("Remotes")
+
+local music = Instance.new("Sound")
+music.Name = "Music"
+music.Looped = true
+music.Volume = 0.3
+music.Parent = workspace
+local on = true
+
+UserInputService.InputBegan:Connect(function(input, processed)
+	if processed or input.KeyCode ~= Enum.KeyCode.M then
+		return
+	end
+	on = not on
+	if on then
+		music:Resume()
+	else
+		music:Pause()
+	end
+	Remotes.ToggleMusic:FireServer(on)
+end)
+]]></string>
+        </Properties>
+      </Item>
+    </Item>
+  </Item>
+</roblox>

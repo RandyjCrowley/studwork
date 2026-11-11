@@ -1,0 +1,25 @@
+{
+  "name": "legacy-example-c",
+  "servePort": 34902,
+  "tree": {
+    "$className": "DataModel",
+    "ServerScriptService": {
+      "$path": "src/server"
+    },
+    "ServerStorage": {
+      "DataStore2": { "$path": "lib/DataStore2.lua" }
+    },
+    "ReplicatedStorage": {
+      "Events": {
+        "$className": "Folder",
+        "Rebirth": { "$className": "RemoteEvent" },
+        "BuyBoost": { "$className": "RemoteFunction" }
+      }
+    },
+    "StarterPlayer": {
+      "StarterPlayerScripts": {
+        "$path": "src/client"
+      }
+    }
+  }
+}

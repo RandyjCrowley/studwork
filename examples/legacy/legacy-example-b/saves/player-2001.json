@@ -1,0 +1,45 @@
+{
+  "store": "PlayerData",
+  "key": "Player_2001",
+  "value": {
+    "Data": {
+      "coins": 5400,
+      "gems": 75,
+      "pets": [
+        {
+          "id": "puppy",
+          "uid": "p-2001-a"
+        },
+        {
+          "id": "fox",
+          "uid": "p-2001-b"
+        },
+        {
+          "id": "kitten",
+          "uid": "p-2001-c"
+        }
+      ],
+      "equipped": [
+        "p-2001-b",
+        "p-2001-a"
+      ],
+      "stats": {
+        "hatched": 3,
+        "collected": 2210
+      },
+      "Purchases": {}
+    },
+    "MetaData": {
+      "ProfileCreateTime": 1760000000,
+      "SessionLoadCount": 42,
+      "ActiveSession": null,
+      "ForceLoadSession": null,
+      "MetaTags": {},
+      "LastUpdate": 1767200000
+    },
+    "GlobalUpdates": [
+      0,
+      []
+    ]
+  }
+}

@@ -1,0 +1,31 @@
+{
+  "userId": 3002,
+  "ordered": {
+    "store": "DATA/3002",
+    "entries": [
+      {
+        "key": "1",
+        "value": 1
+      }
+    ]
+  },
+  "datastore": {
+    "store": "DATA/3002",
+    "entries": [
+      {
+        "key": "1",
+        "value": {
+          "coins": 3000,
+          "xp": 800,
+          "rebirths": 2,
+          "inventory": {}
+        }
+      }
+    ]
+  },
+  "backup": {
+    "store": "CoinsBackup",
+    "key": "3002",
+    "value": 4500
+  }
+}

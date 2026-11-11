@@ -1,0 +1,63 @@
+{
+  "userId": 3001,
+  "ordered": {
+    "store": "DATA/3001",
+    "entries": [
+      {
+        "key": "1",
+        "value": 1
+      },
+      {
+        "key": "2",
+        "value": 2
+      },
+      {
+        "key": "3",
+        "value": 3
+      }
+    ]
+  },
+  "datastore": {
+    "store": "DATA/3001",
+    "entries": [
+      {
+        "key": "1",
+        "value": {
+          "coins": 100,
+          "xp": 40,
+          "rebirths": 0,
+          "inventory": {}
+        }
+      },
+      {
+        "key": "2",
+        "value": {
+          "coins": 900,
+          "xp": 300,
+          "rebirths": 0,
+          "inventory": {
+            "boostsBought": 1
+          },
+          "boostUntil": 1767000000
+        }
+      },
+      {
+        "key": "3",
+        "value": {
+          "coins": 12400,
+          "xp": 5200,
+          "rebirths": 1,
+          "inventory": {
+            "boostsBought": 3
+          },
+          "boostUntil": 1767300000
+        }
+      }
+    ]
+  },
+  "backup": {
+    "store": "CoinsBackup",
+    "key": "3001",
+    "value": 12400
+  }
+}

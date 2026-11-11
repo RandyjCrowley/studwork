@@ -1,0 +1,10 @@
+{
+  "store": "PlayerSave_v3",
+  "key": "Player_1003",
+  "value": {
+    "coins": 98765,
+    "inventory": ["sword", "shield", "hat"],
+    "settings": { "music": true, "sfx": false },
+    "lastDaily": 1767100000
+  }
+}

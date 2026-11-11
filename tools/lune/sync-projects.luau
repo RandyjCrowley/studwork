@@ -23,7 +23,13 @@ local function walk(dir: string)
 	for _, entry in fs.readDir(dir) do
 		local path = dir .. "/" .. entry
 		if fs.isDir(path) then
-			if entry ~= "Packages" and entry ~= "node_modules" and entry ~= ".git" then
+			-- (v1.6.0) examples/legacy: fixtures of NON-StudWork games (no Modules entries)
+			if
+				entry ~= "Packages"
+				and entry ~= "node_modules"
+				and entry ~= ".git"
+				and path ~= "examples/legacy"
+			then
 				walk(path)
 			end
 		elseif string.match(entry, "%.project%.json$") then
