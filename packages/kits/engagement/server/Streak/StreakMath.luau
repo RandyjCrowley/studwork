@@ -2,9 +2,12 @@
 --[[
 	Pure daily-streak math (no Roblox globals). Owned by agent E.
 
-	Days are UTC day indices: day(t) = t // 86400 (day 0 = 1970-01-01).
+	Days are day indices in a time zone: day(t, utcOffsetHours) = (t + offset * 3600) // 86400
+	(day 0 = 1970-01-01 there). utcOffsetHours defaults to 0 (UTC, the v1.2 behaviour); a value
+	that is not a finite number in -14..14 counts as 0. All rules below use these local days, and
+	the grace window ends graceHours after local midnight.
 
-	advance(state, now, graceHours) decides what a visit at unix time `now` does:
+	advance(state, now, graceHours, utcOffsetHours?) decides what a visit at unix time `now` does:
 	  - never claimed (lastDay <= 0 or day <= 0)          -> "first",  day = 1
 	  - today == lastDay                                  -> "same",   unchanged
 	  - today < lastDay (clock skew / rollback)           -> "skew",   unchanged (never punish)
@@ -38,11 +41,25 @@ local function finiteNonNegative(value: any): number
 	return value
 end
 
-function StreakMath.dayIndex(now: number): number
-	return now // DAY
+local function offsetSeconds(utcOffsetHours: number?): number
+	local h = utcOffsetHours
+	if type(h) ~= "number" or h ~= h or h < -14 or h > 14 then
+		return 0
+	end
+	return h * HOUR
 end
 
-function StreakMath.advance(state: State, now: number, graceHours: number?): (State, Outcome)
+function StreakMath.dayIndex(now: number, utcOffsetHours: number?): number
+	return (now + offsetSeconds(utcOffsetHours)) // DAY
+end
+
+function StreakMath.advance(
+	state: State,
+	now: number,
+	graceHours: number?,
+	utcOffsetHours: number?
+): (State, Outcome)
+	now += offsetSeconds(utcOffsetHours) -- local wall-clock seconds from here on
 	local today = now // DAY
 	local lastDay = state.lastDay
 	if lastDay <= 0 or state.day <= 0 then

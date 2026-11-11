@@ -1,44 +1,41 @@
 --!strict
 --[[
-	Core.Friends. OWNED BY AGENT E (core/e-meta). Public API: Types.FriendsAPI.
+	Friends: the social kit's server module (core-v1.3.0 module API). README.md has the details.
 
 	Detects Roblox friends playing in the same server:
 	  - when a player's data loads (for them and for everyone already here) and every
-	    balance.friends.checkIntervalSec for everyone loaded.
+	    config.friends.checkIntervalSec for everyone loaded (the framework's shared ticker).
 	  - player:IsFriendsWithAsync results are cached per pair (pcall; failures are retried on the
-	    next check, not cached). Cache entries are dropped when either player leaves. Lookups are
-	    deduped in flight (PairDedupe, L4): one web call per pair at a time, shared by both
-	    players' recomputes.
+	    next check, not cached), deduped in flight (PairDedupe, L4).
 	  - co-play kind (CoPlay.kind): "invite" when GetJoinData().ReferredByPlayerId is a friend in
-	    the server, "private" in a private (VIP) server (game.PrivateServerId ~= "" and
-	    game.PrivateServerOwnerId ~= 0; reserved servers count as "server"), else "server".
-	  - CoPlay signal + onCoPlay handlers fire with the full current friend list only when the
-	    friend set GAINS someone (never on every interval).
-	  - balance.friends.coPlayMultiplier (optional, only when Economy is enabled) is applied with
-	    Economy.addMultiplier(player, "coplay", mult) while >= 1 friend is present and removed
-	    with Economy.removeMultiplier when the last friend leaves.
+	    the server, "private" in a private (VIP) server, else "server".
+	  - api.signals.CoPlay(player, friends, kind) fires (and onCoPlay handlers run) only when the
+	    friend set GAINS someone.
+	  - config.friends.coPlayMultiplier (optional) is applied through the OPTIONAL Economy
+	    dependency (ctx.deps[Economy].addMultiplier(player, "coplay", mult)) while >= 1 friend is
+	    present, removed with removeMultiplier when the last friend leaves.
 
-	friendsInServer(player) returns the last detected friend list (no yielding).
-	Studio console: `coplay <server|invite|private> [userId]` fires the hook for the first player
-	with a mock friend list (the other players, or the player itself when solo).
+	api: onCoPlay(handler) -> Connection, friendsInServer(player) -> { Player }, signals.CoPlay.
+	Console (Studio): `friends coplay <server|invite|private> [userId]`.
 ]]
 
 local Players = game:GetService("Players")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
-local Types = require(game:GetService("ReplicatedStorage"):WaitForChild("Core"):WaitForChild("Types"))
-local HandlerList =
-	require(game:GetService("ReplicatedStorage"):WaitForChild("Core"):WaitForChild("HandlerList"))
 local CoPlay = require(script.CoPlay)
 local PairDedupe = require(script.PairDedupe)
+local SignalTable = require(script.Parent.SignalTable)
+local Economy =
+	require(ReplicatedStorage:WaitForChild("Kits"):WaitForChild("Economy"):WaitForChild("Economy"))
 
 local MULTIPLIER_ID = "coplay"
 local MIN_INTERVAL = 5 -- seconds; floor for a misconfigured checkIntervalSec
-local FALLBACK_INTERVAL = 30 -- seconds; only used when checkIntervalSec is missing/invalid
+local FALLBACK_INTERVAL = 30
 
 local Friends = {}
 
 local ctx: any = nil
-local handlers = HandlerList.new()
+local signals = SignalTable.new()
 local pairs_ = PairDedupe.new(function(thread: thread, ok: boolean, value: boolean?)
 	task.spawn(thread, ok, value)
 end, function(key: string): boolean
@@ -57,13 +54,25 @@ local function isPrivateServer(): boolean
 	return game.PrivateServerId ~= "" and game.PrivateServerOwnerId ~= 0
 end
 
+local function friendsConfig(): any
+	local cfg = ctx.config.friends
+	return if type(cfg) == "table" then cfg else {}
+end
+
 local function coPlayMultiplier(): number?
-	local cfg = ctx.config.balance.friends
-	local mult = cfg and cfg.coPlayMultiplier
+	local mult = friendsConfig().coPlayMultiplier
 	if type(mult) == "number" and mult == mult and mult > 0 and mult ~= math.huge then
 		return mult
 	end
 	return nil
+end
+
+local function checkInterval(): number
+	local sec = friendsConfig().checkIntervalSec
+	if type(sec) ~= "number" or sec ~= sec then
+		return FALLBACK_INTERVAL
+	end
+	return math.max(sec, MIN_INTERVAL)
 end
 
 local function playersFrom(set: { [number]: boolean }): { Player }
@@ -81,29 +90,35 @@ local function playersFrom(set: { [number]: boolean }): { Player }
 end
 
 local function applyMultiplier(player: Player)
-	if not ctx.isEnabled("Economy") then
-		return -- optional integration (Modules.SPECS.Friends.optional)
+	if not ctx.isEnabled(Economy) then
+		return -- optional integration
 	end
 	local set = friendSets[player]
 	local hasFriend = set ~= nil and next(set) ~= nil
 	local mult = coPlayMultiplier()
+	local economy = ctx.deps[Economy]
 	if hasFriend and mult and not boosted[player] then
 		boosted[player] = true
-		pcall(ctx.services.Economy.addMultiplier, player, MULTIPLIER_ID, mult)
+		local ok, err = pcall(economy.addMultiplier, player, MULTIPLIER_ID, mult)
+		if not ok then
+			ctx.log.warn("addMultiplier failed: " .. tostring(err))
+		end
 	elseif not hasFriend and boosted[player] then
 		boosted[player] = nil
-		pcall(ctx.services.Economy.removeMultiplier, player, MULTIPLIER_ID)
+		local ok, err = pcall(economy.removeMultiplier, player, MULTIPLIER_ID)
+		if not ok then
+			ctx.log.warn("removeMultiplier failed: " .. tostring(err))
+		end
 	end
 end
 
-local function fireCoPlay(player: Player, friends: { Player }, kind: Types.CoPlayKind)
-	ctx.signals.CoPlay:Fire(player, friends, kind)
-	handlers:fire(player, friends, kind)
+local function fireCoPlay(player: Player, friends: { Player }, kind: string)
+	signals.CoPlay:Fire(player, friends, kind)
 	local text = if #friends == 1
 		then `Playing with {friends[1].DisplayName}!`
 		else `Playing with {#friends} friends!`
 	pcall(ctx.net.feedback, player, "toast", text)
-	pcall(ctx.services.Analytics.custom, player, "CoPlay_" .. kind, #friends)
+	pcall(ctx.analytics.custom, player, "CoPlay_" .. kind, #friends)
 end
 
 local function areFriends(a: Player, b: Player): boolean?
@@ -175,27 +190,44 @@ local function onRemoving(leaver: Player)
 	end
 end
 
-local function checkInterval(): number
-	local cfg = ctx.config.balance.friends
-	local sec = cfg and cfg.checkIntervalSec
-	if type(sec) ~= "number" or sec ~= sec then
-		return FALLBACK_INTERVAL -- ConfigValidate should already have rejected this config
-	end
-	return math.max(sec, MIN_INTERVAL)
-end
-
 function Friends.init(context: any)
 	ctx = context
+	signals.CoPlay = ctx.signals.new("CoPlay")
+	ctx.console.register("coplay", function(_player: any, ...: any): string
+		if not ctx.isStudio then
+			return "friends coplay is Studio-only"
+		end
+		local args = { ... }
+		local kind = args[1]
+		if kind ~= "server" and kind ~= "invite" and kind ~= "private" then
+			return "usage: friends coplay <server|invite|private> [userId]"
+		end
+		local last = tonumber(args[#args])
+		local player = (last and Players:GetPlayerByUserId(last)) or Players:GetPlayers()[1]
+		if player == nil then
+			return "no player in server"
+		end
+		local mock = {}
+		for _, other in Players:GetPlayers() do
+			if other ~= player then
+				table.insert(mock, other)
+			end
+		end
+		if #mock == 0 then
+			mock = { player }
+		end
+		fireCoPlay(player, mock, kind)
+		return `fired co-play ({kind}) for {player.Name} with {#mock} mock friend(s)`
+	end, "friends coplay <server|invite|private> [userId]: fire the co-play hook with mock friends (Studio)")
 end
 
-function Friends.start()
+function Friends.start(_context: any)
 	Players.PlayerAdded:Connect(readJoinData)
 	for _, p in Players:GetPlayers() do
 		readJoinData(p)
 	end
-	Players.PlayerRemoving:Connect(onRemoving)
-
-	ctx.services.Data.onLoaded(function(player: Player)
+	ctx.lifecycle.onPlayerRemoving(onRemoving)
+	ctx.lifecycle.onPlayerLoaded(function(player: Player)
 		task.spawn(recompute, player)
 		for _, other in Players:GetPlayers() do
 			if other ~= player and friendSets[other] ~= nil then
@@ -203,59 +235,24 @@ function Friends.start()
 			end
 		end
 	end)
-
-	task.spawn(function()
-		while true do
-			task.wait(checkInterval())
-			for _, player in Players:GetPlayers() do
-				if ctx.services.Data.isLoaded(player) then
-					task.spawn(recompute, player)
-				end
+	ctx.lifecycle.onTick(checkInterval(), function()
+		for _, player in Players:GetPlayers() do
+			if ctx.data.isLoaded(player) then
+				task.spawn(recompute, player)
 			end
 		end
 	end)
-
-	ctx.console.register(
-		"coplay",
-		"coplay <server|invite|private> [userId]: fire the co-play hook with mock friends (Studio)",
-		function(...: any)
-			if not ctx.isStudio then
-				return "coplay is Studio-only"
-			end
-			local args = { ... }
-			local kind = args[1]
-			if kind ~= "server" and kind ~= "invite" and kind ~= "private" then
-				return "usage: coplay <server|invite|private> [userId]"
-			end
-			local last = tonumber(args[#args])
-			local player = (last and Players:GetPlayerByUserId(last)) or Players:GetPlayers()[1]
-			if player == nil then
-				return "no player in server"
-			end
-			local mock = {}
-			for _, other in Players:GetPlayers() do
-				if other ~= player then
-					table.insert(mock, other)
-				end
-			end
-			if #mock == 0 then
-				mock = { player }
-			end
-			fireCoPlay(player, mock, kind :: Types.CoPlayKind)
-			return `fired co-play ({kind}) for {player.Name} with {#mock} mock friend(s)`
-		end
-	)
 end
 
-function Friends.friendsInServer(player: Player): { Player }
-	local set = friendSets[player]
-	return if set then playersFrom(set) else {}
-end
-
-function Friends.onCoPlay(
-	handler: (player: Player, friends: { Player }, kind: Types.CoPlayKind) -> ()
-): Types.Connection
-	return handlers:add(handler)
-end
+Friends.api = {
+	friendsInServer = function(player: Player): { Player }
+		local set = friendSets[player]
+		return if set then playersFrom(set) else {}
+	end,
+	onCoPlay = function(handler: (player: Player, friends: { Player }, kind: string) -> ()): any
+		return signals.CoPlay:Connect(handler)
+	end,
+	signals = signals,
+}
 
 return Friends

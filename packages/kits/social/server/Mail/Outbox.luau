@@ -18,6 +18,14 @@
 	A crash between send and the save of the removal re-sends on next load: same key, receiver
 	dedupes (mail.seen / mail.box), so the copy is never delivered twice.
 	One flush runs per player at a time; a flush requested meanwhile runs right after it.
+
+	core-v1.3.0 (R1): deps.prepare(player, entry) (optional, may yield) runs right before each
+	send: "send" -> send it; "done" -> the entry was settled another way (e.g. refused by the
+	recipient's gift cap and handed back to the sender's mailbox, Mail/init.luau) and is skipped;
+	"retry" -> keep it and retry the flush after backoff.
+	savedEntries(player) (R3): the entries already known to be durable, for one best-effort send
+	when the player leaves (no removal any more; the next flush resends them as duplicates the
+	receiver drops).
 ]]
 
 local MailValidate = require(script.Parent.MailValidate)
@@ -42,6 +50,7 @@ export type Deps = {
 	remove: (player: any, key: string) -> boolean, -- delete outbox[key] in one Data.update
 	backoff: (attempt: number) -> number, -- seconds before retry n
 	warn: (message: string) -> (),
+	prepare: ((player: any, entry: Entry) -> string)?, -- "send" | "done" | "retry" (may yield)
 }
 
 type Session = {
@@ -172,6 +181,19 @@ function Outbox.new(deps: Deps)
 			if not alive(s) then
 				return false
 			end
+			local prepare = deps.prepare
+			if prepare then
+				local okP, verdict = pcall(prepare, s.player, entry)
+				if not okP or verdict == "retry" then
+					allSent = false
+					continue
+				elseif verdict == "done" then
+					continue
+				end
+				if not alive(s) then
+					return false
+				end
+			end
 			local ok, sent = pcall(deps.send, entry)
 			if ok and sent == true then
 				local removed = deps.remove(s.player, entry.key)
@@ -234,6 +256,23 @@ function Outbox.new(deps: Deps)
 		for _, entry in Outbox.sorted(deps.getOutbox(player)) do
 			s.confirmed[entry.key] = true
 		end
+	end
+
+	-- R3: the player is leaving. Sends every entry already confirmed durable (removal is not
+	-- possible any more; the entries stay saved and the next flush resends them as duplicates).
+	-- Returns the confirmed entries (the caller sends them; may yield).
+	function self.savedEntries(player: any): { Entry }
+		local s = sessions[player]
+		local list = {}
+		if s == nil then
+			return list
+		end
+		for _, entry in Outbox.sorted(deps.getOutbox(player)) do
+			if s.confirmed[entry.key] then
+				table.insert(list, entry)
+			end
+		end
+		return list
 	end
 
 	-- Player left / server shutting down: stop retrying (entries stay saved for the next load).

@@ -1,47 +1,44 @@
 --!strict
 --[[
-	Core.Plot. OWNED BY AGENT D (core/d-plot). Public API: Types.PlotAPI (+ init/start).
+	Plot: the base kit's server module (core-v1.3.0 module API). README.md has the full
+	attribute contract.
 
-	Plot models are supplied by the game (see README.md for the full attribute contract):
-	- any Model tagged "CorePlot" (CollectionService), also added/removed at runtime
-	- slots = BaseParts inside it with string attribute "SlotId"; optional string attribute
-	  "SlotTag" restricts a slot to items whose ItemDef.tags contain that tag (e.g. "Shelf")
-	- optional numeric attribute "PlotOrder" on the plot (assignment order; else natural Name)
+	Plot models are supplied by the game:
+	- any Model tagged config.plotTag (default "CorePlot", CollectionService), added/removed at
+	  runtime too
+	- slots = BaseParts inside it with string attribute "SlotId"; optional "SlotTag" restricts a
+	  slot to items whose ItemDef.tags contain that tag
+	- optional numeric attribute "PlotOrder" (assignment order; else natural Name)
 	- optional spawn: a BasePart named "Spawn" or with attribute PlotSpawn = true
-	- the service writes attribute OwnerUserId (number) on the plot while it is owned
+	- Plot writes attribute OwnerUserId on the plot while it is owned
 
-	Behaviour:
-	- assigns the first free plot on Data.onLoaded (deterministic order), sets OwnerUserId,
-	  replicates plotName, fires PlotAssigned + onAssigned handlers; queues players when no plot is
-	  free (one warning each) and assigns them when a plot frees up / is added
-	- frees it on leave (visuals destroyed via the session Trove, attribute cleared, PlotReleased)
-	- PlayerData.displayed (slotId -> uid) is the source of truth; visuals are re-rendered from it
-	  on assignment, DataLoaded, Rebirthed and every display change; stale entries (uid no longer
-	  owned, duplicate uid, slot not on this plot / beyond balance.plot.slotCount) are removed
-	  (ItemUndisplayed fired for each)
-	- balance.plot.autoDisplay: ItemAdded and items owned before assignment go to the first
-	  compatible free slot. ItemRemoved clears the item's slot.
-	- visuals = clone of ReplicatedStorage[assetsFolderName or "GameAssets"][def.model] (scripts
-	  stripped) or a rarity-coloured placeholder; rarity glow (PointLight) + name billboard; all
-	  anchored, CanCollide/CanQuery/CanTouch false, parented to a "CoreDisplays" folder in the plot.
-	  Idle bob/spin is left to the client (visuals carry attributes ItemUid/ItemId/Rarity/DisplaySlotId).
-	- RequestDisplay / RequestClearDisplay validate strings + ownership; a player can only ever
-	  display into their own plot (there is no plot parameter on the wire).
+	Data: section "plot" = { displayed = { [slotId]: uid } } (v1.2 shape), written only here.
+	Dependencies: Inventory (hard: ownership, item instances, signals.ItemAdded and
+	extensions.onItemRemoved, which clears a slot INSIDE the removing tx), Items (optional: tags,
+	names, models), Rarity (optional: tier colours via tiers()), Rebirth (optional:
+	extensions.resetStep clears `displayed` inside Rebirth's tx, signals.Rebirthed re-renders).
+
+	api (PHASE1-CONTRACT): get, owner, display, clearDisplay, slots, onAssigned, displayed
+	signals: ItemDisplayed(player, uid, slotId), ItemUndisplayed(player, uid, slotId) (v1.2),
+	DisplayCleared(player, slotId), PlotAssigned(player, plot), PlotReleased(player, plot)
+	replicated extra: plotName
 ]]
 
 local CollectionService = game:GetService("CollectionService")
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
-local Core = ReplicatedStorage:WaitForChild("Core")
-local RarityTiers = require(Core:WaitForChild("RarityTiers"))
-local Types = require(Core:WaitForChild("Types"))
-local HandlerList = require(Core:WaitForChild("HandlerList"))
 local Trove = require(ReplicatedStorage:WaitForChild("Packages"):WaitForChild("Trove"))
+local Kits = ReplicatedStorage:WaitForChild("Kits")
+local Inventory = require(Kits:WaitForChild("Collection"):WaitForChild("Inventory"))
+local Items = require(Kits:WaitForChild("Collection"):WaitForChild("Items"))
+local Rarity = require(Kits:WaitForChild("Collection"):WaitForChild("Rarity"))
+local Rebirth = require(Kits:WaitForChild("Economy"):WaitForChild("Rebirth"))
+local SignalTable = require(script.Parent.SignalTable)
 local Slots = require(script.Slots)
 local SlotCache = require(script.SlotCache)
 
-local PLOT_TAG = "CorePlot"
+local DEFAULT_PLOT_TAG = "CorePlot"
 local SLOT_ATTRIBUTE = "SlotId"
 local SLOT_TAG_ATTRIBUTE = "SlotTag"
 local ORDER_ATTRIBUTE = "PlotOrder"
@@ -59,38 +56,71 @@ local LABEL_HEIGHT = 1.5 -- studs above the visual's top
 local LABEL_MAX_DISTANCE = 80
 local GLOW_RANGE = 10
 local GLOW_BRIGHTNESS = 3
-local NEON_MIN_GLOW = 0.5 -- placeholder turns Neon at/above this glowStrength
+local NEON_MIN_GLOW = 0.5 -- placeholder turns Neon at/above this glow strength
 local SPAWN_LIFT = 3
 local SPAWN_OWNERSHIP_HOLD = 0.3 -- seconds the server holds the root after a spawn pivot
 local ROOT_WAIT_SECONDS = 5
+local NEUTRAL_RGB = { 201, 207, 217 } -- no Rarity module: untiered look
 
 type Session = {
 	plot: Model,
 	trove: any, -- Trove: everything owned by this player's plot session
 	visuals: { [string]: Instance }, -- slotId -> visual
 	folder: Folder,
-	slots: SlotCache.SlotCache, -- M5: slot map cached for the session
+	slots: SlotCache.SlotCache,
 }
+
+type Look = { id: string, color: Color3, glow: Color3, strength: number }
 
 local Plot = {}
 
 local ctx: any = nil
+local signals = SignalTable.new()
 local sessions: { [Player]: Session } = {}
 local waiting: { Player } = {} -- loaded players without a plot, FIFO
 local warnedWaiting: { [Player]: boolean } = {}
-local assignedHandlers = HandlerList.new()
 
 --------------------------------------------------------------------------------
 -- Helpers
 --------------------------------------------------------------------------------
 
-local function plotConfig(): { slotCount: number?, autoDisplay: boolean? }
-	local balance = ctx.config.balance
-	return (balance and balance.plot) or {}
+local function plotConfig(): any
+	local cfg = ctx.config.plot
+	return if type(cfg) == "table" then cfg else {}
+end
+
+local function plotTag(): string
+	local tag = ctx.config.plotTag
+	return if type(tag) == "string" and tag ~= "" then tag else DEFAULT_PLOT_TAG
 end
 
 local function validId(value: any): boolean
 	return type(value) == "string" and #value > 0 and #value <= MAX_ID_LENGTH
+end
+
+local function displayedOf(player: any): { [string]: string }?
+	if not ctx.data.isLoaded(player) then
+		return nil
+	end
+	local section = ctx.data.get(player)
+	return if section and type(section.displayed) == "table" then section.displayed else {}
+end
+
+-- uid -> frozen ItemInstance (Inventory's read view)
+local function ownedOf(player: any): { [string]: any }
+	local map = {}
+	for _, instance in ctx.deps[Inventory].list(player) do
+		map[instance.uid] = instance
+	end
+	return map
+end
+
+local function ownedInTx(tx: any): { [string]: any }
+	local map = {}
+	for _, instance in ctx.depsTx[Inventory].list(tx) do
+		map[instance.uid] = instance
+	end
+	return map
 end
 
 -- slotId -> part for every slot in the plot (first part wins on duplicate ids, in pre-order).
@@ -120,7 +150,6 @@ local function slotTagOf(part: any): string?
 	return if type(tag) == "string" and tag ~= "" then tag else nil
 end
 
--- Active slot records (sorted, slotCount applied) + the part map, from the session cache.
 local function activeSlots(session: Session): ({ Slots.SlotRecord }, { [string]: BasePart })
 	return session.slots:get(plotConfig().slotCount)
 end
@@ -149,20 +178,60 @@ local function watchSlots(session: Session)
 	end)
 end
 
-local function itemDef(itemId: string): Types.ItemDef?
-	-- Items is optional for Plot (Modules.luau): without it items are untagged + unnamed
-	if not ctx.isEnabled("Items") then
-		return nil
+local function itemDef(itemId: string): any
+	if not ctx.isEnabled(Items) then
+		return nil -- Items is optional: items are untagged and labelled with their id
 	end
-	return ctx.services.Items.get(itemId)
+	return ctx.deps[Items].get(itemId)
 end
 
-local function tagsOf(instance: Types.ItemInstance?): { string }?
+local function tagsOf(instance: any): { string }?
 	if instance == nil then
 		return nil
 	end
 	local def = itemDef(instance.itemId)
 	return if def then def.tags else nil
+end
+
+local function hex(value: any, fallback: Color3): Color3
+	if type(value) == "string" then
+		local ok, color = pcall(Color3.fromHex, value)
+		if ok then
+			return color
+		end
+	end
+	return fallback
+end
+
+-- The rarity look of a tier id, from the optional Rarity module's ordered tier list.
+local function lookOf(tierId: any): Look
+	local NEUTRAL = Color3.fromRGB(NEUTRAL_RGB[1], NEUTRAL_RGB[2], NEUTRAL_RGB[3])
+	if ctx.isEnabled(Rarity) then
+		local ok, tiers = pcall(ctx.deps[Rarity].tiers)
+		if ok and type(tiers) == "table" then
+			for i, tier in tiers do
+				if type(tier) == "table" and tier.id == tierId then
+					local strength = if type(tier.glowStrength) == "number"
+						then tier.glowStrength
+						elseif #tiers > 1 then (i - 1) / (#tiers - 1)
+						else 0
+					local color = hex(tier.color, NEUTRAL)
+					return { id = tier.id, color = color, glow = hex(tier.glow, color), strength = strength }
+				end
+			end
+			local first = tiers[1]
+			if type(first) == "table" and type(first.id) == "string" then
+				local color = hex(first.color, NEUTRAL)
+				return { id = first.id, color = color, glow = hex(first.glow, color), strength = 0 }
+			end
+		end
+	end
+	return {
+		id = if type(tierId) == "string" then tierId else "Common",
+		color = NEUTRAL,
+		glow = NEUTRAL,
+		strength = 0,
+	}
 end
 
 local function findSpawn(plot: Model): BasePart?
@@ -205,15 +274,9 @@ local function stripAndFreeze(root: Instance)
 	end
 end
 
-local function makeVisual(
-	instance: Types.ItemInstance,
-	slotId: string,
-	slot: BasePart,
-	folder: Folder
-): Instance
+local function makeVisual(instance: any, slotId: string, slot: BasePart, folder: Folder): Instance
 	local def = itemDef(instance.itemId)
-	local rarity: Types.RarityTier = if def and RarityTiers.isTier(def.rarity) then def.rarity else "Common"
-	local tier = RarityTiers.get(rarity)
+	local look = lookOf(if def then def.rarity else nil)
 	local assets = ReplicatedStorage:FindFirstChild(ctx.config.assetsFolderName or DEFAULT_ASSETS_FOLDER)
 	local template = if def and def.model and assets then assets:FindFirstChild(def.model) else nil
 
@@ -240,8 +303,8 @@ local function makeVisual(
 		local part = Instance.new("Part")
 		part.Size = Vector3.one * PLACEHOLDER_SIZE
 		part.CFrame = surface * CFrame.new(0, PLACEHOLDER_SIZE / 2, 0)
-		part.Color = Color3.fromHex(tier.color)
-		part.Material = if tier.glowStrength >= NEON_MIN_GLOW
+		part.Color = look.color
+		part.Material = if look.strength >= NEON_MIN_GLOW
 			then Enum.Material.Neon
 			else Enum.Material.SmoothPlastic
 		part.TopSurface = Enum.SurfaceType.Smooth
@@ -253,12 +316,12 @@ local function makeVisual(
 	end
 
 	if adornee then
-		-- Highlight has a ~31-per-client limit (6 plots x 8 slots exceeds it), so the rarity glow
-		-- is a PointLight scaled by glowStrength (Common = 0 = no light).
-		if tier.glowStrength > 0 then
+		-- Highlight has a ~31-per-client limit, so the rarity glow is a PointLight scaled by the
+		-- tier's glow strength (none for the lowest tier).
+		if look.strength > 0 then
 			local light = Instance.new("PointLight")
-			light.Color = Color3.fromHex(tier.glow)
-			light.Brightness = GLOW_BRIGHTNESS * tier.glowStrength
+			light.Color = look.glow
+			light.Brightness = GLOW_BRIGHTNESS * look.strength
 			light.Range = GLOW_RANGE
 			light.Shadows = false
 			light.Parent = adornee
@@ -278,7 +341,7 @@ local function makeVisual(
 		label.Font = Enum.Font.GothamBold
 		label.TextScaled = true
 		label.Text = if def then def.name else instance.itemId
-		label.TextColor3 = Color3.fromHex(tier.color)
+		label.TextColor3 = look.color
 		label.TextStrokeTransparency = 0.4
 		label.Parent = gui
 		gui.Parent = visual
@@ -288,26 +351,27 @@ local function makeVisual(
 	visual:SetAttribute(SLOT_ATTRIBUTE, nil) -- a cloned template must never look like a slot
 	visual:SetAttribute("ItemUid", instance.uid)
 	visual:SetAttribute("ItemId", instance.itemId)
-	visual:SetAttribute("Rarity", rarity)
+	visual:SetAttribute("Rarity", look.id)
 	visual:SetAttribute("DisplaySlotId", slotId)
 	visual.Parent = folder
 	return visual
 end
 
--- Brings the session's visuals in line with PlayerData.displayed.
+-- Brings the session's visuals in line with the saved `displayed`.
 local function render(player: Player)
 	local session = sessions[player]
-	local data: Types.PlayerData? = ctx.services.Data.get(player)
-	if session == nil or data == nil then
+	local displayed = displayedOf(player)
+	if session == nil or displayed == nil then
 		return
 	end
+	local owned = ownedOf(player)
 	local slots, parts = activeSlots(session)
 	local active: { [string]: boolean } = {}
 	for _, s in slots do
 		active[s.id] = true
 	end
 	for slotId, visual in session.visuals do
-		local uid = data.displayed[slotId]
+		local uid = displayed[slotId]
 		if
 			uid == nil
 			or not active[slotId]
@@ -318,17 +382,23 @@ local function render(player: Player)
 			session.trove:Remove(visual) -- removes + destroys
 		end
 	end
-	for slotId, uid in data.displayed do
-		local instance = data.inventory[uid]
+	for slotId, uid in displayed do
+		local instance = owned[uid]
 		local part = parts[slotId]
 		if active[slotId] and part and instance and not session.visuals[slotId] then
 			local ok, visual = pcall(makeVisual, instance, slotId, part, session.folder)
 			if ok then
 				session.visuals[slotId] = session.trove:Add(visual)
 			else
-				warn("[Core.Plot] could not build visual for " .. instance.itemId .. ": " .. tostring(visual))
+				ctx.log.warn("could not build visual for " .. instance.itemId .. ": " .. tostring(visual))
 			end
 		end
+	end
+end
+
+local function fireCleared(player: Player, removed: { { slotId: string, uid: string } })
+	for _, r in removed do
+		signals.ItemUndisplayed:Fire(player, r.uid, r.slotId)
 	end
 end
 
@@ -338,27 +408,25 @@ end
 
 local function removeStale(player: Player)
 	local session = sessions[player]
-	local data: Types.PlayerData? = ctx.services.Data.get(player)
-	if session == nil or data == nil then
+	local displayed = displayedOf(player)
+	if session == nil or displayed == nil then
 		return
 	end
-	local stale = Slots.stale(data.displayed, data.inventory, (activeSlots(session)))
+	local stale = Slots.stale(displayed, ownedOf(player), (activeSlots(session)))
 	if #stale == 0 then
 		return
 	end
 	local removed: { { slotId: string, uid: string } } = {}
-	ctx.services.Data.update(player, function(d: Types.PlayerData)
+	ctx.data.update(player, function(section: any)
 		for _, slotId in stale do
-			local uid = d.displayed[slotId]
+			local uid = section.displayed[slotId]
 			if uid ~= nil then
-				d.displayed[slotId] = nil
+				section.displayed[slotId] = nil
 				table.insert(removed, { slotId = slotId, uid = uid })
 			end
 		end
 	end)
-	for _, r in removed do
-		ctx.signals.ItemUndisplayed:Fire(player, r.uid, r.slotId)
-	end
+	fireCleared(player, removed)
 end
 
 local function autoDisplayAll(player: Player)
@@ -366,15 +434,12 @@ local function autoDisplayAll(player: Player)
 		return
 	end
 	local session = sessions[player]
-	local data: Types.PlayerData? = ctx.services.Data.get(player)
-	if session == nil or data == nil then
+	local displayed = displayedOf(player)
+	if session == nil or displayed == nil then
 		return
 	end
-	local items: { Types.ItemInstance } = {}
-	for _, instance in data.inventory do
-		table.insert(items, instance)
-	end
-	table.sort(items, function(a, b)
+	local items = table.clone(ctx.deps[Inventory].list(player))
+	table.sort(items, function(a: any, b: any)
 		if a.acquiredAt ~= b.acquiredAt then
 			return a.acquiredAt < b.acquiredAt
 		end
@@ -384,12 +449,12 @@ local function autoDisplayAll(player: Player)
 	for _, instance in items do
 		table.insert(pending, { uid = instance.uid, tags = tagsOf(instance) })
 	end
-	for _, step in Slots.planAuto((activeSlots(session)), data.displayed, pending) do
-		Plot.display(player, step.uid, step.slotId)
+	for _, step in Slots.planAuto((activeSlots(session)), displayed, pending) do
+		Plot.api.display(player, step.uid, step.slotId)
 	end
 end
 
--- "Re-read everything": DataLoaded/assignment and Rebirthed.
+-- "Re-read everything": on load / assignment and after a rebirth.
 local function reconcile(player: Player)
 	removeStale(player)
 	render(player)
@@ -441,7 +506,7 @@ end
 local function pickFreePlot(): Model?
 	local candidates: { Model } = {}
 	local records: { Slots.PlotRecord } = {}
-	for _, inst in CollectionService:GetTagged(PLOT_TAG) do
+	for _, inst in CollectionService:GetTagged(plotTag()) do
 		if inst:IsA("Model") and inst:IsDescendantOf(game) then
 			local order = inst:GetAttribute(ORDER_ATTRIBUTE)
 			table.insert(candidates, inst)
@@ -461,7 +526,7 @@ local function assign(player: Player): boolean
 	if sessions[player] ~= nil or player.Parent ~= Players then
 		return true
 	end
-	if not ctx.services.Data.isLoaded(player) then
+	if not ctx.data.isLoaded(player) then
 		return false
 	end
 	local plot = pickFreePlot()
@@ -495,9 +560,8 @@ local function assign(player: Player): boolean
 	trove:Connect(player.CharacterAdded, function(character: Model)
 		moveToSpawn(player, character)
 	end)
-	ctx.setReplicated(player, "plotName", plot.Name)
-	ctx.signals.PlotAssigned:Fire(player, plot)
-	assignedHandlers:fire(player, plot)
+	ctx.replicate.set(player, "plotName", plot.Name)
+	signals.PlotAssigned:Fire(player, plot)
 	reconcile(player)
 	local character = player.Character
 	if character then
@@ -516,10 +580,10 @@ local function drainQueue()
 		else
 			if not warnedWaiting[player] then
 				warnedWaiting[player] = true
-				warn(
+				ctx.log.warn(
 					string.format(
-						"[Core.Plot] no free plot tagged %q for %s; queued until one frees up",
-						PLOT_TAG,
+						"no free plot tagged %q for %s; queued until one frees up",
+						plotTag(),
 						player.Name
 					)
 				)
@@ -541,8 +605,8 @@ local function release(player: Player)
 	if session then
 		sessions[player] = nil
 		session.trove:Destroy()
-		ctx.setReplicated(player, "plotName", nil)
-		ctx.signals.PlotReleased:Fire(player, session.plot)
+		ctx.replicate.set(player, "plotName", nil)
+		signals.PlotReleased:Fire(player, session.plot)
 	end
 end
 
@@ -589,7 +653,8 @@ local function describePlot(userId: any): string
 		local state = if table.find(waiting, target) then "queued, no free plot" else "data not loaded"
 		table.insert(lines, string.format("%s: no plot (%s)", target.Name, state))
 	else
-		local data: Types.PlayerData? = ctx.services.Data.get(target)
+		local displayed = displayedOf(target) or {}
+		local owned = ownedOf(target)
 		local slots = activeSlots(session)
 		table.insert(
 			lines,
@@ -602,8 +667,8 @@ local function describePlot(userId: any): string
 			)
 		)
 		for _, slot in slots do
-			local uid = if data then data.displayed[slot.id] else nil
-			local instance = if data and uid then data.inventory[uid] else nil
+			local uid = displayed[slot.id]
+			local instance = if uid then owned[uid] else nil
 			table.insert(
 				lines,
 				string.format(
@@ -620,46 +685,82 @@ local function describePlot(userId: any): string
 end
 
 --------------------------------------------------------------------------------
--- Public API
+-- Lifecycle
 --------------------------------------------------------------------------------
 
 function Plot.init(context: any)
 	ctx = context
+	signals.ItemDisplayed = ctx.signals.new("ItemDisplayed")
+	signals.ItemUndisplayed = ctx.signals.new("ItemUndisplayed")
+	signals.DisplayCleared = ctx.signals.new("DisplayCleared")
+	signals.PlotAssigned = ctx.signals.new("PlotAssigned")
+	signals.PlotReleased = ctx.signals.new("PlotReleased")
+	signals.ItemUndisplayed:Connect(function(player: any, _uid: any, slotId: any)
+		signals.DisplayCleared:Fire(player, slotId)
+	end)
+
+	-- An item left the inventory: clear its slot inside the removing tx (§8, inverted).
+	ctx.depsExt[Inventory].onItemRemoved(function(tx: any, player: any, instance: any)
+		local section = ctx.section(tx)
+		local removed: { { slotId: string, uid: string } } = {}
+		for slotId, uid in section.displayed do
+			if uid == instance.uid then
+				section.displayed[slotId] = nil
+				table.insert(removed, { slotId = slotId, uid = uid })
+			end
+		end
+		if #removed > 0 then
+			tx.after(function()
+				render(player)
+				fireCleared(player, removed)
+			end)
+		end
+	end)
+
+	-- Rebirth (optional): clear `displayed` inside Rebirth's single tx (§8). Every slot, unless
+	-- config.plot.keepDisplayedOnRebirth, and always the uids that left the inventory.
+	if ctx.isEnabled(Rebirth) then
+		ctx.depsExt[Rebirth].resetStep("Plot", function(tx: any, _player: any)
+			local section = ctx.section(tx)
+			Slots.resetDisplayed(
+				{ displayed = section.displayed, inventory = ownedInTx(tx) },
+				plotConfig().keepDisplayedOnRebirth == true
+			)
+		end)
+	end
+
+	ctx.console.register("show", function(_player: any, userId: any): string
+		if not ctx.isStudio then
+			return "plot show is Studio-only"
+		end
+		return describePlot(userId)
+	end, "plot show [userId]: plot assignment + slot occupancy (Studio)")
 end
 
-function Plot.start()
-	CollectionService:GetInstanceAddedSignal(PLOT_TAG):Connect(function()
+function Plot.start(_context: any)
+	local tag = plotTag()
+	CollectionService:GetInstanceAddedSignal(tag):Connect(function()
 		task.defer(drainQueue) -- let the game finish building/parenting the model
 	end)
-	CollectionService:GetInstanceRemovedSignal(PLOT_TAG):Connect(onPlotRemoved)
+	CollectionService:GetInstanceRemovedSignal(tag):Connect(onPlotRemoved)
 
-	-- onLoaded also replays for players already loaded before start()
-	ctx.services.Data.onLoaded(function(player: Player)
+	ctx.data.onLoaded(function(player: Player)
 		if sessions[player] then
 			reconcile(player)
 		else
 			enqueue(player)
 		end
 	end)
-	Players.PlayerRemoving:Connect(onPlayerRemoving)
+	ctx.lifecycle.onPlayerRemoving(onPlayerRemoving)
 
-	ctx.signals.ItemAdded:Connect(function(player: Player, instance: Types.ItemInstance)
+	ctx.deps[Inventory].signals.ItemAdded:Connect(function(player: Player, instance: any)
 		if plotConfig().autoDisplay and sessions[player] then
-			Plot.display(player, instance.uid)
+			Plot.api.display(player, instance.uid)
 		end
 	end)
-	ctx.signals.ItemRemoved:Connect(function(player: Player, instance: Types.ItemInstance)
-		Plot.clearDisplay(player, instance.uid)
-	end)
-	ctx.signals.Rebirthed:Connect(function(player: Player)
-		reconcile(player)
-	end)
-	if ctx.isEnabled("Rebirth") then
-		-- M7: Plot owns `displayed`. Inside Rebirth's Data.update: clear every slot unless
-		-- rebirth.keepDisplayed, and always drop slots whose item left the inventory.
-		ctx.services.Rebirth.addResetStep("Plot", function(data: Types.PlayerData)
-			local r = ctx.config.balance.rebirth
-			Slots.resetDisplayed(data, r and r.keepDisplayed)
+	if ctx.isEnabled(Rebirth) then
+		ctx.deps[Rebirth].signals.Rebirthed:Connect(function(player: Player)
+			reconcile(player)
 		end)
 	end
 
@@ -667,126 +768,126 @@ function Plot.start()
 		if not validId(uid) or (slotId ~= nil and not validId(slotId)) then
 			return
 		end
-		Plot.display(player, uid, slotId)
+		Plot.api.display(player, uid, slotId)
 	end)
 	ctx.net.handle("RequestClearDisplay", function(player: Player, uid: any)
 		if not validId(uid) then
 			return
 		end
-		Plot.clearDisplay(player, uid)
+		Plot.api.clearDisplay(player, uid)
 	end)
-
-	if ctx.isStudio then
-		ctx.console.register("plot", "plot [userId]: plot assignment + slot occupancy", function(userId: any)
-			local text = describePlot(userId)
-			print(text)
-			return text
-		end)
-	end
 end
 
-function Plot.get(player: Player): Model?
-	local session = sessions[player]
-	return if session then session.plot else nil
-end
+--------------------------------------------------------------------------------
+-- api
+--------------------------------------------------------------------------------
 
--- Current owner of a plot (for games' touch / prompt checks), nil when free or not a plot.
-function Plot.owner(plot: Model): Player?
-	if typeof(plot) ~= "Instance" or not plot:IsA("Model") then
-		return nil
-	end
-	return ownerOf(plot)
-end
+Plot.api = {
+	signals = signals,
 
-function Plot.slots(player: Player): { string }
-	local session = sessions[player]
-	local list: { string } = {}
-	if session then
-		for _, slot in (activeSlots(session)) do
-			table.insert(list, slot.id)
+	get = function(player: Player): Model?
+		local session = sessions[player]
+		return if session then session.plot else nil
+	end,
+
+	-- Current owner of a plot (for games' touch / prompt checks), nil when free or not a plot.
+	owner = function(plot: Model): Player?
+		if typeof(plot) ~= "Instance" or not plot:IsA("Model") then
+			return nil
 		end
-	end
-	return list
-end
+		return ownerOf(plot)
+	end,
 
-function Plot.display(player: Player, uid: string, slotId: string?): (boolean, string?)
-	if not validId(uid) then
-		return false, Slots.NOT_OWNED
-	end
-	if slotId ~= nil and not validId(slotId) then
-		return false, Slots.NO_SLOT
-	end
-	local session = sessions[player]
-	local data: Types.PlayerData? = ctx.services.Data.get(player)
-	if session == nil or data == nil then
-		return false, Slots.NO_PLOT
-	end
-	-- M5: cheap ownership / duplicate checks before any slot lookup
-	local early = Slots.precheck(data.inventory, data.displayed, uid)
-	if early ~= nil then
-		return false, early
-	end
-	local target, reason = Slots.validateDisplay({
-		slots = (activeSlots(session)),
-		displayed = data.displayed,
-		owned = data.inventory,
-		uid = uid,
-		slotId = slotId,
-		itemTags = tagsOf(data.inventory[uid]),
-	})
-	if target == nil then
-		return false, reason
-	end
-	local chosen: string = target
-	local wrote = false
-	ctx.services.Data.update(player, function(d: Types.PlayerData)
-		-- re-check against the live table
-		if
-			d.displayed[chosen] == nil
-			and d.inventory[uid] ~= nil
-			and Slots.isDisplayed(d.displayed, uid) == nil
-		then
-			d.displayed[chosen] = uid
-			wrote = true
-		end
-	end)
-	if not wrote then
-		return false, Slots.SLOT_TAKEN
-	end
-	render(player)
-	ctx.signals.ItemDisplayed:Fire(player, uid, chosen)
-	return true, nil
-end
-
-function Plot.clearDisplay(player: Player, uid: string): boolean
-	if type(uid) ~= "string" then
-		return false
-	end
-	local data: Types.PlayerData? = ctx.services.Data.get(player)
-	if data == nil or Slots.isDisplayed(data.displayed, uid) == nil then
-		return false
-	end
-	local cleared: { string } = {}
-	ctx.services.Data.update(player, function(d: Types.PlayerData)
-		for id, shown in d.displayed do
-			if shown == uid then
-				d.displayed[id] = nil
-				table.insert(cleared, id)
+	slots = function(player: Player): { string }
+		local session = sessions[player]
+		local list: { string } = {}
+		if session then
+			for _, slot in (activeSlots(session)) do
+				table.insert(list, slot.id)
 			end
 		end
-	end)
-	if #cleared == 0 then
-		return false
-	end
-	render(player)
-	for _, id in cleared do
-		ctx.signals.ItemUndisplayed:Fire(player, uid, id)
-	end
-	return true
-end
+		return list
+	end,
 
-function Plot.onAssigned(handler: (player: Player, plot: Model) -> ()): Types.Connection
-	return assignedHandlers:add(handler)
-end
+	-- PHASE1-CONTRACT: frozen slotId -> uid map (empty when not loaded).
+	displayed = function(player: Player): { [string]: string }
+		return displayedOf(player) or table.freeze({})
+	end,
+
+	display = function(player: Player, uid: string, slotId: string?): (boolean, string?)
+		if not validId(uid) then
+			return false, Slots.NOT_OWNED
+		end
+		if slotId ~= nil and not validId(slotId) then
+			return false, Slots.NO_SLOT
+		end
+		local session = sessions[player]
+		local displayed = displayedOf(player)
+		if session == nil or displayed == nil then
+			return false, Slots.NO_PLOT
+		end
+		local owned = ownedOf(player)
+		-- cheap ownership / duplicate checks before any slot lookup
+		local early = Slots.precheck(owned, displayed, uid)
+		if early ~= nil then
+			return false, early
+		end
+		local target, reason = Slots.validateDisplay({
+			slots = (activeSlots(session)),
+			displayed = displayed,
+			owned = owned,
+			uid = uid,
+			slotId = slotId,
+			itemTags = tagsOf(owned[uid]),
+		})
+		if target == nil then
+			return false, reason
+		end
+		local chosen: string = target
+		local wrote = false
+		ctx.data.update(player, function(section: any)
+			if section.displayed[chosen] == nil and Slots.isDisplayed(section.displayed, uid) == nil then
+				section.displayed[chosen] = uid
+				wrote = true
+			end
+		end)
+		if not wrote then
+			return false, Slots.SLOT_TAKEN
+		end
+		render(player)
+		signals.ItemDisplayed:Fire(player, uid, chosen)
+		return true, nil
+	end,
+
+	-- Never requires ownership: it also runs after the item left the inventory.
+	clearDisplay = function(player: Player, uid: string): boolean
+		if type(uid) ~= "string" then
+			return false
+		end
+		local displayed = displayedOf(player)
+		if displayed == nil or Slots.isDisplayed(displayed, uid) == nil then
+			return false
+		end
+		local removed: { { slotId: string, uid: string } } = {}
+		ctx.data.update(player, function(section: any)
+			for id, shown in section.displayed do
+				if shown == uid then
+					section.displayed[id] = nil
+					table.insert(removed, { slotId = id, uid = uid })
+				end
+			end
+		end)
+		if #removed == 0 then
+			return false
+		end
+		render(player)
+		fireCleared(player, removed)
+		return true
+	end,
+
+	onAssigned = function(handler: (player: Player, plot: Model) -> ()): any
+		return signals.PlotAssigned:Connect(handler)
+	end,
+}
 
 return Plot
