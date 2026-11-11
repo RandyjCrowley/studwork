@@ -1,0 +1,22 @@
+{
+  "name": "raw-datastore",
+  "tree": {
+    "$className": "DataModel",
+    "ServerScriptService": {
+      "Server": { "$path": "src/server" }
+    },
+    "ReplicatedStorage": {
+      "Shared": { "$path": "src/shared" },
+      "Remotes": {
+        "$className": "Folder",
+        "BuyItem": { "$className": "RemoteEvent" },
+        "Unused": { "$className": "RemoteEvent" }
+      }
+    },
+    "StarterPlayer": {
+      "StarterPlayerScripts": {
+        "Client": { "$path": "src/client" }
+      }
+    }
+  }
+}
