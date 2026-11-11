@@ -9,7 +9,9 @@
 # and then runs the games repo's own tools/ wrappers: new-game (projects point into roblox-core/),
 # make-module --game, lint (clean, then fails for a dirty or untagged submodule), typecheck, test,
 # build, publish --test --dry-run (stamps the StudWork version, the core sha and tag), framework-status,
-# doctor, dev --print. Exit 1 if any step fails. --keep leaves the temp repo for inspection.
+# doctor, dev --print; then (v1.4.1) real `git commit`s through the games repo's pre-commit hook
+# (normal, partial, and a refused submodule bump mixed with game files). Exit 1 if any step
+# fails. --keep leaves the temp repo for inspection.
 source "$(dirname "$0")/_common.sh"
 
 is_games_repo && die "run tools/test-games-repo in the roblox-core repo itself"
@@ -156,6 +158,37 @@ git -C "$G/roblox-core" checkout -q -- README.md
 expect_fail "lint refuses an untagged submodule" "not at a release tag" tools/lint
 git -C "$G/roblox-core" checkout -q "$TAG"
 step lint-again tools/lint
+
+# v1.4.1 (known issue V1): real commits through the games repo's pre-commit hook (enabled above by
+# tools/install --hooks-only), so the checks run under git's hook environment (GIT_INDEX_FILE etc.)
+hgit() {
+	git -c user.name="StudWork test" -c user.email="test@studwork.invalid" -c commit.gpgsign=false \
+		-c gc.auto=0 -c maintenance.auto=false "$@"
+}
+check "hooks: core.hooksPath is .githooks" test "$(git -C "$G" config core.hooksPath)" = ".githooks"
+NOTES="$G/games/demo/NOTES.md"
+echo "notes" >"$NOTES"
+git -C "$G" add games/demo/NOTES.md
+BEFORE="$(git -C "$G" rev-parse HEAD)"
+step "hook: a normal commit of a game file passes" hgit commit -q -m "demo notes"
+check "hook: the normal commit landed" test "$(git -C "$G" rev-parse HEAD)" != "$BEFORE"
+echo "more notes" >>"$NOTES"
+BEFORE="$(git -C "$G" rev-parse HEAD)"
+step "hook: a partial commit (git commit <path>) passes" hgit commit -q -m "more notes" games/demo/NOTES.md
+check "hook: the partial commit landed" test "$(git -C "$G" rev-parse HEAD)" != "$BEFORE"
+# a newer framework release (tagged in the throwaway core only) bumped together with game work
+(cd "$G/roblox-core" && tgit commit -q --allow-empty -m "next release" && tgit tag v99.0.0) >>"$LOGS/setup.log" 2>&1
+echo "bump" >>"$NOTES"
+BEFORE="$(git -C "$G" rev-parse HEAD)"
+git -C "$G" add roblox-core games/demo/NOTES.md
+expect_fail "hook: refuses a submodule bump mixed with game files" "one commit edits games/demo/ and roblox-core/" \
+	hgit commit -q -m "mixed"
+git -C "$G" reset -q
+expect_fail "hook: refuses the same mix as a partial commit" "one commit edits games/demo/ and roblox-core/" \
+	hgit commit -q -m "mixed partial" roblox-core games/demo/NOTES.md
+check "hook: nothing committed by the refused commits" test "$(git -C "$G" rev-parse HEAD)" = "$BEFORE"
+step "hook: the submodule bump alone passes" hgit commit -q -m "framework v99.0.0" roblox-core
+git -C "$G" checkout -q -- games/demo/NOTES.md
 
 if [ "$FAIL" -eq 0 ]; then
 	echo "test-games-repo: all passed (StudWork $VERSION as roblox-core/ at $TAG)"
