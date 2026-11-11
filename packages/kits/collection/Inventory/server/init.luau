@@ -38,6 +38,8 @@
 	"paid:<product>" inside a purchase, "paidcur:<sourceId>" after a compliance.spendForRoll in the
 	same tx, else the caller's opts.source (or nil). A caller-chosen source that starts with
 	"paid:"/"paidcur:" outside such a tx is refused (add returns nil).
+	v1.6.0 legacy import tx (ctx.data.isImport): the source is always tagPaid(tx, "legacy")
+	("paid:legacy" / "legacy", adopting.md §3), the caller's is ignored, and the cap is skipped.
 	Gift rules: no "paid:"/"paidcur:" copies by mail (restricted_source); transfer refuses paid
 	copies when either player is paid-random restricted. "core_gift" is registered with
 	ctx.depsExt[Mail].registerKind when Mail is enabled (claim: same instance, idempotent by uid,
@@ -172,9 +174,12 @@ function Inventory.new(): any
 			return nil
 		end
 		-- M5: the paid tag comes from the tx, never from the caller
-		local derived = ctx.compliance.tagPaid(tx)
+		-- v1.6.0: in a legacy import the tag is always the framework's (paid:legacy / legacy,
+		-- adopting.md §3); the caller's source is ignored there
+		local importing = ctx.data.isImport(tx)
+		local derived = ctx.compliance.tagPaid(tx, if importing then "legacy" else nil)
 		local source: string?
-		if InventoryRules.isPaidSource(derived) then
+		if importing or InventoryRules.isPaidSource(derived) then
 			source = derived
 		elseif InventoryRules.isPaidSource(o.source) then
 			ctx.log.warn(
@@ -185,7 +190,8 @@ function Inventory.new(): any
 			source = o.source
 		end
 		local s = ctx.section(tx)
-		if countOf(s.inventory) >= capOf(tx.player) then
+		-- v1.6.0: a legacy import keeps every old item, even over the cap (adopting.md §3)
+		if not importing and countOf(s.inventory) >= capOf(tx.player) then
 			return nil
 		end
 		local instance = {

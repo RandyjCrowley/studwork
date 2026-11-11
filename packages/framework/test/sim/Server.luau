@@ -19,6 +19,8 @@
 	dropped, so one fixture serves every module subset.
 
 	API used by specs:
+	  opts.legacy (v1.6.0)                      a StudWork.test.legacyStore, or "world": the legacy
+	                                            reader on the World's mock DataStores (read-only)
 	  server:join(userId, opts?) -> player     PlayerAdded (opts.referredBy, opts.name)
 	  server:leave(player)                      PlayerRemoving, then Parent = nil
 	  server:spawn(fn, ...) -> handle           run fn in a server thread; handle.done/.result/.error
@@ -80,6 +82,10 @@ function Server.new(world: any, jobId: string, opts: any)
 	self.players = {}
 	self.isStudio = opts.isStudio == true
 	self.project = opts.project -- Loader.readProject(...) for a real game boot (Fixtures.gameServer)
+	-- (v1.6.0) opts.legacy: a StudWork.test.legacyStore(seed) backend, or "world" / true = read the
+	-- World's own mock DataStores (read-only)
+	self.legacyMode = if opts.legacy == true or opts.legacy == "world" then "world" else nil
+	self.legacyStore = if type(opts.legacy) == "table" then opts.legacy else nil
 	self:_buildEngine()
 	self:_boot(opts)
 	return self
@@ -303,6 +309,9 @@ function Server._buildEngine(self)
 		new = function(className: string)
 			if className == "DataStoreOptions" then
 				return { SetExperimentalFeatures = function() end }
+			end
+			if className == "DataStoreGetOptions" then
+				return { UseCache = true } -- (v1.6.0) the legacy reader sets UseCache = false
 			end
 			error("sim: Instance.new('" .. className .. "') is not simulated", 2)
 		end,
@@ -545,6 +554,19 @@ function Server._platform(self): any
 				isPlayer = isPlayer,
 			})
 		end,
+		-- (v1.6.0) opts.legacy = "world" (or true): the legacy reader on the World's mock
+		-- DataStore, read-only (Legacy.readOnly), so an "old server" writing through the World
+		-- (world:seed / world:setOrdered, or a server's own DataStoreService) is what it imports
+		makeLegacy = if server.legacyMode == "world"
+			then function()
+				local Legacy = server.require(Loader.core("packages/framework/server/Legacy.luau"))
+				return Legacy.readOnly(game:GetService("DataStoreService"), {
+					log = function(msg)
+						server.globals.warn(msg)
+					end,
+				})
+			end
+			else nil,
 		-- ctx.data.shared on the World's mock DataStore: one store shared by every sim server
 		-- (failure injection: world:failNext / failFor with store "StudWorkShared_<gameId>")
 		makeShared = function(gameId: string)
@@ -692,6 +714,7 @@ function Server._boot(self, opts: any)
 			loadServer = loadServer,
 			gameModule = gameModule,
 			isStudio = self.isStudio,
+			legacy = self.legacyStore,
 			logSink = function(level: string, msg: string)
 				if level == "warn" then
 					server.globals.warn(msg)

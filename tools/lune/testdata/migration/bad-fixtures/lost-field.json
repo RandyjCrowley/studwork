@@ -1,0 +1,31 @@
+{
+  "description": "lastLogin is neither expected nor dropped",
+  "userId": 1001,
+  "old": {
+    "coins": 75,
+    "level": 4,
+    "inventory": [
+      "pebble",
+      "gem"
+    ],
+    "settings": {
+      "music": false
+    },
+    "purchases": {
+      "synthetic-receipt-1": 1699990000
+    },
+    "lastLogin": 1699990500
+  },
+  "expect": {
+    "coins": "economy.currency.Coins",
+    "level": "legacy-game.level",
+    "inventory": {
+      "items": "inventory.inventory"
+    },
+    "settings.music": "legacy-game.music",
+    "purchases": "_framework.legacyPurchases"
+  },
+  "sold": {
+    "coins": "currency"
+  }
+}

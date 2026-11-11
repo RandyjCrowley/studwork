@@ -232,6 +232,13 @@ local function build(opts: Options): (any, any)
 		compliance = opts.compliance,
 	}
 	self.gameConfig = gameConfig
+	-- (v1.6.0) a legacy store's writes are stamped with the harness clock (unless a test set one)
+	if type(opts.legacy) == "table" and rawget(opts.legacy, "now") == os.time then
+		opts.legacy.now = function()
+			return self.clock
+		end
+	end
+	self.legacy = opts.legacy
 	local ok, rt = pcall(Server.start, gameConfig, opts.serverConfig, {
 		loadServer = function(ref: any)
 			return servers[ref.name]

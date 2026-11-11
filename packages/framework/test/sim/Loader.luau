@@ -51,6 +51,15 @@ if luneRequire("@lune/process").env.STUDWORK_LAYOUT == "single-game" then
 	table.insert(ROOTS, "modules")
 end
 
+-- (v1.6.0) extra game folders to index, ':'-separated, relative to the working directory
+-- (tools/test-migration boots a game that may live outside the folders above)
+local extraRoots = luneRequire("@lune/process").env.STUDWORK_SIM_ROOTS
+if type(extraRoots) == "string" and extraRoots ~= "" then
+	for root in string.gmatch(extraRoots, "[^:]+") do
+		table.insert(ROOTS, (string.gsub(root, "/+$", "")))
+	end
+end
+
 local kinds: { [string]: "file" | "dir" } = {}
 local listing: { [string]: { string } } = {}
 local sources: { [string]: string } = {}
