@@ -21,7 +21,8 @@
 	    _framework table, copy-on-write; hooks.frameworkReplaced() right after, so Data bumps the
 	    _framework section version at once — R22, v1.3.1), Save(), and waits until a
 	    SUCCESSFUL save's payload carries it (OnAfterSave), up to SAVE_TIMEOUT.
-	  - release: EndSession (OnSave stamps lastSeen right before the final write).
+	  - isActive (v1.6.0): the session load started is still held (legacy import re-check).
+  - release: EndSession (OnSave stamps lastSeen right before the final write).
 	  - send/onMessage/nudge: ProfileStore MessageAsync / MessageHandler / an early Save() so
 	    in-server messages land fast.
 	opts: gameId, isStudio, serverPackages (folder holding ProfileStore), wait(seconds), clock(),
@@ -173,6 +174,12 @@ function Store.profileStore(opts: any): any
 		if profile and profile:IsActive() then
 			profile:EndSession() -- profile.Data untouched: writes back what was loaded
 		end
+	end
+
+	-- (v1.6.0) the session started by load is still held (the legacy import re-checks it)
+	function s.isActive(userId: any): boolean
+		local profile = profiles[userId]
+		return profile ~= nil and profile:IsActive() == true
 	end
 
 	function s.attach(userId: any, root: any, hooks: any)

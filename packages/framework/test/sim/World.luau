@@ -187,6 +187,14 @@ function World.peek(self, storeName: string, key: string): any
 	return if entry then deepCopy(entry.value) else nil
 end
 
+-- (v1.6.0) An OrderedDataStore entry as an old server wrote it (DataStore2's ordered backups).
+function World.setOrdered(self, name: string, key: string, value: number)
+	self.stores["ordered:" .. name] = self.stores["ordered:" .. name] or {}
+	local ms = math.floor(self:now() * 1000)
+	self.stores["ordered:" .. name][key] =
+		{ value = value, version = 1, userIds = {}, metadata = {}, created = ms, updated = ms }
+end
+
 -- Writes a raw value (seeding saves written by "older servers").
 function World.seed(self, storeName: string, key: string, value: any)
 	self.stores[storeName] = self.stores[storeName] or {}
@@ -287,6 +295,38 @@ function World.dataStoreService(self, server: any)
 			error("sim DataStore: GetVersionAsync not modelled", 0)
 		end
 		return ds
+	end
+	-- (v1.6.0) OrderedDataStore (DataStore2's ordered backups): SetAsync / GetSortedAsync only
+	function service.GetOrderedDataStore(_self, name: string, _scope: string?)
+		local ods = {}
+		local storeName = "ordered:" .. name
+		function ods.SetAsync(_ods, key: string, value: number)
+			world:_call("SetAsync", storeName, tostring(key), server.jobId)
+			world:_commit(storeName, tostring(key), server.jobId, value, nil, nil)
+		end
+		function ods.GetSortedAsync(_ods, ascending: boolean, pageSize: number)
+			world:_call("GetSortedAsync", storeName, "*", server.jobId)
+			local list = {}
+			for key, entry in world.stores[storeName] or {} do
+				table.insert(list, { key = key, value = entry.value })
+			end
+			table.sort(list, function(a, b)
+				if ascending then
+					return a.value < b.value
+				end
+				return a.value > b.value
+			end)
+			local page = {}
+			for i = 1, math.min(pageSize, #list) do
+				page[i] = list[i]
+			end
+			return {
+				GetCurrentPage = function()
+					return page
+				end,
+			}
+		end
+		return ods
 	end
 	function service.GetRequestBudgetForRequestType()
 		return 1000

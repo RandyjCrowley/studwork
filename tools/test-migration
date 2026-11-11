@@ -1,0 +1,11 @@
+#!/usr/bin/env bash
+# tools/test-migration [game] [module] [--fixtures <dir>]: StudWork v1.6.0 legacy import check
+# (docs/framework/adopting.md §3). Runs every synthetic old save in <module>/tests/legacy/*.json
+# (or --fixtures) through the module's real importLegacy in the sim: nothing lost field by field,
+# importing twice is safe, a read failure kicks without changing data, partial saves, changed
+# after import (merge), over the Inventory cap, sold fields stay paid. Fixture format:
+# tools/lune/MigrationCheck.luau. In a single-game project the game is the root (no game
+# argument); in the core repo / a games repo give the game folder. Exit 1 on any failure.
+source "$(dirname "$0")/_common.sh"
+
+lune_tool test-migration "$@"

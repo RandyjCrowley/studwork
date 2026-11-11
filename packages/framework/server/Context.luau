@@ -4,8 +4,9 @@
 	table and nothing else; every field is scoped to the module (its config, its section, its
 	declared dependencies, its console prefix, its log tag).
 
-	name, config, gameConfig, deps, depsTx, depsExt, isEnabled, data (ScopedData, incl.
-	saveAsync and the cross-server `messages` channel), tx, section, framework (firstJoin,
+	name, config, gameConfig, deps, depsTx (v1.6.0: import-guarded, Context.importGuard), depsExt, isEnabled, data (ScopedData, incl.
+	saveAsync, the cross-server `messages` channel and, v1.6.0,
+	importLegacy / legacyStatus / isImport), tx, section, framework (firstJoin,
 	lastSeen, sessions), now (the framework clock, unix seconds; v1.3.0), data.shared (the
 	cross-server shared store, SharedStore.luau; v1.3.0), signals, console, lifecycle, log, theme (read-only merged tree), isStudio,
 	serverConfig, and the framework services, each scoped to this module (v1.3.0):
@@ -116,6 +117,19 @@ function Context.build(rt: any, ref: any): any
 		-- Durable, atomic, cross-server key-value store; keys are this module's own (prefixed with
 		-- its name). update(key, fn(old) -> new) -> (ok, new); yields (SharedStore.luau).
 		shared = rt.shared.forModule(name, rt.assertUsable),
+		-- (added in v1.6.0, adopting.md §3) a one-time import of the player's OLD save; init only
+		importLegacy = function(spec: any)
+			if rt.phase ~= "init" then
+				error(`{name}: ctx.data.importLegacy must be called in init (now: {tostring(rt.phase)})`, 2)
+			end
+			data.registerImport(name, spec)
+		end,
+		legacyStatus = function(player: any, id: string): any
+			return data.legacyStatus(player, id)
+		end,
+		isImport = function(tx: any): boolean
+			return data.isImport(tx)
+		end,
 	})
 
 	local signals: any = {
@@ -161,7 +175,7 @@ function Context.build(rt: any, ref: any): any
 			return rt.apis[r]
 		end),
 		depsTx = refTable(rt, name, declared, function(r)
-			return rt.txApis[r]
+			return Context.importGuard(data, r.name, rt.txApis[r])
 		end),
 		depsExt = refTable(rt, name, declared, function(r)
 			return rt.exts[r]
@@ -214,6 +228,33 @@ function Context.build(rt: any, ref: any): any
 		),
 	}
 	return table.freeze(ctx)
+end
+
+-- (v1.6.0, adopting.md §3) inside a legacy import tx, a txApi call whose first return value is
+-- nil or false raises, so an import fails closed instead of committing a partial save. Outside an
+-- import the wrapper is one isImport lookup and a tail call.
+function Context.importGuard(data: any, owner: string, txApi: any): any
+	if type(txApi) ~= "table" then
+		return txApi
+	end
+	local out = {}
+	for key, fn in txApi do
+		if type(fn) ~= "function" then
+			out[key] = fn
+			continue
+		end
+		out[key] = function(tx: any, ...: any): ...any
+			if not data.isImport(tx) then
+				return fn(tx, ...)
+			end
+			local res = table.pack(fn(tx, ...))
+			if res[1] == nil or res[1] == false then
+				error(`legacy import: {owner}.{tostring(key)} refused ({tostring(res[1])})`, 2)
+			end
+			return table.unpack(res, 1, res.n)
+		end
+	end
+	return table.freeze(out)
 end
 
 Context.notEnabledMessage = Resolve.notEnabledMessage

@@ -70,6 +70,9 @@ local Server = {}
 Server.KICK_MESSAGE =
 	"Your save couldn't be loaded safely, so nothing was changed. Please rejoin in a moment."
 Server.KICK_SESSION_ENDED = "Your save data was opened in another server. Please rejoin."
+-- (added in v1.6.0, adopting.md §3) a legacy import failed: nothing was written, the next join retries
+Server.KICK_LEGACY_IMPORT =
+	"We couldn't bring over your save from the previous version yet. Nothing was lost. Please rejoin in a minute."
 
 Server.memoryStore = Store.memory
 -- (added in v1.6.0) StudWork.test.legacyStore: an in-memory, read-only legacy store (Legacy.luau)
@@ -96,6 +99,44 @@ local function splitWords(...: any): { string }
 		end
 	end
 	return words
+end
+
+-- (v1.6.0) the console's `adopt status` text: one line per registered import.
+function Server.formatAdoptStatus(ids: { string }, markers: { [string]: any }): string
+	if #ids == 0 then
+		return "no importLegacy registered"
+	end
+	local lines = {}
+	for _, id in ids do
+		local m = markers[id]
+		if type(m) ~= "table" then
+			table.insert(lines, `{id}: no marker (not imported yet)`)
+		else
+			local parts = {}
+			local names = {}
+			for name in (if type(m.sources) == "table" then m.sources else {}) :: any do
+				table.insert(names, name)
+			end
+			table.sort(names)
+			for _, name in names do
+				local src = m.sources[name]
+				table.insert(
+					parts,
+					`{name}={if src.found then "found" else "none"}{if src.updatedAt
+						then "@" .. tostring(math.floor(src.updatedAt))
+						else ""}`
+				)
+			end
+			table.insert(
+				lines,
+				`{id}: v={tostring(m.v)} at={tostring(m.at)} found={tostring(m.found)} sources: {table.concat(
+					parts,
+					", "
+				)}`
+			)
+		end
+	end
+	return table.concat(lines, "\n")
 end
 
 function Server.start(gameConfig: any, serverConfig: any?, opts: any?): any
@@ -238,6 +279,24 @@ function Server.start(gameConfig: any, serverConfig: any?, opts: any?): any
 			end
 			return if #names == 0 then "framework only" else table.concat(names, ", ")
 		end)
+		-- (added in v1.6.0) adopt status <userId>: every legacy import marker (Studio or an admin)
+		rt.console["adopt status"] = {
+			owner = "framework",
+			help = "adopt status [userId]: the player's legacy import markers (Studio or admin)",
+			fn = function(caller: any, userId: string?): string
+				local admins = if type(rt.serverConfig) == "table" then rt.serverConfig.admins else nil
+				local allowed = rt.isStudio
+					or (caller ~= nil and Admins.isAdmin(caller.UserId, rt.isStudio, admins, nil))
+				if not allowed then
+					return "Studio or admin only"
+				end
+				local player = target(userId)
+				if player == nil or not rt.data.isLoaded(player) then
+					return "no loaded player"
+				end
+				return Server.formatAdoptStatus(rt.data.legacyImports(), rt.data.legacyMarkers(player) or {})
+			end,
+		}
 		cmd("net", "net: framework event owners, dropped and rate-limited request counts", function()
 			return rt.net.summary()
 		end)
@@ -388,13 +447,17 @@ function Server.start(gameConfig: any, serverConfig: any?, opts: any?): any
 		local now = o.now or platform.now
 		rt.now = now
 		-- (added in v1.6.0, adopting.md §3/§4) the read-only reader of a game's OLD stores
+		local legacyBackend = o.legacy or (if platform.makeLegacy then platform.makeLegacy() else nil)
+		if legacyBackend == nil and o.platform == nil and o.bindPlatform ~= false then
+			-- the live engine: read-only GetAsync / GetSortedAsync, built on first read only
+			legacyBackend = Legacy.live(warnLog)
+		end
 		rt.legacy = Legacy.new({
-			backend = o.legacy
-				or (if platform.makeLegacy then platform.makeLegacy() else nil)
-				or Legacy.memory(),
+			backend = legacyBackend or Legacy.memory(),
 			now = now,
 			wait = platform.wait,
 			log = warnLog,
+			isStudio = rt.isStudio,
 		})
 		rt.data = Data.new({
 			store = o.store or platform.makeStore(gameConfig.gameId),
@@ -406,6 +469,13 @@ function Server.start(gameConfig: any, serverConfig: any?, opts: any?): any
 			require = o.require,
 			onSessionLost = function(player: any)
 				kick(player, Server.KICK_SESSION_ENDED)
+			end,
+			-- (v1.6.0) the legacy import's re-check and analytics
+			isPlayer = platform.isPlayer,
+			onLegacy = function(player: any, event: string, fields: any)
+				if rt.analytics then
+					rt.analytics.api.custom(player, event, 1, fields)
+				end
 			end,
 		})
 		rt.shared = SharedStore.new({
@@ -578,10 +648,10 @@ function Server.start(gameConfig: any, serverConfig: any?, opts: any?): any
 		rt.assertUsable()
 		platform.spawn(rt.policy.track, player)
 		rt.shop.playerAdded(player)
-		local ok, err = rt.data.load(player)
+		local ok, err, kind = rt.data.load(player)
 		if not ok then
 			logSink("warn", `[StudWork] {tostring(err)}`)
-			kick(player, Server.KICK_MESSAGE)
+			kick(player, if kind == "legacy" then Server.KICK_LEGACY_IMPORT else Server.KICK_MESSAGE)
 			return false
 		end
 		rt.lifecycle.firePlayerLoaded(player)

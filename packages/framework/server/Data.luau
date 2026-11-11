@@ -23,6 +23,21 @@
 	  opts.log        (msg) -> ()        warnings
 	  opts.require    require used for migrations folders (injected in tests)
 	  opts.onSessionLost(player)          the save was taken by another server (kick)
+	  opts.legacy     (v1.6.0) the read-only legacy reader (Legacy.new): importLegacy reads
+	  opts.isPlayer(player)               (v1.6.0) the player is still in the server (import re-check)
+	  opts.onLegacy(player, event, fields) (v1.6.0) analytics: LegacyImportFailed { reason },
+	                                      LegacyChangedAfterImport, LegacyNotFound
+	  store.isActive?(userId) -> boolean  (v1.6.0) the StudWork session is still held (import
+	                                      re-check after the reads; absent = always held)
+
+	Legacy import (v1.6.0, adopting.md §3): registerImport(owner, spec) at init; on every join with
+	an import registered, after the save loaded and migrated and BEFORE the player counts as loaded:
+	every source is read (yields; retries in the reader), then the session and the player are
+	re-checked, then ONE non-yielding tx (runImportTx) on the not-yet-published record runs each
+	import/merge, writes receipts into _framework.legacyPurchases and the markers
+	_framework.imports[id]. The tx meta has legacyImport = itemTag (isImport(tx)). Any failure
+	(read_error, busy, import_error, lost_session, merge_missing): store.reject, nothing written,
+	load returns (false, reason, "legacy") and the runtime kicks with its legacy message.
 
 	Load (all-or-nothing): framework migration on the whole root -> per enabled module: owner check
 	(H5) -> section default or Migrate.run(section, _versions[key], data.version) -> reconcile
@@ -58,6 +73,7 @@ local requireShared = require :: any -- see Shared.luau
 local Freeze = requireShared(Shared.Freeze)
 local Migrate = requireShared(Shared.Migrate)
 local FrameworkSection = require(script.Parent.FrameworkSection)
+local Legacy = require(script.Parent.Legacy)
 
 local Data = {}
 
@@ -67,6 +83,10 @@ Data.NESTED_ERROR =
 Data.SEALED_POST_COMMIT =
 	"this tx is closed (it already committed or failed); ctx.section(tx) only works inside ctx.tx"
 Data.PURCHASES_CAP = 200
+Data.LEGACY_SKEW_SECONDS = 5 -- a source counts as changed after the marker past this skew
+Data.LEGACY_RECEIPT_KEEP_SECONDS = 90 * 86400 -- Legacy.RECEIPT_KEEP_DAYS (kept in sync by a spec)
+Data.ITEM_TAGS = table.freeze({ paid = true, free = true })
+Data.IMPORT_ID_PATTERN = "^[%w_%-%.]+$"
 
 function Data.crossPlayerError(openFor: string): string
 	return `tx open for {openFor}; use tx.after to act on another player once this one commits`
@@ -112,6 +132,60 @@ local function prunePurchases(purchases: any, cap: number): number
 	return removed
 end
 Data.prunePurchases = prunePurchases
+
+-- _framework.legacyPurchases entries older than keepSeconds are dropped (by AGE, never by count).
+-- Returns a pruned copy, or nil when nothing is old enough.
+local function pruneLegacyPurchases(map: any, now: number, keepSeconds: number): any
+	if type(map) ~= "table" then
+		return nil
+	end
+	local out: any = nil
+	for id, at in map do
+		if type(at) == "number" and at < now - keepSeconds then
+			out = out or table.clone(map)
+			out[id] = nil
+		end
+	end
+	return out
+end
+Data.pruneLegacyPurchases = pruneLegacyPurchases
+
+-- The §3 decision table, pure. marker = the stored marker or nil; status = "found" | "none";
+-- sources = the read's { [name]: { found, updatedAt? } }. -> (action, reason?, writeMarker)
+--   "none"    nothing runs (writeMarker: no marker yet -> found = false)
+--   "import"  first import; "merge" with reason "changed" | "version"
+function Data.decideImport(
+	marker: any,
+	version: number,
+	status: string,
+	sources: any
+): (string, string?, boolean)
+	local found = status == "found"
+	if type(marker) ~= "table" or marker.found ~= true then
+		if found then
+			return "import", nil, true
+		end
+		return "none", nil, type(marker) ~= "table"
+	end
+	if not found then
+		return "none", nil, false -- imported before and the old save is gone now: nothing to bring
+	end
+	local at = if type(marker.at) == "number" then marker.at else 0
+	for _, src in sources do
+		if
+			src.found
+			and type(src.updatedAt) == "number"
+			and src.updatedAt > at + Data.LEGACY_SKEW_SECONDS
+		then
+			return "merge", "changed", true
+		end
+	end
+	local v = if type(marker.v) == "number" then marker.v else 0
+	if v < version then
+		return "merge", "version", true
+	end
+	return "none", nil, false
+end
 
 type Record = {
 	player: any,
@@ -176,6 +250,16 @@ function Data.new(opts: any): any
 	-- private: tx handle -> state. Weak keys so a leaked handle doesn't pin a working copy.
 	local txState: { [any]: TxState } = setmetatable({}, { __mode = "k" }) :: any
 	local openTx: any = nil
+
+	-- (v1.6.0) registered legacy imports, in registration order
+	local imports: { any } = {}
+	local importIds: { [string]: string } = {} -- id -> owner
+	local importOwners: { [string]: boolean } = {}
+	local ownStores: { [string]: boolean } = {}
+	if gameId ~= nil then
+		ownStores["PlayerData_" .. tostring(gameId)] = true
+		ownStores["PlayerData_" .. tostring(gameId) .. "_Studio"] = true
+	end
 
 	local d = {}
 
@@ -266,12 +350,20 @@ function Data.new(opts: any): any
 				fw.purchases = purchases
 			end
 		end
+		if fw.legacyPurchases ~= nil then
+			local pruned = pruneLegacyPurchases(fw.legacyPurchases, now(), Data.LEGACY_RECEIPT_KEEP_SECONDS)
+			if pruned ~= nil then
+				fw.legacyPurchases = pruned
+			end
+		end
 		record.root._framework = fw
 		record.versions._framework = nextVersion()
 	end
 
+	local runImports: (player: any, userId: any, record: Record) -> (boolean, string?, { () -> () }?)
+
 	-- Returns (true) or (false, reason). On failure the player must be kicked; nothing is saved.
-	function d.load(player: any): (boolean, string?)
+	function d.load(player: any): (boolean, string?, string?)
 		if records[player] then
 			return true, nil
 		end
@@ -294,6 +386,21 @@ function Data.new(opts: any): any
 			return false, failed[player]
 		end
 		local loadedRecord: Record = record
+		local importEffects: { () -> () }? = nil
+		if #imports > 0 then
+			local okImport, why, effects = runImports(player, userId, loadedRecord)
+			if not okImport then
+				failed[player] = "legacy import failed: " .. tostring(why)
+				log(
+					`[StudWork] legacy import for {playerLabel(player)} failed ({tostring(why)}); nothing written`
+				)
+				if store.reject then
+					pcall(store.reject, userId)
+				end
+				return false, failed[player], "legacy"
+			end
+			importEffects = effects
+		end
 		failed[player] = nil
 		records[player] = loadedRecord
 		if store.attach then
@@ -341,6 +448,15 @@ function Data.new(opts: any): any
 				end
 				handler(player, message.p, processed)
 			end)
+		end
+		if importEffects ~= nil then
+			-- the import tx's tx.after effects, now that the player is loaded
+			for _, effect in importEffects do
+				local okEffect, effectErr = pcall(effect :: any)
+				if not okEffect then
+					log("[StudWork] post-commit effect failed: " .. tostring(effectErr))
+				end
+			end
 		end
 		for _, spec in specs do
 			local listeners: { (any) -> () } = loadedListeners[spec.data.key] or {}
@@ -585,6 +701,9 @@ function Data.new(opts: any): any
 			return false, nil, nil
 		end
 		local o = runOpts or {}
+		if o.meta ~= nil and o.meta.legacyImport ~= nil then
+			error("txMeta.legacyImport is set by the framework's legacy import only", 3)
+		end
 		local state: TxState = {
 			player = player,
 			record = record,
@@ -641,7 +760,7 @@ function Data.new(opts: any): any
 				anyChange = true
 			end
 		end
-		if anyChange then
+		if anyChange and not o._import then
 			changed(player)
 		end
 		if o.deferAfter then
@@ -657,9 +776,310 @@ function Data.new(opts: any): any
 	end
 
 	-- (added in v1.6.0, adopting.md §3) the ids of every registered importLegacy, in order.
-	-- v1.6.0 contract stub: registration and the load step are agent C's.
 	function d.legacyImports(): { string }
-		return {}
+		local out = {}
+		for _, imp in imports do
+			table.insert(out, imp.id)
+		end
+		return out
+	end
+
+	-- Framework-internal (tools/test-migration): what each registered import declared.
+	function d.legacyImportSpecs(): { any }
+		local out = {}
+		for _, imp in imports do
+			table.insert(out, {
+				id = imp.id,
+				owner = imp.owner,
+				version = imp.version,
+				itemTag = imp.itemTag,
+				hasMerge = imp.merge ~= nil,
+				hasReceipts = imp.receipts ~= nil,
+				source = Freeze.deepCopy(imp.source),
+			})
+		end
+		return out
+	end
+
+	-- ctx.data.isImport(tx): true inside the framework's legacy import transaction.
+	function d.isImport(tx: any): boolean
+		local state = txState[tx]
+		return state ~= nil and state.meta.legacyImport ~= nil
+	end
+
+	-- The marker of import `id` for a loaded player (frozen copy), or nil.
+	function d.legacyStatus(player: any, id: string): any
+		local record = records[player]
+		if record == nil then
+			return nil
+		end
+		local all = record.root._framework.imports
+		local m = if type(all) == "table" then all[id] else nil
+		return if type(m) == "table" then Freeze.freezeCopy(m) else nil
+	end
+
+	-- Every marker of a loaded player (console `adopt status`), or nil when not loaded.
+	function d.legacyMarkers(player: any): { [string]: any }?
+		local record = records[player]
+		if record == nil then
+			return nil
+		end
+		local all = record.root._framework.imports
+		return if type(all) == "table" then Freeze.freezeCopy(all) else {}
+	end
+
+	-- ctx.data.importLegacy(spec): Context checks the phase; this validates and records it.
+	-- Raises the registration error (an init error fails the boot).
+	function d.registerImport(owner: string, spec: any)
+		local function bad(msg: string)
+			error(`{owner}: ctx.data.importLegacy: {msg}`, 0)
+		end
+		if type(spec) ~= "table" then
+			bad("expects a table { id, version, source, import, merge?, receipts?, itemTag? }")
+		end
+		if importOwners[owner] then
+			bad("already registered (one importLegacy per module)")
+		end
+		for k in spec do
+			if
+				k ~= "id"
+				and k ~= "version"
+				and k ~= "source"
+				and k ~= "import"
+				and k ~= "merge"
+				and k ~= "receipts"
+				and k ~= "itemTag"
+			then
+				bad(`unknown field '{tostring(k)}'`)
+			end
+		end
+		local id = spec.id
+		if type(id) ~= "string" or #id == 0 or #id > 50 or not string.match(id, Data.IMPORT_ID_PATTERN) then
+			bad("id must be a short id string (letters, digits, _ - .; at most 50)")
+		end
+		if importIds[id] ~= nil then
+			bad(
+				`id '{id}' is already used by {importIds[id]}'s importLegacy (ids are unique across the game)`
+			)
+		end
+		local v = spec.version
+		if type(v) ~= "number" or v ~= v or v < 1 or v == math.huge or v ~= math.floor(v) then
+			bad("version must be a whole number >= 1")
+		end
+		if type(spec.import) ~= "function" then
+			bad("import must be a function(tx, old, info)")
+		end
+		if spec.merge ~= nil and type(spec.merge) ~= "function" then
+			bad("merge must be a function(tx, old, info)")
+		end
+		if spec.receipts ~= nil and type(spec.receipts) ~= "function" then
+			bad("receipts must be a function(old) -> ids")
+		end
+		local tag = if spec.itemTag == nil then "paid" else spec.itemTag
+		if not Data.ITEM_TAGS[tag] then
+			bad('itemTag must be "paid" (default) or "free"')
+		end
+		local list, serr = Legacy.sourceList(spec.source)
+		if serr then
+			bad(serr)
+		end
+		for _, entry in list do
+			if ownStores[entry.source.name] then
+				bad(
+					`source '{entry.name}' reads '{entry.source.name}', StudWork's own save store; an import reads the OLD game's store only`
+				)
+			end
+		end
+		if opts.legacy == nil then
+			bad("no legacy reader (framework internal)")
+		end
+		importOwners[owner] = true
+		importIds[id] = owner
+		table.insert(imports, {
+			id = id,
+			owner = owner,
+			version = v,
+			source = Freeze.deepCopy(spec.source),
+			import = spec.import,
+			merge = spec.merge,
+			receipts = spec.receipts,
+			itemTag = tag,
+		})
+	end
+
+	-- receipts(old) -> { [purchaseId]: unix } (a list is stamped with `at`)
+	local function receiptMap(value: any, at: number): { [string]: number }
+		if value == nil then
+			return {}
+		end
+		if type(value) ~= "table" then
+			error(`receipts(old) must return a map or list of PurchaseIds, got {type(value)}`, 0)
+		end
+		local out: { [string]: number } = {}
+		for k, v in value do
+			if type(k) == "number" then
+				if type(v) ~= "string" and type(v) ~= "number" then
+					error("receipts(old): a list entry must be a PurchaseId string", 0)
+				end
+				out[tostring(v)] = at
+			elseif type(k) == "string" then
+				out[k] = if type(v) == "number" and v == v then v else at
+			else
+				error("receipts(old): bad key", 0)
+			end
+		end
+		return out
+	end
+
+	-- One non-yielding transaction on the not-yet-published record (adopting.md §3). The record
+	-- sits in `records` for the tx only (it can't yield, so nothing else can observe it), so the
+	-- kits' txApi reads work. Commits like runTx; on any error nothing changed.
+	local function runImportTx(
+		player: any,
+		record: Record,
+		plan: { any },
+		at: number
+	): (boolean, string?, { () -> () }?)
+		local prev = records[player]
+		records[player] = record
+		local ok, committed, _, effects = pcall(function(): (boolean, any, any)
+			return d.runTx(player, function(tx: any)
+				local meta = (txState[tx] :: TxState).meta
+				for _, step in plan do
+					local imp = step.imp
+					if step.action == "import" or step.action == "merge" then
+						local info = Freeze.freezeCopy({
+							userId = player.UserId,
+							found = step.found,
+							reason = step.reason,
+							previous = step.marker,
+							sources = step.sources,
+							now = at,
+						})
+						local fn = if step.action == "import" then imp.import else imp.merge
+						meta.legacyImport = imp.itemTag
+						fn(tx, Freeze.deepCopy(step.old), info)
+						meta.legacyImport = nil
+						if imp.receipts then
+							local ids = receiptMap(imp.receipts(Freeze.deepCopy(step.old)), at)
+							if next(ids) ~= nil then
+								local fw = d.section(tx, "_framework")
+								local lp = if type(fw.legacyPurchases) == "table"
+									then fw.legacyPurchases
+									else {}
+								for id, t in ids do
+									if lp[id] == nil then
+										lp[id] = t
+									end
+								end
+								fw.legacyPurchases = lp
+							end
+						end
+					end
+					if step.writeMarker then
+						local fw = d.section(tx, "_framework")
+						local all = if type(fw.imports) == "table" then fw.imports else {}
+						all[imp.id] = {
+							v = imp.version,
+							at = at,
+							found = step.found,
+							sources = Freeze.deepCopy(step.sources),
+						}
+						fw.imports = all
+					end
+				end
+				return true
+			end, { deferAfter = true, _import = true })
+		end)
+		records[player] = prev
+		if not ok then
+			return false, tostring(committed), nil
+		end
+		if committed ~= true then
+			return false, "the import transaction did not commit (tx.retryLater?)", nil
+		end
+		return true, nil, effects
+	end
+
+	local function emit(player: any, event: string, fields: any)
+		if opts.onLegacy then
+			pcall(opts.onLegacy, player, event, fields)
+		end
+	end
+
+	runImports = function(player: any, userId: any, record: Record): (boolean, string?, { () -> () }?)
+		local reader = opts.legacy
+		local fw = record.root._framework
+		local markers = if type(fw.imports) == "table" then fw.imports else {}
+		local plan = {}
+		local function fail(reason: string, detail: string?): (boolean, string?, { () -> () }?)
+			emit(player, "LegacyImportFailed", { reason = reason })
+			return false, reason .. (if detail then ": " .. detail else ""), nil
+		end
+		-- 1. the reads (they yield; the reader retries errors)
+		for _, imp in imports do
+			local okRead, status, old, sources, err = pcall(reader.readAll, imp.source, userId)
+			if not okRead then
+				return fail("read_error", `{imp.id}: {tostring(status)}`)
+			end
+			if status == "error" then
+				return fail("read_error", `{imp.id}: {tostring(err)}`)
+			elseif status == "busy" then
+				return fail("busy", `{imp.id}: {tostring(err)}`)
+			elseif status == "unavailable" then
+				log(
+					`[StudWork] legacy import '{imp.id}' SKIPPED for {playerLabel(player)}: the old store can't be read here (Studio without DataStore API access); no marker written`
+				)
+				continue
+			end
+			local marker = markers[imp.id]
+			local action, reason, writeMarker = Data.decideImport(marker, imp.version, status, sources)
+			if action == "merge" and reason == "changed" then
+				emit(player, "LegacyChangedAfterImport", { id = imp.id })
+			end
+			if action == "merge" and imp.merge == nil then
+				return fail(
+					"merge_missing",
+					`{imp.id}: the old save {if reason == "version"
+						then "needs a re-import (version " .. tostring(imp.version) .. ")"
+						else "changed after the import"}, but the import has no merge`
+				)
+			end
+			if action == "none" and status == "none" and type(marker) ~= "table" then
+				emit(player, "LegacyNotFound", { id = imp.id })
+			end
+			if action ~= "none" or writeMarker then
+				table.insert(plan, {
+					imp = imp,
+					action = action,
+					reason = reason,
+					writeMarker = writeMarker,
+					found = status == "found",
+					old = old,
+					sources = sources,
+					marker = marker,
+				})
+			end
+		end
+		-- 2. the StudWork session and the player are still here (the reads yielded)
+		if store.isActive then
+			local okActive, active = pcall(store.isActive, userId)
+			if not okActive or active ~= true then
+				return fail("lost_session", "the save session was taken during the reads")
+			end
+		end
+		if opts.isPlayer and not opts.isPlayer(player) then
+			return fail("lost_session", "the player left during the reads")
+		end
+		if #plan == 0 then
+			return true, nil, nil
+		end
+		-- 3. one non-yielding transaction: import / merge, receipts, markers
+		local okTx, err, effects = runImportTx(player, record, plan, now())
+		if not okTx then
+			return fail("import_error", err)
+		end
+		return true, nil, effects
 	end
 
 	function d.hasSection(key: string): boolean
