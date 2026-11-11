@@ -18,7 +18,9 @@
 #      --no-install skips rokit/wally and copies this checkout's deps/Packages + deps/ServerPackages
 #      into studwork/deps/ instead (tests, offline), then enables the hook
 #   5. the first commit, through the project's real pre-commit hook (lint + tests)
-# Never writes an absolute path into a project file (the submodule URL is whatever --url says).
+# Never writes an absolute path into a project file, except the submodule URL: --url as given, and a
+# RELATIVE local --url is resolved to an absolute path (git needs one). Local URLs are for tests and
+# fixtures; before sharing such a project: git submodule set-url studwork <public-url>.
 source "$(dirname "$0")/_common.sh"
 
 is_games_repo && die "run tools/new-project from a StudWork checkout itself (e.g. studwork/tools/new-project <path>), not through a project's tools/"
@@ -62,8 +64,8 @@ else
 	CREATED=1
 fi
 TARGET="$(cd "$TARGET" && pwd)"
-case "$TARGET/" in
-"$CORE_ROOT"/*) die "the new project can't live inside this StudWork checkout ($P_PATH)" ;;
+case "$(cd "$TARGET" && pwd -P)/" in
+"$(cd "$CORE_ROOT" && pwd -P)"/*) die "the new project can't live inside this StudWork checkout ($P_PATH)" ;;
 esac
 OK=0
 cleanup() {

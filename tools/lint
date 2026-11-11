@@ -14,27 +14,31 @@
 source "$(dirname "$0")/_common.sh"
 
 if is_single_game; then
-	LINT_DIRS=""
-	for d in */; do
-		d="${d%/}"
+	# every top-level folder and Luau file of the project except the studwork/ submodule and the
+	# tool folders .git/.cache/.worktrees (the same set the guardrails scan: Guard.ROOT_SKIPPED).
+	# Arrays keep paths with spaces intact (bash 3.2).
+	LINT_PATHS=()
+	for d in * .[!.]* ..?*; do
+		[ -e "$d" ] || continue
 		case "$d" in
-		"$CORE_DIR" | build | Packages | ServerPackages | DevPackages | node_modules) continue ;;
+		"${CORE_DIR%%/*}" | .git | .cache | .worktrees | node_modules) continue ;;
 		esac
-		[ -d "$d" ] || continue
-		LINT_DIRS="$LINT_DIRS $d"
+		if [ -d "$d" ]; then
+			LINT_PATHS+=("$d")
+		else
+			case "$d" in *.luau | *.lua) LINT_PATHS+=("$d") ;; esac
+		fi
 	done
-	[ -n "$LINT_DIRS" ] || die "no folders to lint in $PROJECT_ROOT"
+	[ "${#LINT_PATHS[@]}" -gt 0 ] || die "nothing to lint in $PROJECT_ROOT"
 	echo "== selene"
 	# selene reads its std from the working directory: run it from the core with absolute paths
-	ABS=""
-	for d in $LINT_DIRS; do ABS="$ABS $PROJECT_ROOT/$d"; done
-	# shellcheck disable=SC2086
-	(cd "$CORE_ROOT" && selene $ABS)
+	ABS_PATHS=()
+	for d in "${LINT_PATHS[@]}"; do ABS_PATHS+=("$PROJECT_ROOT/$d"); done
+	(cd "$CORE_ROOT" && selene "${ABS_PATHS[@]}")
 	echo "== stylua --check"
-	# shellcheck disable=SC2086
 	stylua --config-path "$(core_path stylua.toml)" --check \
 		-g '*.luau' -g '*.lua' -g '!**/server/Net.luau' -g '!**/client/Net.luau' -g '!**/Generated*.luau' \
-		$LINT_DIRS
+		"${LINT_PATHS[@]}"
 elif is_games_repo; then
 	[ -d games ] || die "no games/ folder in $PROJECT_ROOT"
 	echo "== selene"

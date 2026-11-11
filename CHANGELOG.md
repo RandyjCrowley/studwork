@@ -31,7 +31,7 @@ Single-game projects. No module API change; `framework = "^1.3.0"` ranges still 
   `FRAMEWORK_REQUESTS.md`, `tools/install`, and the first commit through the real pre-commit hook).
 - `templates/single-game/`: the skeleton `tools/new-project` copies.
 - In a single-game project every tool works with no game name: `tools/dev`, `lint` (the project's
-  own Luau; never `studwork/`, `build/`, `.cache/`), `typecheck`, `test`, `build`
+  own Luau: every top-level folder and Luau file except `studwork/`, `.git/`, `.cache/`), `typecheck`, `test`, `build`
   (`build/<deploy.json name>.rbxl`), `publish --test|--live [--dry-run]` (stamps the root
   `deploy.json`; no `GAMES.md`; the clean-tree gate covers the whole project + `studwork/`),
   `framework-status`, `doctor`, `make-module <Name>`, `make-screen <Name>`, `sync-projects`, `net`.

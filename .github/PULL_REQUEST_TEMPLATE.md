@@ -6,7 +6,7 @@
 
 - [ ] `tools/lint`
 - [ ] `tools/typecheck --all`
-- [ ] `tools/test` (includes `tools/test-games-repo`)
+- [ ] `tools/test` (includes `tools/test-games-repo` and `tools/test-single-game`)
 - [ ] `tools/test-sim`
 - [ ] `tools/build --all`
 - [ ] `tools/bench` (only if per-tick or per-player code changed; within +20%)

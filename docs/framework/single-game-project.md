@@ -10,9 +10,12 @@ want several games to share one repo, one framework pin and one `GAMES.md`.
 
 ## Create one
 
-From any StudWork checkout (a clone of this repo, or an existing project's `studwork/`):
+From any StudWork checkout (a clone of this repo, or an existing project's `studwork/`). In a fresh
+clone, run `tools/install` there once first: `tools/new-project` itself runs on the checkout's pinned
+toolchain (Lune).
 
 ```sh
+tools/install          # once per fresh StudWork clone (pinned toolchain + Wally packages)
 tools/new-project ../my-game --modules Items,Rarity,Inventory,Economy
 cd ../my-game
 tools/doctor
@@ -45,10 +48,12 @@ Steps:
 4. `tools/install` in the new project (toolchain + Wally packages into `studwork/deps/` + the hook).
 5. The first commit, through the project's real pre-commit hook (lint + tests). It is the one
    commit allowed to add the `studwork` pointer together with other files: nothing is bumped yet
-   (the guardrail checks that the repo has no `HEAD`).
+   (the guardrail checks that the repo has no `HEAD` and no ref at all yet, so an orphan branch in
+   an existing project gets no exemption).
 
-No project file gets an absolute path. `.gitmodules` holds the `--url` as given (the public URL by
-default).
+No project file gets an absolute path, with one exception: `.gitmodules` holds the submodule URL (the
+public URL by default). A local `--url` (tests, fixtures) is stored as an absolute path, since git needs
+one; before sharing such a project, run `git submodule set-url studwork <public-url>`.
 
 ## Layout
 
@@ -96,8 +101,8 @@ links and the git shim (`tools/_common.sh`).
 ```sh
 tools/install                 # toolchain + Wally packages into studwork/deps/ + hook (--hooks-only)
 tools/doctor                  # toolchain, packages, hook, framework pin, .env keys (never values), port
-tools/lint                    # selene + stylua --check (every top-level folder except studwork/, build/,
-                              # hidden ones) + sync-projects --check + guardrails + framework pin
+tools/lint                    # selene + stylua --check (every top-level folder and Luau file except
+                              # studwork/, .git/, .cache/) + sync-projects --check + guardrails + framework pin
 tools/typecheck               # luau-lsp strict over src/ and modules/
 tools/test [paths]            # Lune specs of the project (never studwork/)
 tools/build                   # build/<deploy.json name>.rbxl

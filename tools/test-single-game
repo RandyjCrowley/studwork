@@ -211,6 +211,21 @@ cp "$LOGS/Main.server.luau.bak" "$MAIN"
 printf 'local _remote = Instance.new("RemoteEvent")\nreturn nil\n' >"$G/modules/proj/Planted.luau"
 expect_fail "lint (guardrails) catches a raw remote in the game module" "\[remotes\]" tools/lint
 rm -f "$G/modules/proj/Planted.luau"
+# (review M2) every top-level folder and Luau file is game code: hidden folders, build/, root files
+for planted in .lib/Planted.luau build/Planted.luau Planted.luau; do
+	mkdir -p "$G/$(dirname "$planted")"
+	printf 'local _remote = Instance.new("RemoteEvent")\nreturn nil\n' >"$G/$planted"
+	expect_fail "lint (guardrails) catches a raw remote in $planted" "\\[remotes\\]" tools/lint
+	rm -f "$G/$planted"
+done
+rmdir "$G/.lib"
+# (review M1) a folder name with a space is linted, not split into two paths
+mkdir -p "$G/my extras"
+printf 'return nil\n' >"$G/my extras/Ok.luau"
+step "lint: a folder with a space in its name" tools/lint
+printf 'notDefinedAnywhere()\nreturn nil\n' >"$G/my extras/Ok.luau"
+expect_fail "lint (selene) looks inside a folder with a space" "undefined_variable" tools/lint
+rm -rf "$G/my extras"
 
 # the framework pin: the project never edits studwork/, and it must sit at a tag
 echo "local edit" >>"$G/studwork/README.md"
@@ -246,6 +261,17 @@ check "hook: nothing committed by the refused commits" test "$(git -C "$G" rev-p
 step "hook: the studwork bump alone passes" hgit commit -q -m "StudWork v99.0.0" studwork
 check "hook: the bump landed" test "$(git -C "$G" rev-parse HEAD)" != "$BEFORE"
 git -C "$G" checkout -q -- docs/notes.md
+# (review L1) the first-commit exemption is for a repo with no refs at all: an orphan branch in this
+# repo that moves the pointer together with game files is refused
+git -C "$G" checkout -q --orphan sneaky
+git -C "$G/studwork" checkout -q "$TAG"
+echo "sneaky" >>"$NOTES"
+git -C "$G" add -A
+expect_fail "hook: refuses a mixed first commit on an orphan branch" "one commit edits the game" \
+	hgit commit -q -m "orphan mix"
+git -C "$G" reset -q
+git -C "$G" checkout -q -f main
+git -C "$G" submodule update -q 2>/dev/null || git -C "$G/studwork" checkout -q v99.0.0
 
 if [ "$FAIL" -eq 0 ]; then
 	echo "test-single-game: all passed (StudWork $VERSION as studwork/ at $TAG)"

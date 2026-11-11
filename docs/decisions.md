@@ -293,8 +293,8 @@ Not used:
   identity is the public noreply identity) produces that identity by default.
 - **The first commit goes through the real pre-commit hook.** It necessarily adds the `studwork`
   pointer together with the scaffold, which the staged check would refuse; in a single-game project
-  that check is skipped only when the repo has no `HEAD` yet (nothing can be bumped in a root
-  commit). Every later commit that stages the pointer with any other file is refused. Rejected:
+  that check is skipped only when the repo has no `HEAD` and no ref at all yet (nothing can be
+  bumped in a root commit; an orphan branch in an existing project gets no exemption). Every later commit that stages the pointer with any other file is refused. Rejected:
   committing before enabling the hook (the scaffold would never be checked by the hook) and
   splitting the root commit (a pin-only commit fails lint: there is no game yet).
 - **`--no-install` copies Wally packages from the running checkout** so the hook's tests can run in
@@ -307,6 +307,11 @@ Not used:
   is skipped when neither is set. A list of private names in the repo would itself be the leak.
 - **`tools/test-single-game` excludes `.gitmodules` from the no-absolute-paths check**: it records
   the `--url` the user chose (the public URL by default; the test passes a local fixture path).
+- **Lint and guardrails in a single-game project cover every top-level folder and Luau file**
+  except `studwork/`, `.git/`, `.cache/`, `.worktrees/` and `node_modules/` (the v1.5.0 review found
+  that skipping `build/`, `Packages/` and hidden folders let a raw remote through in a folder the
+  project could map). Deriving the set from `default.project.json` `$path`s was rejected: a file
+  that isn't mapped today can be mapped tomorrow without anyone re-running lint.
 
 ## Publishing
 

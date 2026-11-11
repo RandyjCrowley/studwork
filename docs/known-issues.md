@@ -6,7 +6,7 @@ at the end ("Fixed ids"); `CHANGELOG.md` has the details.
 
 **Ids.** `R<n>` ids come from the framework's code reviews and keep their original numbers, so gaps
 in the sequence are issues that have since been fixed. `V<n>` ids are issues that only show up when
-StudWork is used from a games repo (as a submodule). `O<n>` ids are smaller limits that were noted
+StudWork is used from a games repo (as a submodule). `S<n>` ids only show up in a single-game project (v1.5.0). `O<n>` ids are smaller limits that were noted
 without a review id.
 
 **Severity.**
@@ -160,6 +160,35 @@ There are no open Critical or High issues.
 
 Fixed in v1.4.1: **V1**, the games-repo pre-commit hook failing the pin check on every commit (git's
 hook environment broke the check's `git -C` calls).
+
+## Single-game projects
+
+`S<n>` ids are issues that only show up in a single-game project (`tools/new-project`, v1.5.0).
+
+### S1. `tools/new-project` leaves parent folders it created after a failure
+- **Where:** `tools/new-project` (cleanup removes only the target folder).
+- **What fails:** `tools/new-project deep/a/b ...` that fails (for example a missing tag) removes `b`
+  but leaves `deep/a`. Nothing it didn't create is ever deleted.
+- **Workaround:** remove the empty folders by hand, or create the parent folder first.
+
+### S2. A project created inside another git repo is a silent nested repo
+- **Where:** `tools/new-project`.
+- **What fails:** no warning when the target is inside another repository's working tree; the outer
+  repo then shows the project as untracked.
+- **Workaround:** create projects outside other repos (or add them to the outer repo's ignore file).
+
+### S3. The layout marker is matched as text
+- **Where:** `tools/_common.sh` (`layout_of`) and `tools/lune/Roots.luau` (`isSingleMarker`).
+- **What fails:** any `"layout": "single-game"` in `studwork.json`, even nested under another key,
+  switches the project to single-game mode, and the core folder's name isn't checked against it.
+- **Workaround:** keep `studwork.json` as `tools/new-project` writes it; never add the marker to a
+  games repo.
+
+### S4. The sim loads only `src/` and `modules/` of a single-game project
+- **Where:** `packages/framework/test/sim/Loader.luau`.
+- **What fails:** a game that maps another top-level folder in `default.project.json` gets it in the
+  place, linted and type-checked, but a `Boot.spec` running in the sim doesn't see it.
+- **Workaround:** keep game code under `src/` and `modules/` (the layout `tools/new-project` makes).
 
 ## Not verified live
 

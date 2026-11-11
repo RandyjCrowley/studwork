@@ -676,19 +676,18 @@ function Guard.hasSegment(rel: string, segment: string): boolean
 	return false
 end
 
--- (v1.5.0) A top-level folder of a single-game project that belongs to its root game: not the
--- framework submodule (studwork/, or whatever Roots.CORE is), build/, hidden folders, Wally output.
+-- (v1.5.0) A top-level folder of a single-game project that is scanned as part of its root game:
+-- everything except the framework submodule (studwork/, or whatever Roots.CORE is) and the
+-- tool-owned folders that never hold game code (.git, .cache: toolchain links and type
+-- definitions, .worktrees: other checkouts). build/, Packages/ and other hidden folders ARE
+-- scanned: a project could map them in default.project.json, so skipping them would be an
+-- evasion (review M2).
+Guard.ROOT_SKIPPED = { ".git", ".cache", ".worktrees", "node_modules" }
 function Guard.isRootGameFolder(entry: string, coreDir: string?): boolean
 	local core = coreDir or require("./Roots").CORE
-	if string.sub(entry, 1, 1) == "." or entry == core or entry == "build" then
-		return false
-	end
-	return not (
-		entry == "Packages"
-		or entry == "ServerPackages"
-		or entry == "DevPackages"
-		or entry == "node_modules"
-	)
+	-- a core nested deeper (e.g. vendor/studwork) keeps its whole top-level folder out (review L8)
+	local top = string.match(core, "^[^/]+") or core
+	return entry ~= top and table.find(Guard.ROOT_SKIPPED, entry) == nil
 end
 
 -- Scans a game folder (games/<name> or templates/new-game; "." = a single-game project's root).
@@ -707,11 +706,14 @@ function Guard.scanGame(dir: string): { string }
 	end
 	local files = {}
 	if dir == "." then
-		-- (v1.5.0) a single-game project's root game: its own folders only, never the studwork/
-		-- submodule, build/ or hidden folders (paths stay root-relative: src/..., modules/...)
+		-- (v1.5.0) a single-game project's root game: every top-level folder and Luau file except
+		-- the studwork/ submodule and tool folders (Guard.ROOT_SKIPPED); paths stay root-relative
+		local generated = Guard.generatedFiles()
 		for _, entry in fs.readDir(".") do
 			if Guard.isRootGameFolder(entry) and fs.isDir(entry) then
 				walk(entry, files)
+			elseif fs.isFile(entry) and Guard.isScannedFile(entry, generated) then
+				table.insert(files, entry) -- Luau files at the project root count too
 			end
 		end
 	else
@@ -1545,12 +1547,18 @@ function Guard.gitFindings(): { string }
 		end
 	end
 	local staged = lines(git({ "diff", "--cached", "--name-only" }))
+	-- (v1.5.0) the project's very first commit: no HEAD and no ref at all yet (an orphan branch in
+	-- a repo with history doesn't count: review L1), so it adds the pin and nothing is bumped
+	local initial = false
+	if Roots.single and git({ "rev-parse", "--verify", "-q", "HEAD" }) == nil then
+		local refs = git({ "for-each-ref", "--count=1", "--format=%(refname)", "refs/" })
+		initial = refs == nil or string.gsub(refs, "%s+", "") == ""
+	end
 	local opts = if Roots.single
 		then {
 			coreDir = Roots.CORE,
 			single = true,
-			-- the first commit has no HEAD yet: it adds the pin, nothing is bumped
-			initial = git({ "rev-parse", "--verify", "-q", "HEAD" }) == nil,
+			initial = initial,
 		}
 		elseif Roots.external then { coreDir = Roots.CORE }
 		else { coreRepo = true }
@@ -1915,15 +1923,24 @@ local function selfTest(): boolean
 		"packages"
 	)
 	expectCheck("single-game pin: not initialised", Guard.corePinFindings("studwork", nil, nil), "packages")
-	if Guard.isRootGameFolder("studwork", "studwork") or Guard.isRootGameFolder(".cache", "studwork") then
-		table.insert(failures, "single-game: studwork/ and hidden folders are not game folders")
+	if
+		Guard.isRootGameFolder("studwork", "studwork")
+		or Guard.isRootGameFolder(".cache", "studwork")
+		or Guard.isRootGameFolder(".git", "studwork")
+	then
+		table.insert(failures, "single-game: studwork/, .git/ and .cache/ are not game folders")
 	end
 	if
-		Guard.isRootGameFolder("build", "studwork")
-		or not Guard.isRootGameFolder("src", "studwork")
+		not Guard.isRootGameFolder("src", "studwork")
 		or not Guard.isRootGameFolder("modules", "studwork")
+		or not Guard.isRootGameFolder("build", "studwork")
+		or not Guard.isRootGameFolder("Packages", "studwork")
+		or not Guard.isRootGameFolder(".lib", "studwork")
 	then
-		table.insert(failures, "single-game: build/ is not a game folder; src/ and modules/ are")
+		table.insert(
+			failures,
+			"single-game: src/, modules/ and any other folder (build/, Packages/, hidden) are scanned"
+		)
 	end
 
 	-- special ("nothing is special", v1.3.0): planted violations and evasions are caught

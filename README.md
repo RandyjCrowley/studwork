@@ -41,6 +41,7 @@ the game and StudWork is a git submodule (`studwork/`) pinned at a release tag
 
 ```sh
 git clone https://github.com/RandyjCrowley/studwork.git
+studwork/tools/install       # the pinned toolchain for this clone (new-project runs on it)
 studwork/tools/new-project my-game --modules Items,Rarity,Inventory,Economy
 cd my-game
 tools/doctor    # every line should say ok
