@@ -1,7 +1,13 @@
 #!/usr/bin/env bash
 # tools/test [path ...]: run every *.spec.luau (pure logic) under Lune.
-# With no args: packages/, templates/, tools/ and examples/ (and games/ if present). In a games repo
+# With no args: packages/, templates/, tools/ and examples/ (and games/ if present), then (core repo
+# only) tools/test-games-repo, the end-to-end check of the games-repo mode (v1.4.0). In a games repo
 # (docs/framework/games-repo.md): its games/. Exit 1 on any failure.
 source "$(dirname "$0")/_common.sh"
 
+if [ $# -eq 0 ] && ! is_games_repo; then
+	lune_tool testkit/run
+	echo "== tools/test-games-repo"
+	exec "$CORE_ROOT/tools/test-games-repo"
+fi
 lune_tool testkit/run "$@"

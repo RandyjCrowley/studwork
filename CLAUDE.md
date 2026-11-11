@@ -94,7 +94,8 @@ examples/sandbox/           the reference game (every kit); foundation-only.proj
 examples/overrides/ov-a..f  one game per override case, each with src/server/Override.spec.luau
 examples/modules/           third-party-style modules (session-leaderboard) with their fixture games
 templates/                  new-game/ (tools/new-game), game-design.md, module/, migration/, screen/
-                            (tools/make-module, make-migration, make-screen; *.tmpl)
+                            (tools/make-module, make-migration, make-screen; *.tmpl), games-repo/
+                            (the games-repo skeleton: tools/ wrappers, hook, .gitignore, GAMES.md)
 tools/                      see Commands; tools/lune/ holds the Lune side (Roots.luau: core vs games repo)
 docs/                       philosophy.md, framework/, decisions.md, known-issues.md, manual-qa.md,
                             (internal build report, not public), prompts/core-*
@@ -180,7 +181,7 @@ rule 2):
    data, purchases or cross-server behaviour. Never weaken an existing assertion.
 6. **Docs:** the user-facing page (`docs/framework/*.md` or the kit page under `docs/framework/kits/`)
    and the folder README; an entry in `packages/framework/CHANGELOG.md`; the reason in `docs/decisions.md`.
-7. **Check:** the definition of done below (every example game, and
+7. **Check:** the definition of done below (every example game, `tools/test-games-repo`, and
    `tools/bench` if it runs per tick or per player: ≤ +20% vs the last release).
 
 ## Commands (from the repo root)
@@ -190,7 +191,9 @@ tools/install                 # rokit install + wally install (deps/); --hooks-o
 tools/doctor                  # toolchain, Wally packages, hook, .env keys (never values), ports, layout
 tools/lint                    # selene + stylua --check + sync-projects --check + guardrails
 tools/typecheck [game|--all]  # luau-lsp strict (default: sandbox; --all: every example game)
-tools/test [paths]            # Lune specs (*.spec.luau)
+tools/test [paths]            # Lune specs (*.spec.luau); with no paths also tools/test-games-repo
+tools/test-games-repo         # throwaway games repo with this core as its roblox-core/ submodule, tools run end to end
+tools/build [game|--all]      # rojo build every example game to build/
 tools/test-sim [--pending]    # multi-server simulation incl. the slow soak test
 tools/bench                   # server tick cost at 50 players
 tools/net                     # regenerate Blink code after editing a .blink file
@@ -203,6 +206,11 @@ tools/publish <game> --test|--live [--dry-run]   # games repos publish; ask the 
 rojo build examples/sandbox/default.project.json -o build/sandbox.rbxl
 ```
 
+Every tool also works from a games repo: its `tools/*` wrappers (`templates/games-repo/`) set
+`STUDWORK_PROJECT_ROOT` and call `roblox-core/tools/*`; `tools/lune/Roots.luau` /
+`tools/_common.sh` hold the two roots (`docs/framework/games-repo.md`). Keep every tool working in
+both modes, with relative paths only.
+
 ## Definition of done (framework change)
 
 - Behaviour implemented for real (no stub left in your scope), server-authoritative, config-driven,
@@ -211,7 +219,7 @@ rojo build examples/sandbox/default.project.json -o build/sandbox.rbxl
 - `tools/lint` clean; `tools/typecheck --all` clean.
 - `rojo build` of every `*.project.json` under `examples/` and `templates/` succeeds.
 - `tools/new-game` still produces a working game (in a temporary worktree: lint, typecheck, test,
-  rojo build).
+  rojo build) and `tools/test-games-repo` passes.
 - `tools/bench` within budget if it runs per tick or per player.
 - CHANGELOG, docs page, decisions entry. Report: what you built, files touched, test output, open
   questions.

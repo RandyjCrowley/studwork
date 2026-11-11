@@ -121,6 +121,7 @@ Everything the generators write comes from `templates/` in the core (v1.4.0):
 | `templates/module/` | `tools/make-module` (`*.tmpl` files: `module.luau`, `server/init.luau`, `client/init.luau`, `tests/Name.spec.luau`, `README.md`, `net.blink`) |
 | `templates/migration/` | `tools/make-migration` (`migration.luau.tmpl`, `Migration.spec.luau.tmpl`) |
 | `templates/screen/` | `tools/make-screen` (`Screen.luau.tmpl`, `Screens.init.luau.tmpl`) |
+| `templates/games-repo/` | copied by hand into a new games repo ([games-repo.md](games-repo.md)): `tools/` wrappers, hook, `.gitignore`, `GAMES.md`, `FRAMEWORK_REQUESTS.md` |
 
 `{{Name}}`-style placeholders are filled by `tools/lune/MakeGen.luau`. The `.tmpl` suffix keeps
 them out of lint, tests and Rojo. Their output is byte-identical to the v1.3.1 generators

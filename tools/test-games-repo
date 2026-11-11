@@ -1,0 +1,165 @@
+#!/usr/bin/env bash
+# tools/test-games-repo [--keep]: StudWork v1.4.0 end-to-end test of the games-repo mode
+# (docs/framework/games-repo.md). Builds a throwaway games repo in $TMPDIR:
+#   1. a git snapshot of THIS working tree (committed and tagged v<StudWork.VERSION> in the temp
+#      copy only; this repo is never touched), added to the games repo as the roblox-core/ git
+#      submodule (git -c protocol.file.allow=always submodule add <local path>)
+#   2. the games-repo skeleton from templates/games-repo (tools/ wrappers, .githooks, GAMES.md)
+#   3. Wally packages copied into roblox-core/deps/ (git-ignored there, like `tools/install`)
+# and then runs the games repo's own tools/ wrappers: new-game (projects point into roblox-core/),
+# make-module --game, lint (clean, then fails for a dirty or untagged submodule), typecheck, test,
+# build, publish --test --dry-run (stamps the StudWork version, the core sha and tag), framework-status,
+# doctor, dev --print. Exit 1 if any step fails. --keep leaves the temp repo for inspection.
+source "$(dirname "$0")/_common.sh"
+
+is_games_repo && die "run tools/test-games-repo in the roblox-core repo itself"
+KEEP=0
+[ "${1:-}" = "--keep" ] && KEEP=1
+[ -d "$CORE_ROOT/deps/Packages" ] || die "deps/Packages is missing: run tools/install first"
+
+VERSION="$(sed -n 's/^StudWork\.VERSION = "\(.*\)"$/\1/p' "$CORE_ROOT/packages/framework/shared/init.luau")"
+[ -n "$VERSION" ] || die "could not read StudWork.VERSION"
+TAG="v$VERSION"
+WORK="$(mktemp -d "${TMPDIR:-/tmp}/studwork-games-repo.XXXXXX")"
+LOGS="$WORK/logs"
+mkdir -p "$LOGS"
+FAIL=0
+cleanup() {
+	if [ "$KEEP" -eq 1 ] || [ "$FAIL" -ne 0 ]; then
+		echo "kept: $WORK"
+	else
+		rm -rf "$WORK"
+	fi
+}
+trap cleanup EXIT
+
+# git for the temp repos only: fixed identity, no hooks, local file transport allowed
+tgit() {
+	git -c user.name="StudWork test" -c user.email="test@studwork.invalid" -c commit.gpgsign=false \
+		-c tag.gpgsign=false -c gc.auto=0 -c maintenance.auto=false -c core.hooksPath=/dev/null -c protocol.file.allow=always "$@"
+}
+
+pass() { echo "PASS $1"; }
+fail() {
+	echo "FAIL $1"
+	FAIL=1
+}
+# step <name> <cmd...>: run in the games repo, log to $LOGS/<name>.log
+step() {
+	local name="$1"
+	shift
+	if (cd "$WORK/games" && "$@") >"$LOGS/$name.log" 2>&1; then
+		pass "$name | $(tail -1 "$LOGS/$name.log")"
+	else
+		fail "$name | $(tail -5 "$LOGS/$name.log" | tr '\n' ' ')"
+	fi
+	return 0
+}
+# expect_fail <name> <pattern> <cmd...>: the command must fail and print <pattern>
+expect_fail() {
+	local name="$1" pattern="$2"
+	shift 2
+	if (cd "$WORK/games" && "$@") >"$LOGS/$name.log" 2>&1; then
+		fail "$name | expected a failure"
+	elif grep -q -- "$pattern" "$LOGS/$name.log"; then
+		pass "$name | refused: $(grep -m1 -- "$pattern" "$LOGS/$name.log" | cut -c1-120)"
+	else
+		fail "$name | failed without '$pattern': $(tail -3 "$LOGS/$name.log" | tr '\n' ' ')"
+	fi
+}
+check() {
+	# check <name> <condition...>
+	local name="$1"
+	shift
+	if "$@"; then pass "$name"; else fail "$name"; fi
+}
+
+echo "== core snapshot ($TAG) and games repo in $WORK"
+rsync -a --exclude /.git --exclude /.cache --exclude /build --exclude /deps/Packages \
+	--exclude /deps/ServerPackages --exclude /deps/DevPackages --exclude /.worktrees --exclude /.env \
+	"$CORE_ROOT/" "$WORK/core/"
+(cd "$WORK/core" && tgit init -q -b main && tgit add -A && tgit commit -q -m "snapshot" && tgit tag "$TAG") \
+	|| die "could not snapshot the core"
+mkdir -p "$WORK/games"
+(
+	cd "$WORK/games" &&
+		tgit init -q -b main &&
+		tgit submodule add -q "$WORK/core" roblox-core &&
+		tgit -C roblox-core checkout -q "$TAG" &&
+		cp -R roblox-core/templates/games-repo/. . &&
+		mv gitignore .gitignore && mv env.example .env.example && rm README.md &&
+		tgit add -A && tgit commit -q -m "games repo skeleton (roblox-core $TAG)"
+) >"$LOGS/setup.log" 2>&1 || {
+	cat "$LOGS/setup.log"
+	die "could not create the games repo"
+}
+cp -R "$CORE_ROOT/deps/Packages" "$CORE_ROOT/deps/ServerPackages" "$WORK/games/roblox-core/deps/"
+G="$WORK/games"
+
+step install-hooks tools/install --hooks-only
+step new-game tools/new-game demo --modules Items,Rarity,Inventory,Economy --no-design-doc
+check "new-game: projects map ../../roblox-core/" \
+	grep -q '"\.\./\.\./roblox-core/packages/framework/shared"' "$G/games/demo/default.project.json"
+check "new-game: no \$path into the games repo's own packages/" \
+	sh -c "! grep -q '\"\.\./\.\./packages/\|\"\.\./\.\./deps/' '$G/games/demo/default.project.json'"
+check "new-game: kit modules generated into roblox-core/" \
+	grep -q '"\.\./\.\./roblox-core/packages/kits/economy/Economy/module.luau"' "$G/games/demo/default.project.json"
+check "new-game: Wally packages from the core's deps/" \
+	grep -q '"\.\./\.\./roblox-core/deps/Packages"' "$G/games/demo/default.project.json"
+check "new-game: GAMES.md row" grep -q '^| demo | scaffolded |' "$G/GAMES.md"
+step make-module tools/make-module Quests --game demo
+check "make-module: mapped in the game's project" \
+	grep -q '"modules/quests/module.luau"' "$G/games/demo/default.project.json"
+step sync-projects-check tools/sync-projects --check
+step lint tools/lint
+step typecheck tools/typecheck demo
+step test tools/test
+step build tools/build demo
+check "build: build/demo.rbxl" test -s "$G/build/demo.rbxl"
+(cd "$G" && tgit add -A && tgit commit -q -m "demo game") >>"$LOGS/setup.log" 2>&1
+
+step publish-dry-run tools/publish demo --test --dry-run
+CORE_SHA="$(git -C "$G/roblox-core" rev-parse HEAD)"
+GAMES_HEAD="$(git -C "$G" rev-parse HEAD)"
+check "publish: coreVersion $VERSION" grep -q "\"coreVersion\": \"$VERSION\"" "$G/games/demo/deploy.json"
+check "publish: coreSha = the submodule commit" grep -q "\"coreSha\": \"$CORE_SHA\"" "$G/games/demo/deploy.json"
+check "publish: coreTag $TAG" grep -q "\"coreTag\": \"$TAG\"" "$G/games/demo/deploy.json"
+check "publish: test.dryRun = the games repo HEAD" grep -q "\"commit\": \"$GAMES_HEAD\"" "$G/games/demo/deploy.json"
+check "publish: GAMES.md Core column" grep -q "^| demo |.*$VERSION" "$G/GAMES.md"
+step framework-status tools/framework-status
+check "framework-status: lists games/demo" grep -q '^games/demo ' "$LOGS/framework-status.log"
+check "framework-status: the pinned tag" grep -q "at $TAG" "$LOGS/framework-status.log"
+step doctor tools/doctor
+check "doctor: framework pin ok" grep -q "framework pin .*$TAG, clean" "$LOGS/doctor.log"
+step dev-print tools/dev demo --print
+check "dev: serves the game's project" grep -q "rojo serve games/demo/default.project.json" "$LOGS/dev-print.log"
+
+# the checks really look at the game's files (each planted problem is caught, then reverted)
+MAIN="$G/games/demo/src/server/Main.server.luau"
+MOD="$G/games/demo/modules/demo/server/init.luau"
+cp "$MAIN" "$LOGS/Main.server.luau.bak"
+echo 'local _typed: number = "not a number"' >>"$MAIN"
+expect_fail "typecheck catches a type error in the game" "problem(s)" tools/typecheck demo
+cp "$LOGS/Main.server.luau.bak" "$MAIN"
+echo 'notDefinedAnywhere()' >>"$MAIN"
+expect_fail "lint (selene) catches an undefined global in the game" "undefined_variable" tools/lint
+cp "$LOGS/Main.server.luau.bak" "$MAIN"
+printf 'local _remote = Instance.new("RemoteEvent")\nreturn nil\n' >"$(dirname "$MOD")/Planted.luau"
+expect_fail "lint (guardrails) catches a raw remote in the game module" "\[remotes\]" tools/lint
+rm -f "$(dirname "$MOD")/Planted.luau"
+
+# the framework pin: games never edit roblox-core/, and it must sit at a tag
+echo "local edit" >>"$G/roblox-core/README.md"
+expect_fail "lint refuses a dirty submodule" "local change in the framework submodule" tools/lint
+git -C "$G/roblox-core" checkout -q -- README.md
+(cd "$G/roblox-core" && tgit commit -q --allow-empty -m "untagged") >>"$LOGS/setup.log" 2>&1
+expect_fail "lint refuses an untagged submodule" "not at a release tag" tools/lint
+git -C "$G/roblox-core" checkout -q "$TAG"
+step lint-again tools/lint
+
+if [ "$FAIL" -eq 0 ]; then
+	echo "test-games-repo: all passed (StudWork $VERSION as roblox-core/ at $TAG)"
+else
+	echo "test-games-repo: FAILED (logs: $LOGS; rerun with --keep to inspect)"
+	exit 1
+fi

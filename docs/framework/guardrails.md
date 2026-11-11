@@ -136,7 +136,7 @@ The lint self-test plants each case; `-- guard: allow special` on a framework li
 | `numbers` | balance-looking number literals outside `src/shared/Config` (heuristic) |
 | `remotes` | raw remotes and handlers that bypass the framework's Net |
 | `purchases` | `ProcessReceipt =`, `Prompt*PurchaseFinished`, `DataStoreService`/`ProfileStore` |
-| `packages` | game branches editing `packages/` |
+| `packages` | game branches editing `packages/`; in a games repo (v1.4.0) also the framework pin: `roblox-core/` initialised, exactly at a release tag, no local changes, and its pointer never staged together with game edits ([games-repo.md](games-repo.md)) |
 
 Every `.luau` / `.lua` file Rojo would sync is scanned, whatever its name or folder; the only
 exclusions are the Blink output files the `.blink` files declare and the Wally folders

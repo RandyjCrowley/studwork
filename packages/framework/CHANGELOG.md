@@ -1,8 +1,52 @@
-# Core changelog
+# StudWork changelog
 
 Core's public interface (v1.2: `Types.luau`, now `packages/framework/shared/Types.luau`; v1.3:
 `docs/framework/module-api.md`) only gains things: no renames, no removals; old calls are marked deprecated instead.
 Every change is recorded here, newest first.
+
+## v1.4.0 (2026-11-11) — StudWork from a separate games repo
+
+roblox-core is its own repo now (split from the monorepo with its history; the `core-v*` tags are
+`v1.0.0` … `v1.3.1`), and games live in a games repo that has it as the `roblox-core/` git
+submodule, pinned at a tag (`docs/framework/games-repo.md`). Tooling only: the module API
+(`docs/framework/module-api.md`) is unchanged, so modules' `framework = "^1.3.0"` ranges still
+match. `StudWork.VERSION` / `Runtime.VERSION` = `1.4.0`.
+
+### Added (v1.4.0)
+
+- **Games-repo mode for every tool that touches games.** Tools take the project root from
+  `STUDWORK_PROJECT_ROOT` (default: the core repo itself) and the core root from their own location
+  (`tools/_common.sh`; Lune side `tools/lune/Roots.luau`). In a games repo: `lint` (core selene /
+  stylua configs over `games/`, sync-projects --check, the game guardrails), `typecheck <game>|--all`,
+  `test`, `build`, `new-game` (`$path`s into `roblox-core/`, templates from the core), `make-module
+  --game`, `make-screen`, `make-migration`, `publish` (the games repo's `deploy.json` and `.env`),
+  `dev`, `net`, `sync-projects`, `doctor`, `core-status` (the games repo's `framework-status`) and
+  `install` (rokit + wally from the core's pins and `deps/`; games never duplicate a version pin).
+- **`templates/games-repo/`**: the games-repo skeleton (`tools/_studwork` + one-line wrappers,
+  `.githooks/pre-commit`, `.gitignore`, `.env.example`, `GAMES.md`, `FRAMEWORK_REQUESTS.md`).
+- **Framework pin guardrail** (games repo, part of `packages`): lint fails when `roblox-core/` is not
+  initialised, its HEAD is not exactly a release tag, or it has local changes; the submodule counts
+  as `packages/` for the branch / staged-mix checks. `tools/doctor` shows the pin.
+- **Publish stamps the exact core:** `deploy.json` gains `coreSha` (full commit of the core checkout:
+  the games repo's submodule commit) and `coreTag`, next to `coreVersion` / `coreCommit`.
+- **`tools/build [game|--all]`**: rojo build of every game (and its extra projects) to `build/`.
+- **`tools/test-games-repo`**: builds a throwaway games repo with a snapshot of this core as its
+  submodule and runs the wrappers end to end (new-game, make-module, lint, typecheck, test, build,
+  publish --dry-run stamps, framework-status, doctor, dev, planted failures, pin failures). `tools/test`
+  with no arguments runs it after the specs.
+- **`tools/new-game --into <folder>`** (parent folder other than `games/`; `$path`s for any depth) and
+  **`tools/typecheck --all`**.
+- **`tools/sync-projects`: an example module is generated into any project that maps it**
+  (`ReplicatedStorage.Modules.<Name>` present = opt-in), not only into its own fixture games.
+- **Generator templates are files**: `templates/module/`, `templates/migration/`, `templates/screen/`
+  (`*.tmpl`), byte-identical output.
+- **Example games in the core**: `examples/sandbox` (was `games/_sandbox`; project name `sandbox`) and
+  the override cases `examples/overrides/ov-a` … `ov-f`, each with its `Override.spec.luau`.
+
+### Fixed (v1.4.0)
+
+- `tools/doctor` crashed on a file in a kit folder (Lune's `isFile("<file>/module.luau")` errors).
+- The `packages` guardrail no longer treats the core repo's own `templates/` as game work.
 
 ## core-v1.3.1 (2026-11-11) — R19 for real, R20, R22
 

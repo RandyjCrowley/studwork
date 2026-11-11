@@ -1,0 +1,3 @@
+#!/usr/bin/env bash
+# tools/lint: roblox-core/tools/lint on this games repo (see tools/_studwork)
+exec "$(dirname "$0")/_studwork" lint "$@"

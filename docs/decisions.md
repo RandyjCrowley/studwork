@@ -610,3 +610,39 @@ lead re-running lint, typecheck (6 games), tests (582), test-sim (51) and 8 rojo
   the games repo). `docs/publishing.md` belongs to the games repo; `tools/publish` stays here.
 - **`tools/doctor` crashed on a kit README** (Lune's `fs.isFile("<file>/module.luau")` errors with
   "Not a directory"); the kit scan now only looks inside folders.
+
+## v1.4.0 (StudWork from a games repo)
+
+- **Mechanism: two roots, everything relative.** Core tools take the project root from
+  `STUDWORK_PROJECT_ROOT` (default: the core itself, so the core repo behaves as before) and the
+  core root from their own location; `_common.sh` requires the core to sit inside the project,
+  computes its relative path (`STUDWORK_CORE_DIR`, normally `roblox-core`), `cd`s to the project and
+  exports both. Lune tools read them in `tools/lune/Roots.luau` and reach core files as
+  `Roots.core(path)`. Why: one code path for both repos (the core's own tests exercise it), a games
+  repo needs only one-line wrappers, and because every path is relative, the Rojo `$path`s that
+  `new-game` / `make-module` / `sync-projects` write (`../../roblox-core/...`) and the testkit / sim
+  mappings resolve the same in Rojo, Lune and luau-lsp, with no absolute path in any committed file.
+  Rejected: running tools with the core as the working directory and passing the games repo in
+  (every game path would cross repos as `../games-repo/...` and project files would differ by
+  machine), and a config file per games repo (one more thing to keep in sync for no gain).
+- **Deps and toolchain come from the core.** A games repo maps `../../roblox-core/deps/Packages` and
+  `tools/install` runs wally in `roblox-core/deps/` (git-ignored inside the submodule): one
+  `wally.toml`/`wally.lock` and one `rokit.toml` decide every version, so a game can't drift from the
+  framework it was tested with, and bumping the submodule bumps both. Rokit's shims only read the
+  `rokit.toml` above the working directory, so in a games repo the tools put
+  `.cache/studwork-bin/` (links into Rokit's tool storage for the core's exact pins) first on PATH;
+  rejected: a symlinked or copied `rokit.toml` in the games repo (a second pin to keep in sync, and a
+  dangling link before `submodule update`).
+- **The framework pin is a lint guardrail** (part of `packages`): submodule initialised, HEAD
+  exactly a release tag, no local changes, and the pointer never mixed with game edits in one commit.
+  Why: "games never edit the framework" has to hold in the games repo too, and a game must always be
+  built from a released, tested core (`coreSha` + `coreTag` in deploy.json say which).
+  `GUARD_ALLOW_CORE` doesn't apply in a games repo.
+- **`test-sim` and `bench` stay core-only**: they test the framework itself; a game's Boot spec
+  already boots it in the sim under `tools/test`.
+- **`framework-status` is `core-status`** run from the games repo (the wrapper renames it): it shows
+  the pinned tag and each game's stamped version/tag against it.
+- **The games-repo test builds a real submodule** from a snapshot of the working tree (tagged in the
+  temp copy only), not a symlink, so the pin check, `git -C roblox-core` stamping and the documented
+  `protocol.file.allow=always` flow are exercised; auto-gc is off in the temp repos (a background gc
+  packed objects mid-clone and broke `submodule add`).

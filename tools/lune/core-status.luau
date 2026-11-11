@@ -90,7 +90,7 @@ for _, entry in Roots.gameDirs(fs) do
 				else "-"
 			table.insert(rows, {
 				entry,
-				version or "-",
+				if version and deploy.coreTag then `{version} ({deploy.coreTag})` else version or "-",
 				commit or "-",
 				status,
 				PublishGate.syncStatus(deploy, "test", head),
@@ -105,15 +105,37 @@ table.sort(rows, function(a, b)
 	return a[1] < b[1]
 end)
 
+if Roots.external then
+	-- games repo: this is `tools/framework-status` (v1.4.0): the pinned framework submodule
+	local tag = CoreInfo.tag()
+	print(
+		string.format(
+			"pinned framework: %s/ at %s (StudWork %s, %s); games repo HEAD %s",
+			Roots.CORE,
+			tag or "NO TAG (lint fails: pin a release tag)",
+			currentVersion,
+			string.sub(CoreInfo.headSha() or "?", 1, 7),
+			string.sub(head, 1, 7)
+		)
+	)
+else
+	print(
+		string.format(
+			"current core: StudWork %s (%s), HEAD %s",
+			currentVersion,
+			currentCommit,
+			string.sub(head, 1, 7)
+		)
+	)
+end
 print(
 	string.format(
-		"current core: StudWork %s (%s), HEAD %s",
-		currentVersion,
-		currentCommit,
-		string.sub(head, 1, 7)
+		"framework: %s   kits: %s   ui: %s",
+		Roots.core(Layout.FRAMEWORK),
+		table.concat(kits, ", "),
+		Roots.core("packages/ui")
 	)
 )
-print(string.format("framework: %s   kits: %s   ui: packages/ui", Layout.FRAMEWORK, table.concat(kits, ", ")))
 local function exists(path: string): boolean
 	return fs.isFile(path) or fs.isDir(path)
 end

@@ -1,0 +1,14 @@
+# (copied to .gitignore) StudWork games repo
+/.cache/
+/build/
+*.rbxl
+*.rbxlx
+*.rbxl.lock
+*.rbxlx.lock
+sourcemap.json
+roblox.yml
+roblox.yaml
+.env
+.env.*
+!.env.example
+.DS_Store

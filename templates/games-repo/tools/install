@@ -1,0 +1,3 @@
+#!/usr/bin/env bash
+# tools/install: roblox-core/tools/install on this games repo (see tools/_studwork)
+exec "$(dirname "$0")/_studwork" install "$@"

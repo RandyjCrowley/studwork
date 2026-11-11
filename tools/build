@@ -1,0 +1,34 @@
+#!/usr/bin/env bash
+# tools/build [game|--all]: rojo build a game's default.project.json to build/<name>.rbxl
+# (StudWork v1.4.0). Default: every game of the project (core repo: examples/sandbox +
+# examples/overrides/*; games repo: games/*). Extra projects next to default.project.json (e.g.
+# foundation-only.project.json) are built too, as build/<name>-<extra>.rbxl.
+source "$(dirname "$0")/_common.sh"
+
+DIRS=""
+if [ -n "${1:-}" ] && [ "$1" != "--all" ]; then
+	DIRS="$(game_dir "$1")"
+	[ -n "$DIRS" ] || die "no such game: $1"
+else
+	for parent in games examples examples/overrides; do
+		if is_games_repo && [ "$parent" != "games" ]; then continue; fi
+		for d in "$parent"/*; do
+			if [ -f "$d/default.project.json" ] && [ -d "$d/src" ]; then DIRS="$DIRS $d"; fi
+		done
+	done
+	[ -n "$DIRS" ] || die "no games found"
+fi
+mkdir -p build
+COUNT=0
+for d in $DIRS; do
+	NAME="$(basename "$d")"
+	for P in "$d"/*.project.json; do
+		[ -f "$P" ] || continue
+		EXTRA="$(basename "$P" .project.json)"
+		OUT="build/$NAME.rbxl"
+		[ "$EXTRA" = "default" ] || OUT="build/$NAME-$EXTRA.rbxl"
+		rojo build "$P" -o "$OUT"
+		COUNT=$((COUNT + 1))
+	done
+done
+echo "build: $COUNT place file(s) in build/"

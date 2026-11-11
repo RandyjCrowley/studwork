@@ -1,0 +1,3 @@
+#!/usr/bin/env bash
+# tools/make-migration: roblox-core/tools/make-migration on this games repo (see tools/_studwork)
+exec "$(dirname "$0")/_studwork" make-migration "$@"

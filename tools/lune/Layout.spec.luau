@@ -131,6 +131,37 @@ describe("Layout.projectIssues", function()
 		})
 	end)
 
+	it("(v1.4.0) a games repo maps the core through its roblox-core/ submodule", function()
+		local function into(node: any)
+			for key, child in node do
+				if key == "$path" and string.sub(child, 1, 6) == "../../" then
+					node[key] = "../../roblox-core/" .. string.sub(child, 7)
+				elseif type(child) == "table" then
+					into(child)
+				end
+			end
+		end
+		local p = project()
+		into(p)
+		expect(Layout.projectIssues(p, "games/g", KITS, "roblox-core")).toEqual({})
+		-- the core repo's own paths are wrong in a games repo
+		local issues = Layout.projectIssues(project(), "games/g", KITS, "roblox-core")
+		expect(#issues >= 3).toBe(true)
+		expect(issues[1]).toBe(
+			"ReplicatedStorage.Framework maps packages/framework/shared (want roblox-core/packages/framework/shared)"
+		)
+		local present = {
+			["roblox-core/packages/framework/shared"] = true,
+			["roblox-core/packages/framework/server"] = true,
+			["roblox-core/packages/framework/client"] = true,
+			["roblox-core/packages/framework/shared/init.luau"] = true,
+			["packages/core"] = true, -- the games repo's own folders don't count
+		}
+		expect(Layout.repoIssues(function(path)
+			return present[path] == true
+		end, {}, nil, "roblox-core")).toEqual({ "no kits under roblox-core/packages/kits" })
+	end)
+
 	it("handles a project without a tree", function()
 		expect(Layout.projectIssues({ name = "x" }, "games/x", KITS)).toEqual({ "no tree" })
 	end)

@@ -36,7 +36,7 @@ local Resolve = (require :: any)(Shared:WaitForChild("Resolve"))
 
 local Runtime = {}
 
-Runtime.VERSION = "1.3.1"
+Runtime.VERSION = "1.4.0"
 
 local function pascal(name: string): string
 	return string.upper(string.sub(name, 1, 1)) .. string.sub(name, 2)

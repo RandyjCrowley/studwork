@@ -1,0 +1,3 @@
+#!/usr/bin/env bash
+# tools/dev: roblox-core/tools/dev on this games repo (see tools/_studwork)
+exec "$(dirname "$0")/_studwork" dev "$@"

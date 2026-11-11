@@ -11,7 +11,8 @@
 	  framework  the core v1.3.0 layout (Layout.luau): packages/framework/{shared,server,client},
 	             StudWork.VERSION, packages/kits/<kit>/<Module>/module.luau (one folder per
 	             module, core-v1.3.1), no packages/kits/<kit>/{shared,server}, no packages/core (FAIL)
-	  projects   every games/*/*.project.json and templates/new-game maps Framework,
+	  pin        (games repo, v1.4.0) roblox-core/ is a git checkout at a release tag, clean (FAIL)
+	  projects   every game's *.project.json and templates/new-game maps Framework,
 	             FrameworkClient and each kit module it lists to that layout (Modules.<M>), no
 	             Kits folder, nothing into packages/core                         (FAIL)
 ]]
@@ -96,6 +97,13 @@ end
 local _, hooksPath = run("git", { "config", "--get", "core.hooksPath" })
 if hooksPath == ".githooks" and fs.isFile(".githooks/pre-commit") then
 	add("ok", "pre-commit hook", "core.hooksPath = .githooks")
+elseif not fs.isFile(".githooks/pre-commit") and Roots.external then
+	add(
+		"warn",
+		"pre-commit hook",
+		"this games repo has no .githooks/pre-commit",
+		"copy it from roblox-core/templates/games-repo/.githooks, then tools/install --hooks-only"
+	)
 elseif not fs.isFile(".githooks/pre-commit") then
 	add("fail", "pre-commit hook", ".githooks/pre-commit missing", "restore .githooks/ from git")
 else
@@ -105,6 +113,36 @@ else
 		"core.hooksPath is '" .. hooksPath .. "', want .githooks",
 		"tools/install --hooks-only"
 	)
+end
+
+-- v1.4.0 games repo: the framework submodule is a release tag with no local changes (lint enforces it)
+if Roots.external then
+	local tag = CoreInfo.tag()
+	local okStatus, status = run("git", { "-C", Roots.CORE, "status", "--porcelain" })
+	if not okStatus then
+		add(
+			"fail",
+			"framework pin",
+			Roots.CORE .. "/ is not a git checkout",
+			"git -c protocol.file.allow=always submodule update --init"
+		)
+	elseif tag == nil or not string.match(tag, "^v%d+%.%d+%.%d+$") then
+		add(
+			"fail",
+			"framework pin",
+			Roots.CORE .. "/ HEAD is not a release tag",
+			"git -C " .. Roots.CORE .. " checkout vX.Y.Z"
+		)
+	elseif status ~= "" then
+		add(
+			"fail",
+			"framework pin",
+			Roots.CORE .. "/ has local changes (games never edit it)",
+			"git -C " .. Roots.CORE .. " checkout -- . ; file a FRAMEWORK_REQUESTS.md entry"
+		)
+	else
+		add("ok", "framework pin", Roots.CORE .. "/ at " .. tag .. ", clean")
+	end
 end
 
 -- .env keys (names only, never values)

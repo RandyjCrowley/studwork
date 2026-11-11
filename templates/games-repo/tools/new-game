@@ -1,0 +1,3 @@
+#!/usr/bin/env bash
+# tools/new-game: roblox-core/tools/new-game on this games repo (see tools/_studwork)
+exec "$(dirname "$0")/_studwork" new-game "$@"

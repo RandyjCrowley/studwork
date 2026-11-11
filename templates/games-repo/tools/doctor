@@ -1,0 +1,3 @@
+#!/usr/bin/env bash
+# tools/doctor: roblox-core/tools/doctor on this games repo (see tools/_studwork)
+exec "$(dirname "$0")/_studwork" doctor "$@"
