@@ -18,4 +18,15 @@ describe("Rarity client State (was Hud.Slices)", function()
 	it("reads the pinned keys from state.modules", function()
 		expect(State.odds(modular).Chest).never.toBeNil()
 	end)
+
+	it("reads the per-item odds (v1.6.0) from the framework field", function()
+		local state = {
+			framework = { itemOdds = { NestEgg = { egg1 = { luck = 2.8, item = "egg1", items = {} } } } },
+			modules = {},
+		}
+		expect(State.itemOdds(state, "NestEgg", "egg1").luck).toBe(2.8)
+		expect(State.itemOdds(state, "NestEgg", "egg2")).toBeNil()
+		expect(next(State.itemOdds(modular)) == nil).toBe(true)
+		expect(next(State.itemOdds(modular, "NestEgg")) == nil).toBe(true)
+	end)
 end)

@@ -39,6 +39,27 @@
 	      can't choose the prefix.
 	  disclose(player, sourceId?)   (re)send the player's odds (framework field `odds`)
 	  disclosed(player, sourceId) -> OddsDetail?   what the client was last sent
+	Item disclosures (added in v1.6.0, adopting.md §6.2): odds for ONE item (an egg) at its own luck.
+	  registerRandomSource's optional `oddsAt = fn(player, luck) -> OddsDetail` (the source's odds at
+	      exactly that luck, pure; its `luck` field is the luck the source's sanitizer produced).
+	      A source without it can't use item disclosures (discloseItem errors).
+	  discloseItem(player, sourceId, itemKey, luck) -> boolean   builds the detail from oddsAt and
+	      sends it (framework field `itemOdds` = { [sourceId]: { [itemKey]: OddsDetail } }). At most
+	      Compliance.MAX_ITEM_DISCLOSURES per player across sources: past that it returns false and
+	      sends nothing (never evicts: a pending paid roll keeps its disclosure). Cleared when the
+	      player leaves (the replication entry goes with them).
+	  disclosedItem(player, sourceId, itemKey) -> OddsDetail?   what the client was last SENT
+	  clearItem(player, sourceId, itemKey)                      drops it (the egg hatched)
+	  roll(tx, sourceId, luck?, opts?) / spendForRoll(..., luck?, opts?), opts.item = itemKey:
+	      free roll: a label only (any luck). Paid roll: the usual policy gate, then the item's
+	      disclosure must have been sent (else "odds_not_disclosed", tx.retryLater in a purchase),
+	      luck ~= 1 needs luckDisclosed (hard rule 11 error), and the disclosed `luck` must EQUAL the
+	      roll's luck (else "odds_not_disclosed"). Luck rule: Compliance doesn't sanitize; the
+	      calling module passes the luck already through the SAME sanitizer its oddsAt uses (Rarity:
+	      RollMath.sanitizeLuck), so the comparison is exact.
+	Legacy import (v1.6.0, contract 4): inside an import tx (txMeta.legacyImport = "paid" | "free",
+	set only by Data) roll / spendForRoll / spendPaid error, and tagPaid(tx) returns "paid:legacy" /
+	"legacy".
 	Disclosure rule: a PAID roll on a source whose odds were never sent to the
 	player's client is refused: "odds_not_disclosed" (inside a purchase also tx.retryLater).
 	Luck rule (hard rule 11): a PAID roll with luck ~= 1 errors unless the source is luckDisclosed
@@ -57,9 +78,13 @@ export type Source = {
 	odds: (player: any) -> any,
 	sample: (player: any, luck: number, tx: any) -> any,
 	luckDisclosed: boolean,
+	oddsAt: ((player: any, luck: number) -> any)?,
 }
 
 Compliance.MAX_ID_LENGTH = 64
+Compliance.MAX_ITEM_DISCLOSURES = 64 -- per player, across every source (added in v1.6.0)
+
+local LEGACY_ERROR = "ctx.compliance: no rolls or paid spends inside a legacy import"
 
 local function isFinitePositive(n: any): boolean
 	return type(n) == "number" and n == n and n > 0 and n < math.huge
@@ -151,8 +176,102 @@ function Compliance.new(opts: any): any
 		return if type(sent) == "table" then sent[sourceId] else nil
 	end
 
+	------------------------------------------------------------------ item disclosures (v1.6.0)
+
+	local function isItemKey(k: any): boolean
+		return type(k) == "string" and k ~= "" and #k <= Compliance.MAX_ID_LENGTH
+	end
+
+	-- a fresh copy of the itemOdds map queued for the player (two levels cloned) and its size
+	local function itemMap(player: any): ({ [string]: any }, number)
+		local current = replication.peekFramework and replication.peekFramework(player, "itemOdds") or nil
+		local out: { [string]: any } = {}
+		local count = 0
+		if type(current) == "table" then
+			for src, items in current do
+				if type(items) == "table" then
+					out[src] = table.clone(items)
+					for _ in items do
+						count += 1
+					end
+				end
+			end
+		end
+		return out, count
+	end
+
+	function c.discloseItem(player: any, sourceId: string, itemKey: string, luck: number): boolean
+		local entry = sources[sourceId]
+		if entry == nil then
+			error(`ctx.compliance.discloseItem: unknown random source '{tostring(sourceId)}'`, 3)
+		end
+		if type(entry.source.oddsAt) ~= "function" then
+			error(
+				`ctx.compliance.discloseItem: source '{sourceId}' has no oddsAt(player, luck); it can't use item disclosures`,
+				3
+			)
+		end
+		if not isItemKey(itemKey) then
+			error("ctx.compliance.discloseItem: itemKey must be a short id string (<= 64 chars)", 3)
+		end
+		if not isFinitePositive(luck) then
+			error("ctx.compliance.discloseItem: luck must be a finite number > 0", 3)
+		end
+		if not opts.isPlayer(player) then
+			return false
+		end
+		local out, count = itemMap(player)
+		local mine = out[sourceId]
+		if (mine == nil or mine[itemKey] == nil) and count >= Compliance.MAX_ITEM_DISCLOSURES then
+			return false -- bounded, never evicted
+		end
+		local ok, detail = pcall(entry.source.oddsAt :: any, player, luck)
+		if not ok or type(detail) ~= "table" or not isFinitePositive(detail.luck) then
+			log(`[StudWork.Compliance] oddsAt('{sourceId}') failed: {tostring(detail)}`)
+			return false
+		end
+		local d = table.clone(detail)
+		d.item = itemKey
+		if mine == nil then
+			mine = {}
+			out[sourceId] = mine
+		end
+		mine[itemKey] = d
+		replication.setFramework(player, "itemOdds", out)
+		return true
+	end
+
+	function c.disclosedItem(player: any, sourceId: string, itemKey: string): any
+		local sent = replication.sentFramework(player, "itemOdds")
+		local mine = if type(sent) == "table" then sent[sourceId] else nil
+		return if type(mine) == "table" then mine[itemKey] else nil
+	end
+
+	function c.clearItem(player: any, sourceId: string, itemKey: string)
+		if not opts.isPlayer(player) then
+			return
+		end
+		local out = itemMap(player)
+		local mine = out[sourceId]
+		if mine == nil or mine[itemKey] == nil then
+			return
+		end
+		mine[itemKey] = nil
+		if next(mine) == nil then
+			out[sourceId] = nil
+		end
+		replication.setFramework(player, "itemOdds", out)
+	end
+
 	-- hard rule 11 + policy for a paid roll. Returns (ok, reason?).
-	local function paidGate(tx: any, m: any, sourceId: string, entry: any, luck: number): (boolean, string?)
+	local function paidGate(
+		tx: any,
+		m: any,
+		sourceId: string,
+		entry: any,
+		luck: number,
+		item: string?
+	): (boolean, string?)
 		local player = tx.player
 		if not policy.isKnown(player) then
 			if m.purchase then
@@ -162,6 +281,29 @@ function Compliance.new(opts: any): any
 		end
 		if policy.paidRandomRestricted(player) then
 			return false, "restricted"
+		end
+		if item ~= nil then
+			-- a paid roll for ONE item: exactly that item's odds at exactly this luck were sent
+			local shown = c.disclosedItem(player, sourceId, item)
+			if type(shown) ~= "table" then
+				if m.purchase then
+					tx.retryLater("odds_not_disclosed")
+				end
+				return false, "odds_not_disclosed"
+			end
+			if luck ~= 1 and not entry.source.luckDisclosed then
+				error(
+					`paid roll on '{sourceId}' (item '{item}') with luck {luck} refused (hard rule 11): the source does not set luckDisclosed = true`,
+					0
+				)
+			end
+			if shown.luck ~= luck then
+				if m.purchase then
+					tx.retryLater("odds_not_disclosed")
+				end
+				return false, "odds_not_disclosed"
+			end
+			return true, nil
 		end
 		-- every paid roll, at any luck, needs the source's odds to have been sent
 		-- to this player's client (replicated at join, before the player can buy)
@@ -206,6 +348,25 @@ function Compliance.new(opts: any): any
 		return luck
 	end
 
+	local function readItem(o: any): string?
+		if o == nil then
+			return nil
+		end
+		if type(o) ~= "table" then
+			error("ctx.compliance: opts must be a table or nil", 3)
+		end
+		if o.item ~= nil and not isItemKey(o.item) then
+			error("ctx.compliance: opts.item must be a short id string (<= 64 chars)", 3)
+		end
+		return o.item
+	end
+
+	local function noLegacy(m: any)
+		if m.legacyImport ~= nil then
+			error(LEGACY_ERROR, 3)
+		end
+	end
+
 	function c.forModule(caller: string): any
 		return table.freeze({
 			registerRandomSource = function(id: string, source: Source)
@@ -225,6 +386,10 @@ function Compliance.new(opts: any): any
 				assert(
 					type(source.luckDisclosed) == "boolean",
 					"registerRandomSource: luckDisclosed must be a boolean"
+				)
+				assert(
+					source.oddsAt == nil or type(source.oddsAt) == "function",
+					"registerRandomSource: source.oddsAt must be a function or nil"
 				)
 				local existing = sources[id]
 				if existing ~= nil then
@@ -254,14 +419,16 @@ function Compliance.new(opts: any): any
 			paidCurrencies = function(): { string }
 				return table.clone(paidList)
 			end,
-			roll = function(tx: any, sourceId: string, luck: number?): (boolean, any, string?)
+			roll = function(tx: any, sourceId: string, luck: number?, o: any?): (boolean, any, string?)
 				local m = meta(tx)
+				noLegacy(m)
 				local entry = sourceFor(caller, sourceId)
 				local l = readLuck(luck)
+				local item = readItem(o)
 				-- paid inside a purchase, or after a paid-currency spendPaid in this tx
 				local paid = m.purchase or m.paidSpent ~= nil
 				if paid then
-					local ok, reason = paidGate(tx, m, sourceId, entry, l)
+					local ok, reason = paidGate(tx, m, sourceId, entry, l, item)
 					if not ok then
 						return false, nil, reason
 					end
@@ -280,11 +447,14 @@ function Compliance.new(opts: any): any
 				currency: string,
 				amount: number,
 				sourceId: string,
-				luck: number?
+				luck: number?,
+				o: any?
 			): (boolean, any, string?)
 				local m = meta(tx)
+				noLegacy(m)
 				local entry = sourceFor(caller, sourceId)
 				local l = readLuck(luck)
+				local item = readItem(o)
 				if not paidSet[currency] then
 					error(
 						`ctx.compliance.spendForRoll: '{tostring(currency)}' is not in GameConfig.compliance.paidCurrencies (spend free currencies through their own module)`,
@@ -298,7 +468,7 @@ function Compliance.new(opts: any): any
 				if spender == nil then
 					error(`ctx.compliance.spendForRoll: no module registered a spender for '{currency}'`, 2)
 				end
-				local ok, reason = paidGate(tx, m, sourceId, entry, l)
+				local ok, reason = paidGate(tx, m, sourceId, entry, l, item)
 				if not ok then
 					return false, nil, reason
 				end
@@ -323,6 +493,7 @@ function Compliance.new(opts: any): any
 				reason: string
 			): (boolean, string?)
 				local m = meta(tx)
+				noLegacy(m)
 				if not paidSet[currency] then
 					error(
 						`ctx.compliance.spendPaid: '{tostring(currency)}' is not in GameConfig.compliance.paidCurrencies (spend free currencies through their own module)`,
@@ -357,6 +528,12 @@ function Compliance.new(opts: any): any
 					return "paidcur:" .. tx
 				end
 				local m = meta(tx)
+				-- contract 4: an imported legacy item keeps its paid / free origin, never forgeable
+				if m.legacyImport == "paid" then
+					return "paid:legacy"
+				elseif m.legacyImport ~= nil then
+					return "legacy"
+				end
 				if m.purchase then
 					return "paid:" .. tostring(m.product)
 				end
@@ -382,6 +559,17 @@ function Compliance.new(opts: any): any
 			end,
 			disclosed = function(player: any, sourceId: string): any
 				return c.disclosed(player, sourceId)
+			end,
+			discloseItem = function(player: any, sourceId: string, itemKey: string, luck: number): boolean
+				sourceFor(caller, sourceId)
+				return c.discloseItem(player, sourceId, itemKey, luck)
+			end,
+			disclosedItem = function(player: any, sourceId: string, itemKey: string): any
+				return c.disclosedItem(player, sourceId, itemKey)
+			end,
+			clearItem = function(player: any, sourceId: string, itemKey: string)
+				sourceFor(caller, sourceId)
+				c.clearItem(player, sourceId, itemKey)
 			end,
 		})
 	end

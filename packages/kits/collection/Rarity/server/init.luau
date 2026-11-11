@@ -19,8 +19,17 @@
 	        reason? }. Reasons: unknown_table, not_loaded, restricted, inventory_full (grant;
 	        checked before rolling, so pity isn't spent), empty_table, policy_unknown.
 	  getOdds(tableId, luck?) -> { [itemId]: probability }
-	  getOddsDetail(tableId, player?) -> OddsDetail?   (with a player and a luckDisclosed table:
-	        that player's luck)
+	  getOddsDetail(tableId, player?, luck?) -> OddsDetail?   (with a player and a luckDisclosed
+	        table: that player's luck). (v1.6.0) With `luck`: the odds at exactly that luck
+	        (RollMath.sanitizeLuck), PURE: no luck change, no disclosure, no replication.
+	  discloseItem(player, tableId, itemKey, luck) -> boolean   (v1.6.0, adopting.md §6.2) sends the
+	        odds of (table, item, sanitized luck) through ctx.compliance.discloseItem (false = the
+	        per-player cap Compliance.MAX_ITEM_DISCLOSURES is reached, or an unknown table)
+	  clearItem(player, tableId, itemKey)   drops that disclosure (the egg hatched)
+	  Item luck: roll / txApi.roll / purchaseOps.roll take opts.item (with `luck`). An item roll uses
+	        exactly `luck` (sanitized; nil = 1), never the player's session luck. Free: any luck.
+	        Paid: Compliance's item gate (disclosedItem with that luck; luck ~= 1 needs
+	        luckDisclosed); a paid = true table outside a purchase is checked here the same way.
 	  tiers() -> { TierDef }   the resolved ordered list
 	  setLuck(player, luck, tableId?) / getLuck(player, tableId?)   session luck (LuckRegistry);
 	        setLuck re-sends that player's odds (replicated extra + compliance.disclose)
@@ -134,13 +143,18 @@ function Rarity.new(): any
 		return RM.odds(weightsFor(t, luck))
 	end
 
-	function api.getOddsDetail(tableId: string, player: any?): any
+	function api.getOddsDetail(tableId: string, player: any?, atLuck: number?): any
 		local t = if type(tableId) == "string" then tables[tableId] else nil
 		if t == nil then
 			return nil
 		end
 		local disclosed = t.luckDisclosed == true
-		local luck = if player ~= nil and disclosed then luckRegistry:get(player, tableId) else 1
+		local luck: number
+		if atLuck ~= nil then
+			luck = RM.sanitizeLuck(atLuck) -- a pure preview at exactly that luck
+		else
+			luck = if player ~= nil and disclosed then luckRegistry:get(player, tableId) else 1
+		end
 		return RM.oddsDetail(
 			tableId,
 			isPaidTable(t),
@@ -194,6 +208,20 @@ function Rarity.new(): any
 		if loaded[player] then
 			sendPlayerOdds(player)
 		end
+	end
+
+	function api.discloseItem(player: any, tableId: string, itemKey: string, luck: number): boolean
+		if type(tableId) ~= "string" or tables[tableId] == nil then
+			return false
+		end
+		return ctx.compliance.discloseItem(player, tableId, itemKey, RM.sanitizeLuck(luck))
+	end
+
+	function api.clearItem(player: any, tableId: string, itemKey: string)
+		if type(tableId) ~= "string" or tables[tableId] == nil then
+			return
+		end
+		ctx.compliance.clearItem(player, tableId, itemKey)
 	end
 
 	function api.tiers(): { any }
@@ -257,7 +285,8 @@ function Rarity.new(): any
 		end
 	end
 
-	-- One roll of tableId inside the open tx. opts: { grant?, reason?, spend = { currency, amount }? }
+	-- One roll of tableId inside the open tx.
+	-- opts: { grant?, reason?, item?, spend = { currency, amount }? }
 	local function rollInTx(tx: any, tableId: any, luck: number?, opts: any?): (any, any)
 		local t = if type(tableId) == "string" then tables[tableId] else nil
 		if t == nil then
@@ -271,8 +300,30 @@ function Rarity.new(): any
 		if t.paid == true and not inPurchase and ctx.policy.paidRandomRestricted(player) then
 			return fail("restricted")
 		end
-		local effective = RM.sanitizeLuck(if luck == nil then rollLuck(player, tableId, t, paid) else luck)
-		if t.paid == true and not inPurchase and o.spend == nil then
+		local item = o.item
+		if item ~= nil and not Util.isId(item) then
+			error("[Rarity] roll: opts.item must be a short id string", 2)
+		end
+		-- an item roll carries its own luck: never the player's session luck
+		local effective = if item ~= nil
+			then RM.sanitizeLuck(luck)
+			else RM.sanitizeLuck(if luck == nil then rollLuck(player, tableId, t, paid) else luck)
+		if item ~= nil and t.paid == true and not inPurchase and o.spend == nil then
+			-- a Robux table outside a purchase, for one item: the same gate Compliance applies
+			local ok, why = LuckRule.check({
+				paid = true,
+				luck = effective,
+				luckDisclosed = t.luckDisclosed == true,
+				sent = { luckDisclosed = true, luck = effective },
+			})
+			if not ok then
+				error(LuckRule.message(tableId, effective, why or "?"), 2)
+			end
+			local shown = ctx.compliance.disclosedItem(player, tableId, item)
+			if type(shown) ~= "table" or shown.luck ~= effective then
+				return fail("odds_not_disclosed")
+			end
+		elseif t.paid == true and not inPurchase and o.spend == nil then
 			-- hard rule 11 for a Robux table rolled outside a purchase (Compliance gates the rest)
 			local sent = if effective ~= 1 then ctx.compliance.disclosed(player, tableId) else nil
 			local ok, why = LuckRule.check({
@@ -296,13 +347,22 @@ function Rarity.new(): any
 		local mine = { opts = o, result = nil :: any }
 		local outer = pending
 		pending = mine
+		local copts = if item ~= nil then { item = item } else nil
 		local packed
 		if o.spend ~= nil then
 			packed = table.pack(
-				pcall(ctx.compliance.spendForRoll, tx, o.spend.currency, o.spend.amount, tableId, effective)
+				pcall(
+					ctx.compliance.spendForRoll,
+					tx,
+					o.spend.currency,
+					o.spend.amount,
+					tableId,
+					effective,
+					copts
+				)
 			)
 		else
-			packed = table.pack(pcall(ctx.compliance.roll, tx, tableId, effective))
+			packed = table.pack(pcall(ctx.compliance.roll, tx, tableId, effective, copts))
 		end
 		pending = outer
 		if not packed[1] then
@@ -321,7 +381,9 @@ function Rarity.new(): any
 		if not ctx.data.isLoaded(player) then
 			return fail("not_loaded")
 		end
-		local o = if type(opts) == "table" then { grant = opts.grant, reason = opts.reason } else nil
+		local o = if type(opts) == "table"
+			then { grant = opts.grant, reason = opts.reason, item = opts.item }
+			else nil
 		local def, info = nil, nil
 		local committed = ctx.tx(player, function(tx: any)
 			def, info = rollInTx(tx, tableId, luck, o)
@@ -500,13 +562,17 @@ function Rarity.new(): any
 	part.api = api
 	part.txApi = {
 		roll = function(tx: any, tableId: string, luck: number?, opts: any?): (any, any)
-			local o = if type(opts) == "table" then { grant = opts.grant, reason = opts.reason } else nil
+			local o = if type(opts) == "table"
+				then { grant = opts.grant, reason = opts.reason, item = opts.item }
+				else nil
 			return rollInTx(tx, tableId, luck, o)
 		end,
 	}
 	part.purchaseOps = {
-		roll = function(tx: any, tableId: string, luck: number?): (any, any)
-			return rollInTx(tx, tableId, luck, { grant = true, reason = "product" })
+		-- opts (v1.6.0, additive): { item? }; a purchase roll always grants
+		roll = function(tx: any, tableId: string, luck: number?, opts: any?): (any, any)
+			local item = if type(opts) == "table" then opts.item else nil
+			return rollInTx(tx, tableId, luck, { grant = true, reason = "product", item = item })
 		end,
 	}
 
@@ -522,6 +588,10 @@ function Rarity.new(): any
 			ctx.compliance.registerRandomSource(tableId, {
 				odds = function(player: any): any
 					return api.getOddsDetail(tableId, player)
+				end,
+				-- (v1.6.0) item disclosures: the pure preview at exactly that luck
+				oddsAt = function(player: any, luck: number): any
+					return api.getOddsDetail(tableId, player, luck)
 				end,
 				sample = sampleFor(tableId),
 				luckDisclosed = t.luckDisclosed == true,

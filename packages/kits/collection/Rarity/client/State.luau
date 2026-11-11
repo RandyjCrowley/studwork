@@ -4,6 +4,9 @@
 	now names no module). Read this module's per-module client slice of the replicated state
 	(module-api.md §10: state.modules.Rarity.data / .extra), or a v1.2 flat state's fields.
 	State.odds(state) -> { [tableId]: odds }   extra.odds ({} when absent)
+	State.itemOdds(state, tableId?, itemKey?)   (v1.6.0) the per-item odds the server disclosed
+	    (framework field itemOdds = { [tableId]: { [itemKey]: OddsDetail } }): the whole map ({}
+	    when absent), one table's map, or one item's OddsDetail (nil) for UI.OddsTable's `detail`
 ]]
 
 local State = {}
@@ -42,6 +45,22 @@ end
 function State.odds(state: any): { [string]: any }
 	local odds = extra(state, "odds")
 	return if type(odds) == "table" then odds else {}
+end
+
+function State.itemOdds(state: any, tableId: string?, itemKey: string?): any
+	local fw = field(state, "framework")
+	local all = field(fw, "itemOdds")
+	if type(all) ~= "table" then
+		all = {}
+	end
+	if tableId == nil then
+		return all
+	end
+	local mine = all[tableId]
+	if itemKey == nil then
+		return if type(mine) == "table" then mine else {}
+	end
+	return field(mine, itemKey)
 end
 
 return State
