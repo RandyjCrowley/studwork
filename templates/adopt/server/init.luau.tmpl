@@ -1,0 +1,40 @@
+--!strict
+--[[
+	{{Module}} server (the game module's server part), added by `tools/adopt --init`. The migration
+	moves the old game's systems here (or into kit modules) one by one, following the plan in
+	studwork-adopt-report.md. The calls below are stubbed and commented: fill them in from the save
+	map (README.md) and uncomment them. Reference: studwork/docs/framework/adopting.md.
+]]
+
+local {{Module}} = {}
+
+function {{Module}}.init(_ctx: any)
+	-- 1. The old saves (adopting.md §3): a one-time, read-only import at join. Never reuse an id.
+	--    Test it with sample saves in tests/legacy/*.json and tools/test-migration.
+	-- _ctx.data.importLegacy({
+	-- 	id = "v1-save",
+	-- 	version = 1,
+	-- 	source = { kind = "datastore", name = "<old store name>", key = "<old key, e.g. Player_{userId}>" },
+	-- 	import = function(tx, old, info)
+	-- 		-- every old field -> its new home (the save map in README.md), through the kits' txApi
+	-- 		-- (_ctx.depsTx[<Kit>]) or this module's own section (_ctx.section(tx))
+	-- 	end,
+	-- 	-- merge = function(tx, old, info) end, -- optional: the old save changed after the import
+	-- 	-- receipts = function(old) return old.purchases end, -- optional: old PurchaseIds (§4.1)
+	-- 	itemTag = "paid", -- copies are tagged paid:legacy (use "free" only if the old game sold no items)
+	-- })
+
+	-- 2. An old purchase-history store (adopting.md §4.2), when the old game kept one.
+	-- _ctx.shop.legacyReceipts({ name = "<old history store>", key = "{userId}_{purchaseId}" })
+
+	-- 3. Old product handlers while migrating (adopting.md §4.3): a development bridge, never live
+	--    (tools/adopt --verify and tools/publish --live refuse while one is left). Port each product
+	--    to _ctx.shop.onProduct.
+	-- _ctx.shop.onLegacyProduct("<Product>", function(receiptInfo, player)
+	-- 	return "NotProcessedYet"
+	-- end, { writesLegacyData = false })
+end
+
+function {{Module}}.start(_ctx: any) end
+
+return {{Module}}

@@ -1,0 +1,20 @@
+-- The game module (tools/adopt --init): its server part loads and its definition passes
+-- StudWork.defineModule. Grows with the migration (importLegacy fixtures: tools/test-migration).
+local StudWork = require(game:GetService("ReplicatedStorage"):WaitForChild("Framework"))
+local Server = require(script.Parent.server)
+
+describe("{{Module}} game module", function()
+	it("has a server part with init and start", function()
+		expect(type(Server.init)).toBe("function")
+		expect(type(Server.start)).toBe("function")
+	end)
+	it("is a valid module definition with the game id as its data key", function()
+		local def = StudWork.defineModule({
+			name = "{{Module}}",
+			version = "1.0.0",
+			framework = "^1.6.0",
+			data = { key = "{{gameId}}", version = 1, default = {} },
+		})
+		expect(def.name).toBe("{{Module}}")
+	end)
+end)

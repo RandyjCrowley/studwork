@@ -1,0 +1,337 @@
+#!/usr/bin/env bash
+# tools/test-adopt [--keep]: StudWork v1.6.0 end-to-end test of `tools/adopt --init`
+# (docs/framework/adopting.md §2). In $TMPDIR (this repo is never touched):
+#   1. a git snapshot of THIS working tree, committed and tagged v<StudWork.VERSION> in the temp
+#      copy only: the local "fixture remote" the studwork/ submodule is cloned from
+#   2. a small legacy Rojo game (its own git repo): a raw DataStore save script, a RemoteEvent
+#      handler with a price, a balance number in a settings module, its own tools/build script, a
+#      synthetic studwork-adopt-report.json
+# then: --dry-run writes nothing; the refusals (dirty tree, project-file clash, store collision,
+# missing tag, a symlink out of the project, the StudWork checkout itself) write nothing; the real
+# --init --no-install (submodule at the tag, studwork.json adopted + legacyBaseline,
+# studwork-legacy.json with reasons from the report, wrappers incl. adopt/test-migration, the
+# user's own tools/build left alone, the game module, Config, the merged project file keeping the
+# old entries, no commit, no absolute paths, old files untouched); the project's tools/build,
+# tools/test, tools/typecheck, tools/sync-projects --check; a second --init and a --dry-run change
+# nothing; after a commit, more legacy findings never rewrite the baseline.
+# Exit 1 if any step fails. --keep leaves the temp folder for inspection.
+source "$(dirname "$0")/_common.sh"
+
+is_games_repo && die "run tools/test-adopt in the StudWork repo itself"
+KEEP=0
+[ "${1:-}" = "--keep" ] && KEEP=1
+[ -d "$CORE_ROOT/deps/Packages" ] || die "deps/Packages is missing: run tools/install first"
+
+VERSION="$(sed -n 's/^StudWork\.VERSION = "\(.*\)"$/\1/p' "$CORE_ROOT/packages/framework/shared/init.luau")"
+[ -n "$VERSION" ] || die "could not read StudWork.VERSION"
+TAG="v$VERSION"
+WORK="$(mktemp -d "${TMPDIR:-/tmp}/studwork-adopt.XXXXXX")"
+WORK="$(cd "$WORK" && pwd -P)"
+LOGS="$WORK/logs"
+mkdir -p "$LOGS"
+FAIL=0
+cleanup() {
+	if [ "$KEEP" -eq 1 ] || [ "$FAIL" -ne 0 ]; then
+		echo "kept: $WORK"
+	else
+		rm -rf "$WORK"
+	fi
+}
+trap cleanup EXIT
+
+# git for the fixtures only: fixed identity, no hooks, local file transport allowed
+tgit() {
+	git -c user.name="StudWork test" -c user.email="test@studwork.invalid" -c commit.gpgsign=false \
+		-c tag.gpgsign=false -c gc.auto=0 -c maintenance.auto=false -c core.hooksPath=/dev/null \
+		-c protocol.file.allow=always -c init.defaultBranch=main "$@"
+}
+pass() { echo "PASS $1"; }
+fail() {
+	echo "FAIL $1"
+	FAIL=1
+}
+G="$WORK/legacy"
+ADOPT="$CORE_ROOT/tools/adopt"
+logof() { echo "$LOGS/$(echo "$1" | tr -c 'A-Za-z0-9_.-' '_').log"; }
+# step <name> <cmd...>: run in the project, log it
+step() {
+	local name="$1" log
+	shift
+	log="$(logof "$name")"
+	if (cd "$G" && "$@") >"$log" 2>&1; then
+		pass "$name | $(tail -1 "$log")"
+	else
+		fail "$name | $(tail -5 "$log" | tr '\n' ' ')"
+	fi
+	return 0
+}
+# expect_fail <name> <pattern> <cmd...>: the command must fail and print <pattern>
+expect_fail() {
+	local name="$1" pattern="$2" log
+	shift 2
+	log="$(logof "$name")"
+	if (cd "$WORK" && "$@") >"$log" 2>&1; then
+		fail "$name | expected a failure"
+	elif grep -q -- "$pattern" "$log"; then
+		pass "$name | refused: $(grep -m1 -- "$pattern" "$log" | cut -c1-110)"
+	else
+		fail "$name | failed without '$pattern': $(tail -3 "$log" | tr '\n' ' ')"
+	fi
+}
+check() {
+	local name="$1"
+	shift
+	if "$@"; then pass "$name"; else fail "$name"; fi
+}
+# snapshot <dir>: a hash of every file outside .git/, studwork/ and .cache/, plus git status
+snapshot() {
+	(
+		cd "$1" &&
+			find . \( -path ./.git -o -path ./studwork -o -path ./.cache \) -prune -o \( -type f -o -type l \) -print |
+			LC_ALL=C sort | while IFS= read -r f; do
+				if [ -L "$f" ]; then echo "$f -> $(readlink "$f")"; else echo "$f $(shasum "$f" | cut -c1-40)"; fi
+			done
+		git -C "$1" status --porcelain --untracked-files=all
+		[ -e "$1/studwork" ] && echo "studwork/ exists"
+		git -C "$1" rev-parse HEAD
+	) | shasum | cut -c1-40
+}
+
+echo "== fixture remote: a snapshot of this working tree tagged $TAG, in $WORK"
+rsync -a --exclude /.git --exclude /.cache --exclude /build --exclude /deps/Packages \
+	--exclude /deps/ServerPackages --exclude /deps/DevPackages --exclude /.worktrees --exclude /.env \
+	--exclude /games --exclude /docs/games "$CORE_ROOT/" "$WORK/studwork/"
+(cd "$WORK/studwork" && tgit init -q && tgit add -A && tgit commit -q -m "snapshot" && tgit tag "$TAG") \
+	>"$LOGS/setup.log" 2>&1 || die "could not snapshot the core"
+
+# make_legacy <dir>: a small legacy Rojo game, committed
+make_legacy() {
+	local d="$1"
+	mkdir -p "$d/src/server" "$d/src/shared" "$d/src/client" "$d/tools"
+	cat >"$d/default.project.json" <<'EOF'
+{
+	"name": "legacy-example-a",
+	"tree": {
+		"$className": "DataModel",
+		"ServerScriptService": {
+			"Server": { "$path": "src/server" }
+		},
+		"ReplicatedStorage": {
+			"Shared": { "$path": "src/shared" }
+		},
+		"StarterPlayer": {
+			"StarterPlayerScripts": { "Client": { "$path": "src/client" } }
+		}
+	}
+}
+EOF
+	cat >"$d/src/server/SaveManager.server.luau" <<'EOF'
+local DataStoreService = game:GetService("DataStoreService")
+local Players = game:GetService("Players")
+
+local store = DataStoreService:GetDataStore("PlayerSave")
+
+Players.PlayerAdded:Connect(function(player)
+	local data = store:GetAsync("Player_" .. player.UserId) or { coins = 0 }
+	player:SetAttribute("Coins", data.coins)
+end)
+
+Players.PlayerRemoving:Connect(function(player)
+	store:SetAsync("Player_" .. player.UserId, { coins = player:GetAttribute("Coins") })
+end)
+EOF
+	cat >"$d/src/server/Shop.server.luau" <<'EOF'
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+
+local buy = Instance.new("RemoteEvent")
+buy.Name = "BuyThing"
+buy.Parent = ReplicatedStorage
+
+local price = 250
+
+buy.OnServerEvent:Connect(function(player)
+	local coins = player:GetAttribute("Coins") or 0
+	if coins >= price then
+		player:SetAttribute("Coins", coins - price)
+	end
+end)
+EOF
+	printf 'return { startCoins = 10 }\n' >"$d/src/shared/Settings.luau"
+	printf 'print("client")\n' >"$d/src/client/Main.client.luau"
+	printf '#!/bin/sh\n# the old game'"'"'s own build script\nrojo build -o game.rbxl\n' >"$d/tools/build"
+	chmod +x "$d/tools/build"
+	printf 'node_modules/\n' >"$d/.gitignore"
+	# a synthetic audit report (tools/adopt --audit's schema, adopting.md §1): the reasons come from it
+	cat >"$d/studwork-adopt-report.json" <<'EOF'
+{
+  "reportVersion": 1,
+  "tool": "studwork-adopt",
+  "datastores": [
+    { "name": "PlayerSave", "scope": null, "kind": "global", "keyPatterns": ["Player_{userId}"],
+      "calls": [ { "op": "GetAsync", "file": "src/server/SaveManager.server.luau", "line": 7, "key": "Player_{userId}" } ] }
+  ],
+  "libraries": [],
+  "purchases": { "processReceipt": [], "products": [], "passes": [], "prompts": [], "ownership": [] },
+  "remotes": [
+    { "name": "BuyThing", "class": "RemoteEvent", "path": "ReplicatedStorage.BuyThing",
+      "handlers": [ { "kind": "OnServerEvent", "file": "src/server/Shop.server.luau", "line": 9 } ], "fires": [] }
+  ]
+}
+EOF
+	(cd "$d" && tgit init -q && tgit add -A && tgit commit -q -m "the old game") >>"$LOGS/setup.log" 2>&1
+}
+make_legacy "$G"
+LEGACY_FILES="src/server/SaveManager.server.luau src/server/Shop.server.luau src/shared/Settings.luau src/client/Main.client.luau tools/build"
+legacy_hash() { (cd "$G" && shasum $LEGACY_FILES | shasum | cut -c1-40); }
+LEGACY_HASH="$(legacy_hash)"
+HEAD0="$(git -C "$G" rev-parse HEAD)"
+INIT=("$ADOPT" --init "$G" --name legacy-example-a --url "$WORK/studwork" --tag "$TAG" --no-install)
+
+# --dry-run: prints the plan (with a diff of the project file), writes nothing
+BEFORE="$(snapshot "$G")"
+step "init --dry-run" "${INIT[@]}" --dry-run
+check "dry run: nothing written (not even the submodule)" test "$(snapshot "$G")" = "$BEFORE"
+DRY_LOG="$(logof "init --dry-run")"
+check "dry run: lists the game module" grep -q "would create modules/legacy-example-a/module.luau" "$DRY_LOG"
+check "dry run: a diff for the merged project file" grep -q '^  +.*"studwork/packages/framework/shared"' "$DRY_LOG"
+check "dry run: the user's tools/build is left alone" grep -q "left alone tools/build" "$DRY_LOG"
+
+# refusals: each one writes nothing
+echo '' >>"$G/default.project.json"
+BEFORE="$(snapshot "$G")"
+expect_fail "refuses a dirty tree in a path it writes" "uncommitted changes" "${INIT[@]}"
+check "dirty tree: nothing written" test "$(snapshot "$G")" = "$BEFORE"
+git -C "$G" checkout -q -- default.project.json
+BEFORE="$(snapshot "$G")"
+expect_fail "refuses a missing tag (nothing kept)" "does not exist" "$ADOPT" --init "$G" --url "$WORK/studwork" --name legacy-example-a --tag v0.0.1 --no-install
+check "missing tag: nothing kept (no studwork/, no .gitmodules)" test "$(snapshot "$G")" = "$BEFORE"
+check "missing tag: no submodule config left" sh -c "! git -C '$G' config --get submodule.studwork.url"
+expect_fail "refuses the StudWork checkout itself" "can't be this StudWork checkout" "$ADOPT" --init "$CORE_ROOT" --name my-game --dry-run
+mkdir -p "$WORK/plain"
+expect_fail "refuses a project that is not a git repo" "not a git repo" "$ADOPT" --init "$WORK/plain" --dry-run
+
+C="$WORK/clash"
+make_legacy "$C"
+sed -i.bak 's|"Shared": { "$path": "src/shared" }|"Shared": { "$path": "src/shared" }, "Packages": { "$path": "Packages" }|' "$C/default.project.json"
+rm -f "$C/default.project.json.bak"
+(cd "$C" && tgit commit -q -am "wally packages") >>"$LOGS/setup.log" 2>&1
+BEFORE="$(snapshot "$C")"
+expect_fail "refuses a project-file clash (ReplicatedStorage.Packages)" "ReplicatedStorage.Packages" \
+	"$ADOPT" --init "$C" --name legacy-example-a --url "$WORK/studwork" --tag "$TAG" --no-install
+check "clash: nothing written" test "$(snapshot "$C")" = "$BEFORE"
+
+K="$WORK/collide"
+make_legacy "$K"
+sed -i.bak 's|"name": "PlayerSave"|"name": "PlayerData_legacy-example-a"|' "$K/studwork-adopt-report.json"
+rm -f "$K/studwork-adopt-report.json.bak"
+(cd "$K" && tgit commit -q -am "report") >>"$LOGS/setup.log" 2>&1
+BEFORE="$(snapshot "$K")"
+expect_fail "refuses a game id whose store the old game uses" "PlayerData_legacy-example-a" \
+	"$ADOPT" --init "$K" --name legacy-example-a --url "$WORK/studwork" --tag "$TAG" --no-install
+check "store collision: nothing written" test "$(snapshot "$K")" = "$BEFORE"
+check "store collision: suggests --name" grep -q -- "--name" "$(logof "refuses a game id whose store the old game uses")"
+
+S="$WORK/symlinked"
+make_legacy "$S"
+mkdir -p "$WORK/outside"
+ln -s "$WORK/outside" "$S/modules"
+(cd "$S" && tgit add modules && tgit commit -q -m "modules link") >>"$LOGS/setup.log" 2>&1
+BEFORE="$(snapshot "$S")"
+expect_fail "refuses a write through a symlink out of the project" "refusing to write outside" \
+	"$ADOPT" --init "$S" --name legacy-example-a --url "$WORK/studwork" --tag "$TAG" --no-install
+check "symlink: nothing written (project or outside)" sh -c "test '$(snapshot "$S")' = '$BEFORE' && test -z \"\$(ls -A '$WORK/outside')\""
+
+# the real run
+step "init" "${INIT[@]}"
+INIT_LOG="$(logof init)"
+check "studwork/ is a submodule at $TAG" test "$(git -C "$G/studwork" describe --tags --exact-match HEAD 2>/dev/null)" = "$TAG"
+check "no commit made (HEAD unchanged)" test "$(git -C "$G" rev-parse HEAD)" = "$HEAD0"
+check "the old game's files are untouched" test "$(legacy_hash)" = "$LEGACY_HASH"
+check "studwork.json: adopted single-game" sh -c "grep -q '\"layout\": \"single-game\"' '$G/studwork.json' && grep -q '\"adopted\": true' '$G/studwork.json'"
+check "studwork.json: no placeFile (a Rojo game)" sh -c "! grep -q placeFile '$G/studwork.json'"
+EXPECTED_BASELINE='  "legacyBaseline": {
+    "files": {
+      "src/server/SaveManager.server.luau": {
+        "purchases": 2
+      },
+      "src/server/Shop.server.luau": {
+        "numbers": 1,
+        "remotes": 2
+      },
+      "src/shared/Settings.luau": {
+        "numbers": 1
+      }
+    }
+  }'
+printf '%s\n' "$EXPECTED_BASELINE" >"$LOGS/expected-baseline.txt"
+check "legacyBaseline: per file, per check counts" sh -c \
+	"grep -A13 '\"legacyBaseline\"' '$G/studwork.json' | diff - '$LOGS/expected-baseline.txt' >/dev/null"
+LEG="$G/studwork-legacy.json"
+check "studwork-legacy.json: 3 files" test "$(grep -c '"path":' "$LEG")" = 3
+check "studwork-legacy.json: the DataStore file, reason from the audit" \
+	grep -q '"reason": "old save code (DataStore PlayerSave) before StudWork (audit)' "$LEG"
+check "studwork-legacy.json: the remote file, reason from the audit" grep -q '"reason": "old remote handlers before StudWork' "$LEG"
+check "studwork-legacy.json: a generic reason without an audit note" \
+	grep -q '"reason": "existing code before StudWork: numbers"' "$LEG"
+check "studwork-legacy.json: Shop lists numbers + remotes" sh -c "tr -d ' \n' <'$LEG' | grep -q '\"path\":\"src/server/Shop.server.luau\",\"checks\":\\[\"numbers\",\"remotes\"\\]'"
+for w in _studwork lint typecheck test dev install doctor sync-projects make-module make-migration adopt test-migration; do
+	check "wrapper tools/$w" test -x "$G/tools/$w"
+done
+check "the user's own tools/build is left alone" sh -c "grep -q 'the old game' '$G/tools/build' && grep -q 'left alone tools/build' '$INIT_LOG'"
+check "hook .githooks/pre-commit" test -x "$G/.githooks/pre-commit"
+check "game module modules/legacy-example-a/" test -f "$G/modules/legacy-example-a/module.luau"
+check "game module: data key = the game id" grep -q 'key = "legacy-example-a"' "$G/modules/legacy-example-a/module.luau"
+check "game module server: stubbed importLegacy / legacyReceipts / onLegacyProduct" sh -c \
+	"grep -q '_ctx.data.importLegacy' '$G/modules/legacy-example-a/server/init.luau' && grep -q '_ctx.shop.legacyReceipts' '$G/modules/legacy-example-a/server/init.luau' && grep -q '_ctx.shop.onLegacyProduct' '$G/modules/legacy-example-a/server/init.luau'"
+check "game module README: the save-map table" grep -q '| Old store | Old field | New home | Notes |' "$G/modules/legacy-example-a/README.md"
+check "src/shared/Config (was missing) with the game id" grep -q 'gameId = "legacy-example-a"' "$G/src/shared/Config/init.luau"
+PJ="$G/default.project.json"
+check "project file keeps the old entries" sh -c "grep -q '\"src/server\"' '$PJ' && grep -q '\"src/shared\"' '$PJ' && grep -q '\"src/client\"' '$PJ'"
+check "project file maps the framework" grep -q '"studwork/packages/framework/server"' "$PJ"
+check "project file maps the game module" grep -q '"modules/legacy-example-a/server"' "$PJ"
+check "project file: kit modules (tools/sync-projects)" grep -q '"studwork/packages/kits/economy/Economy/module.luau"' "$PJ"
+check "project file: old keys first (name, then tree with Server first)" sh -c \
+	"grep -n '\"Server\"\\|\"Framework\"' '$PJ' | head -1 | grep -q '\"Server\"'"
+check ".gitignore merged (old line kept, StudWork lines added)" sh -c "grep -q '^node_modules/' '$G/.gitignore' && grep -q '^/.cache/' '$G/.gitignore'"
+ABS_HITS="$(cd "$G" && git ls-files --others --modified --exclude-standard | grep -v '^\.gitmodules$' |
+	while IFS= read -r f; do grep -l -e "$WORK" -e "$HOME" -e "$CORE_ROOT" "$f" 2>/dev/null; done || true)"
+check "no absolute paths in the files init wrote${ABS_HITS:+ ($ABS_HITS)}" test -z "$ABS_HITS"
+
+# the project's own tools
+step sync-projects-check tools/sync-projects --check
+# (tools/build is the old game's own script here, left alone: the StudWork build is tools/_studwork build)
+step build tools/_studwork build
+check "build: a place file in build/" sh -c "ls '$G'/build/*.rbxl >/dev/null 2>&1"
+step test tools/test
+check "test: the game module's spec ran" grep -q "modules/legacy-example-a/module.spec.luau" "$(logof test)"
+step typecheck tools/typecheck
+# LEAD: switch this on after merging D (transitional guardrails, adopting.md §5): tools/lint passes
+# with only legacy warnings. On this branch the legacy list isn't read yet, so lint fails on the
+# old code (and on the staged studwork/ + .gitmodules mix, see REPORT_B "cross-agent notes").
+#   step lint tools/lint
+#   check "lint: only legacy warnings" grep -q "warning: \[legacy\]" "$(logof lint)"
+(cd "$G" && tools/lint) >"$(logof lint-informational)" 2>&1 || true
+
+# repeatable: a second run and a dry run change nothing
+BEFORE="$(snapshot "$G")"
+step "init again" "${INIT[@]}"
+check "second --init: byte-identical" test "$(snapshot "$G")" = "$BEFORE"
+step "init --dry-run after init" "${INIT[@]}" --dry-run
+check "dry run after init: nothing written" test "$(snapshot "$G")" = "$BEFORE"
+check "dry run after init: nothing to create or change" sh -c "! grep -q '^would \(create\|change\) ' '$(logof "init --dry-run after init")'"
+
+# a committed baseline is never rewritten, even with more legacy findings
+(cd "$G" && tgit add -A && tgit commit -q -m "StudWork adopted") >>"$LOGS/setup.log" 2>&1
+BASE_HASH="$(shasum "$G/studwork.json" "$G/studwork-legacy.json")"
+printf '\nlocal _extra = Instance.new("RemoteEvent")\n' >>"$G/src/server/Shop.server.luau"
+(cd "$G" && tgit commit -q -am "more old code") >>"$LOGS/setup.log" 2>&1
+step "init after a commit" "${INIT[@]}"
+check "committed legacyBaseline + list never rewritten" test "$(shasum "$G/studwork.json" "$G/studwork-legacy.json")" = "$BASE_HASH"
+check "init after a commit: tree still clean" test -z "$(git -C "$G" status --porcelain)"
+
+if [ "$FAIL" -eq 0 ]; then
+	echo "test-adopt: all passed (tools/adopt --init with StudWork $VERSION as studwork/ at $TAG)"
+else
+	echo "test-adopt: FAILED (logs: $LOGS; rerun with --keep to inspect)"
+	exit 1
+fi
