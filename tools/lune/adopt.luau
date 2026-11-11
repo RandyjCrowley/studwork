@@ -12,6 +12,12 @@
 	                                    refusal (nothing written then).
 	  --verify <project>                re-runs the audit (writes nothing) and exits 1 while
 	                                    anything unsafe for going live is left, one line each.
+	  --strip-place <project> <path> [...]   (v1.6.0 dogfood r2) a place-file game's scripts and
+	                                    remotes retired from the place: studwork.json's placeFile
+	                                    without the named instances (full dotted paths, as in the
+	                                    report's notExtracted[].path) -> <name>.studwork.rbxlx next
+	                                    to it, studwork.json pointed at the copy. The original is
+	                                    never modified; run again to remove more from the copy.
 	Usage errors exit 2. Never touches live data, never publishes.
 ]]
 local fs = require("@lune/fs")
@@ -25,8 +31,8 @@ local Scan = require("./AdoptScan")
 local Audit = require("./AdoptAudit")
 local Place = require("./AdoptPlace")
 
-local USAGE =
-	"usage: tools/adopt --audit <project|place> [...] | --from-place <file> [--out <dir>] | --verify <project>"
+local USAGE = "usage: tools/adopt --audit <project|place> [...] | --from-place <file> [--out <dir>]"
+	.. " | --verify <project> | --strip-place <project> <instance path> [...]"
 
 local function studworkVersion(): string
 	local ok, text = pcall(fs.readFile, Roots.core("packages/framework/shared/init.luau"))
@@ -188,6 +194,45 @@ elseif mode == "--verify" then
 		process.exit(1)
 	end
 	print("tools/adopt --verify: clean")
+	process.exit(0)
+elseif mode == "--strip-place" then
+	if #args < 3 then
+		usage("--strip-place needs the project and at least one instance path")
+	end
+	local paths = {}
+	for i = 3, #args do
+		if string.sub(args[i], 1, 2) == "--" then
+			usage("unknown option " .. args[i])
+		end
+		table.insert(paths, args[i])
+	end
+	local projectAbs = resolve(args[2])
+	if not fs.isDir(projectAbs) then
+		fail(args[2] .. " is not a folder", 1)
+	end
+	local res, err = Place.strip(env, projectAbs, paths)
+	if res == nil then
+		fail(tostring(err), 1)
+	end
+	for _, r in res.removed do
+		print(
+			"  removed "
+				.. r.path
+				.. " ("
+				.. r.class
+				.. ")"
+				.. (if r.covered then " (inside another named path)" else "")
+		)
+	end
+	print(
+		"tools/adopt --strip-place: wrote "
+			.. res.out
+			.. (if res.markerChanged then "; studwork.json placeFile -> " .. res.out else "")
+			.. "; "
+			.. res.source
+			.. (if res.source == res.out then " (the copy) updated" else " left untouched")
+	)
+	print("  next: tools/adopt --verify " .. args[2] .. ", open " .. res.out .. " in Studio to check the map")
 	process.exit(0)
 else
 	usage(nil)

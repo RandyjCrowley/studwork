@@ -400,3 +400,85 @@ describe("AdoptInit helpers", function()
 		end
 	end)
 end)
+
+describe("AdoptInit (v1.6.0 dogfood r2)", function()
+	local NewProject = require("tools/lune/NewProject.luau")
+	local TEMPLATE = fs.readFile("templates/adopt/config/init.luau.tmpl")
+	local REPORT = {
+		purchases = {
+			products = { { id = 5556 }, { id = 5555 }, { id = 5555 }, { id = "x" } },
+			passes = { { id = 2222 } },
+		},
+	}
+
+	it(
+		"renders a minimal GameConfig: chosen modules at defaults, the audit's ids, no sandbox content",
+		function()
+			local text, err = AdoptInit.renderConfig(
+				TEMPLATE,
+				NewProject.render,
+				"my-game",
+				{ "Items", "Inventory", "Economy" },
+				REPORT
+			)
+			expect(err).toBeNil()
+			expect(text).toContain('gameId = "my-game"')
+			expect(text).toContain('require(Modules:WaitForChild("Inventory"):WaitForChild("module")),')
+			expect(text).toContain("-- Economy = {}, -- at its defaults")
+			expect(text).toContain("compliance = { paidCurrencies = {} },")
+			expect(text).toContain("items = {},")
+			expect(text).toContain("events = {},")
+			expect(text).toContain("Product5555 = 5555, -- TODO: name it")
+			expect(text).toContain("Product5556 = 5556, -- TODO: name it")
+			expect(text).toContain("Pass2222 = 2222, -- TODO: name it")
+			for _, sandbox in
+				{ "pebble", "starterItems", "rarityTables", "CoinRain", "DoubleCoins", "CoinPack" }
+			do
+				expect(string.find(text, sandbox, 1, true)).toBeNil()
+			end
+			local _, count = string.gsub(text, "Product5555", "")
+			expect(count).toBe(1)
+		end
+	)
+
+	it("renders no kit and no Modules lookup for --modules none, and no ids without a report", function()
+		local text = AdoptInit.renderConfig(TEMPLATE, NewProject.render, "my-game", {}, nil)
+		expect(string.find(text, "WaitForChild", 1, true)).toBeNil()
+		expect(string.find(text, "Product%d")).toBeNil()
+		expect(AdoptInit.reportProducts(nil)).toEqual({})
+	end)
+
+	it("says exactly what to do about a ProcessReceipt file", function()
+		local msg = AdoptInit.mustFixMessage("src/server/Shop.server.luau", "my-game", { "purchases" })
+		expect(msg).toBe(
+			"must fix before lint passes: port every product of src/server/Shop.server.luau to ctx.shop.onProduct in modules/my-game/server/init.luau and delete the ProcessReceipt assignment before the first commit (products aren't granted on this branch until then)"
+		)
+		expect(AdoptInit.mustFixMessage("x.luau", "my-game", { "special" })).toContain("special findings")
+		local _, _, mustFix, checks = AdoptInit.legacyList({
+			{
+				path = "a.luau",
+				line = 1,
+				check = "purchases",
+				message = "only the framework Shop assigns MarketplaceService.ProcessReceipt",
+			},
+			{ path = "a.luau", line = 2, check = "numbers", message = "n" },
+		}, nil)
+		expect(mustFix).toEqual({ "a.luau" })
+		expect(checks["a.luau"]).toEqual({ "purchases" })
+	end)
+
+	it("maps the game module's client part next to its definition", function()
+		local merged = AdoptInit.mergeProject(SyncProjects, LEGACY_PROJECT, "legacy-example-a")
+		local tree = SyncProjects.decode(merged).vals.tree
+		local gm = tree.vals.ReplicatedStorage.vals.GameModule
+		expect(gm.vals.client.vals["$path"]).toBe("modules/legacy-example-a/client")
+		expect(gm.vals.module.vals["$path"]).toBe("modules/legacy-example-a/module.luau")
+		-- an older adopted project (GameModule.module only) gets the client part added
+		local old =
+			string.gsub(merged, ',%s*"client": {%s*"%$path": "modules/legacy%-example%-a/client"%s*}', "")
+		expect(string.find(old, "legacy-example-a/client", 1, true)).toBeNil()
+		local again, added = AdoptInit.mergeProject(SyncProjects, old, "legacy-example-a")
+		expect(table.find(added, "ReplicatedStorage.GameModule.client")).never.toBeNil()
+		expect(again).toBe(merged)
+	end)
+end)

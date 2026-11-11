@@ -12,7 +12,7 @@ case "${1:-}" in
 	shift
 	exec "$CORE_ROOT/tools/_adopt-init" "$@"
 	;;
---audit | --from-place | --verify)
+--audit | --from-place | --verify | --strip-place)
 	lune_tool adopt "$@"
 	;;
 *)

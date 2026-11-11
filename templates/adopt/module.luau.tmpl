@@ -3,7 +3,8 @@
 	{{Module}}: the game's own module (module-api.md §7 C4), added by `tools/adopt --init` (StudWork
 	{{tag}}, studwork/docs/framework/adopting.md §2). The framework adds it to GameConfig.modules by
 	itself; its save section key is the game id ("{{gameId}}"). Rojo: this file ->
-	ReplicatedStorage.GameModule.module, server/ -> ServerScriptService.Modules.{{Module}}.
+	ReplicatedStorage.GameModule.module, client/ -> ReplicatedStorage.GameModule.client
+	(the kept UI's code), server/ -> ServerScriptService.Modules.{{Module}}.
 	dependsOn: the kit modules the migrated code uses (keep it in step with GameConfig.modules in
 	src/shared/Config/init.luau). The old save's fields land in those kits (through their txApi) or
 	in this module's own section: see README.md (the save map).
@@ -26,4 +27,5 @@ return StudWork.defineModule({
 		default = {},
 	},
 	server = "{{Module}}",
+	client = "{{Module}}", -- the client part: client/init.luau (ReplicatedStorage.GameModule.client)
 })

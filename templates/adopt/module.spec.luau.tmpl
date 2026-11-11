@@ -1,13 +1,12 @@
--- The game module (tools/adopt --init): its server part loads and its definition passes
--- StudWork.defineModule. Grows with the migration (importLegacy fixtures: tools/test-migration).
+-- The game module (tools/adopt --init): its definition passes StudWork.defineModule, and the
+-- game boots for real (the Config, this module and every kit it lists) in the StudWork sim.
+-- (v1.6.0) This spec never requires server/init.luau itself: a migrated server part may call
+-- game:GetService("Players") or require Game.Config at its top, which only works in a booted
+-- game (the sim provides both), not at a spec's load. Grows with the migration (importLegacy
+-- fixtures: tools/test-migration).
 local StudWork = require(game:GetService("ReplicatedStorage"):WaitForChild("Framework"))
-local Server = require(script.Parent.server)
 
 describe("{{Module}} game module", function()
-	it("has a server part with init and start", function()
-		expect(type(Server.init)).toBe("function")
-		expect(type(Server.start)).toBe("function")
-	end)
 	it("is a valid module definition with the game id as its data key", function()
 		local def = StudWork.defineModule({
 			name = "{{Module}}",
@@ -16,5 +15,14 @@ describe("{{Module}} game module", function()
 			data = { key = "{{gameId}}", version = 1, default = {} },
 		})
 		expect(def.name).toBe("{{Module}}")
+	end)
+	it("boots the game (Config, game module, kits) with no errors and loads a player", function()
+		local r = StudWork.test.sim.bootGame("{{projectFile}}")
+		if #r.errors > 0 or #r.bootWarnings > 0 then
+			error(table.concat(r.errors, "\n") .. "\n" .. table.concat(r.bootWarnings, "\n"))
+		end
+		expect(r.state).toBe("running")
+		expect(r.loaded).toBe(true)
+		expect(table.find(r.names, "{{Module}}") ~= nil).toBe(true)
 	end)
 end)

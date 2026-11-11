@@ -19,7 +19,7 @@
 	        note<TAB><text>
 	      Never overwrites a file it doesn't merge; the merged files are the project file and
 	      .gitignore.
-	  lune run tools/lune/adopt-init legacy <project> <findings file> dry|apply
+	  lune run tools/lune/adopt-init legacy <project> <findings file> dry|apply [<gameId>]
 	      the guardrails findings (the text `guardrails --raw` prints) -> studwork-legacy.json and
 	      studwork.json's legacyBaseline. The bash side calls it only on the run that created
 	      studwork.json (a committed baseline is never rewritten).
@@ -51,6 +51,11 @@ if cmd == "parse" then
 		print("error: " .. tostring(err))
 		process.exit(1)
 	end
+	if opts.modules and #opts.modules == 1 and string.lower(opts.modules[1]) == "none" then
+		-- (v1.6.0 dogfood r2) --modules none: no kit module (the game module alone)
+		opts.modules = nil
+		opts.noModules = true
+	end
 	if opts.modules then
 		local KitModules = require("./KitModules")
 		local order, added, errors = NewGame.resolveModules(KitModules.load(fs), opts.modules)
@@ -74,7 +79,10 @@ if cmd == "parse" then
 	end
 	out("path", opts.path)
 	out("name", opts.name)
-	out("modules", if opts.modules then table.concat(opts.modules, ",") else nil)
+	out(
+		"modules",
+		if opts.noModules then "none" elseif opts.modules then table.concat(opts.modules, ",") else nil
+	)
 	out("url", opts.url)
 	out("tag", opts.tag)
 	out("dryRun", if opts.dryRun then "1" else "0")
@@ -180,7 +188,10 @@ if cmd == "plan" then
 
 	local KitModules = require("./KitModules")
 	local Modules = KitModules.load(fs)
-	local chosen = if modulesArg == "-" or modulesArg == "" then nil else string.split(modulesArg, ",")
+	local chosen = if modulesArg == "-" or modulesArg == ""
+		then nil
+		elseif modulesArg == "none" then {}
+		else string.split(modulesArg, ",")
 	local moduleList = chosen or Modules.ORDER
 	local moduleName = AdoptInit.moduleName(gameId)
 
@@ -238,6 +249,7 @@ if cmd == "plan" then
 		Module = moduleName,
 		tag = tag,
 		dependsOn = AdoptInit.dependsOnLines(moduleList),
+		projectFile = projectFile,
 	}
 	local moduleSource = render(templates .. "/adopt/module.luau.tmpl", vars)
 	if #moduleList == 0 then
@@ -247,6 +259,7 @@ if cmd == "plan" then
 	create(moduleDir .. "/module.luau", moduleSource)
 	create(moduleDir .. "/server/init.luau", render(templates .. "/adopt/server/init.luau.tmpl", vars))
 	create(moduleDir .. "/module.spec.luau", render(templates .. "/adopt/module.spec.luau.tmpl", vars))
+	create(moduleDir .. "/client/init.luau", render(templates .. "/adopt/client/init.luau.tmpl", vars))
 	create(moduleDir .. "/README.md", render(templates .. "/adopt/README.md.tmpl", vars))
 
 	-- the boot scripts (StudWork.start on both sides), mapped by the merged project file
@@ -254,47 +267,22 @@ if cmd == "plan" then
 		create("studwork-boot/" .. f, fs.readFile(templates .. "/adopt/boot/" .. f))
 	end
 
-	-- src/shared/Config (only when the game has none): templates/new-game's, for the chosen modules
+	-- src/shared/Config (only when the game has none): a MINIMAL GameConfig (templates/adopt/config,
+	-- v1.6.0 dogfood r2): the chosen modules at their defaults, the audit's product ids, nothing
+	-- of the new-game sandbox (its items, rarity tables, starter items and events aren't this game's)
 	if not fs.isDir(at("src/shared/Config")) then
-		local chosenSet = {}
-		for _, n in moduleList do
-			chosenSet[n] = true
+		local text, err = AdoptInit.renderConfig(
+			fs.readFile(templates .. "/adopt/config/init.luau.tmpl"),
+			NewProject.render,
+			gameId,
+			moduleList,
+			report
+		)
+		if text == nil then
+			print("error: templates/adopt/config/init.luau.tmpl: " .. tostring(err))
+			process.exit(1)
 		end
-		local configDir = templates .. "/new-game/src/shared/Config"
-		local entries = fs.readDir(configDir)
-		table.sort(entries)
-		for _, e in entries do
-			if not string.match(e, "%.luau$") then
-				continue
-			end
-			local text = fs.readFile(configDir .. "/" .. e)
-			if string.find(text, "-- @", 1, true) then
-				local out, err = NewGame.applyMarkers(text, chosenSet)
-				if out == nil then
-					print("error: " .. tostring(err) .. " (" .. e .. ")")
-					process.exit(1)
-				end
-				text = NewGame.pruneKitLocals(out)
-			end
-			if e == "init.luau" then
-				local replaced, count =
-					string.gsub(text, 'gameId = "[^"]*"', 'gameId = "' .. gameId .. '"', 1)
-				if count ~= 1 then
-					print("error: could not find gameId in the template's Config/init.luau")
-					process.exit(1)
-				end
-				text = replaced
-				if chosen then
-					local rewritten, rewriteError = NewGame.rewriteModulesBlock(text, chosen)
-					if rewritten == nil then
-						print("error: " .. tostring(rewriteError))
-						process.exit(1)
-					end
-					text = NewGame.pruneKitLocals(rewritten)
-				end
-			end
-			create("src/shared/Config/" .. e, text)
-		end
+		create("src/shared/Config/init.luau", text)
 	else
 		print(
 			"note\tsrc/shared/Config exists: kept as it is (GameConfig.modules must list the kits the game module depends on)"
@@ -371,12 +359,13 @@ if cmd == "legacy" then
 	local project = absProject(args[1])
 	local findingsFile, mode = args[2], args[3]
 	if findingsFile == nil or (mode ~= "dry" and mode ~= "apply") then
-		print("usage: adopt-init legacy <project> <findings file> dry|apply")
+		print("usage: adopt-init legacy <project> <findings file> dry|apply [<gameId>]")
 		process.exit(2)
 	end
 	local findings = AdoptInit.parseFindings(fs.readFile(findingsFile))
 	local report = readJson(project .. "/studwork-adopt-report.json")
-	local list, baseline, mustFix = AdoptInit.legacyList(findings, report)
+	local gameId = args[4]
+	local list, baseline, mustFix, mustFixChecks = AdoptInit.legacyList(findings, report)
 	local marker = readJson(project .. "/studwork.json")
 	if type(marker) ~= "table" or marker.adopted ~= true then
 		print("error: studwork.json is missing or not adopted")
@@ -398,9 +387,7 @@ if cmd == "legacy" then
 		print(`  {entry.path}: {table.concat(entry.checks, ", ")}`)
 	end
 	for _, path in mustFix do
-		print(
-			`must fix before lint passes: {path} (ProcessReceipt / special / packages are never downgraded)`
-		)
+		print(AdoptInit.mustFixMessage(path, gameId or "<gameId>", mustFixChecks[path]))
 	end
 	process.exit(0)
 end

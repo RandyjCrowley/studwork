@@ -1,0 +1,20 @@
+--!strict
+--[[
+	{{Module}} client (the game module's client part), added by `tools/adopt --init`. Rojo maps
+	this folder as ReplicatedStorage.GameModule.client; the StudWork client runtime runs its
+	init / start after the framework HUD is up (module-api.md §9, §19.9).
+
+	Kept UI goes here: the old game's LocalScript logic (the UI it drives stays where it is, in
+	StarterGui or the place). Read state through StudWork.Client, buy through the framework Shop,
+	and fire the game module's own actions instead of the old RemoteEvents.
+]]
+
+local {{Module}}Client = {}
+
+function {{Module}}Client.init(_ctx: any) end
+
+function {{Module}}Client.start(_ctx: any)
+	-- kept UI goes here
+end
+
+return {{Module}}Client

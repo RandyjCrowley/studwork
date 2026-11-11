@@ -294,3 +294,101 @@ coins.Parent = ls
 		expect(Scan.scan("-- only a comment\n").empty).toBe(true)
 	end)
 end)
+
+describe("AdoptScan (v1.6.0 dogfood r2)", function()
+	it("derives a key built by a local helper function", function()
+		local res = Scan.scan([[
+local DataStoreService = game:GetService("DataStoreService")
+local store = DataStoreService:GetDataStore("PlayerSave_v3")
+local function keyFor(player)
+	return "Player_" .. player.UserId
+end
+local historyKey = function(plr, id) return plr.UserId .. "_" .. id end
+local function load(player)
+	return store:GetAsync(keyFor(player))
+end
+local function save(p, data)
+	store:SetAsync(keyFor(p), data)
+	store:SetAsync(historyKey(p, "x"), true)
+end
+]])
+		expect(ops(store(res, "PlayerSave_v3"))).toBe(
+			"GetAsync@8=Player_{userId} SetAsync@11=Player_{userId} SetAsync@12={userId}_x"
+		)
+	end)
+
+	it('reads the purchase-history key receiptInfo.PlayerId .. "_" .. receiptInfo.PurchaseId', function()
+		local res = Scan.scan([[
+local history = game:GetService("DataStoreService"):GetDataStore("PurchaseHistory")
+local function grant(receiptInfo)
+	local playerProductKey = receiptInfo.PlayerId .. "_" .. receiptInfo.PurchaseId
+	history:SetAsync(playerProductKey, true)
+end
+]])
+		expect(ops(store(res, "PurchaseHistory"))).toBe("SetAsync@4={userId}_{purchaseId}")
+	end)
+
+	it("still says <dynamic> for a helper it can't read", function()
+		local res = Scan.scan([[
+local store = game:GetService("DataStoreService"):GetDataStore("S")
+local function keyFor(player)
+	if player then return "a" end
+	return "b"
+end
+store:GetAsync(keyFor(player))
+store:GetAsync(unknownHelper(player))
+]])
+		expect(ops(store(res, "S"))).toBe("GetAsync@6=<dynamic> GetAsync@7=<dynamic>")
+	end)
+
+	it("doesn't count a receipt history write ([receipt.PurchaseId] = true) as sold", function()
+		local res = Scan.scan([[
+local MarketplaceService = game:GetService("MarketplaceService")
+MarketplaceService.ProcessReceipt = function(receipt)
+	local data = Sessions[receipt.PlayerId]
+	if data.Purchases[receipt.PurchaseId] then return Enum.ProductPurchaseDecision.PurchaseGranted end
+	if receipt.ProductId == 4444 then
+		data.gems += 100
+	end
+	data.Purchases[receipt.PurchaseId] = true
+	return Enum.ProductPurchaseDecision.PurchaseGranted
+end
+]])
+		expect(#res.purchases.products).toBe(1)
+		expect(res.purchases.products[1].sold).toEqual({ "gems" })
+		expect(res.purchases.products[1].writes).toBe(true)
+	end)
+
+	it("marks a handler that writes through a table / _G handle (no sold field it can name)", function()
+		local res = Scan.scan([[
+local MarketplaceService = game:GetService("MarketplaceService")
+MarketplaceService.ProcessReceipt = function(receipt)
+	local plr = game.Players:GetPlayerByUserId(receipt.PlayerId)
+	if receipt.ProductId == 5555 then
+		_G.Stores[plr].coins:Increment(500, 0)
+	end
+	return Enum.ProductPurchaseDecision.PurchaseGranted
+end
+]])
+		expect(res.purchases.products[1].id).toBe(5555)
+		expect(res.purchases.products[1].sold).toEqual({})
+		expect(res.purchases.products[1].writes).toBe(true)
+	end)
+
+	it("randomGrants: randomness in a function that grants, not visual randomness", function()
+		local visual = Scan.scan([[
+local function placeOrb(orb)
+	orb.Position = Vector3.new(math.random(-50, 50), 3, math.random(-50, 50))
+end
+]])
+		expect(visual.random).toBe(true)
+		expect(visual.randomGrants).toBe(false)
+		local grants = Scan.scan([[
+local function roll(data)
+	local pick = math.random(1, 100)
+	table.insert(data.pets, pick)
+end
+]])
+		expect(grants.randomGrants).toBe(true)
+	end)
+end)

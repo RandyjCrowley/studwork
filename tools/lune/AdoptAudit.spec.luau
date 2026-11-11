@@ -367,3 +367,162 @@ describe("AdoptAudit.verifyIssues", function()
 		fs.removeDir(root)
 	end)
 end)
+
+describe("AdoptAudit: dogfood round 2 (v1.6.0)", function()
+	it("lists only the DataStore2 master key; combined keys aren't stores of their own", function()
+		local report = audit("datastore2")
+		local stores = {}
+		for _, l in report.libraries do
+			table.insert(stores, l.store)
+		end
+		expect(stores).toEqual({ "DATA" })
+		local saveMap = nil
+		for _, step in report.plan do
+			if string.find(step["do"], "Old stores:", 1, true) then
+				saveMap = step["do"]
+			end
+		end
+		expect(saveMap).toContain("Old stores: DATA (DataStore2).")
+		expect(string.find(saveMap, "coins (DataStore2)", 1, true)).toBeNil()
+	end)
+
+	it("skips Blink-generated Net.luau and Generated*.luau files", function()
+		local root = tmpRoot()
+		write(
+			root .. "/default.project.json",
+			'{ "name": "x", "tree": { "$className": "DataModel", "ServerScriptService": { "Mod": { "$path": "modules/my-game/server" } }, "ReplicatedStorage": { "Mod": { "$path": "modules/my-game/client" }, "Gen": { "$path": "src/GeneratedRemotes.luau" } } } }'
+		)
+		write(
+			root .. "/modules/my-game/net.blink",
+			"event Buy { from: Client, type: Reliable, call: SingleSync }\n"
+		)
+		write(root .. "/modules/my-game/server/init.luau", "return {}\n")
+		local generated =
+			'local r = Instance.new("RemoteEvent")\nr.Name = "BLINK_EVENT"\n_G.blink = r\nreturn {}\n'
+		write(root .. "/modules/my-game/server/Net.luau", generated)
+		write(root .. "/modules/my-game/client/init.luau", "return {}\n")
+		write(root .. "/modules/my-game/client/Net.luau", generated)
+		write(root .. "/src/GeneratedRemotes.luau", generated)
+		local report = Audit.run(env, { root }, { write = false })
+		local paths = {}
+		for _, sc in report.scripts do
+			table.insert(paths, sc.path)
+		end
+		table.sort(paths)
+		expect(paths).toEqual({ "modules/my-game/client/init.luau", "modules/my-game/server/init.luau" })
+		expect(#report.remotes).toBe(0)
+		expect(#report.globals).toBe(0)
+		fs.removeDir(root)
+	end)
+
+	it("rates paid_random_no_odds only for server randomness in a function that grants", function()
+		local root = tmpRoot()
+		write(
+			root .. "/default.project.json",
+			'{ "name": "x", "tree": { "$className": "DataModel", "ServerScriptService": { "$path": "src/server" }, "StarterPlayer": { "StarterPlayerScripts": { "$path": "src/client" } } } }'
+		)
+		-- the client: visual randomness next to a purchase prompt (agent c's orbs)
+		write(
+			root .. "/src/client/hud.client.luau",
+			[[local MarketplaceService = game:GetService("MarketplaceService")
+local function placeOrb(orb)
+	orb.Position = Vector3.new(math.random(-50, 50), 3, math.random(-50, 50))
+end
+MarketplaceService:PromptProductPurchase(game.Players.LocalPlayer, 5555)
+]]
+		)
+		-- the server: a receipt handler next to a roll that grants
+		write(
+			root .. "/src/server/Shop.server.luau",
+			[[local MarketplaceService = game:GetService("MarketplaceService")
+local Sessions = {}
+local function spawnSparkle(part)
+	part.Position = Vector3.new(math.random(1, 5), 0, 0)
+end
+MarketplaceService.ProcessReceipt = function(receipt)
+	local data = Sessions[receipt.PlayerId]
+	if data.Purchases[receipt.PurchaseId] then return Enum.ProductPurchaseDecision.PurchaseGranted end
+	if receipt.ProductId == 6666 then
+		data.gems += 10
+	end
+	data.Purchases[receipt.PurchaseId] = true
+	return Enum.ProductPurchaseDecision.PurchaseGranted
+end
+]]
+		)
+		local report = Audit.run(env, { root }, { write = false })
+		expect(riskKinds(report).paid_random_no_odds).toBeNil()
+		-- the receipt history field isn't sold
+		local p6666 = nil
+		for _, pr in report.purchases.products do
+			if pr.id == 6666 then
+				p6666 = pr
+			end
+		end
+		expect(p6666.sold).toEqual({ "gems" })
+		write(
+			root .. "/src/server/Roll.server.luau",
+			[[local MarketplaceService = game:GetService("MarketplaceService")
+local function rollPet(data)
+	local pick = math.random(1, 100)
+	table.insert(data.pets, pick)
+end
+MarketplaceService:PromptProductPurchase(game.Players:GetPlayers()[1], 7777)
+]]
+		)
+		local report2 = Audit.run(env, { root }, { write = false })
+		expect(riskKinds(report2, "high").paid_random_no_odds).toBe(true)
+		fs.removeDir(root)
+	end)
+
+	it("adds a medium risk when a product handler writes save data but no sold field was found", function()
+		local root = tmpRoot()
+		write(
+			root .. "/default.project.json",
+			'{ "name": "x", "tree": { "$className": "DataModel", "ServerScriptService": { "$path": "src" } } }'
+		)
+		write(
+			root .. "/src/shop.server.luau",
+			[[local MarketplaceService = game:GetService("MarketplaceService")
+MarketplaceService.ProcessReceipt = function(receipt)
+	local plr = game.Players:GetPlayerByUserId(receipt.PlayerId)
+	if receipt.ProductId == 5555 then
+		_G.Stores[plr].coins:Increment(500, 0)
+	end
+	return Enum.ProductPurchaseDecision.PurchaseGranted
+end
+]]
+		)
+		local report = Audit.run(env, { root }, { write = false })
+		expect(report.purchases.products[1].sold).toEqual({})
+		expect(riskKinds(report, "medium").sold_unknown).toBe(true)
+		fs.removeDir(root)
+	end)
+
+	it("derives keys built by a local helper: not critical", function()
+		local root = tmpRoot()
+		write(
+			root .. "/default.project.json",
+			'{ "name": "x", "tree": { "$className": "DataModel", "ServerScriptService": { "$path": "src" } } }'
+		)
+		write(
+			root .. "/src/DataManager.server.luau",
+			[[local DataStoreService = game:GetService("DataStoreService")
+local Players = game:GetService("Players")
+local store = DataStoreService:GetDataStore("PlayerSave_v3")
+local function keyFor(player)
+	return "Player_" .. player.UserId
+end
+Players.PlayerAdded:Connect(function(player)
+	local ok, data = pcall(function()
+		return store:UpdateAsync(keyFor(player), function(old) return old end)
+	end)
+end)
+]]
+		)
+		local report = Audit.run(env, { root }, { write = false })
+		expect(report.datastores[1].keyPatterns).toEqual({ "Player_{userId}" })
+		expect(riskKinds(report, "critical").key_not_derivable).toBeNil()
+		fs.removeDir(root)
+	end)
+end)

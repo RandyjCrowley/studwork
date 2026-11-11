@@ -331,6 +331,87 @@ step "init after a commit" "${INIT[@]}"
 check "committed legacyBaseline + list never rewritten" test "$(shasum "$G/studwork.json" "$G/studwork-legacy.json")" = "$BASE_HASH"
 check "init after a commit: tree still clean" test -z "$(git -C "$G" status --porcelain)"
 
+# (v1.6.0 dogfood r2) the game module's client part is mapped, the scaffold spec survives a real
+# server part, the minimal Config has none of the sandbox's content
+check "client part modules/legacy-example-a/client/init.luau (start, kept UI comment)" sh -c \
+	"grep -q 'function LegacyExampleAClient.start' '$G/modules/legacy-example-a/client/init.luau' && grep -q 'kept UI goes here' '$G/modules/legacy-example-a/client/init.luau'"
+check "client part mapped as ReplicatedStorage.GameModule.client" grep -q '"modules/legacy-example-a/client"' "$PJ"
+check "game module definition names its client part" grep -q 'client = "LegacyExampleA"' "$G/modules/legacy-example-a/module.luau"
+cat >"$WORK/probe-place.luau" <<'EOF'
+-- probe-place <place> <Service.A.B>: exit 0 when that ModuleScript exists in the built place
+local fs = require("@lune/fs")
+local process = require("@lune/process")
+local roblox = require("@lune/roblox")
+local place = roblox.deserializePlace(fs.readFile(process.args[1]))
+local parts = string.split(process.args[2], ".")
+local node = place:GetService(parts[1])
+for k = 2, #parts do
+	node = node and node:FindFirstChild(parts[k])
+end
+process.exit(if node and node:IsA("ModuleScript") then 0 else 1)
+EOF
+PLACE_BUILT="$(ls "$G"/build/*.rbxl 2>/dev/null | head -1)"
+check "build: the place has ReplicatedStorage.GameModule.client (a ModuleScript)" sh -c \
+	"cd '$CORE_ROOT' && lune run '$WORK/probe-place.luau' '$PLACE_BUILT' ReplicatedStorage.GameModule.client"
+check "minimal Config: no sandbox content (items, starter items, rarity tables, events, Coins)" sh -c \
+	"! grep -q -E 'pebble|starterItems|rarityTables|CoinRain|SecretDrop|DoubleCoins|CoinPack|\"Coins\"' '$G/src/shared/Config/init.luau' && grep -q 'paidCurrencies = {}' '$G/src/shared/Config/init.luau' && grep -q 'items = {}' '$G/src/shared/Config/init.luau'"
+SRV="$G/modules/legacy-example-a/server/init.luau"
+{
+	echo '--!strict'
+	echo 'local Players = game:GetService("Players") -- a real server part resolves services at its top'
+	echo 'local _players = Players'
+	tail -n +2 "$SRV"
+} >"$SRV.new" && mv "$SRV.new" "$SRV"
+step "test (server part with a top-level GetService)" tools/test
+check "the scaffold spec boots the game in the sim" grep -q "modules/legacy-example-a/module.spec.luau .*2 passed, 0 failed" \
+	"$(logof "test (server part with a top-level GetService)")"
+(cd "$G" && tgit checkout -q -- modules) >>"$LOGS/setup.log" 2>&1
+
+# --modules choices: each minimal Config boots (tools/test runs the scaffold spec's sim boot) and
+# typechecks; the audit's product ids land under placeholder names; an untracked audit report
+# never blocks init and is named in the next steps; a ProcessReceipt file gets the exact advice
+variant() {
+	local mods="$1" dir="$WORK/mods-$(echo "$1" | tr ',' '-')"
+	make_legacy "$dir"
+	cat >"$dir/src/server/Purchases.server.luau" <<'EOF'
+local MarketplaceService = game:GetService("MarketplaceService")
+
+MarketplaceService.ProcessReceipt = function(receipt)
+	if receipt.ProductId == 1234567 then
+		return Enum.ProductPurchaseDecision.PurchaseGranted
+	end
+	return Enum.ProductPurchaseDecision.NotProcessedYet
+end
+EOF
+	sed -i.bak 's|"products": \[\], "passes": \[\]|"products": [ { "id": 1234567, "file": "src/server/Purchases.server.luau", "line": 4, "sold": [], "random": false } ], "passes": [ { "id": 7654321, "file": "src/server/Purchases.server.luau", "line": 4 } ]|' \
+		"$dir/studwork-adopt-report.json"
+	rm -f "$dir/studwork-adopt-report.json.bak"
+	# the audit report stays untracked (written by tools/adopt --audit, not committed yet)
+	(cd "$dir" && tgit add src && tgit rm -q --cached studwork-adopt-report.json && tgit commit -q -m "receipts") >>"$LOGS/setup.log" 2>&1
+	local before="$G"
+	G="$dir"
+	step "init --modules $mods" "$ADOPT" --init "$dir" --name legacy-example-a --modules "$mods" --url "$WORK/studwork" --tag "$TAG" --no-install
+	local log
+	log="$(logof "init --modules $mods")"
+	check "--modules $mods: an untracked audit report didn't block init" test -f "$dir/studwork.json"
+	check "--modules $mods: next steps say to commit the audit report" grep -q "commit studwork-adopt-report\.\* with the adoption" "$log"
+	check "--modules $mods: exact ProcessReceipt advice" grep -q \
+		"port every product of src/server/Purchases.server.luau to ctx.shop.onProduct in modules/legacy-example-a/server/init.luau and delete the ProcessReceipt assignment before the first commit" "$log"
+	check "--modules $mods: the audit's product + pass ids under placeholder names" sh -c \
+		"grep -q 'Product1234567 = 1234567, -- TODO: name it' '$dir/src/shared/Config/init.luau' && grep -q 'Pass7654321 = 7654321, -- TODO: name it' '$dir/src/shared/Config/init.luau'"
+	step "tools/test (--modules $mods)" tools/test
+	check "--modules $mods: the scaffold spec's sim boot passed" grep -q "modules/legacy-example-a/module.spec.luau .*2 passed, 0 failed" \
+		"$(logof "tools/test (--modules $mods)")"
+	step "tools/typecheck (--modules $mods)" tools/typecheck
+	step "tools/_studwork build (--modules $mods)" tools/_studwork build
+	G="$before"
+}
+variant none
+check "--modules none: no kit in Config.modules" sh -c "! grep -q 'WaitForChild(\"module\")' '$WORK/mods-none/src/shared/Config/init.luau'"
+variant Economy
+variant Items,Inventory,Economy
+variant Items,Rarity,Inventory,Economy
+
 if [ "$FAIL" -eq 0 ]; then
 	echo "test-adopt: all passed (tools/adopt --init with StudWork $VERSION as studwork/ at $TAG)"
 else

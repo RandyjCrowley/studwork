@@ -25,7 +25,7 @@
 	    (`<path>:<line>: [<check>] <message>`), "./" stripped
 	mustFix(finding) -> boolean          never downgraded by the legacy list (adopting.md §5): the
 	                                     ProcessReceipt assignment, `special`, `packages`
-	legacyList(findings, report?) -> (list, baseline, mustFixFiles)
+	legacyList(findings, report?) -> (list, baseline, mustFixFiles, mustFixChecks { [path]: { check } })
 	    list = { files = { { path, checks, reason } } } sorted by path; baseline = { files = {
 	    [path] = { [check] = count } } }; reasons from the audit report when it explains the file
 	storeCollision(report, gameId) -> string?   an old store named PlayerData_<gameId>(_Studio)
@@ -34,6 +34,10 @@
 	mergeGitignore(existing?, template) -> text?   the template's missing lines appended; nil when
 	                                     nothing is missing
 	dependsOnLines(modules) -> string    the game module's dependsOn require lines
+	mustFixMessage(path, gameId, checks?) -> string   the exact next step for a never-downgraded file
+	reportProducts(report?) -> (productIds, passIds)  the audit's ids, sorted and unique
+	renderConfig(template, render, gameId, modules, report?) -> (text?, error?)
+	    the minimal GameConfig of an adopted game without src/shared/Config (no sandbox content)
 	lineDiff(old, new) -> string         a minimal unified-style diff (for --dry-run)
 ]]
 
@@ -183,7 +187,11 @@ function AdoptInit.REQUIRED(SP, gameId: string, moduleName: string): { any }
 		{
 			"ReplicatedStorage",
 			"GameModule",
-			folder({ { "module", path("modules/" .. gameId .. "/module.luau") } }),
+			folder({
+				{ "module", path("modules/" .. gameId .. "/module.luau") },
+				-- (v1.6.0 dogfood r2) the game module's client part: the kept old UI goes here
+				{ "client", path("modules/" .. gameId .. "/client") },
+			}),
 		},
 		{ "ReplicatedStorage", "Modules", folder() },
 		{ "ServerScriptService", "Framework", path(core .. "/packages/framework/server") },
@@ -308,9 +316,11 @@ function AdoptInit.mergeProject(
 				table.insert(added, serviceName .. ".Modules." .. moduleName)
 			end
 		elseif serviceName == "ReplicatedStorage" and name == "GameModule" then
-			if existing.vals.module == nil then
-				SP.set(existing, "module", node.vals.module)
-				table.insert(added, serviceName .. ".GameModule.module")
+			for _, part in { "module", "client" } do
+				if existing.vals[part] == nil then
+					SP.set(existing, part, node.vals[part])
+					table.insert(added, serviceName .. ".GameModule." .. part)
+				end
 			end
 		end
 	end
@@ -344,6 +354,15 @@ function AdoptInit.parseFindings(text: string): { any }
 		end
 	end
 	return out
+end
+
+-- (v1.6.0 dogfood r2) what to do about a must-fix file, said exactly
+function AdoptInit.mustFixMessage(path: string, gameId: string, checks: { string }?): string
+	local list = checks or {}
+	if #list == 0 or table.find(list, "purchases") then
+		return `must fix before lint passes: port every product of {path} to ctx.shop.onProduct in modules/{gameId}/server/init.luau and delete the ProcessReceipt assignment before the first commit (products aren't granted on this branch until then)`
+	end
+	return `must fix before lint passes: {path} ({table.concat(list, ", ")} findings are never downgraded by studwork-legacy.json; fix them before the first commit)`
 end
 
 function AdoptInit.mustFix(f: any): boolean
@@ -388,14 +407,25 @@ local function auditNotes(report: any?): { [string]: { [string]: boolean } }
 	return notes
 end
 
-function AdoptInit.legacyList(findings: { any }, report: any?): (any, any, { string })
+function AdoptInit.legacyList(
+	findings: { any },
+	report: any?
+): (any, any, { string }, { [string]: { string } })
 	local byFile = {}
 	local mustFix = {}
+	local mustFixChecks = {}
 	for _, f in findings do
 		byFile[f.path] = byFile[f.path] or {}
 		byFile[f.path][f.check] = (byFile[f.path][f.check] or 0) + 1
-		if AdoptInit.mustFix(f) and not table.find(mustFix, f.path) then
-			table.insert(mustFix, f.path)
+		if AdoptInit.mustFix(f) then
+			if not table.find(mustFix, f.path) then
+				table.insert(mustFix, f.path)
+				mustFixChecks[f.path] = {}
+			end
+			if not table.find(mustFixChecks[f.path], f.check) then
+				table.insert(mustFixChecks[f.path], f.check)
+				table.sort(mustFixChecks[f.path])
+			end
 		end
 	end
 	table.sort(mustFix)
@@ -427,7 +457,73 @@ function AdoptInit.legacyList(findings: { any }, report: any?): (any, any, { str
 		table.insert(list.files, { path = p, checks = checks, reason = reason })
 		baseline.files[p] = byFile[p]
 	end
-	return list, baseline, mustFix
+	return list, baseline, mustFix, mustFixChecks
+end
+
+-- (v1.6.0 dogfood r2) the product / pass ids the audit report found, as sorted, unique lists
+function AdoptInit.reportProducts(report: any?): ({ number }, { number })
+	local products, passes = {}, {}
+	local purchases = if type(report) == "table" and type(report.purchases) == "table"
+		then report.purchases
+		else {}
+	local function collect(list: any, into: { number })
+		if type(list) ~= "table" then
+			return
+		end
+		for _, p in list do
+			local id = type(p) == "table" and p.id
+			if type(id) == "number" and id > 0 and id == math.floor(id) and not table.find(into, id) then
+				table.insert(into, id)
+			end
+		end
+	end
+	collect(purchases.products, products)
+	collect(purchases.passes, passes)
+	table.sort(products)
+	table.sort(passes)
+	return products, passes
+end
+
+-- (v1.6.0 dogfood r2) the minimal GameConfig of an adopted game without src/shared/Config:
+-- the chosen modules, each at its defaults (a commented line), no items / rarity tables /
+-- starter items / events, compliance.paidCurrencies = {}, and the audit's product and pass ids
+-- under placeholder names. `template` = templates/adopt/config/init.luau.tmpl,
+-- `render` = NewProject.render.
+function AdoptInit.renderConfig(
+	template: string,
+	render: (string, { [string]: string }) -> (string?, string?),
+	gameId: string,
+	modules: { string },
+	report: any?
+): (string?, string?)
+	local moduleLines, kitLines = {}, {}
+	for _, name in modules do
+		table.insert(moduleLines, `\t\trequire(Modules:WaitForChild("{name}"):WaitForChild("module")),\n`)
+		if name == "Items" then
+			table.insert(kitLines, "\t\t-- Items has no config: item definitions are `items` below.\n")
+		else
+			table.insert(kitLines, `\t\t-- {name} = \{\}, -- at its defaults\n`)
+		end
+	end
+	local products, passes = AdoptInit.reportProducts(report)
+	local productLines, passLines = {}, {}
+	for _, id in products do
+		table.insert(productLines, `\t\t\tProduct{id} = {id}, -- TODO: name it (the audit found this id)\n`)
+	end
+	for _, id in passes do
+		table.insert(passLines, `\t\t\tPass{id} = {id}, -- TODO: name it (the audit found this id)\n`)
+	end
+	local header = if #modules > 0
+		then 'local ReplicatedStorage = game:GetService("ReplicatedStorage")\nlocal Modules = ReplicatedStorage:WaitForChild("Modules")\n'
+		else ""
+	return render(template, {
+		gameId = gameId,
+		modulesHeader = header,
+		modules = table.concat(moduleLines),
+		kitConfig = table.concat(kitLines),
+		devProducts = table.concat(productLines),
+		passes = table.concat(passLines),
+	})
 end
 
 function AdoptInit.storeCollision(report: any?, gameId: string): string?

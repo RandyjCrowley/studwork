@@ -4,15 +4,17 @@
 # docs/framework/adopting.md §2). Adds StudWork to an EXISTING game (a git repo with a Rojo
 # project, or a tools/adopt --from-place output) without overwriting anything it didn't create:
 #   1. checks: a git repo at <project> (its own top level), not this StudWork checkout or inside
-#      it; a clean tree for every path init writes (skipped on a re-run of an adopted project); no
+#      it; a clean tree for every path init writes (skipped on a re-run of an adopted project;
+#      untracked studwork-adopt-report.* never block: init doesn't write them); no
 #      clash in the project file (an entry StudWork needs, taken by something else); no old store
 #      named like StudWork's own (PlayerData_<gameId>[_Studio], from studwork-adopt-report.json)
 #   2. the studwork/ submodule pinned at --tag (default v<StudWork.VERSION>), like tools/new-project
 #      (a local --url gets -c protocol.file.allow=always; a missing tag is refused, nothing kept)
 #   3. the files (tools/lune/adopt-init plan): studwork.json (adopted), the tool wrappers and
 #      .githooks/pre-commit (missing ones only), the game module modules/<gameId>/ (module.luau,
-#      server/init.luau, module.spec.luau, README.md with the save map) from templates/adopt,
-#      src/shared/Config/ if missing, the merged project file (StudWork entries
+#      server/init.luau, client/init.luau, module.spec.luau, README.md with the save map) from
+#      templates/adopt, a minimal src/shared/Config/ if missing (templates/adopt/config: the chosen
+#      modules at their defaults, the audit's product ids, no sandbox content), the merged project file (StudWork entries
 #      added after the existing ones) and .gitignore; then the project's tools/sync-projects
 #   4. Wally packages: tools/install, or with --no-install a copy of this checkout's deps/
 #   5. studwork-legacy.json + legacyBaseline from the guardrails' findings (only on the run that
@@ -271,7 +273,7 @@ if [ "$ADOPTED" -eq 0 ]; then
 		'source studwork/tools/_common.sh; lune run "$(core_path tools/lune/guardrails)" $STUDWORK_GUARD_RAW' \
 		>"$FINDINGS" 2>&1
 	set -e
-	(cd "$CORE_ROOT" && lune run "$ADOPT_LUNE" legacy "$TARGET" "$FINDINGS" apply)
+	(cd "$CORE_ROOT" && lune run "$ADOPT_LUNE" legacy "$TARGET" "$FINDINGS" apply "$P_NAME")
 	rm -f "$FINDINGS"
 fi
 
@@ -279,6 +281,9 @@ echo "adopt --init: done ($P_NAME, StudWork $P_TAG). Nothing is committed. Next:
 echo "  1. review: git status, git diff (the merged project file), studwork-legacy.json"
 echo "  2. commit the files listed above (never git add -A on the old game's files by habit);"
 echo "     the hook runs tools/lint + tools/test"
+if ls studwork-adopt-report.* >/dev/null 2>&1; then
+	echo "     commit studwork-adopt-report.* with the adoption (the audit's record of the old game)"
+fi
 echo "  3. follow studwork-adopt-report.md (tools/adopt --audit .): the save map in"
 echo "     modules/$P_NAME/README.md, importLegacy + tools/test-migration, purchases, remotes,"
 echo "     then tools/adopt --verify"
