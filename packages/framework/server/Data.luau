@@ -656,6 +656,12 @@ function Data.new(opts: any): any
 		return true, result, nil
 	end
 
+	-- (added in v1.6.0, adopting.md §3) the ids of every registered importLegacy, in order.
+	-- v1.6.0 contract stub: registration and the load step are agent C's.
+	function d.legacyImports(): { string }
+		return {}
+	end
+
 	function d.hasSection(key: string): boolean
 		return byKey[key] ~= nil
 	end

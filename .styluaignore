@@ -12,3 +12,5 @@ examples/modules/*/server/Net.luau
 examples/modules/*/client/Net.luau
 games/*/modules/*/server/Net.luau
 games/*/modules/*/client/Net.luau
+# (v1.6.0) fixtures of NON-StudWork games for tools/adopt (their code is deliberately legacy)
+examples/legacy/

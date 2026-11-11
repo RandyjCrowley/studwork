@@ -19,6 +19,8 @@
 
 	  StudWork.test.boot(opts) -> (h?, err?)   a boot error is returned instead of raised
 	  StudWork.test.memoryStore()              a shared in-memory store with failure injection
+	  StudWork.test.legacyStore(seed?)         (v1.6.0) a game's OLD stores, in memory, read-only for the
+	                                           framework (harness({ legacy = store }), adopting.md §3)
 	  StudWork.test.player(userId, name?)      a bare mock player
 	  StudWork.test.sim                        the multi-server simulation (real ProfileStore on a
 	                                           mock DataStore, several servers, crashes, latency,
@@ -66,6 +68,7 @@ function Test.boot(opts: any): (any, string?)
 end
 
 Test.memoryStore = Harness.memoryStore
+Test.legacyStore = Harness.legacyStore -- (added in v1.6.0)
 Test.player = Harness.player
 
 Test.sim = require(script.Parent.sim.Fixtures)

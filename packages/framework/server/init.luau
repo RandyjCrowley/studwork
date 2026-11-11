@@ -63,6 +63,7 @@ local Replication = require(script.Replication)
 local Shop = require(script.Shop)
 local SharedStore = require(script.SharedStore)
 local Store = require(script.Store)
+local Legacy = require(script.Legacy)
 
 local Server = {}
 
@@ -71,6 +72,8 @@ Server.KICK_MESSAGE =
 Server.KICK_SESSION_ENDED = "Your save data was opened in another server. Please rejoin."
 
 Server.memoryStore = Store.memory
+-- (added in v1.6.0) StudWork.test.legacyStore: an in-memory, read-only legacy store (Legacy.luau)
+Server.legacyStore = Legacy.memory
 
 local function runNoYield(label: string, what: string, fn: any, ...: any)
 	local co = coroutine.create(fn)
@@ -384,8 +387,18 @@ function Server.start(gameConfig: any, serverConfig: any?, opts: any?): any
 		rt.isStudio = if o.isStudio ~= nil then o.isStudio else platform.isStudio
 		local now = o.now or platform.now
 		rt.now = now
+		-- (added in v1.6.0, adopting.md §3/§4) the read-only reader of a game's OLD stores
+		rt.legacy = Legacy.new({
+			backend = o.legacy
+				or (if platform.makeLegacy then platform.makeLegacy() else nil)
+				or Legacy.memory(),
+			now = now,
+			wait = platform.wait,
+			log = warnLog,
+		})
 		rt.data = Data.new({
 			store = o.store or platform.makeStore(gameConfig.gameId),
+			legacy = rt.legacy,
 			modules = order,
 			gameId = gameConfig.gameId,
 			now = now,
@@ -496,6 +509,11 @@ function Server.start(gameConfig: any, serverConfig: any?, opts: any?): any
 			log = warnLog,
 			isStudio = rt.isStudio,
 			guid = platform.guid,
+			-- (added in v1.6.0, adopting.md §4)
+			legacy = rt.legacy,
+			hasLegacyImport = function(): boolean
+				return #rt.data.legacyImports() > 0
+			end,
 		})
 		-- framework-owned client events
 		rt.net.claim("framework", "StateInit", function(player: any)

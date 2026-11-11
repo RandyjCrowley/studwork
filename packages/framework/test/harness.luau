@@ -39,6 +39,7 @@ export type Options = {
 	serverConfig: any?,
 	isStudio: boolean?,
 	store: any?,
+	legacy: any?, -- (added in v1.6.0) StudWork.test.legacyStore(seed): the game's OLD stores, read-only
 	startTime: number?,
 	analytics: any?,
 	compliance: any?,
@@ -236,6 +237,7 @@ local function build(opts: Options): (any, any)
 			return servers[ref.name]
 		end,
 		store = self.store,
+		legacy = opts.legacy,
 		now = function()
 			return self.clock
 		end,
@@ -402,6 +404,11 @@ function Harness.purchase(self: any, p: any, product: string | number, opts: any
 		end
 	end
 	return decisions[#decisions], decisions
+end
+
+-- (added in v1.6.0) an in-memory legacy store (a game's old DataStores), read-only for the framework
+function Harness.legacyStore(seed: any?): any
+	return Server.legacyStore(seed)
 end
 
 -- An in-memory store several harnesses can share (one "DataStore" seen by every server), with

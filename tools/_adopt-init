@@ -1,0 +1,5 @@
+#!/usr/bin/env bash
+# tools/_adopt-init: the implementation of `tools/adopt --init` (docs/framework/adopting.md §2).
+# v1.6.0 contract stub: agent B replaces this file.
+source "$(dirname "$0")/_common.sh"
+die "tools/adopt --init: not implemented yet"

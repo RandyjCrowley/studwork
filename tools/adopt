@@ -1,0 +1,22 @@
+#!/usr/bin/env bash
+# tools/adopt (StudWork v1.6.0, docs/framework/adopting.md): adopt StudWork in an existing game.
+#   tools/adopt --audit <project|place> [...]   read-only audit: studwork-adopt-report.json + .md (§1)
+#   tools/adopt --from-place <file> [--out d]   a Studio-only game's code containers -> a Rojo project (§1)
+#   tools/adopt --verify <project>              fails while anything unsafe for going live is left (§1)
+#   tools/adopt --init <project> [...]          add StudWork to the project (§2)
+# Paths are relative to where the command is run. Never touches live data, never publishes.
+source "$(dirname "$0")/_common.sh"
+
+case "${1:-}" in
+--init)
+	shift
+	exec "$CORE_ROOT/tools/_adopt-init" "$@"
+	;;
+--audit | --from-place | --verify)
+	lune_tool adopt "$@"
+	;;
+*)
+	echo "usage: tools/adopt --audit <project|place> [...] | --from-place <file> [--out <dir>] | --verify <project> | --init <project> [--name <gameId>] [--modules A,B] [--tag vX.Y.Z] [--url <u>] [--dry-run]" >&2
+	exit 2
+	;;
+esac

@@ -954,3 +954,55 @@ compliance.paidCurrencies lists 'Gems', but no enabled module registered a spend
 Register in `init` (Economy does, for every listed currency) or in `start`. An empty or missing
 list needs nothing. The check runs before the framework starts (step 6: queued requests, the
 receipt handler), so no request or purchase ever meets a paid currency nobody can spend.
+
+## 20. Additions in v1.6.0
+
+Additive surfaces added in v1.6.0. Nothing above changed. The full design (failure rules, the
+marker, the cutover) is [adopting.md](adopting.md); this section lists the API.
+
+### 20.1 `ctx.data.importLegacy`: a one-time import of a player's old save (added in v1.6.0: adopting an existing game must bring every old save over, read-only, without a way to lose one)
+
+```lua
+ctx.data.importLegacy({ id, version, source, import = fn(tx, old, info), merge = fn?(tx, old, info),
+                        receipts = fn?(old) -> ids, itemTag = "paid" | "free" })   -- in init, once
+ctx.data.legacyStatus(player, id) -> marker?                                       -- read-only
+ctx.data.isImport(tx) -> boolean                                                   -- kits relax caps
+```
+
+- Sources (`kind`): `"datastore"`, `"profileservice"` / `"profilestore"`, `"datastore2"`; read
+  through a framework reader that has no write method. Key patterns use `{userId}` only.
+- Runs inside the framework's load, before the player counts as loaded; reads first (they yield),
+  then one non-yielding transaction that runs `import` (or `merge`) and writes the marker
+  `_framework.imports[id]` in the same commit. Any failure kicks the player and changes no data.
+- In an import transaction a refused `depsTx` call raises, `ctx.compliance` rolls and paid spends
+  error, and items get the source `paid:legacy` (`itemTag = "free"`: `legacy`).
+- Tests: `StudWork.test.legacyStore(seed)`, `harness({ legacy = store })`,
+  `sim.server(world, { legacy = store })`; `tools/test-migration`.
+
+### 20.2 The purchase bridge (added in v1.6.0: exactly one grant across the switch from an old game)
+
+```lua
+ctx.shop.legacyReceipts({ name, scope?, key = "{userId}_{purchaseId}", until? })   -- old history store
+ctx.shop.onLegacyProduct(product, fn(receiptInfo, player) -> decision, { writesLegacyData = bool })
+```
+
+- `importLegacy.receipts` ids go to `_framework.legacyPurchases` (not pruned by the 200-entry cap).
+- `onLegacyProduct` is a development bridge: `tools/adopt --verify` and `tools/publish --live`
+  refuse while one is left; boot fails if a `writesLegacyData = true` handler meets an import.
+
+### 20.3 Rarity and Compliance: odds preview at any luck, luck on a single item (added in v1.6.0: a game's eggs each carry their own luck)
+
+```lua
+Rarity.getOddsDetail(tableId, player?, luck?) -> OddsDetail?     -- luck: pure preview
+Rarity.discloseItem(player, tableId, itemKey, luck) -> boolean
+Rarity.clearItem(player, tableId, itemKey)
+txApi.roll(tx, tableId, luck?, { item = itemKey, grant? })        -- also api.roll, purchaseOps.roll
+ctx.compliance.discloseItem(player, sourceId, itemKey, luck) -> boolean
+ctx.compliance.disclosedItem(player, sourceId, itemKey) -> OddsDetail?
+ctx.compliance.clearItem(player, sourceId, itemKey)
+ctx.compliance.roll(tx, sourceId, luck?, { item = itemKey }?)    -- and spendForRoll(..., luck?, opts?)
+registerRandomSource(id, { ..., oddsAt = fn(player, luck) -> OddsDetail })  -- optional field
+```
+
+A paid roll with an item key needs that item's odds disclosed at exactly that (sanitized) luck,
+plus `luckDisclosed` for luck ≠ 1; free rolls may use any luck. Details: adopting.md §6.

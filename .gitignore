@@ -7,6 +7,8 @@
 /build/
 *.rbxl
 *.rbxlx
+# (v1.6.0) the Studio-only legacy fixture game is a place file on purpose
+!examples/legacy/*/*.rbxlx
 *.rbxm
 *.rbxmx
 *.rbxl.lock
@@ -40,3 +42,7 @@ REPORT_*.md
 # Scratch games made with tools/new-game while trying StudWork out (real games live in a games repo)
 /games/
 /docs/games/
+
+# tools/adopt output in a scratch run (fixtures commit none)
+studwork-adopt-report.json
+studwork-adopt-report.md

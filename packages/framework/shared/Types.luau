@@ -81,6 +81,61 @@ export type RollOptions = {
 	-- PAID (policy block, luck rule, "paidcur:" tag) unless free = true (a reward roll nobody paid
 	-- for). Ignored for `paid = true` tables (always paid).
 	free: boolean?,
+	-- (added in v1.6.0, docs/framework/adopting.md §6.2) the item this roll's luck belongs to (an
+	-- egg in an incubator). A PAID roll with an item key needs that item's odds disclosed at
+	-- exactly this luck (Rarity.discloseItem); a free roll uses it only as a label.
+	item: string?,
+}
+
+--------------------------------------------------------------------------------
+-- Legacy data import (added in v1.6.0, docs/framework/adopting.md §3)
+--------------------------------------------------------------------------------
+
+export type LegacySourceKind = "datastore" | "profileservice" | "profilestore" | "datastore2"
+
+-- One old store a player's save is read from (read-only). `key` uses only {userId}.
+export type LegacySource = {
+	kind: LegacySourceKind,
+	name: string,
+	scope: string?,
+	key: string?, -- e.g. "Player_{userId}" (datastore2: ignored, the key is <name>/<userId>)
+	combined: { string }?, -- datastore2: the keys combined under the master key `name`
+	savingMethod: ("OrderedBackups" | "Standard")?, -- datastore2 (default OrderedBackups)
+}
+
+export type LegacyImportInfo = {
+	userId: number,
+	found: boolean,
+	reason: ("first" | "changed" | "version")?,
+	previous: LegacyMarker?,
+	sources: { [string]: { found: boolean, updatedAt: number? } },
+	now: number,
+}
+
+-- _framework.imports[id]
+export type LegacyMarker = {
+	v: number,
+	at: number,
+	found: boolean,
+	sources: { [string]: { found: boolean, updatedAt: number? } }?,
+}
+
+export type LegacyImportSpec = {
+	id: string,
+	version: number,
+	source: LegacySource | { [string]: LegacySource },
+	import: (tx: any, old: any, info: LegacyImportInfo) -> (),
+	merge: ((tx: any, old: any, info: LegacyImportInfo) -> ())?,
+	receipts: ((old: any) -> ({ string } | { [string]: number })?)?,
+	itemTag: ("paid" | "free")?,
+}
+
+-- ctx.shop.legacyReceipts (adopting.md §4.2)
+export type LegacyReceiptStore = {
+	name: string,
+	scope: string?,
+	key: string, -- uses {userId} and {purchaseId}
+	["until"]: number?,
 }
 
 export type RollInfo = {
@@ -428,7 +483,12 @@ export type RarityAPI = {
 	-- Items.register adds items after start (N3).
 	-- With `player` (v1.2, N4) the odds include that player's current luck (getLuck) when the
 	-- table has `luckDisclosed = true`; otherwise luck = 1. `detail.luck` says which.
-	getOddsDetail: (tableId: string, player: Player?) -> OddsDetail?,
+	-- (added in v1.6.0) `luck`: the odds at exactly that luck, pure (no disclosure, no luck change).
+	getOddsDetail: (tableId: string, player: Player?, luck: number?) -> OddsDetail?,
+	-- (added in v1.6.0, adopting.md §6.2) per-item luck: disclose the odds of (table, item, luck)
+	-- to the player's client (false = the per-player limit is reached), and drop it again.
+	discloseItem: (player: Player, tableId: string, itemKey: string, luck: number) -> boolean,
+	clearItem: (player: Player, tableId: string, itemKey: string) -> (),
 	tiers: () -> { RarityTierDef },
 	-- v1.2 (N4): the player's current luck, used by roll() when its `luck` argument is nil.
 	-- tableId nil = every table; a per-table value wins over the all-table one. Session only (not

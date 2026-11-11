@@ -70,6 +70,7 @@ Guard.PURCHASES_ALLOWED = {
 	"packages/framework/server/Store.luau", -- framework Data's ProfileStore store
 	"packages/framework/server/Data.luau",
 	"packages/framework/server/SharedStore.luau", -- ctx.data.shared: the framework-owned shared DataStore
+	"packages/framework/server/Legacy.luau", -- (v1.6.0) the READ-ONLY reader of a game's old stores (adopting.md §3)
 	"packages/framework/test/", -- fakes
 }
 

@@ -28,6 +28,7 @@
 
 local SharedStore = require(script.Parent.SharedStore)
 local Store = require(script.Parent.Store)
+local Legacy = require(script.Parent.Legacy)
 
 local Platform = {}
 
@@ -294,6 +295,10 @@ function Platform.live(): any
 				isStudio = isStudio,
 				log = warn,
 			})
+		end,
+		-- (added in v1.6.0, adopting.md §3) a game's OLD stores, read-only (Legacy.readOnly)
+		makeLegacy = function(): any
+			return Legacy.readOnly(game:GetService("DataStoreService"), { log = warn })
 		end,
 		gameModule = function(): any
 			local folder = ReplicatedStorage:FindFirstChild("GameModule")

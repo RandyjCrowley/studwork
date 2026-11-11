@@ -93,6 +93,7 @@ StudWork.test = table.freeze({
 	harness = forward({ "harness" }),
 	boot = forward({ "boot" }),
 	memoryStore = forward({ "memoryStore" }),
+	legacyStore = forward({ "legacyStore" }), -- (added in v1.6.0)
 	player = forward({ "player" }),
 	sim = table.freeze(sim),
 }) :: any
