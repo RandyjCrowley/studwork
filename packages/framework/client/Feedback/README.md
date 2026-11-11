@@ -17,3 +17,8 @@ Server messages: `item` -> pop + flash + rarity sound + shake when Legendary+; `
 **Limits**: 12 screen pops, 16 world pops, 4 voices per sound key, 1 flash frame - spam recycles the oldest (`Pool`), never allocates more. The RenderStepped driver only runs while pops are alive.
 
 Pure modules + specs: `Pool`, `PitchRamp`, `Shake`, `PopAnim`.
+
+
+core-v1.3.0: colours, fonts, stroke, rarity look and sound ids come from the merged theme
+(`client/Theme.luau` -> `Framework/shared/Theme`), not `Core.Palette` / `Core.Sounds` /
+`Core.RarityTiers`.

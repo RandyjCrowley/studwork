@@ -6,9 +6,9 @@
 	pop(text, position?, rarity?)  number pop with squash-and-stretch + float + fade.
 	    position: UDim2 = screen pop there; Vector3 = world pop (BillboardGui on a pooled
 	    Attachment); nil = screen pop near the upper centre, concurrent pops stack.
-	    Colour: rarity colour, or Palette "currency" when rarity is nil.
+	    Colour: the theme tier colour, or theme colour "currency" when rarity is nil.
 	flash(rarity)  full-screen glow in the rarity's glow colour, strength from glowStrength.
-	sound(key)     Sounds[key] via pooled Sounds in SoundService; coin_tick pitch rises on rapid ticks.
+	sound(key)     theme.sounds[key] via pooled Sounds in SoundService; coin_tick pitch rises on rapid ticks.
 	shake(intensity?)  camera shake layered on top of the default camera (RenderStep after
 	    Camera priority), stacks up to Shake.MAX_INTENSITY. Big rewards (Legendary+) shake by default.
 	Reduced motion: Player attribute "CoreReducedMotion" == true OR GuiService.ReducedMotionEnabled
@@ -29,10 +29,9 @@ local Workspace = game:GetService("Workspace")
 
 local Core = ReplicatedStorage:WaitForChild("Core")
 local HandlerList = require(Core:WaitForChild("HandlerList"))
-local Palette = require(Core:WaitForChild("Palette"))
-local RarityTiers = require(Core:WaitForChild("RarityTiers"))
-local Sounds = require(Core:WaitForChild("Sounds"))
 local Types = require(Core:WaitForChild("Types"))
+
+local ClientTheme = require(script.Parent.Theme)
 
 local PitchRamp = require(script.PitchRamp)
 local Pool = require(script.Pool)
@@ -55,6 +54,23 @@ local Feedback = {}
 
 local feedbackHandlers = HandlerList.new()
 local paletteOverrides: { [string]: string }? = nil
+local SharedTheme = ClientTheme.shared
+
+-- Theme reads (module-api.md §13): the client's merged theme; legacy GameConfig.palette on top.
+local function themeColor(key: string): Color3
+	if paletteOverrides and type(paletteOverrides[key]) == "string" then
+		return Color3.fromHex(paletteOverrides[key])
+	end
+	return Color3.fromHex(ClientTheme.current().colors[key])
+end
+
+local function tierOf(rarity: any): any
+	return SharedTheme.tier(ClientTheme.current(), rarity)
+end
+
+local function tierOrder(rarity: string): number
+	return SharedTheme.tierOrder(ClientTheme.current())[rarity] or 0
+end
 
 local screen: ScreenGui? = nil
 local worldFolder: Folder? = nil
@@ -104,7 +120,7 @@ local function getWorldFolder(): Folder
 end
 
 local function displayFont(): Font
-	return Font.new(Palette.fonts.display, Enum.FontWeight.Bold)
+	return Font.new(ClientTheme.current().fonts.display, Enum.FontWeight.Bold)
 end
 
 local function makeLabel(): TextLabel
@@ -116,17 +132,18 @@ local function makeLabel(): TextLabel
 	label.TextColor3 = Color3.new(1, 1, 1)
 	label.Visible = false
 	local stroke = Instance.new("UIStroke")
-	stroke.Thickness = Palette.metrics.strokeThickness
-	stroke.Color = Palette.color("outline", paletteOverrides)
+	stroke.Thickness = ClientTheme.current().metrics.strokeThickness
+	stroke.Color = themeColor("outline")
 	stroke.Parent = label
 	return label
 end
 
 local function popColor(rarity: Types.RarityTier?): Color3
-	if rarity and RarityTiers.isTier(rarity) then
-		return Color3.fromHex(RarityTiers.get(rarity).color)
+	local tier = tierOf(rarity)
+	if tier then
+		return Color3.fromHex(tier.color)
 	end
-	return Palette.color("currency", paletteOverrides)
+	return themeColor("currency")
 end
 
 local function applySample(label: TextLabel, sample: PopAnim.Sample, base: Vector2)
@@ -256,10 +273,10 @@ local flashFrame: Frame? = nil
 local flashTween: Tween? = nil
 
 function Feedback.flash(rarity: Types.RarityTier)
-	if not RarityTiers.isTier(rarity) then
+	local def = tierOf(rarity)
+	if def == nil then
 		return
 	end
-	local def = RarityTiers.get(rarity)
 	local strength = 0.08 + 0.42 * def.glowStrength -- opacity at peak
 	if reducedMotion() then
 		strength *= 0.5
@@ -316,8 +333,8 @@ local function getSoundFolder(): Folder
 end
 
 function Feedback.sound(key: string)
-	local entry = Sounds[key]
-	if entry == nil or entry.id == 0 then
+	local entry = SharedTheme.sound(ClientTheme.current(), key)
+	if entry == nil then
 		return
 	end
 	local bank = voices[key]
@@ -411,14 +428,17 @@ local function onMessage(message: any)
 	end
 	local kind: string = message.Kind
 	local text: string = message.Text
-	local rarity: Types.RarityTier? = if RarityTiers.isTier(message.Rarity) then message.Rarity else nil
+	local rarity: Types.RarityTier? = if tierOf(message.Rarity) then message.Rarity else nil
 	local position: Vector3? = if typeof(message.Position) == "Vector3" then message.Position else nil
 	if kind == "item" then
 		Feedback.pop(text, position, rarity)
 		if rarity then
 			Feedback.flash(rarity)
-			Feedback.sound(RarityTiers.get(rarity).soundKey)
-			local intensity = Shake.forRarity(RarityTiers.order(rarity))
+			local soundKey = tierOf(rarity).soundKey
+			if type(soundKey) == "string" then
+				Feedback.sound(soundKey)
+			end
+			local intensity = Shake.forRarity(tierOrder(rarity))
 			if intensity then
 				Feedback.shake(intensity)
 			end
@@ -427,7 +447,7 @@ local function onMessage(message: any)
 		Feedback.pop(text, position, rarity)
 		Feedback.sound("coin_tick")
 		if rarity then
-			local intensity = Shake.forRarity(RarityTiers.order(rarity))
+			local intensity = Shake.forRarity(tierOrder(rarity))
 			if intensity then
 				Feedback.shake(intensity)
 			end

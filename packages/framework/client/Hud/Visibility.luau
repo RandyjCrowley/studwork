@@ -6,13 +6,16 @@
 	  mailbox: the mailbox badge slot, only with Mail (v1.2, N1); drawn while mailboxCount > 0.
 ]]
 
+local Slices = require(script.Parent.Slices)
+
 local Visibility = {}
 
 export type Shown = { currency: boolean, rate: boolean, goal: boolean, mailbox: boolean }
 
--- Number of held mailbox messages in a ReplicatedState (0 when absent or malformed).
+-- Number of held mailbox messages (0 when absent or malformed). Reads Mail's client slice
+-- (state.modules.Mail.extra.mailbox) and, for a v1.2 flat state, state.mailbox.
 function Visibility.mailboxCount(state: any): number
-	local box = if type(state) == "table" then state.mailbox else nil
+	local box = Slices.extra(state, "Mail", "mailbox")
 	if type(box) ~= "table" then
 		return 0
 	end
