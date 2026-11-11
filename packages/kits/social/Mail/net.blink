@@ -1,0 +1,18 @@
+-- Mail module network contract (Blink IDL, compiled with `tools/net`; module-api.md §1, §9).
+-- core-v1.3.1 (R19): the module's own wire; replaces the framework.blink RequestMailClaim event.
+-- Every client -> server event is a REQUEST: Blink checks the wire types below on receive; the
+-- server part's action handler still validates the id and the claim (rate limit: actions.claimMail).
+option RemoteScope = "STUDWORK_MAIL"
+option Casing = Pascal
+option ServerOutput = "server/Net.luau"
+option ClientOutput = "client/Net.luau"
+
+type Id = string(1..64)
+
+-- Claim a held mailbox message (Mail.claim). (messageId) -- v1.2 (was RequestMailClaim)
+event ClaimMail {
+    From: Client,
+    Type: Reliable,
+    Call: SingleAsync,
+    Data: Id
+}

@@ -5,7 +5,7 @@
 	mailbox), Outbox.luau (the crash-safe outbox), Escrow.luau (R1 gift cap + return to sender),
 	MailValidate.luau. This file wires them to ctx: ctx.data (section "mail", field `mail`, the
 	v1.2 shape), ctx.data.messages (the framework's cross-server channel; no DataStore here),
-	ctx.replicate (extra.mailbox), ctx.net (RequestMailClaim), ctx.console, ctx.lifecycle.
+	ctx.replicate (extra.mailbox), actions.claimMail (net.blink ClaimMail), ctx.console, ctx.lifecycle.
 
 	api (PHASE1-CONTRACT, v1.2 names)
 	  send(userId, kind, payload, key?) -> boolean    YIELDS. "core_" kinds are refused.
@@ -500,22 +500,31 @@ function Mail.start(_context: any)
 			end
 		end
 	end)
-	ctx.net.handle("RequestMailClaim", function(player: any, messageId: any)
-		if not MailValidate.key(messageId) then
-			return
-		end
-		local ok, reason = delivery.claim(player, messageId)
-		if not ok and reason == "still_held" then
-			ctx.net.feedback(player, "toast", "No room yet: free some space and try again")
-		elseif not ok and reason == "error" then
-			ctx.net.feedback(player, "toast", "Couldn't claim that right now")
-		end
-	end)
 end
 
 --------------------------------------------------------------------------------
 -- Surfaces
 --------------------------------------------------------------------------------
+
+-- Client action (module-api.md §9; core-v1.3.1 R19): claimMail(messageId), wire = this module's
+-- net.blink event ClaimMail (was the framework's RequestMailClaim). Rate limit 2/s burst 5 (moved
+-- from the framework's Net.LIMITS). The handler re-checks the id: h:action can pass anything.
+Mail.actions = {
+	claimMail = {
+		limit = { rate = 2, burst = 5 },
+		handler = function(player: any, messageId: any)
+			if not MailValidate.key(messageId) then
+				return
+			end
+			local ok, reason = delivery.claim(player, messageId)
+			if not ok and reason == "still_held" then
+				ctx.net.feedback(player, "toast", "No room yet: free some space and try again")
+			elseif not ok and reason == "error" then
+				ctx.net.feedback(player, "toast", "Couldn't claim that right now")
+			end
+		end,
+	},
+}
 
 Mail.api = {
 	send = function(userId: number, kind: string, payload: { [string]: any }, key: string?): boolean

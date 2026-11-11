@@ -76,7 +76,10 @@ retried with backoff, dead-lettered after `maxAttempts` errors.
   `not_loaded`, `not_found`, `no_handler`, `still_held` (a handler returned false again), `error`
   (a handler threw: warned, stays in the box, attempts counted but a held message is **never**
   dead-lettered). Success = one update removes `box[id]` and writes `seen[id]`. Client:
-  `Actions.claimMail(id)` -> Blink `RequestMailClaim` (validated id; rate-limited by Net).
+  `StudWork.use(Mail).actions.claimMail(id)` -> the module's own Blink event `ClaimMail`
+  (`Mail/net.blink`, RemoteScope `STUDWORK_MAIL`, `Data: Id` = `string(1..64)`; core-v1.3.1, was
+  the framework's `RequestMailClaim`). Server action `claimMail`, limit 2/s burst 5; the handler
+  re-validates the id (`MailValidate.key`) and toasts on `still_held` / `error`.
 - ctx-only `Mail.sendInto(tx, toUserId, kind, payload, key) -> boolean` — the outbox (below).
 
 ## Reserved kinds

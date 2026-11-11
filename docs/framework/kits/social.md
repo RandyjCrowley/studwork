@@ -51,7 +51,10 @@ idempotent (key them on the message id). Messages reach offline players and othe
 - **Extensions (contract):** `registerKind(kind, claimFn(tx, player, payload, info) -> boolean?)`:
   the module that owns a kind decides what claiming it does (Inventory owns `core_gift`). `false`
   holds it in the mailbox; an error retries and then dead-letters.
-- **Client action:** `claimMail(id)`.
+- **Client action:** `claimMail(id)`: wire = Mail's own `net.blink` event `ClaimMail`
+  (`Data: Id`, RemoteScope `STUDWORK_MAIL`; was framework `RequestMailClaim` before core-v1.3.1),
+  limit 2/s burst 5 (the server part's `actions.claimMail.limit`). Friends has no client actions
+  and no `net.blink`.
 - **Replicated `extra`:** `mailbox` (contract): `{ { id, kind, payload, sentAt, heldAt } }`.
 - **Widget and screen:** the mailbox badge and the `Mailbox` screen (theme guide).
 - **Save data:** section `mail`: `{ mail = { seen, attempts, dead, box?, outbox? } }`, not
