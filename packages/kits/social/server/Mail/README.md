@@ -1,8 +1,38 @@
-# Core.Mail
+# Mail (social kit, core-v1.3.0 module)
 
-Logic: `Delivery.luau` (delivery + mailbox), `Outbox.luau` (sendInto flush), `MailValidate.luau`
-(all pure, specced); wiring: `init.luau`. End-to-end gifting property test:
-`../Inventory/Gift.spec.luau`.
+Definition: `../../shared/Mail.luau`. Logic: `Delivery.luau` (delivery + mailbox), `Outbox.luau`
+(the crash-safe outbox), `Escrow.luau` + `Gifts.luau` (R1 gift cap and return to sender),
+`MailValidate.luau` (all pure, specced; `GiftSoak.spec.luau` is the 2000+ gift soak); wiring:
+`init.luau` (ctx only: `ctx.data` section `mail`, `ctx.data.messages` for the cross-server queue,
+`ctx.replicate` extra `mailbox`). End-to-end gifting property test: `../../../collection/server/Inventory/Gift.spec.luau`.
+
+## core-v1.3.0 surfaces (PHASE1-CONTRACT)
+
+- `api`: `send`, `onReceive`, `pending`, `claim` (v1.2 names; `send`/`onReceive` refuse `core_` kinds).
+- `txApi.send(tx, toUserId, kind, payload, key?) -> boolean`: the outbox write (v1.2 `sendInto`).
+- `extensions.registerKind(kind, claimFn(tx, player, payload, info) -> boolean?)`: claimFn runs in a
+  `ctx.tx` of the receiver; `false` holds (the tx is discarded), an error retries / dead-letters.
+  `core_` kinds are allowed here.
+
+## Gifts to players who never return (R1)
+
+Kinds in `config.Mail.mail.returnKinds` (default `{ "core_gift" }`) sent through `txApi.send` are
+**escrowed** when the framework offers `ctx.data.shared` (a shared, durable, atomic
+`update(key, fn)` store; requested from the lead, see the Phase 1 report). One record per
+recipient holds every escrowed gift until the recipient's server consumed it:
+
+- **cap** (`giftCap`, default 100): checked atomically before the message is sent; over the cap the
+  gift is refused and comes straight back to the sender (their mailbox, claimed at once, so the item
+  is back in the inventory when there is room). A recipient known to be full refuses new gifts
+  before the item even leaves (60 s cache). The cap keeps escrowed gifts far below ProfileStore's
+  1000-message queue, so its drop-oldest rule never fires for them.
+- **return** (`returnAfterDays`, default 14): the sender's server reclaims gifts nobody took
+  (on load and every `sweepSeconds`, default 3600). Exactly one side wins each gift (pending ->
+  claimed by the recipient, or pending -> returned to the sender); a copy that reaches the recipient
+  after it was returned is dropped unopened.
+- A gift the recipient took and **held** (inventory full) stays in their mailbox with no time limit.
+
+Without `ctx.data.shared` Mail logs it once at boot and gifts work as in v1.2 (no cap, no return).
 
 ## HANDLERS MUST BE SAFE TO RUN TWICE
 
@@ -34,8 +64,8 @@ retried with backoff, dead-lettered after `maxAttempts` errors.
   JSON-safe table, depth <= 4, <= 1000 encoded bytes; `key` = `Validate.isId`, <= 64 chars) and
   queues `{ id = key or GUID, kind, payload, sentAt }` via `ProfileStore:MessageAsync`. Yields.
   Works for offline users and other servers. Same `key` twice to the same user -> handlers run
-  once (dedupe by `PlayerData.mail.seen`, bounded to `Delivery.MAX_SEEN` = 500, oldest pruned, so
-  a key is only remembered for the most recent 500 processed messages).
+  once (dedupe by `PlayerData.mail.seen`: every id younger than `SEEN_TTL` (60 days) up to
+  `MAX_SEEN` = 2000, and always the newest `QUEUE_LIMIT` = 1000, ProfileStore's queue size; R7).
 - `Mail.onReceive(kind, handler(player, payload, info))` — `info = { id, kind, sentAt, attempt }`.
 - `Mail.pending(player) -> { MailboxEntry }` — the mailbox (copies), oldest `heldAt` first (tie: id).
   Replicated as `ReplicatedState.mailbox`; pushed after every hold, claim and on load.
@@ -70,8 +100,10 @@ When the box already holds `mailboxCap` entries nothing is written and `processe
 called: ProfileStore keeps it and offers it again next session (one warning per server).
 An id in `box` is a duplicate for `deliver` (like `seen`).
 
-Console (Studio): `mailbox [userId]` (box + dead letters), `mailclaim <userId> <id>`,
-`mailreplay <userId> <id>` (moves a dead letter back into the mailbox so it can be claimed).
+Console (live servers too, R6; admins = `ServerConfig.Mail.admins`, plus the server console and
+Studio): `mail dead <userId>` (held mail, dead letters, unsent outbox), `mail redeliver <userId> <id>`
+(moves a dead letter back into the mailbox and delivers it), `mail claim <userId> <id>`.
+Dead letters kept per player: `MAX_DEAD` = 100 (was 25).
 
 ## Outbox (`sendInto`, used by `Inventory.sendGift`)
 
@@ -92,9 +124,12 @@ receiver's `seen`/`box` turns it into a duplicate.
 
 ## At-least-once notes
 
-- Dedupe memory is bounded: `seen` keeps the last `MAX_SEEN` (500) ids. A re-send of a message
-  older than that would run again, which is why handlers must be idempotent on their own too
+- Dedupe memory: `seen` keeps the newest 1000 ids (the most ProfileStore can re-deliver) and every
+  id younger than 60 days, up to 2000 (R7). Handlers must still be idempotent on their own
   (`core_gift` is: a uid already in the inventory is a success).
+- R3: when the sender leaves, outbox entries already saved are sent once more (best effort; a
+  later resend is a duplicate). Entries not yet saved wait for the sender's next session; a
+  cross-server sweeper would need a shared queue the framework doesn't offer (see the report).
 - A message held while the box is full is offered again next session, not this one.
 
 ## Delivery rules (Delivery.luau)
@@ -108,7 +143,7 @@ receiver's `seen`/`box` turns it into a duplicate.
 | id in `mail.box` | duplicate: consumed, handlers not run |
 | a handler returned `false` | held in the mailbox (above), consumed; no attempt counted |
 | a handler threw | `attempts[id] += 1` (saved); retry after the config backoff |
-| `maxAttempts` (10) errors | `mail.dead` += `{id,kind,payload,attempts,error,at}` (max 25), `Analytics.custom(player,"MailDeadLetter",attempts)`, consumed |
+| `maxAttempts` (10) errors | `mail.dead` += `{id,kind,payload,attempts,error,at}` (max 100), `Analytics.custom(player,"MailDeadLetter",attempts)`, consumed |
 | malformed | consumed, one warning per server |
 | v1.0 message without id | id `legacy-<kind>-<sentAt>-<fnv1a(payload)>` |
 | player left / server shutting down | stop; never `processed()` -> re-delivered next session, attempts keep counting |

@@ -73,8 +73,22 @@ describe("compat adapters for real kit modules", function()
 			},
 		})
 		expect(server.runtime.state).toBe("running")
-		expect(#seen).toBe(1) -- only the real module goes through its adapter (once)
-		expect(seen[1]).toEqual({
+		-- every REAL module of the kit goes through its adapter exactly once (with agent B's real
+		-- Economy kit that is Offline plus the real Economy/Upgrades/Rebirth; bridged ones never do)
+		local byName = {}
+		for _, s in seen do
+			byName[s.name] = (byName[s.name] or 0) + 1
+		end
+		for name, n in byName do
+			expect(name .. "=" .. n).toBe(name .. "=1")
+		end
+		local offline
+		for _, s in seen do
+			if s.name == "Offline" then
+				offline = s
+			end
+		end
+		expect(offline).toEqual({
 			name = "Offline",
 			hasRt = true,
 			api = "function",

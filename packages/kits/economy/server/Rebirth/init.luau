@@ -1,160 +1,259 @@
 --!strict
 --[[
-	Core.Rebirth. OWNED BY AGENT B (core/b-economy). Public API: Types.RebirthAPI.
+	Rebirth (economy kit), server part. core-v1.3.0 Phase 1: a real StudWork module. Section
+	`rebirth` = { rebirths }; config.Rebirth.rebirth = { baseCost, costGrowth, currency? (default
+	Economy's primary), multiplierPerRebirth, keepInventory, keepDisplayed?, resetCurrencies?
+	(default { primary }), maxRebirths? } and config.Rebirth.onRebirth (the inventory rules, below).
 
-	Config: balance.rebirth (baseCost, costGrowth, currency (default primary), multiplierPerRebirth,
-	keepInventory, keepDisplayed, resetCurrencies (default { primary }), maxRebirths).
-	- cost = floor(baseCost * costGrowth ^ rebirths); multiplier = 1 + rebirths * multiplierPerRebirth.
-	- rebirth(): ONE Data.update re-checks max + balance, pays the cost (if the cost currency is not
-	  in resetCurrencies), resets resetCurrencies to balance.startingCurrency[id] or 0, resets
-	  keepInventory = false wipes inventory copies per RebirthMath.keptInventory (paid copies kept
-	  by default, ItemDef.keepOnRebirth overrides, unknown ids kept + warned), runs registered
-	  reset steps (Upgrades, Plot reset their own sections), increments rebirths. Rebirth itself
-	  writes only currency, inventory and rebirths. Then fires CurrencyChanged (reason
-	  "rebirth") per changed currency and Rebirthed (listeners re-read everything; no per-item
-	  ItemRemoved is fired, per the pinned contract), a "toast" feedback and analytics.
+	api (v1.2): canRebirth(player), rebirth(player) -> boolean, cost(player), multiplier(player)
+	  signals.Rebirthed(player, count)
+	extensions.resetStep(id, fn(tx, player))   runs inside Rebirth's single transaction, in
+	  registration order, BEFORE `rebirths` is incremented (§8; each step writes only its own
+	  section through its own ctx.section(tx)). Upgrades resets its levels this way, Plot its
+	  displayed slots.
+	Client action: RequestRebirth().
+
+	rebirth(): ONE ctx.tx:
+	  1. re-checks maxRebirths and the balance (Economy.txApi.balance);
+	  2. pays the cost through Economy.txApi.spend when the cost currency is not reset anyway (a
+	     paid currency is allowed: a rebirth is a non-random sink, KitAccess.luau);
+	  3. resets every resetCurrencies currency to config.Economy.startingCurrency[id] or 0
+	     (Economy.txApi.spend / grant, reason "rebirth");
+	  4. unless rebirth.keepInventory, removes the wiped copies with Inventory.txApi.remove
+	     (optional Inventory; reason "rebirth"), per onRebirth below;
+	  5. runs the reset steps; 6. rebirths += 1.
+	Then (after commit) Rebirthed, the Economy rate refresh, a "toast" feedback and analytics.
+	CurrencyChanged (reason "rebirth") comes from Economy for each currency that changed.
+
+	Inventory rules on rebirth (config.Rebirth.onRebirth; defaults = the v1.2 rules, Decision 2 /
+	review N5). A copy's source tag (`paid:` / `paidcur:`) is derived by Collection and never
+	rewritten here, so the trade/policy rules that read it apply whatever is kept.
+	  paid = "keep"           Robux-bought copies (source "paid:..."): ALWAYS kept. "keep" is the
+	                          only value the schema accepts; no config and no item flag can make
+	                          a Robux purchase wipeable.
+	  paidCurrency = "wipe"   copies rolled with a compliance.paidCurrencies currency
+	                          ("paidcur:..."): "wipe" (default; otherwise spending earned Coins right
+	                          before a rebirth would make items rebirth-proof) or "keep" (the copy
+	                          keeps its paidcur: tag, so it stays a paid random item: odds shown,
+	                          untradeable for restricted players).
+	  earned = "wipe"         every other copy: "wipe" (default) or "keep".
+	  itemOverrides = true    ItemDef.keepOnRebirth = true keeps a copy, false wipes it; neither
+	                          ever overrides paid = "keep". false = ignore the item flags.
+	Unknown item ids (no ItemDef) are kept and warned about: never destroy what can't be
+	classified.
 ]]
 
-local Types = require(game:GetService("ReplicatedStorage"):WaitForChild("Core"):WaitForChild("Types"))
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+
+local KitAccess = require(script.Parent.KitAccess)
 local RebirthMath = require(script.RebirthMath)
+
+local Kits = ReplicatedStorage:WaitForChild("Kits")
+local EconomyRef = require(Kits:WaitForChild("Economy"):WaitForChild("Economy")) :: any
+local InventoryRef = require(Kits:WaitForChild("Collection"):WaitForChild("Inventory")) :: any
 
 local Rebirth = {}
 
-local ctx: any = nil
--- Reset steps other modules register (Context.RebirthInternal.addResetStep), run in
--- registration order inside the rebirth Data.update. M7: Upgrades resets its own levels and
--- Plot its own displayed slots; Rebirth never writes their sections.
-local resetSteps: { { id: string, fn: (Types.PlayerData, Player) -> () } } = {}
+export type Rules = {
+	paid: "keep",
+	paidCurrency: "wipe" | "keep",
+	earned: "wipe" | "keep",
+	itemOverrides: boolean,
+}
 
-function Rebirth.addResetStep(id: string, fn: (data: Types.PlayerData, player: Player) -> ())
-	for _, step in resetSteps do
-		assert(step.id ~= id, "[Core.Rebirth] reset step already registered: " .. id)
+local defaultRules: Rules = {
+	paid = "keep",
+	paidCurrency = "wipe",
+	earned = "wipe",
+	itemOverrides = true,
+}
+Rebirth.DEFAULT_RULES = table.freeze(defaultRules)
+
+local function prefix(source: any, p: string): boolean
+	return type(source) == "string" and string.sub(source, 1, #p) == p
+end
+
+-- Is this copy kept by a rebirth under `rules`? `def` nil = unknown item (kept). Pure.
+function Rebirth.keeps(def: any, instance: any, rules: Rules): boolean
+	if def == nil then
+		return true -- never destroy data we can't classify
 	end
-	table.insert(resetSteps, { id = id, fn = fn })
-end
-
-local function count(player: Player): number
-	local data: Types.PlayerData? = ctx.services.Data.get(player)
-	return if data then data.rebirths else 0
-end
-
-local function costCurrency(): string
-	local r = ctx.config.balance.rebirth
-	return r.currency or ctx.config.balance.primaryCurrency
-end
-
-function Rebirth.init(context: any)
-	ctx = context
-end
-
-function Rebirth.start()
-	ctx.net.handle("RequestRebirth", function(player: Player)
-		Rebirth.rebirth(player)
-	end)
-end
-
-function Rebirth.cost(player: Player): number
-	local r = ctx.config.balance.rebirth
-	return RebirthMath.cost(r.baseCost, r.costGrowth, count(player))
-end
-
-function Rebirth.multiplier(player: Player): number
-	return RebirthMath.multiplier(count(player), ctx.config.balance.rebirth.multiplierPerRebirth)
-end
-
-function Rebirth.canRebirth(player: Player): boolean
-	local data: Types.PlayerData? = ctx.services.Data.get(player)
-	if data == nil then
-		return false
+	local source = instance.source
+	if prefix(source, "paid:") then
+		return true -- Robux copies: always kept (compliance guardrail; not configurable)
 	end
-	local ok =
-		RebirthMath.check(data.rebirths, data.currency[costCurrency()] or 0, ctx.config.balance.rebirth)
-	return ok
+	if rules.itemOverrides then
+		if def.keepOnRebirth == true then
+			return true
+		elseif def.keepOnRebirth == false then
+			return false
+		end
+	end
+	if prefix(source, "paidcur:") then
+		return rules.paidCurrency == "keep"
+	end
+	return rules.earned == "keep"
 end
 
-function Rebirth.rebirth(player: Player): boolean
-	if not ctx.services.Data.isLoaded(player) then
-		return false
+function Rebirth.new(): any
+	local ctx: any = nil
+	local created: { [string]: any } = {}
+	local resetSteps: { { id: string, fn: (any, any) -> () } } = {}
+	local invalidateRate: ((any) -> ())? = nil
+
+	local signals = setmetatable({}, {
+		__index = function(_, key: any): any
+			return created[key]
+		end,
+	})
+
+	local function cfg(): any
+		return ctx.config.rebirth
 	end
-	local balance = ctx.config.balance
-	local r = balance.rebirth
-	local payWith = costCurrency()
-	local resets = RebirthMath.resetList(r, balance.primaryCurrency)
-	local starting = balance.startingCurrency or {}
 
-	local done = false
-	local newCount = 0
-	local paid = 0
-	local changes: { { id: string, newBalance: number, delta: number } } = {}
-	local unknownItems: { string } = {}
+	local function rules(): Rules
+		local r = ctx.config.onRebirth
+		return if type(r) == "table" then r else Rebirth.DEFAULT_RULES
+	end
 
-	ctx.services.Data.update(player, function(data: Types.PlayerData)
-		local ok, _, cost = RebirthMath.check(data.rebirths, data.currency[payWith] or 0, r)
-		if not ok then
-			return
+	local function count(player: any): number
+		if not ctx.data.isLoaded(player) then
+			return 0
 		end
-		done = true
-		paid = cost
-		local before = table.clone(data.currency)
-		if not table.find(resets, payWith) then
-			data.currency[payWith] = (data.currency[payWith] or 0) - cost
+		return ctx.data.get(player).rebirths or 0
+	end
+
+	-- Economy's primary currency and starting balances (config.Economy, through Economy's api;
+	-- Rebirth never reads another module's config).
+	local function economyPrimary(): string
+		return ctx.deps[EconomyRef].primaryCurrency()
+	end
+
+	local api: { [string]: any } = { signals = signals }
+
+	local function costCurrency(): string
+		return cfg().currency or economyPrimary()
+	end
+
+	function api.cost(player: any): number
+		local r = cfg()
+		return RebirthMath.cost(r.baseCost, r.costGrowth, count(player))
+	end
+
+	function api.multiplier(player: any): number
+		return RebirthMath.multiplier(count(player), cfg().multiplierPerRebirth)
+	end
+
+	function api.canRebirth(player: any): boolean
+		if not ctx.data.isLoaded(player) then
+			return false
 		end
-		for _, id in resets do
-			data.currency[id] = starting[id] or 0
+		local balance = ctx.deps[EconomyRef].balance(player, costCurrency())
+		local ok = RebirthMath.check(count(player), balance, cfg())
+		return ok
+	end
+
+	function api.rebirth(player: any): boolean
+		if not ctx.data.isLoaded(player) then
+			return false
 		end
-		for id, value in data.currency do
-			local old = before[id] or 0
-			if value ~= old then
-				table.insert(changes, { id = id, newBalance = value, delta = value - old })
+		local r = cfg()
+		local payWith = costCurrency()
+		local resets = RebirthMath.resetList(r, economyPrimary())
+		local economy = ctx.depsTx[EconomyRef]
+		local done = false
+		local newCount = 0
+		local unknownItems: { string } = {}
+
+		local committed = ctx.tx(player, function(tx: any)
+			local s = ctx.section(tx)
+			local rebirths = s.rebirths or 0
+			local ok, _, cost = RebirthMath.check(rebirths, economy.balance(tx, payWith), r)
+			if not ok then
+				return
 			end
-		end
-		if not r.keepInventory and ctx.isEnabled("Inventory") then
-			-- Decision 2: keep Robux-bought copies (ItemDef.keepOnRebirth). Without the Items
-			-- module nothing can be classified, so everything is kept.
-			local getDef = if ctx.isEnabled("Items")
-				then function(itemId: string): Types.ItemDef?
-					return ctx.services.Items.get(itemId)
+			if cost > 0 and not table.find(resets, payWith) then
+				assert(
+					economy.spend(tx, cost, "rebirth", payWith, KitAccess.TOKEN),
+					"[Rebirth] cost spend refused after the balance check"
+				)
+			end
+			for _, id in resets do
+				local current = economy.balance(tx, id)
+				local target = ctx.deps[EconomyRef].startingBalance(id)
+				if current > target then
+					economy.spend(tx, current - target, "rebirth", id, KitAccess.TOKEN)
+				elseif current < target then
+					economy.grant(tx, target - current, "rebirth", id)
 				end
-				else function(_itemId: string): Types.ItemDef?
-					return nil
+			end
+			if not r.keepInventory and ctx.isEnabled(InventoryRef) then
+				local inventory = ctx.depsTx[InventoryRef]
+				local ruleSet = rules()
+				for _, instance in inventory.list(tx) do
+					local def = ctx.gameConfig.items.byId(instance.itemId)
+					if def == nil and not table.find(unknownItems, instance.itemId) then
+						table.insert(unknownItems, instance.itemId)
+					end
+					if not Rebirth.keeps(def, instance, ruleSet) then
+						inventory.remove(tx, instance.uid, "rebirth")
+					end
 				end
-			local kept, unknown = RebirthMath.keptInventory(data.inventory :: any, getDef)
-			data.inventory = kept :: any -- same instance tables, filtered
-			unknownItems = unknown
+			end
+			for _, step in resetSteps do
+				step.fn(tx, player)
+			end
+			s.rebirths = rebirths + 1
+			newCount = s.rebirths
+			done = true
+		end)
+		if not (committed and done) then
+			return false
 		end
+		if #unknownItems > 0 then
+			table.sort(unknownItems)
+			ctx.log.warn(
+				"kept items with unknown ids on rebirth for "
+					.. tostring(player.Name)
+					.. ": "
+					.. table.concat(unknownItems, ", ")
+			)
+		end
+		if invalidateRate then
+			(invalidateRate :: any)(player)
+		end
+		created.Rebirthed:Fire(player, newCount)
+		pcall(ctx.analytics.custom, player, "Rebirth", newCount)
+		local mult = RebirthMath.multiplier(newCount, r.multiplierPerRebirth)
+		ctx.net.feedback(player, "toast", string.format("Rebirth %d! Income x%s", newCount, tostring(mult)))
+		return true
+	end
+
+	local extensions = {}
+
+	function extensions.resetStep(id: string, fn: (tx: any, player: any) -> ())
+		assert(type(id) == "string" and id ~= "", "Rebirth.resetStep(id, fn): id must be a string")
+		assert(type(fn) == "function", "Rebirth.resetStep(id, fn): fn must be a function(tx, player)")
 		for _, step in resetSteps do
-			step.fn(data, player)
+			assert(step.id ~= id, "[Rebirth] reset step already registered: " .. id)
 		end
-		data.rebirths += 1
-		newCount = data.rebirths
-	end)
-	if not done then
-		return false
-	end
-	if #unknownItems > 0 then
-		warn(
-			"[Core.Rebirth] kept items with unknown ids on rebirth for "
-				.. player.Name
-				.. ": "
-				.. table.concat(unknownItems, ", ")
-		)
+		table.insert(resetSteps, { id = id, fn = fn })
 	end
 
-	for _, c in changes do
-		ctx.signals.CurrencyChanged:Fire(player, c.id, c.newBalance, c.delta, "rebirth")
-	end
-	ctx.signals.Rebirthed:Fire(player, newCount)
+	local part: { [string]: any } = { api = api, extensions = extensions }
 
-	local analytics = ctx.services.Analytics
-	if analytics then
-		if paid > 0 then
-			pcall(analytics.economy, player, "Sink", payWith, paid, "rebirth", tostring(newCount))
-		end
-		pcall(analytics.custom, player, "Rebirth", newCount)
+	function part.init(context: any)
+		ctx = context
+		created.Rebirthed = ctx.signals.new("Rebirthed")
+		invalidateRate = ctx.depsExt[EconomyRef].rateFactor("Rebirth", function(player: any): number
+			return api.multiplier(player)
+		end)
+		ctx.net.handle("RequestRebirth", function(player: any)
+			api.rebirth(player)
+		end)
 	end
-	local mult = RebirthMath.multiplier(newCount, r.multiplierPerRebirth)
-	ctx.net.feedback(player, "toast", string.format("Rebirth %d! Income x%s", newCount, tostring(mult)))
-	return true
+
+	return part
 end
 
 return Rebirth

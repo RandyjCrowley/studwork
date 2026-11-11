@@ -6,6 +6,8 @@
 ]]
 
 return {
+	-- @if Economy
 	coinPackCoins = 1000, -- CoinPack developer product grant
 	doubleCoinsMultiplier = 2, -- DoubleCoins gamepass income multiplier
+	-- @end
 }

@@ -1,6 +1,6 @@
 --!strict
 --[[
-	RarityBadge: pill with the tier colour, glow stroke scaled by RarityTiers.glowStrength.
+	RarityBadge: pill with the tier colour, glow stroke scaled by the theme tier glowStrength.
 
 	props: rarity: string (RarityTier), layoutOrder: number?, size: UDim2? (auto by default)
 ]]

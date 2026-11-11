@@ -1,30 +1,39 @@
 --!strict
 --[[
-	Upgrades module definition (kit: economy). core-v1.3.0: still a WRAPPER around the unchanged v1.2
-	service at packages/kits/economy/server/Upgrades, which now boots through StudWork.start: the
-	compat bridge (packages/kits/compat/Bridge.luau, via ../server/ModuleServers.luau) runs its
-	v1.2 init/start on a v1.2-shaped ctx (step 4b-IIa). Phase 1 replaces it with a real module.
-	config: the v1.2 `balance` keys this module owns, unchanged (compat/shared/V12Config.luau
-	maps them back for the v1.2 code). Loose schemas: the v1.2 ConfigValidate still validates
-	the values at boot.
-	data: section 'upgrades' = this module's v1.2 PlayerData fields with their v1.2 defaults
-	(FrameworkSection.V12_MAP); replicate = the fields v1.2 replicated to the owning client.
-	client: its v1.2 client action(s), served by ../shared/ModuleClients.luau.
+	Upgrades module definition (kit: economy). core-v1.3.0 Phase 1: a real StudWork module; the
+	server part is ../server/Upgrades.
+
+	config (config.Upgrades): upgrades = { [upgradeId]: { baseCost, costGrowth, currency?
+	(default Economy's primary), maxLevel, effect = "incomeMultiplier" | "inventoryCap" | "custom",
+	perLevel, resetsOnRebirth? (default true) } }                                default {}
+	data: section `upgrades` = { upgrades = { [upgradeId]: level } }.
+	client: the `upgrade` action (RequestUpgrade), served by ./ModuleClients.luau.
+	optional: Rebirth (levels reset on rebirth through Rebirth.extensions.resetStep), Inventory
+	("inventoryCap" upgrades add to Inventory.cap through Inventory.extensions.capBonus).
 ]]
 
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local StudWork = require(ReplicatedStorage:WaitForChild("Framework"))
 local Economy = require(script.Parent.Economy)
+local Rebirth = require(script.Parent.Rebirth)
+local Inventory =
+	require(ReplicatedStorage:WaitForChild("Kits"):WaitForChild("Collection"):WaitForChild("Inventory"))
 
 return StudWork.defineModule({
 	name = "Upgrades",
-	version = "1.2.0",
+	version = "1.3.0",
 	framework = "^1.3.0",
-	description = "v1.2 Upgrades service behind a defineModule wrapper (economy kit, compat bridge)",
+	description = "Levelled upgrades bought with currency (economy kit)",
 	dependsOn = { Economy },
+	optional = { Rebirth, Inventory },
 	config = {
-		schema = { upgrades = "table?" },
-		defaults = {},
+		schema = {
+			upgrades = {
+				type = "{[string]: table}",
+				description = "upgradeId -> { baseCost, costGrowth, currency?, maxLevel, effect, perLevel, resetsOnRebirth? }",
+			},
+		},
+		defaults = { upgrades = {} },
 	},
 	data = { key = "upgrades", version = 1, default = { upgrades = {} }, replicate = { "upgrades" } },
 	client = "Upgrades",

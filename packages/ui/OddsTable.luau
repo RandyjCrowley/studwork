@@ -31,7 +31,6 @@ local Odds = require(script.Parent.Odds)
 local Panel = require(script.Parent.Panel)
 local RarityBadge = require(script.Parent.RarityBadge)
 local Theme = require(script.Parent.Theme)
-local RarityTiers = require(ReplicatedStorage:WaitForChild("Core"):WaitForChild("RarityTiers"))
 
 local e = React.createElement
 
@@ -53,11 +52,6 @@ export type Props = {
 local ROW_HEIGHT = 36
 local DEFAULT_RESTRICTED_TEXT = "Paid random items are restricted in your region. "
 	.. "You can still earn these rewards by playing."
-
-local TIER_ORDER: { [string]: number } = {}
-for _, def in RarityTiers.all() do
-	TIER_ORDER[def.id] = def.order
-end
 
 local function Row(props: { row: Odds.OddsRow, layoutOrder: number })
 	local row = props.row
@@ -136,9 +130,9 @@ local function OddsTable(props: Props)
 			then detail.items
 			else (props.odds or {})
 		return {
-			items = Odds.rows(itemOdds, props.items, TIER_ORDER, props.sortBy),
+			items = Odds.rows(itemOdds, props.items, Theme.tierOrder(), props.sortBy),
 			mutations = Odds.mutationRows(detail),
-			outcomes = Odds.outcomeRows(detail, props.items, TIER_ORDER, props.sortBy),
+			outcomes = Odds.outcomeRows(detail, props.items, Theme.tierOrder(), props.sortBy),
 			pity = Odds.pityLine(detail),
 			luck = Odds.luckLine(detail),
 		}

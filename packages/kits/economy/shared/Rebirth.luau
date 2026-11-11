@@ -1,30 +1,84 @@
 --!strict
 --[[
-	Rebirth module definition (kit: economy). core-v1.3.0: still a WRAPPER around the unchanged v1.2
-	service at packages/kits/economy/server/Rebirth, which now boots through StudWork.start: the
-	compat bridge (packages/kits/compat/Bridge.luau, via ../server/ModuleServers.luau) runs its
-	v1.2 init/start on a v1.2-shaped ctx (step 4b-IIa). Phase 1 replaces it with a real module.
-	config: the v1.2 `balance` keys this module owns, unchanged (compat/shared/V12Config.luau
-	maps them back for the v1.2 code). Loose schemas: the v1.2 ConfigValidate still validates
-	the values at boot.
-	data: section 'rebirth' = this module's v1.2 PlayerData fields with their v1.2 defaults
-	(FrameworkSection.V12_MAP); replicate = the fields v1.2 replicated to the owning client.
-	client: its v1.2 client action(s), served by ../shared/ModuleClients.luau.
+	Rebirth module definition (kit: economy). core-v1.3.0 Phase 1: a real StudWork module; the
+	server part is ../server/Rebirth (README there: the rebirth transaction and the inventory
+	rules with their compliance limits).
+
+	config (config.Rebirth):
+	  rebirth = { baseCost, costGrowth, currency? (default Economy's primary),
+	    multiplierPerRebirth, keepInventory, keepDisplayed?, resetCurrencies? (default
+	    { primary }), maxRebirths? }    (v1.2 keys; defaults = the template's: 5000, 3, 0.5, false, false)
+	  onRebirth = { paid = "keep", paidCurrency = "wipe" | "keep", earned = "wipe" | "keep",
+	    itemOverrides = boolean }        default { "keep", "wipe", "wipe", true } (the v1.2 rules)
+	  paid accepts only "keep": a Robux-bought copy can never be made wipeable.
+	data: section `rebirth` = { rebirths }.
+	client: the `rebirth` action (RequestRebirth), served by ./ModuleClients.luau.
+	optional: Inventory (the inventory wipe uses Inventory.txApi.list / remove).
 ]]
 
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local StudWork = require(ReplicatedStorage:WaitForChild("Framework"))
 local Economy = require(script.Parent.Economy)
+local Inventory =
+	require(ReplicatedStorage:WaitForChild("Kits"):WaitForChild("Collection"):WaitForChild("Inventory"))
 
 return StudWork.defineModule({
 	name = "Rebirth",
-	version = "1.2.0",
+	version = "1.3.0",
 	framework = "^1.3.0",
-	description = "v1.2 Rebirth service behind a defineModule wrapper (economy kit, compat bridge)",
+	description = "Rebirths: reset progress for a permanent income multiplier (economy kit)",
 	dependsOn = { Economy },
+	optional = { Inventory },
 	config = {
-		schema = { rebirth = "table?" },
-		defaults = {},
+		schema = {
+			rebirth = {
+				baseCost = { type = "number(0..)", description = "cost of the first rebirth" },
+				costGrowth = {
+					type = "number(0..)",
+					description = "cost = floor(baseCost * costGrowth ^ rebirths)",
+				},
+				currency = { type = "string?", description = "cost currency (default Economy's primary)" },
+				multiplierPerRebirth = {
+					type = "number(0..)",
+					description = "income multiplier = 1 + rebirths * multiplierPerRebirth",
+				},
+				keepInventory = { type = "boolean", description = "true = a rebirth wipes no inventory copy" },
+				keepDisplayed = {
+					type = "boolean?",
+					description = "true = Plot keeps displayed slots (read by Plot)",
+				},
+				resetCurrencies = {
+					type = "{string}?",
+					description = "currencies reset to their starting balance (default { primary })",
+				},
+				maxRebirths = { type = "integer(0..)?", description = "no limit when nil" },
+			},
+			onRebirth = {
+				paid = {
+					type = "enum(keep)",
+					description = "Robux-bought copies (paid:) are always kept; no other value is allowed",
+				},
+				paidCurrency = {
+					type = '"wipe"|"keep"',
+					description = "copies rolled with a paid currency (paidcur:); the tag is kept either way",
+				},
+				earned = { type = '"wipe"|"keep"', description = "every other copy" },
+				itemOverrides = {
+					type = "boolean",
+					description = "ItemDef.keepOnRebirth true keeps / false wipes a non-Robux copy",
+				},
+			},
+		},
+		defaults = {
+			rebirth = {
+				baseCost = 5000,
+				costGrowth = 3,
+				multiplierPerRebirth = 0.5,
+				keepInventory = false,
+				keepDisplayed = false,
+			},
+			onRebirth = { paid = "keep", paidCurrency = "wipe", earned = "wipe", itemOverrides = true },
+		},
 	},
 	data = { key = "rebirth", version = 1, default = { rebirths = 0 }, replicate = { "rebirths" } },
 	client = "Rebirth",

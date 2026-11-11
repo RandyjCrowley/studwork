@@ -1,20 +1,26 @@
-# Core.Upgrades
+# Upgrades (economy kit)
 
-Public API: `Types.UpgradesAPI`. Pure math: `UpgradeMath.luau` (+ spec).
+A real StudWork module (core-v1.3.0 Phase 1). Definition: `../../shared/Upgrades.luau`. Pure math:
+`UpgradeMath.luau` (+ spec).
 
-## Config: `balance.upgrades[id]`
-`baseCost`, `costGrowth` (cost(level) = floor(baseCost * costGrowth ^ level)), `currency`
-(default primary), `maxLevel` (cost = nil at max), `effect`, `perLevel`, `resetsOnRebirth`.
+## Config (`config.Upgrades`)
+`upgrades = { [id]: { baseCost, costGrowth, currency? (default Economy's primary), maxLevel,
+effect = "incomeMultiplier" | "inventoryCap" | "custom", perLevel, resetsOnRebirth? } }`, default `{}`.
 
-## Effects
-- `incomeMultiplier`: Economy reads the saved level: factor `1 + level * perLevel`.
-- `inventoryCap`: Inventory computes `cap + Σ level * perLevel` (`UpgradeMath.capBonus` mirrors it).
-- `custom`: level only; the game reads `Upgrades.level`.
+## Save data
+Section `upgrades` = `{ upgrades = { [id]: level } }` (replicated).
+
+## API
+`level(player, id)`, `cost(player, id) -> number?` (`floor(baseCost * costGrowth ^ level)`, nil when
+maxed/unknown), `purchase(player, id) -> (ok, reason?)` (`unknown_upgrade`, `not_loaded`, `maxed`,
+`cannot_afford`), `signals.UpgradePurchased(player, id, level)`. Client action `upgrade`
+(`RequestUpgrade`).
 
 ## Behaviour
-`purchase` validates the id (`Validate.isId` + must exist in config), refuses when not loaded or
-maxed, spends via `Economy.spend` (atomic check+deduct, analytics Sink `upgrade:<id>`), then bumps
-the level in the same frame and fires `UpgradePurchased(player, id, level)`. Returns
-`(false, "unknown_upgrade" | "not_loaded" | "maxed" | "cannot_afford")` on failure.
-`RequestUpgrade(upgradeId)` remote -> `purchase` after id validation.
-Rebirth resets levels with `resetsOnRebirth ~= false` (`UpgradeMath.afterRebirth`).
+- `purchase` is one transaction: the level is re-read, the cost is paid with `Economy.txApi.spend`
+  and the level is bumped, so both commit or neither does. A paid currency is accepted here (a
+  non-random sink; kit-private `KitAccess` token): every shipped game prices upgrades in Coins,
+  which are also Robux-buyable.
+- `incomeMultiplier` upgrades are an Economy `rateFactor` (`1 + level * perLevel` each);
+  `inventoryCap` is read by Inventory through `level`; `custom` is read by the game.
+- With Rebirth enabled, a `resetStep` resets every level whose `resetsOnRebirth ~= false`.

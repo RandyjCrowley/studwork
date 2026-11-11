@@ -5,14 +5,16 @@
 	A real game would ship these as models in the place; Core.Plot works with either.
 ]]
 
-local CollectionService = game:GetService("CollectionService")
+local CollectionService = game:GetService("CollectionService") -- @if Plot
 local Workspace = game:GetService("Workspace")
 
 local World = {}
 
+-- @if Plot
 local PLOT_COUNT = 6
 local PLOT_RADIUS = 70
 local SLOTS = 8
+-- @end
 
 local function part(props: { [string]: any }): Part
 	local p = Instance.new("Part")
@@ -46,6 +48,7 @@ function World.build(): BasePart
 	spawn.Duration = 0
 	spawn.Parent = folder
 
+	-- @if Plot
 	for i = 1, PLOT_COUNT do
 		local angle = (i - 1) / PLOT_COUNT * math.pi * 2
 		local center = Vector3.new(math.cos(angle) * PLOT_RADIUS, 0, math.sin(angle) * PLOT_RADIUS)
@@ -74,6 +77,7 @@ function World.build(): BasePart
 		plot.Parent = folder
 		CollectionService:AddTag(plot, "CorePlot")
 	end
+	-- @end
 
 	local block = part({
 		Name = "CollectBlock",

@@ -1,0 +1,86 @@
+# FAQ
+
+**Do I have to use every kit?**
+No. List only the modules you want (`tools/new-game <name> --modules ...`). A module's hard
+dependencies must be listed too; boot names the missing one. `--modules ""` is a foundation-only
+game.
+
+**What happens if I call a module the game doesn't list?**
+You get an error, `"<Name> is not enabled in GameConfig.modules"`, from `StudWork.use`,
+`StudWork.<Name>` or `ctx.deps[...]`. Never a silent nil. Inside a module, check optional
+dependencies with `ctx.isEnabled(Ref)` first.
+
+**Why refs instead of strings for dependencies?**
+A typo in a `require` fails when the file loads, and `StudWork.use(Ref)` is typed by the
+definition. `dependsOn = { "Economy" }` is refused with a message saying so.
+
+**Where does my gameplay code go?**
+In the game's own module, `games/<g>/modules/<gameId>/server/init.luau`. It gets a `ctx` like any
+module: `ctx.shop.onProduct`, `ctx.data` (the game's own save section), `ctx.deps[...]` for the kit
+modules in its `dependsOn`. `Main.server.luau` only builds the world and starts StudWork.
+
+**Can my module read another module's save data?**
+Not directly. Use that module's API (`ctx.deps[Inventory].list(player)`) or, inside a
+transaction, its `txApi`. Your `ctx.data` and `ctx.section(tx)` only reach your own section.
+
+**How do I change a save shape?**
+`tools/make-migration <module>` writes the next `NNN_*.luau`, a test stub and bumps
+`data.version`. Fill in the migration and the test, and update `data.default`. A failing migration
+saves nothing and kicks the player with their data kept.
+
+**I switched a kit off. Is the data gone?**
+No. A disabled module's section is carried through saves untouched; switch it back on and it's
+there.
+
+**Why can't I yield in `init` or `start`?**
+Boot must be deterministic and fast, and a yield would let requests or purchases interleave with a
+half-booted server. Connect events and start loops (`ctx.lifecycle.onTick`) instead; handlers may
+spawn their own threads.
+
+**Why can't I yield inside `ctx.tx` / `ctx.data.update`?**
+A transaction is a working copy committed at the end. A yield would let another change for the
+same player run in between and be overwritten. Put yielding work in `tx.after`.
+
+**How do I give something to another player from inside a transaction?**
+Not in the same transaction: one tx is one player. Use `tx.after(function() ... end)`, or Mail's
+`txApi.send` for a crash-safe message that leaves only after your save.
+
+**How do I add randomness?**
+Register a source with `ctx.compliance.registerRandomSource` and get outcomes from
+`ctx.compliance.roll` (free) or `spendForRoll` (priced). That's how odds disclosure and the paid
+rules cover your module. Rolling `math.random` yourself for anything a player can buy is outside
+the guardrails ([guardrails](guardrails.md)).
+
+**How do I sell something for Robux?**
+Add it to `GameConfig.products` and register `ctx.shop.onProduct("<Name>", function(tx) ... end)`
+in your module's `init`. Grant through `tx.use(Ref).<op>` (`Economy.grant`, `Inventory.addItem`,
+`Rarity.roll`). Never assign `ProcessReceipt`.
+
+**How do I send something to the client?**
+Per-player state: `ctx.replicate.set(player, key, value)`; for everyone: `setAll`. Saved fields:
+list them in `data.replicate`. One-off messages: your module's Blink events with `ctx.net.fire`,
+or `ctx.net.feedback` for toasts and pops.
+
+**How do I take input from the client?**
+Declare `actions` in your server part. The framework rate-limits, checks the player is loaded and
+`pcall`s; your handler validates the arguments against the player's own data.
+
+**Can I replace a kit's screen or HUD widget?**
+Yes: register a screen with the same name (`tools/make-screen <game> Inventory`), or set
+`client.hud.widgets["<Module>.<widget>"]` to your component or `false` ([theme guide](theme.md)).
+
+**How do I test without Studio?**
+`tools/test <folder>` runs Lune specs. Modules use the framework harness
+(`packages/framework/test/harness.luau`); whole games boot in the multi-server sim through their
+`Boot.spec.luau`. `tools/make-module` writes a passing test to start from.
+
+**Where's the example of a third-party module?**
+[`examples/modules/session-leaderboard`](../../examples/modules/session-leaderboard/README.md):
+config, its own section, replicated state, an optional dependency on Economy and its signal, the
+shared ticker, a widget and a screen, with tests.
+
+**What's still moving in core v1.3.0?**
+The five kits are being rebuilt on the module API, the theme/HUD/screen registry is being built,
+and the "nothing is special" lint rule lands in Phase 2. Kit APIs, extensions, signals and
+replicated keys are pinned by
+[PHASE1-CONTRACT.md]((internal build report, not public)); the kit pages mark them.

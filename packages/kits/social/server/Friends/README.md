@@ -1,15 +1,20 @@
-# Core.Friends (agent E)
+# Friends (social kit, core-v1.3.0 module)
 
-Public API (`Types.FriendsAPI`): `onCoPlay(handler)`, `friendsInServer(player)` (last detected list, no yield).
+Definition: `../../shared/Friends.luau` (optional dependency: Economy). Server part: `init.luau`.
 
-- `CoPlay.luau` - pure helpers: kind resolution, gained-set diff, pair cache key (tests in `CoPlay.spec.luau`).
-- `init.luau` - detection on data load (for the joiner and everyone already here) and every
-  `balance.friends.checkIntervalSec`; `IsFriendsWithAsync` cached per pair (pcall, failures not cached) and deduped in flight by `PairDedupe.luau` (one web call per pair at a time, shared by both players' recomputes; tests in `PairDedupe.spec.luau`).
+api: `onCoPlay(handler) -> Connection`, `friendsInServer(player)` (last detected list, no yield),
+`signals.CoPlay(player, friends, kind)`. No save data.
+
+- `CoPlay.luau` - pure helpers: kind resolution, gained-set diff, pair cache key (`CoPlay.spec.luau`).
+- `init.luau` - detection on player load (for the joiner and everyone already here) and every
+  `config.Friends.friends.checkIntervalSec` (default 30, floor 5) on the framework's shared ticker;
+  `IsFriendsWithAsync` cached per pair (pcall, failures not cached) and deduped in flight by
+  `PairDedupe.luau`.
 
 Kind: `"invite"` when `Player:GetJoinData().ReferredByPlayerId` is a friend in the server; `"private"` when
-`game.PrivateServerId ~= ""` and `game.PrivateServerOwnerId ~= 0`; else `"server"`. `CoPlay` signal + handlers +
-toast fire only when the friend set gains someone. `balance.friends.coPlayMultiplier` is applied via
-`Economy.addMultiplier(player, "coplay", mult)` while >= 1 friend is present, removed otherwise —
-only when the optional Economy module is enabled (`ctx.isEnabled("Economy")`).
+`game.PrivateServerId ~= ""` and `game.PrivateServerOwnerId ~= 0`; else `"server"`. `CoPlay` + toast fire
+only when the friend set gains someone. `config.Friends.friends.coPlayMultiplier` is applied through
+`ctx.deps[Economy].addMultiplier(player, "coplay", mult)` while >= 1 friend is present, removed otherwise,
+only when Economy is enabled.
 
-Console (Studio): `coplay <server|invite|private> [userId]` fires the hook with mock friends (other players, or self).
+Console (Studio): `friends coplay <server|invite|private> [userId]` fires the hook with mock friends.

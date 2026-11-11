@@ -1,100 +1,195 @@
 --!strict
 --[[
-	Core.Upgrades. OWNED BY AGENT B (core/b-economy). Public API: Types.UpgradesAPI.
+	Upgrades (economy kit), server part. core-v1.3.0 Phase 1: a real StudWork module. Section
+	`upgrades` = { upgrades = { [upgradeId]: level } }; config.Upgrades.upgrades[id] = { baseCost,
+	costGrowth, currency? (default Economy's primary), maxLevel, effect, perLevel,
+	resetsOnRebirth? }.
 
-	- Levels live in PlayerData.upgrades (upgradeId -> level). Config: balance.upgrades[id]
-	  (baseCost, costGrowth, currency (default primary), maxLevel, effect, perLevel, resetsOnRebirth).
+	api (v1.2): level(player, id) -> number, cost(player, id) -> number?,
+	  purchase(player, id) -> (ok, reason?)   reasons "unknown_upgrade" | "not_loaded" | "maxed" |
+	                                          "cannot_afford"
+	  signals.UpgradePurchased(player, upgradeId, level)
+	Client action: RequestUpgrade(upgradeId) (framework Blink event; StudWork.use(Upgrades)
+	  .actions.upgrade(id) on the client).
+
 	- cost(level) = floor(baseCost * costGrowth ^ level); nil when maxed or unknown.
-	- Effects: "incomeMultiplier" is read by Economy from the saved level (1 + level * perLevel);
-	  "inventoryCap" is read by Inventory via Upgrades.level; "custom" = level only (game reads it).
-	- purchase validates the id against config, spends through Economy (one atomic check+deduct),
-	  then bumps the level in the same server frame (no yield in between), fires UpgradePurchased.
-	- Rebirth resets levels whose resetsOnRebirth ~= false (done inside Rebirth's Data.update).
+	- purchase is ONE transaction: re-reads the level, pays through Economy.txApi.spend (a paid
+	  currency is allowed here: an upgrade is a non-random sink, KitAccess.luau) and bumps the
+	  level, so the spend and the level commit together (v1.2 spent, then wrote, then refunded on
+	  failure).
+	- Effects: "incomeMultiplier" -> an Economy rateFactor (1 + level * perLevel per upgrade);
+	  "inventoryCap" -> read by Inventory through Upgrades.level; "custom" -> the game reads level.
+	- Rebirth (optional): a resetStep resets every level whose resetsOnRebirth ~= false, inside
+	  Rebirth's transaction (M7: Upgrades writes only its own section).
 ]]
 
-local Types = require(game:GetService("ReplicatedStorage"):WaitForChild("Core"):WaitForChild("Types"))
-local Validate = require(game:GetService("ReplicatedStorage"):WaitForChild("Core"):WaitForChild("Validate"))
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+
+local KitAccess = require(script.Parent.KitAccess)
 local UpgradeMath = require(script.UpgradeMath)
+
+local EconomyKit = ReplicatedStorage:WaitForChild("Kits"):WaitForChild("Economy")
+local EconomyRef = require(EconomyKit:WaitForChild("Economy")) :: any
+local RebirthRef = require(EconomyKit:WaitForChild("Rebirth")) :: any
+local InventoryRef = require(
+	ReplicatedStorage:WaitForChild("Kits"):WaitForChild("Collection"):WaitForChild("Inventory")
+) :: any
+
+local MAX_ID_LENGTH = 64
 
 local Upgrades = {}
 
-local ctx: any = nil
+local function isId(v: any): boolean
+	return type(v) == "string" and #v > 0 and #v <= MAX_ID_LENGTH
+end
 
-local function configOf(upgradeId: any): Types.UpgradeConfig?
-	if not Validate.isId(upgradeId) then
-		return nil
+function Upgrades.new(): any
+	local ctx: any = nil
+	local created: { [string]: any } = {}
+	local invalidateRate: ((any) -> ())? = nil
+
+	local signals = setmetatable({}, {
+		__index = function(_, key: any): any
+			return created[key]
+		end,
+	})
+
+	local function configOf(upgradeId: any): any
+		if not isId(upgradeId) then
+			return nil
+		end
+		local list = ctx.config.upgrades
+		return if type(list) == "table" then list[upgradeId] else nil
 	end
-	local list = ctx.config.balance.upgrades
-	return if list then list[upgradeId] else nil
-end
 
-function Upgrades.init(context: any)
-	ctx = context
-end
+	local function levels(player: any): { [string]: number }
+		if not ctx.data.isLoaded(player) then
+			return {}
+		end
+		local s = ctx.data.get(player)
+		return if type(s.upgrades) == "table" then s.upgrades else {}
+	end
 
-function Upgrades.start()
-	if ctx.isEnabled("Rebirth") then
-		-- M7: Upgrades resets its own levels inside Rebirth's single Data.update.
-		ctx.services.Rebirth.addResetStep("Upgrades", function(data: Types.PlayerData)
-			data.upgrades = UpgradeMath.afterRebirth(ctx.config.balance.upgrades, data.upgrades)
+	local function refreshRate(player: any)
+		if invalidateRate then
+			(invalidateRate :: any)(player)
+		end
+	end
+
+	local api: { [string]: any } = { signals = signals }
+
+	function api.level(player: any, upgradeId: string): number
+		return levels(player)[upgradeId] or 0
+	end
+
+	function api.cost(player: any, upgradeId: string): number?
+		local upgrade = configOf(upgradeId)
+		if upgrade == nil then
+			return nil
+		end
+		return UpgradeMath.cost(
+			upgrade.baseCost,
+			upgrade.costGrowth,
+			api.level(player, upgradeId),
+			upgrade.maxLevel
+		)
+	end
+
+	function api.purchase(player: any, upgradeId: string): (boolean, string?)
+		local upgrade = configOf(upgradeId)
+		if upgrade == nil then
+			return false, "unknown_upgrade"
+		end
+		if not ctx.data.isLoaded(player) then
+			return false, "not_loaded"
+		end
+		local failure: string? = nil
+		local newLevel = 0
+		local committed = ctx.tx(player, function(tx: any)
+			local s = ctx.section(tx)
+			if type(s.upgrades) ~= "table" then
+				s.upgrades = {}
+			end
+			local level = s.upgrades[upgradeId] or 0
+			local cost = UpgradeMath.cost(upgrade.baseCost, upgrade.costGrowth, level, upgrade.maxLevel)
+			if cost == nil then
+				failure = "maxed"
+				return
+			end
+			if
+				cost > 0
+				and not ctx.depsTx[EconomyRef].spend(
+					tx,
+					cost,
+					"upgrade:" .. upgradeId,
+					upgrade.currency,
+					KitAccess.TOKEN
+				)
+			then
+				failure = "cannot_afford"
+				return
+			end
+			newLevel = level + 1
+			s.upgrades[upgradeId] = newLevel
+			tx.after(function()
+				refreshRate(player)
+				created.UpgradePurchased:Fire(player, upgradeId, newLevel)
+			end)
+		end)
+		if failure ~= nil then
+			return false, failure
+		end
+		if not committed then
+			return false, "not_loaded"
+		end
+		return true, nil
+	end
+
+	local part: { [string]: any } = { api = api }
+
+	function part.init(context: any)
+		ctx = context
+		created.UpgradePurchased = ctx.signals.new("UpgradePurchased")
+		-- "incomeMultiplier" upgrades: one factor per upgrade with a level (v1.2 RateMath order)
+		invalidateRate = ctx.depsExt[EconomyRef].rateFactor("Upgrades", function(player: any): { number }
+			local out = {}
+			local list = ctx.config.upgrades
+			if type(list) ~= "table" then
+				return out
+			end
+			local current = levels(player)
+			for id, upgrade in list do
+				if upgrade.effect == "incomeMultiplier" then
+					local level = current[id] or 0
+					if level > 0 then
+						table.insert(out, UpgradeMath.incomeFactor(level, upgrade.perLevel))
+					end
+				end
+			end
+			return out
+		end)
+		-- "inventoryCap" upgrades: Inventory.cap = base + Σ capBonus (Phase 1 integration glue;
+		-- replaces the Collection compat adapter's shim over the bridged Upgrades)
+		if ctx.isEnabled(InventoryRef) then
+			ctx.depsExt[InventoryRef].capBonus("Upgrades", function(player: any): number
+				return UpgradeMath.capBonus(ctx.config.upgrades, levels(player))
+			end)
+		end
+		if ctx.isEnabled(RebirthRef) then
+			ctx.depsExt[RebirthRef].resetStep("Upgrades", function(tx: any, _player: any)
+				local s = ctx.section(tx)
+				s.upgrades = UpgradeMath.afterRebirth(ctx.config.upgrades, s.upgrades or {})
+			end)
+		end
+		ctx.net.handle("RequestUpgrade", function(player: any, upgradeId: any)
+			if configOf(upgradeId) == nil then
+				return -- unknown / malformed id from the client
+			end
+			api.purchase(player, upgradeId)
 		end)
 	end
-	ctx.net.handle("RequestUpgrade", function(player: Player, upgradeId: any)
-		if configOf(upgradeId) == nil then
-			return -- unknown / malformed id from the client
-		end
-		Upgrades.purchase(player, upgradeId)
-	end)
-end
 
-function Upgrades.level(player: Player, upgradeId: string): number
-	local data: Types.PlayerData? = ctx.services.Data.get(player)
-	return if data then (data.upgrades[upgradeId] or 0) else 0
-end
-
-function Upgrades.cost(player: Player, upgradeId: string): number?
-	local upgrade = configOf(upgradeId)
-	if upgrade == nil then
-		return nil
-	end
-	return UpgradeMath.cost(
-		upgrade.baseCost,
-		upgrade.costGrowth,
-		Upgrades.level(player, upgradeId),
-		upgrade.maxLevel
-	)
-end
-
-function Upgrades.purchase(player: Player, upgradeId: string): (boolean, string?)
-	local upgrade = configOf(upgradeId)
-	if upgrade == nil then
-		return false, "unknown_upgrade"
-	end
-	if not ctx.services.Data.isLoaded(player) then
-		return false, "not_loaded"
-	end
-	local level = Upgrades.level(player, upgradeId)
-	local cost = UpgradeMath.cost(upgrade.baseCost, upgrade.costGrowth, level, upgrade.maxLevel)
-	if cost == nil then
-		return false, "maxed"
-	end
-	local reason = "upgrade:" .. upgradeId
-	if cost > 0 and not ctx.services.Economy.spend(player, cost, reason, upgrade.currency) then
-		return false, "cannot_afford"
-	end
-	local newLevel = level
-	local ok = ctx.services.Data.update(player, function(data: Types.PlayerData)
-		newLevel = (data.upgrades[upgradeId] or 0) + 1
-		data.upgrades[upgradeId] = newLevel
-	end)
-	if not ok then
-		if cost > 0 then
-			ctx.services.Economy.grant(player, cost, "refund:" .. upgradeId, upgrade.currency)
-		end
-		return false, "not_loaded"
-	end
-	ctx.signals.UpgradePurchased:Fire(player, upgradeId, newLevel)
-	return true, nil
+	return part
 end
 
 return Upgrades

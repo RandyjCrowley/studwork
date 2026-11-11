@@ -85,7 +85,7 @@ local function Modal(props: Props)
 		Text = "",
 		AutoButtonColor = false,
 		Modal = true, -- frees the mouse in first person while open
-		BackgroundColor3 = Color3.new(0, 0, 0),
+		BackgroundColor3 = Theme.color("backdrop"),
 		BackgroundTransparency = 0.45,
 		BorderSizePixel = 0,
 		Size = UDim2.fromScale(1, 1),

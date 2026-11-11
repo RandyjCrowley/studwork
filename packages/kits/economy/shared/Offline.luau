@@ -1,24 +1,44 @@
 --!strict
 --[[
-	Offline module definition (kit: economy). core-v1.3.0: still a WRAPPER around the unchanged v1.2
-	service at packages/kits/economy/server/Offline, which now boots through StudWork.start: the
-	compat bridge (packages/kits/compat/Bridge.luau, via ../server/ModuleServers.luau) runs its
-	v1.2 init/start on a v1.2-shaped ctx (step 4b-IIa). Phase 1 replaces it with a real module.
-	config: the v1.2 `balance` keys this module owns, unchanged (compat/shared/V12Config.luau
-	maps them back for the v1.2 code). Loose schemas: the v1.2 ConfigValidate still validates
-	the values at boot.
+	Offline module definition (kit: economy). core-v1.3.0 Phase 1: a real StudWork module; the
+	server part is ../server/Offline.
+
+	config (config.Offline): offline = {
+	  capSeconds      the most time away that counts            default 28800 (8 h)
+	  minSeconds      shorter absences are ignored               default 60
+	  payoutFraction  0..1 of the rate paid for the time away    default 0.5
+	  autoPay         pay automatically (needs Economy)          default true }
+	No save data: it reads ctx.framework.lastSeen / sessions.
+	optional: Economy (autoPay).
 ]]
 
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local StudWork = require(ReplicatedStorage:WaitForChild("Framework"))
+local Economy = require(script.Parent.Economy)
 
 return StudWork.defineModule({
 	name = "Offline",
-	version = "1.2.0",
+	version = "1.3.0",
 	framework = "^1.3.0",
-	description = "v1.2 Offline service behind a defineModule wrapper (economy kit, compat bridge)",
+	description = "Time-away detection and the offline payout (economy kit)",
+	optional = { Economy },
 	config = {
-		schema = { offline = "table?" },
-		defaults = {},
+		schema = {
+			offline = {
+				capSeconds = { type = "number(0..)", description = "the most time away that counts" },
+				minSeconds = { type = "number(0..)", description = "shorter absences are ignored" },
+				payoutFraction = {
+					type = "number(0..1)",
+					description = "share of the rate paid for the time away",
+				},
+				autoPay = {
+					type = "boolean",
+					description = "pay the offline earnings automatically (needs Economy)",
+				},
+			},
+		},
+		defaults = {
+			offline = { capSeconds = 8 * 3600, minSeconds = 60, payoutFraction = 0.5, autoPay = true },
+		},
 	},
 })

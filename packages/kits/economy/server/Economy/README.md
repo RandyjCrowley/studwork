@@ -1,51 +1,64 @@
-# Core.Economy
+# Economy (economy kit)
 
-Currency (grant/spend/balance), item income, extra income sources and stacking multipliers.
-Public API: `Types.EconomyAPI`. Pure math: `RateMath.luau` (+ `RateMath.spec.luau`).
+A real StudWork module (core-v1.3.0 Phase 1). Definition: `../../shared/Economy.luau`. Server part:
+`init.luau` (`Economy.new()`, one per runtime). Pure math: `RateMath.luau` (+ spec).
 
-## Config keys
-`balance.primaryCurrency`, `balance.startingCurrency`, `balance.income.tickSeconds`,
-`balance.income.source` (`"displayed"` | `"owned"`), `balance.multiplierStacking`
-(`"multiply"` default, `"add"` = `1 + Σ(f-1)`), `balance.upgrades[*]` (incomeMultiplier effect),
-`balance.rebirth.multiplierPerRebirth` (through `Rebirth.multiplier`).
+## Config (`config.Economy`, defaults)
+| key | default | meaning |
+|---|---|---|
+| `primaryCurrency` | `"Coins"` | HUD / default currency |
+| `startingCurrency` | none | `{ [currency]: amount }` granted on the first join |
+| `income.tickSeconds` | `1` | seconds between payouts (shared ticker) |
+| `income.source` | `"owned"` | `"owned"` = every inventory copy earns; `"displayed"` = only plot copies |
+| `multiplierStacking` | `"multiply"` | `"add"` = `1 + Σ(f-1)` |
 
-## Behaviour
-- `grant/spend(player, amount, reason, currency?)`: amount must be finite and > 0, reason a
-  string, the player loaded. Known currency = the primary, any key in `balance.startingCurrency`,
-  or a key the player already holds in `PlayerData.currency`. Spend checks and deducts inside one
-  `Data.update` (never negative). Fires `CurrencyChanged(player, id, newBalance, delta, reason)`.
-- Item income comes from PlayerData (displayed or owned) via `Items.incomeOf`. Nobody else calls
-  `addIncomeSource` for items; it is for game-defined extra sources (session only).
-- `getMultiplier` = stack of `Rebirth.multiplier`, `1 + level*perLevel` per incomeMultiplier
-  upgrade (read from saved levels), saved boosts (`PlayerData.multipliers`) and session boosts.
-  `addMultiplier(.., expiresAt?, persist?)` saves the entry when `persist == true` or
-  `expiresAt ~= nil`; otherwise it is session-only (co-play). Expired entries are ignored and
-  pruned (on load and on the tick they expire).
-- Replicates `ratePerSec` and `multiplier` via `ctx.setReplicated` only when they change.
+Robux-buyable currencies are framework config: `GameConfig.compliance.paidCurrencies`.
+
+## Save data
+Section `economy` = `{ currency = { [id]: number }, multipliers = { [id]: { mult, expiresAt? } } }`
+(the v1.2 fields; `FrameworkSection.V12_MAP` splits a v1.2 save into it). Replicated:
+`data.currency`, `data.multipliers`, `extra.ratePerSec`, `extra.multiplier`.
+
+## Item fields
+`item.economy.incomePerSec` and `mutation.economy.incomeMultiplier` (default 1). An item without an
+`economy` table earns nothing, so a collection-only game (cards, cosmetics, quest items) is valid
+with or without Economy.
+
+## API
+- `grant / spend(player, amount, reason, currency?) -> boolean`, `balance(player, currency?)`.
+  Amount finite and > 0, reason a string, the player loaded; known currency = the primary, a
+  `startingCurrency` key or one the player holds. **`spend` of a paid currency errors**
+  ("spend a paid currency only through compliance.spendForRoll", §14 C3).
+- `addIncomeSource / removeIncomeSource`, `addMultiplier(player, id, mult, expiresAt?, persist?)`
+  (saved when `persist` or `expiresAt`), `removeMultiplier`, `getMultiplier`, `getRate`.
+- Additions: `primaryCurrency()`, `startingBalance(currency)`.
+- `signals.CurrencyChanged(player, currency, newBalance, delta, reason)` (reason `"income"` for ticks).
+- `txApi`: `grant(tx, ...)`, `spend(tx, ...)` (same refusal), `balance(tx, currency?)` (addition).
+- `purchaseOps.grant(tx, amount, currency?)`, reason `"product:<product>"`.
+- Compliance: Economy registers the spender of every paid currency, so `compliance.spendForRoll`
+  spends it inside the roll's tx (reason `"roll"`).
+
+## Extensions
+- `rateFactor(id, fn(player) -> number | {number}) -> invalidate(player)`: a multiplier factor read
+  on recompute (Rebirth, Upgrades). Call `invalidate(player)` when its inputs change.
+- `displayedSource(fn(player) -> { [slotId]: uid }) -> invalidate(player)`: the displayed set for
+  `income.source = "displayed"`. Plot registers it (Plot declares `optional = { Economy }`), so
+  Economy never requires Plot's definition (no require cycle with Plot -> Rebirth -> Economy).
+  On this branch the compat adapter registers it for the bridged Plot.
+
+## Income rules (v1.2, RateMath)
+`rate = (Σ item income + Σ income sources) × combine(factors, multiplierStacking)`; item income =
+`incomePerSec × incomeMultiplier` over `Inventory.list` ("owned") or the displayed set's
+`Inventory.get` ("displayed"). Item defs come from `ctx.gameConfig.items` (the frozen catalog
+`Items.get` serves); the mutation multiplier from `Items.mutation(id)` (optional Items).
+Factors: every `rateFactor`, active saved boosts, session boosts. Computed from save data only, so
+it is valid in any load handler (Offline relies on it).
 
 ## Performance
-Per-player cached `rate`/`mult` with a dirty flag. Invalidated by `ItemAdded`, `ItemRemoved`,
-`ItemDisplayed`, `ItemUndisplayed`, `Rebirthed`, `UpgradePurchased`, `DataLoaded`/`onLoaded`,
-add/removeIncomeSource, add/removeMultiplier, and the earliest boost `expiresAt` (stored per
-player, compared each tick). One loop per `tickSeconds` walks loaded players:
-**O(P) per tick** (one comparison + one `Data.update` + one `CurrencyChanged` per player).
-A recompute is O(items + upgrades + boosts) and only happens on invalidation. 50 players x 100
-items => 50 cheap updates per tick; a 100-item recompute only when that player's items change.
-Tick is wrapped in `debug.profilebegin("Core.Economy.tick")`. dt is measured (capped at 2 ticks).
-
-## Analytics
-grant/spend log `Analytics.economy(player, Source|Sink, currency, amount, kind, sku)` where the
-reason `"kind:sku"` is split (e.g. `upgrade:IncomeBoost`). Income ticks (and grants with reason
-`"income"`) are summed and flushed every 60 s per player and on leave (transaction `income`).
-
-## Signals
-Fires `CurrencyChanged` (reason `"income"` for ticks). Listens to the item/rebirth/upgrade/data
-signals above.
+Per-player cached rate with a dirty flag (Inventory `ItemAdded`/`ItemRemoved`, the extension
+invalidators, source/multiplier changes, the earliest boost expiry). One `onTick` per
+`tickSeconds`: O(players), one section write each. Income is logged to analytics every 60 s of
+ticks per player and on leave.
 
 ## Console (Studio)
-`grant <amount> [currency] [userId]`, `rate [userId]`.
-
-## Gotchas
-- The rate is computed from PlayerData only (not Plot instances), so it is valid inside any
-  `Data.onLoaded` handler (Offline relies on this).
-- Session boosts added before data loads are kept in memory only.
+`economy grant <amount> [currency] [userId]`, `economy rate [userId]`.

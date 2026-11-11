@@ -1,8 +1,19 @@
-# Core.Plot
+# Plot (base kit, core-v1.3.0 module)
 
 Assigns each player a plot, shows their displayed items on it, frees it when they leave.
-Public API: `Types.PlotAPI` (`get`, `owner`, `display`, `clearDisplay`, `slots`, `onAssigned`) plus
-`init`/`start`. Files:
+Definition `../../shared/Plot.luau` (depends on Inventory; optional Items, Rarity, Rebirth).
+api: `get`, `owner`, `display`, `clearDisplay`, `slots`, `onAssigned`, `displayed(player)` (frozen
+slotId -> uid). signals: `ItemDisplayed`, `ItemUndisplayed`, `DisplayCleared(player, slotId)`,
+`PlotAssigned`, `PlotReleased`. Replicated extra `plotName`.
+
+Config (`config.Plot`): `plot.slotCount`, `plot.autoDisplay`, `plot.keepDisplayedOnRebirth`
+(default false; replaces `balance.rebirth.keepDisplayed`), `assetsFolderName` (default
+`GameAssets`), `plotTag` (default `CorePlot`).
+
+Cross-module writes are gone: an item leaving the inventory clears its slot through
+`Inventory.extensions.onItemRemoved` (inside the removing tx), a rebirth clears `displayed` through
+`Rebirth.extensions.resetStep`. Tier colours come from the optional Rarity module's `tiers()`.
+Files:
 
 - `init.luau`: the service (Roblox glue)
 - `Slots.luau`: pure selection logic (slot order, slotCount, tag filter, validation, stale-entry
@@ -13,7 +24,7 @@ Public API: `Types.PlotAPI` (`get`, `owner`, `display`, `clearDisplay`, `slots`,
 
 | Where | Name | Type | Meaning |
 |---|---|---|---|
-| plot Model | tag `CorePlot` | CollectionService tag | this Model is a plot. Added/removed at runtime is fine. |
+| plot Model | tag `config.Plot.plotTag` (default `CorePlot`) | CollectionService tag | this Model is a plot. Added/removed at runtime is fine. |
 | plot Model | `PlotOrder` | number (optional) | assignment order: plots with it first (ascending), then the rest by natural `Name` order (`Plot2` < `Plot10`) |
 | plot Model | `OwnerUserId` | number | **written by core** while owned. Don't set it yourself; if you do, core treats the plot as taken. |
 | BasePart in plot | `SlotId` | string | a display slot. Ids must be unique within a plot; the same id on every plot keeps a player's layout when they get a different plot. |
@@ -59,7 +70,7 @@ attributes `ItemUid`, `ItemId`, `Rarity`, `DisplaySlotId`. All parts are anchore
   (`StudsOffsetWorldSpace`, MaxDistance 80). Highlight isn't used because of the ~31 per client
   limit. Idle bob/spin isn't done on the server; a client effect can find visuals through
   `CoreDisplays`.
-- **Console** (Studio only): `plot [userId]` prints the assignment and slot occupancy.
+- **Console** (Studio only): `plot show [userId]` prints the assignment and slot occupancy.
 
 ## Performance (M5)
 - The slot map (slotId -> part + sorted records) is cached per session (`SlotCache.luau`), built once at assignment by walking the plot **without** the `CoreDisplays` folder. It is invalidated only when a BasePart with a `SlotId` is added to / removed from the plot outside `CoreDisplays`. Editing `SlotId`/`SlotTag` on an already-parented part does not invalidate: set slot attributes before parenting.

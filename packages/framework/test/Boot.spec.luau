@@ -266,7 +266,7 @@ describe("ctx (§5)", function()
 		expect(c.serverConfig.admins[1]).toBe(1)
 		expect(c.serverConfig.secret).toBeNil()
 		expect(c.isStudio).toBe(false)
-		expect(c.theme.colors.accent).toBe("#FF8A3D")
+		expect(c.theme.colors.accent).toBe("#FFB547")
 		expect(table.isfrozen(c.theme)).toBe(true)
 		for _, field in
 			{

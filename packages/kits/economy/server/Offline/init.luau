@@ -1,54 +1,91 @@
 --!strict
 --[[
-	Core.Offline. OWNED BY AGENT B (core/b-economy). Public API: Types.OfflineAPI.
+	Offline (economy kit), server part. core-v1.3.0 Phase 1: a real StudWork module (no save
+	section). config.Offline.offline = { capSeconds, minSeconds, payoutFraction, autoPay }; every
+	key has a default (the values every shipped game uses: 8 h, 60 s, 0.5, true), so the cap other
+	modules coordinate with is config here (agent C: through the API, not by sharing files).
 
-	In Data.onLoaded (Data guarantees lastSeen = previous session's last save/leave and
-	stats.sessions already incremented): secondsAway = clamp(now - lastSeen, 0, capSeconds),
-	skipped on first session or below minSeconds. If offline.autoPay, pays
-	floor(Economy.getRate * secondsAway * payoutFraction) with reason "offline" and sends a "pop"
-	feedback. onReturn handlers always run (when secondsAway >= minSeconds).
+	api (v1.2): onReturn(fn(player, secondsAway)) -> Connection
 
-	Ordering: Economy computes the rate directly from PlayerData (displayed/inventory, rebirths,
-	upgrade levels, saved multipliers), never from Plot/Instance state, and getRate recomputes on
-	demand. So the rate is correct inside onLoaded regardless of which service's onLoaded handler
-	runs first. Session-only boosts (co-play, passes applied later) are deliberately excluded.
+	When a player's save has loaded (ctx.lifecycle.onPlayerLoaded; the framework keeps
+	ctx.framework.lastSeen at the previous session's last save until the first save of this one):
+	  secondsAway = clamp(now - lastSeen, 0, capSeconds), skipped on the first session
+	  (ctx.framework.sessions == 1) or below minSeconds (OfflineMath).
+	  autoPay (needs Economy, optional): pays floor(Economy.getRate * secondsAway * payoutFraction)
+	  with reason "offline" and a "pop" feedback. Economy computes the rate from save data only, so
+	  it is right here whatever order load handlers run in; session-only boosts (co-play, passes
+	  applied later) are deliberately not in it.
+	  onReturn handlers run every time secondsAway >= minSeconds, each in its own thread.
 ]]
 
-local Types = require(game:GetService("ReplicatedStorage"):WaitForChild("Core"):WaitForChild("Types"))
-local HandlerList =
-	require(game:GetService("ReplicatedStorage"):WaitForChild("Core"):WaitForChild("HandlerList"))
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+
 local OfflineMath = require(script.OfflineMath)
+
+local EconomyRef =
+	require(ReplicatedStorage:WaitForChild("Kits"):WaitForChild("Economy"):WaitForChild("Economy")) :: any
 
 local Offline = {}
 
-local ctx: any = nil
-local handlers = HandlerList.new()
+export type Connection = { Connected: boolean, Disconnect: (self: Connection) -> () }
 
-local function onLoaded(player: Player, data: Types.PlayerData)
-	local o = ctx.config.balance.offline
-	local away = OfflineMath.secondsAway(os.time(), data.lastSeen, data.stats.sessions, o)
-	if away == nil then
-		return
+function Offline.new(): any
+	local ctx: any = nil
+	local handlers: { (any, number) -> () } = {}
+
+	local api: { [string]: any } = {}
+
+	function api.onReturn(handler: (player: any, secondsAway: number) -> ()): Connection
+		assert(
+			type(handler) == "function",
+			"Offline.onReturn(fn): fn must be a function(player, secondsAway)"
+		)
+		table.insert(handlers, handler)
+		local connection: any = { Connected = true }
+		function connection.Disconnect(conn: any)
+			if not conn.Connected then
+				return
+			end
+			conn.Connected = false
+			local index = table.find(handlers, handler)
+			if index then
+				table.remove(handlers, index)
+			end
+		end
+		return connection
 	end
-	if o.autoPay and ctx.isEnabled("Economy") then
-		local amount = OfflineMath.payout(ctx.services.Economy.getRate(player), away, o.payoutFraction)
-		if amount > 0 and ctx.services.Economy.grant(player, amount, "offline") then
-			ctx.net.feedback(player, "pop", "+" .. tostring(amount))
+
+	local function onLoaded(player: any)
+		local o = ctx.config.offline
+		local away = OfflineMath.secondsAway(
+			os.time(),
+			ctx.framework.lastSeen(player),
+			ctx.framework.sessions(player),
+			o
+		)
+		if away == nil then
+			return
+		end
+		if o.autoPay and ctx.isEnabled(EconomyRef) then
+			local economy = ctx.deps[EconomyRef]
+			local amount = OfflineMath.payout(economy.getRate(player), away, o.payoutFraction)
+			if amount > 0 and economy.grant(player, amount, "offline") then
+				ctx.net.feedback(player, "pop", "+" .. tostring(amount))
+			end
+		end
+		for _, fn in table.clone(handlers) do
+			task.spawn(fn, player, away)
 		end
 	end
-	handlers:fire(player, away)
-end
 
-function Offline.init(context: any)
-	ctx = context
-end
+	local part: { [string]: any } = { api = api }
 
-function Offline.start()
-	ctx.services.Data.onLoaded(onLoaded)
-end
+	function part.init(context: any)
+		ctx = context
+		ctx.lifecycle.onPlayerLoaded(onLoaded)
+	end
 
-function Offline.onReturn(handler: (player: Player, secondsAway: number) -> ()): Types.Connection
-	return handlers:add(handler)
+	return part
 end
 
 return Offline
