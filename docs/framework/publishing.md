@@ -142,6 +142,20 @@ tools/publish my-game --live --dry-run   # accepted: test has a dry run of HEAD 
 A test **dry run never unlocks a real `--live`**: that needs a real `--test` of the same commit.
 Dry runs modify `deploy.json` and `GAMES.md`; commit or `git checkout` them as you like.
 
+### Adopted projects (v1.6.0)
+
+In a project that adopted StudWork (`studwork.json` has `"adopted": true`, see
+[adopting.md](adopting.md)):
+
+- `tools/publish --live` (and `--live --dry-run`) runs `tools/adopt --verify .` first and refuses
+  unless it passes: no `studwork-legacy.json` entry still lists `purchases`, no `onLegacyProduct`
+  left, no critical risk, no script left in the place using DataStores or purchases. `--test` is
+  allowed, so the migrated game can be tried in a test place of the same universe.
+- A project whose `studwork.json` has `"placeFile"` (a Studio-only game) is never published by
+  `tools/publish`, since its Rojo build has no map. The tool stops and prints the Studio steps: open
+  the place, run `tools/dev` with the Rojo plugin connected, then File > Publish to Roblox (the test
+  place first; live only after `tools/adopt --verify .` passes).
+
 ### Alternative endpoint (not used)
 
 Roblox's place-publishing guide now shows the Assets API (`PATCH
