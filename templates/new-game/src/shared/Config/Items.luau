@@ -6,18 +6,36 @@ local Items: { any } = {
 		id = "pebble",
 		name = "Pebble",
 		rarity = "Common",
-		economy = { incomePerSec = 1 },
+		economy = { incomePerSec = 1 }, -- @if Economy
 		source = "drop",
 		tags = { "Rock" },
 	},
-	{ id = "twig", name = "Twig", rarity = "Common", economy = { incomePerSec = 1.5 }, source = "drop" },
-	{ id = "acorn", name = "Acorn", rarity = "Uncommon", economy = { incomePerSec = 3 }, source = "drop" },
-	{ id = "shell", name = "Shell", rarity = "Uncommon", economy = { incomePerSec = 4 }, source = "drop" },
+	{
+		id = "twig",
+		name = "Twig",
+		rarity = "Common",
+		economy = { incomePerSec = 1.5 }, -- @if Economy
+		source = "drop",
+	},
+	{
+		id = "acorn",
+		name = "Acorn",
+		rarity = "Uncommon",
+		economy = { incomePerSec = 3 }, -- @if Economy
+		source = "drop",
+	},
+	{
+		id = "shell",
+		name = "Shell",
+		rarity = "Uncommon",
+		economy = { incomePerSec = 4 }, -- @if Economy
+		source = "drop",
+	},
 	{
 		id = "crystal",
 		name = "Crystal",
 		rarity = "Rare",
-		economy = { incomePerSec = 10 },
+		economy = { incomePerSec = 10 }, -- @if Economy
 		source = "drop",
 		tags = { "Rock" },
 	},
@@ -25,24 +43,30 @@ local Items: { any } = {
 		id = "feather",
 		name = "Golden Feather",
 		rarity = "Epic",
-		economy = { incomePerSec = 30 },
+		economy = { incomePerSec = 30 }, -- @if Economy
 		source = "roll",
 	},
 	{
 		id = "comet",
 		name = "Comet Shard",
 		rarity = "Legendary",
-		economy = { incomePerSec = 100 },
+		economy = { incomePerSec = 100 }, -- @if Economy
 		source = "roll",
 	},
 	{
 		id = "nebula",
 		name = "Nebula Jar",
 		rarity = "Mythic",
-		economy = { incomePerSec = 400 },
+		economy = { incomePerSec = 400 }, -- @if Economy
 		source = "roll",
 	},
-	{ id = "void", name = "???", rarity = "Secret", economy = { incomePerSec = 2000 }, source = "event" },
+	{
+		id = "void",
+		name = "???",
+		rarity = "Secret",
+		economy = { incomePerSec = 2000 }, -- @if Economy
+		source = "event",
+	},
 }
 
 return Items

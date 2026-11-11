@@ -9,11 +9,15 @@
 	- sets the project name, servePort and GameConfig.gameId, and renames the game's own module
 	  (templates/new-game/modules/sandbox -> modules/<name>, module + server part "<Name>",
 	  ServerScriptService.Modules.<Name> in the project)
-	- --modules: trims GameConfig.modules and the game module's dependsOn to that list (names
-	  checked against the kit module definitions, tools/lune/KitModules.luau; missing hard
-	  dependencies are added and reported). Default: the template's list (all). The template's
-	  game code is NOT trimmed: a warning lists what still uses a dropped module (the full
-	  `--modules` generator is core-v1.3.0 Phase 1 agent E's).
+	- --modules: writes code and config for the listed modules only (names checked against the
+	  kit module definitions, tools/lune/KitModules.luau; missing hard dependencies are added and
+	  reported). Default: the template's list (all). It trims GameConfig.modules and the game
+	  module's dependsOn, and resolves the template's module markers (`-- @if Economy` ...
+	  `-- @end`, NewGame.applyMarkers) in every .luau file: the game module's server code,
+	  Balance.luau sections, Items fields, products, events, tuning and the client's actions.
+	  The markers are always stripped, so a generated game never carries them. Unused kit locals
+	  are pruned, stylua formats the result, and the guardrails re-check it (lint passes with no
+	  hand trimming; core-v1.3.0 Phase 1 agent E).
 	- writes a README stub ("Status: scaffolded")
 	- adds a row to GAMES.md (Core column "—" until the first tools/publish) and, unless
 	  --no-design-doc, creates docs/games/<name>.md from templates/game-design.md
@@ -98,6 +102,37 @@ local function copyDir(src: string, dst: string)
 	end
 end
 copyDir("templates/new-game", target)
+
+-- module markers: keep only the chosen modules' code in every .luau file (all when no --modules)
+local chosenSet: { [string]: boolean } = {}
+for _, n in chosenModules or Modules.ORDER do
+	chosenSet[n] = true
+end
+local function luauFiles(dir: string, out: { string })
+	for _, entry in fs.readDir(dir) do
+		local path = dir .. "/" .. entry
+		if fs.isDir(path) then
+			luauFiles(path, out)
+		elseif string.match(entry, "%.luau$") then
+			table.insert(out, path)
+		end
+	end
+end
+local files: { string } = {}
+luauFiles(target, files)
+table.sort(files)
+for _, path in files do
+	local source = fs.readFile(path)
+	if string.find(source, "-- @", 1, true) then
+		local out, markerError = NewGame.applyMarkers(source, chosenSet)
+		if out == nil then
+			print("error: " .. tostring(markerError) .. " (" .. path .. ")")
+			fs.removeDir(target)
+			process.exit(1)
+		end
+		fs.writeFile(path, NewGame.pruneKitLocals(out :: string))
+	end
+end
 
 -- the game's own module: modules/sandbox -> modules/<name>, "Sandbox" -> "<Name>"
 local moduleName = NewGame.moduleName(name)
@@ -221,19 +256,23 @@ print(
 	)
 )
 
--- With a module subset the template's sandbox code may still call dropped modules: say so now
--- (tools/lint would fail on it later).
-if chosenModules then
-	local result = process.exec("lune", { "run", "tools/lune/guardrails", target })
-	if not result.ok then
-		print("warning: the template code still uses modules you left out (tools/lint will fail until")
-		print("         you replace or trim it; run `lune run tools/lune/guardrails " .. target .. "`):")
-		local shown = 0
-		for line in string.gmatch(result.stdout, "[^\n]+") do
-			if string.find(line, "[modules]", 1, true) and shown < 5 then
-				print("  " .. line)
-				shown += 1
-			end
+-- Format what the markers left (stylua is part of the toolchain; skipped if it isn't installed).
+local okFormat, formatResult = pcall(process.exec, "stylua", { target })
+if not okFormat or not formatResult.ok then
+	print("note: stylua did not run on " .. target .. "; run `stylua " .. target .. "` before tools/lint")
+end
+
+-- The generated game must pass the guardrails as written. If it doesn't, the template's markers
+-- missed something: say so now (tools/lint would fail on it later).
+local result = process.exec("lune", { "run", "tools/lune/guardrails", target })
+if not result.ok then
+	print("warning: the generated game fails the guardrails (a template marker is missing; please report")
+	print("         it). Run `lune run tools/lune/guardrails " .. target .. "`:")
+	local shown = 0
+	for line in string.gmatch(result.stdout, "[^\n]+") do
+		if string.find(line, ": [", 1, true) and shown < 5 then
+			print("  " .. line)
+			shown += 1
 		end
 	end
 end

@@ -2,20 +2,28 @@
 -- Sandbox balance: every number the sandbox loop uses, as each kit module's config
 -- (GameConfig.config.<Name>). The keys inside each module are the v1.2 `balance` keys.
 local Balance = {
+	-- @if Economy
 	Economy = {
 		primaryCurrency = "Coins",
 		startingCurrency = { Coins = 0 },
-		income = { tickSeconds = 1, source = "displayed" },
+		income = { tickSeconds = 1, source = "displayed" }, -- @if Plot
+		-- @unless Plot: income = { tickSeconds = 1, source = "owned" },
 		multiplierStacking = "multiply",
 	},
+	-- @end
+	-- @if Inventory
 	Inventory = {
 		inventory = { cap = 50 },
 		starterItems = { "pebble" }, -- first reward: earning starts the moment you join
 	},
+	-- @end
+	-- @if Plot
 	Plot = {
 		plot = { slotCount = 8, autoDisplay = true },
 		assetsFolderName = "GameAssets",
 	},
+	-- @end
+	-- @if Rarity
 	Rarity = {
 		rarityTables = {
 			-- free: touching the collect block
@@ -30,6 +38,7 @@ local Balance = {
 				luckMinTier = "Rare",
 				mutationChance = 0.05,
 			},
+			-- @if Economy
 			-- in-game currency roll (Rarity's client action `roll`)
 			Chest = {
 				entries = {
@@ -45,6 +54,7 @@ local Balance = {
 				pity = { threshold = 10, minTier = "Epic" },
 				mutationChance = 0.1,
 			},
+			-- @end
 			-- Robux roll (developer product "EggRoll"): paid random item rules apply
 			Egg = {
 				entries = {
@@ -63,6 +73,8 @@ local Balance = {
 			{ id = "Rainbow", name = "Rainbow", multiplier = 5, color = "#FF5DA8", weight = 2 },
 		},
 	},
+	-- @end
+	-- @if Upgrades
 	Upgrades = {
 		upgrades = {
 			IncomeBoost = {
@@ -85,6 +97,8 @@ local Balance = {
 			},
 		},
 	},
+	-- @end
+	-- @if Rebirth
 	Rebirth = {
 		rebirth = {
 			baseCost = 5000,
@@ -95,12 +109,17 @@ local Balance = {
 			resetCurrencies = { "Coins" },
 		},
 	},
+	-- @end
+	-- @if Offline
 	Offline = {
 		offline = { capSeconds = 8 * 3600, minSeconds = 60, payoutFraction = 0.5, autoPay = true },
 	},
+	-- @end
+	-- @if Streak
 	Streak = {
 		streak = {
 			graceHours = 6,
+			-- @if Economy
 			rewards = {
 				{ day = 1, amount = 100 },
 				{ day = 2, amount = 250 },
@@ -108,11 +127,16 @@ local Balance = {
 				{ day = 7, amount = 2500 },
 			},
 			loopAfter = 7,
+			-- @end
 		},
 	},
+	-- @end
+	-- @if Friends
 	Friends = {
-		friends = { checkIntervalSec = 30, coPlayMultiplier = 1.1 },
+		friends = { checkIntervalSec = 30, coPlayMultiplier = 1.1 }, -- @if Economy
+		-- @unless Economy: friends = { checkIntervalSec = 30 },
 	},
+	-- @end
 }
 
 return Balance
