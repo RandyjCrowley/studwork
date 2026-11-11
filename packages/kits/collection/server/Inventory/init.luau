@@ -192,7 +192,7 @@ function Inventory.new(): any
 			uid = Util.newUid(),
 			itemId = itemId,
 			mutation = o.mutation,
-			acquiredAt = os.time(),
+			acquiredAt = ctx.now(),
 			source = source,
 			meta = if o.meta then table.clone(o.meta) else nil,
 		}
@@ -244,7 +244,7 @@ function Inventory.new(): any
 				return items().get(itemId) ~= nil
 			end,
 			cap = capOf(player),
-			now = os.time(),
+			now = ctx.now(),
 		})
 		if result == "full" then
 			return false

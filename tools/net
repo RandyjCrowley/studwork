@@ -1,10 +1,11 @@
 #!/usr/bin/env bash
 # tools/net: regenerate Blink networking code from every .blink IDL file
-# (framework + modules: packages/{framework,kits}/**/*.blink; games: games/*/src/shared/net/*.blink).
+# (framework + modules: packages/{framework,kits}/**/*.blink; games: games/**/*.blink, including
+# games/*/src/shared/net and game-local modules games/*/modules/**; example modules: examples/**).
 # Generated files are committed so builds don't need blink; never edit them by hand.
 source "$(dirname "$0")/_common.sh"
 
-FILES="$(find packages/framework packages/kits games -name '*.blink' -not -path '*/deps/*' 2>/dev/null | sort)"
+FILES="$(find packages/framework packages/kits games examples -name '*.blink' -not -path '*/deps/*' 2>/dev/null | sort)"
 [ -n "$FILES" ] || die "no .blink files found"
 for f in $FILES; do
 	echo "== blink $f"

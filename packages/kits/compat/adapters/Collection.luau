@@ -186,7 +186,7 @@ local function inventoryAdapter(rt: any, api: any, txApi: any, _extensions: any)
 				uid = Util.newUid(),
 				itemId = itemId,
 				mutation = o.mutation,
-				acquiredAt = os.time(),
+				acquiredAt = rt.now(), -- the framework clock (ctx.now)
 				source = o.source,
 				meta = if o.meta then table.clone(o.meta) else nil,
 			}

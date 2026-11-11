@@ -58,7 +58,7 @@ function Offline.new(): any
 	local function onLoaded(player: any)
 		local o = ctx.config.offline
 		local away = OfflineMath.secondsAway(
-			os.time(),
+			ctx.now(),
 			ctx.framework.lastSeen(player),
 			ctx.framework.sessions(player),
 			o

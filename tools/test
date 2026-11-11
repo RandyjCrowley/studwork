@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # tools/test [path ...]: run every *.spec.luau (pure logic) under Lune.
-# With no args: packages/, games/, templates/ and tools/. Exit 1 on any failure.
+# With no args: packages/, games/, templates/, tools/ and examples/. Exit 1 on any failure.
 source "$(dirname "$0")/_common.sh"
 
 lune run tools/lune/testkit/run "$@"

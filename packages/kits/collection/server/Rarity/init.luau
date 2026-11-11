@@ -6,8 +6,8 @@
 	Tiers: config.Rarity.tiers ("standard7" or a custom ordered list, shared/Tiers.luau). Every
 	item's `rarity` must be a tier of that list (boot error otherwise). Luck and pity compare
 	tiers by list order (RollMath.withTiers). The definition contributes theme.rarity.tiers =
-	standard7; a game with a custom list also sets GameConfig.theme.rarity.tiers (a warning names
-	the mismatch) and gets the resolved list as replicated extra `tiers`.
+	the resolved config.Rarity.tiers (theme = function(config), framework Phase 2), so a custom
+	list is written once, in config; it is also replicated as extra `tiers`.
 
 	Compliance (§14): every rarity table is a random source (ctx.compliance.registerRandomSource,
 	odds = getOddsDetail(tableId, player), sample = the weighted pick + pity + mutation + grant,
@@ -620,23 +620,6 @@ function Rarity.new(): any
 			}
 		end
 		ctx.replicate.setAll("tiers", wire)
-		-- theme.rarity.tiers comes from the module definitions + GameConfig.theme (static); a custom
-		-- config.Rarity.tiers list must be mirrored there for the UI to use its look.
-		local themed = ctx.theme and ctx.theme.rarity and ctx.theme.rarity.tiers
-		local same = type(themed) == "table" and #themed == #tierList
-		if same then
-			for i, t in tierList do
-				if type(themed[i]) ~= "table" or themed[i].id ~= t.id then
-					same = false
-					break
-				end
-			end
-		end
-		if not same then
-			ctx.log.warn(
-				"theme.rarity.tiers differs from config.Rarity.tiers: set GameConfig.theme.rarity = { tiers = <the same list> } so the UI shows these tiers"
-			)
-		end
 	end
 
 	return part

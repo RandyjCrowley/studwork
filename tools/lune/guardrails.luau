@@ -24,7 +24,7 @@
 	            `.On(` / `.SetCallback(` in server code (use Core.Net.handle).
 	  purchases (core-v1.3.0 step 4b, module-api.md §7.1) only the framework may assign
 	            MarketplaceService.ProcessReceipt or use Prompt*PurchaseFinished, and only framework
-	            Data may touch DataStoreService / ProfileStore. Checked in game code AND in
+	            Data (and its shared store) may touch DataStoreService / ProfileStore / MemoryStoreService. Checked in game code AND in
 	            packages/ (every file outside PURCHASES_ALLOWED: framework Shop/Data/Store/Platform,
 	            and the v1.2 leftovers still live until Phase 2, listed below with a reason).
 	A line ending in `-- guard: allow <check>` (e.g. `-- guard: allow numbers`) is skipped for
@@ -46,9 +46,9 @@ Guard.PURCHASES_ALLOWED = {
 	"packages/framework/server/Platform.luau", -- the engine adapter Shop and Data go through
 	"packages/framework/server/Store.luau", -- framework Data's ProfileStore store
 	"packages/framework/server/Data.luau",
+	"packages/framework/server/SharedStore.luau", -- ctx.data.shared: the framework-owned shared DataStore
 	"packages/framework/test/", -- fakes
 	"packages/core/", -- v1.2 Core facade + its tests (no game boots it since step 4b-IIb); Phase 2 deletes it
-	"packages/kits/social/server/Mail/", -- v1.2 Mail's cross-server DataStore (Phase 1 kit work: move to ctx.data.messages)
 }
 
 local function purchasesViolation(code: string): string?
@@ -59,7 +59,10 @@ local function purchasesViolation(code: string): string?
 		return "Prompt*PurchaseFinished belongs to the framework Shop: use ctx.shop.onPassOwned / onProduct"
 	end
 	if string.find(code, "DataStoreService", 1, true) or string.find(code, "ProfileStore", 1, true) then
-		return "DataStoreService / ProfileStore only inside framework Data: use ctx.data"
+		return "DataStoreService / ProfileStore only inside framework Data: use ctx.data (shared state: ctx.data.shared)"
+	end
+	if string.find(code, "MemoryStoreService", 1, true) then
+		return "MemoryStoreService only inside the framework: use ctx.data.shared"
 	end
 	return nil
 end
@@ -604,6 +607,15 @@ local function selfTest(): boolean
 	end
 	if not Guard.isPurchasesAllowed("packages/framework/server/Shop/init.luau") then
 		table.insert(failures, "purchases allow-list: framework Shop must be allowed")
+	end
+	-- Phase 2: MemoryStoreService is framework-only too, and Mail is off the allow-list
+	expectCheck(
+		"package MemoryStore",
+		Guard.scanSource('local MS = game:GetService("MemoryStoreService")', pkg),
+		"purchases"
+	)
+	if Guard.isPurchasesAllowed("packages/kits/social/server/Mail/init.luau") then
+		table.insert(failures, "purchases allow-list: Mail must not be allowed (it uses ctx.data.shared)")
 	end
 	expectCheck(
 		"kit internals",

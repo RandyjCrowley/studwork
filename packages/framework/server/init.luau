@@ -24,6 +24,8 @@
 	                               or Platform.inert() when bindPlatform == false
 	  loadServer(ref) -> impl      find a module's server part (default ServerScriptService.Modules)
 	  store                        Data store (default platform.makeStore(gameId))
+	  shared                       ctx.data.shared backend (SharedStore.luau; default
+	                               platform.makeShared(gameId), else SharedStore.memory())
 	  now() -> number              unix seconds (default platform.now)
 	  isStudio: boolean            default platform.isStudio
 	  logSink(level, msg)          default print/warn
@@ -62,6 +64,7 @@ local Platform = require(script.Platform)
 local Policy = require(script.Policy)
 local Replication = require(script.Replication)
 local Shop = require(script.Shop)
+local SharedStore = require(script.SharedStore)
 local Store = require(script.Store)
 
 local Server = {}
@@ -379,6 +382,13 @@ function Server.start(gameConfig: any, serverConfig: any?, opts: any?): any
 			onSessionLost = function(player: any)
 				kick(player, Server.KICK_SESSION_ENDED)
 			end,
+		})
+		rt.shared = SharedStore.new({
+			backend = o.shared or (if platform.makeShared
+				then platform.makeShared(gameConfig.gameId)
+				else SharedStore.memory()),
+			wait = platform.wait,
+			log = warnLog,
 		})
 		rt.lifecycle = Lifecycle.new(warnLog)
 		rt.gameConfigPublic = table.freeze({

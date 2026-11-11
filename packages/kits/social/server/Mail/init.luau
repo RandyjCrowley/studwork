@@ -23,13 +23,13 @@
 	      core_gift).
 
 	R1 (gifts to players who never return): a kind in config.mail.returnKinds (default
-	{ "core_gift" }) sent through txApi.send is ESCROWED when the framework offers the shared
-	atomic store (ctx.data.shared, requested from the lead): a per-recipient record caps
+	{ "core_gift" }) sent through txApi.send is ESCROWED in the framework's shared atomic store
+	(ctx.data.shared, framework Phase 2: one DataStore, UpdateAsync): a per-recipient record caps
 	undelivered gifts (config.mail.giftCap, default 100, far below ProfileStore's 1000-message
 	queue); over the cap the gift is refused and goes straight back to the sender (their
 	mailbox, auto-claimed). A gift nobody collected within config.mail.returnAfterDays (default
-	14) goes back to the sender's mailbox the same way. Exactly one side wins (Escrow.luau).
-	Without ctx.data.shared, gifts behave as in v1.2 (no cap, no return) and Mail logs that once.
+	14, on the framework clock ctx.now) goes back to the sender's mailbox the same way, checked
+	when the sender loads. Exactly one side wins (Escrow.luau).
 
 	R3: on leave, outbox entries already saved are sent once more (best effort).
 	R6: live admin console `mail dead <userId>` / `mail redeliver <userId> <id>` /
@@ -63,8 +63,9 @@ local function encode(value: any): string
 	return HttpService:JSONEncode(value)
 end
 
+-- the framework clock (ctx.now, Phase 2): tests advance it to reach the 14-day return
 local function now(): number
-	return os.time()
+	return ctx.now()
 end
 
 local function settings(): any
@@ -448,13 +449,7 @@ end
 
 function Mail.init(context: any)
 	ctx = context
-	local shared = (ctx.data :: any).shared
-	if type(shared) == "table" and type(shared.update) == "function" then
-		escrow = Escrow.new(shared)
-	else
-		escrow = nil
-		ctx.log.info("ctx.data.shared is not available: gift cap and return to sender are off (v1.2 gifting)")
-	end
+	escrow = Escrow.new(ctx.data.shared) -- R1: always on (framework shared store)
 	ctx.data.messages.onReceive(function(player: any, payload: any, processed: () -> ())
 		task.spawn(delivery.deliver, player, payload, processed) -- deliver may yield (escrow)
 	end)

@@ -10,9 +10,8 @@
 	  loadServer(ref) -> Bridge.serverPart(name, loadService)
 	    api           the v1.2 public functions (Modules.API list; init/start and *Into internals
 	                  stay hidden) + `signals` (the v1.2 signals this module fires)
-	    purchaseOps   Economy.grant(tx, amount, currency?), Inventory.addItem(tx, itemId, opts?),
-	                  Rarity.roll(tx, tableId, luck?) -> (def?, info): v1.2 grantInto / addInto /
-	                  rollInto on a v1.2 Tx built over the purchase tx (§7)
+	    purchaseOps   Economy.grant(tx, amount, currency?), Inventory.addItem(tx, itemId, opts?):
+	                  v1.2 grantInto / addInto on a v1.2 Tx built over the purchase tx (§7)
 	    init(ctx)     the first one builds the v1.2-shaped ctx (below), then service.init(v12ctx)
 	    start(ctx)    service.start()
 	  The framework runs init/start in its topo order, which is the v1.2 BOOT_ORDER when a game
@@ -36,20 +35,18 @@
 	  console         register(name, help, fn) -> the one framework console (unprefixed v1.2 names)
 	  isStudio, serverConfig, modules (v1.2 names), isEnabled(name)
 
-	Compliance (module-api.md §14): every Rarity table is a Compliance random source whose
-	`sample` is the v1.2 weighted pick with pity (Rarity.rollInto). Every roll goes through
-	compliance.roll: free rolls (Rarity.roll, console `roll`), purchases (tx.use(Rarity).roll),
-	and the coin-priced RequestRoll, which uses compliance.spendForRoll (spend + roll in ONE tx).
+	Compliance (module-api.md §14): Rarity is a REAL module (Phase 1); its bridged roll paths and
+	Mail's v1.2 store wiring (MailInternal / wireMail) were deleted in Phase 2. The sim's v1.2 Shop
+	(v12Shop) rolls through the real Rarity's purchaseOps.roll.
 	Economy registers the spender of every GameConfig.compliance.paidCurrencies currency.
-	Mail's v1.2 cross-server store becomes framework Data messages (owner "Mail").
 
 	PHASE 1 CONTRACT ((internal build report, not public)): a bridged module also
 	offers every NEW entry of the pinned cross-kit contract, through the framework's normal
 	surfaces (Loader SURFACES; Extensions.wrap*):
 	  api         Items.mutation(id) / mutations(), Plot.displayed(player); signals add
 	              Plot.DisplayCleared(player, slotId) (fed by the v1.2 ItemUndisplayed)
-	  txApi       Rarity.roll, Inventory.add/remove/list/count, Economy.grant/spend, Mail.send
-	  extensions  Inventory.onItemRemoved, Rebirth.resetStep, Mail.registerKind
+	  txApi       Economy.grant/spend, Mail.send (Rarity / Inventory: real modules, Phase 2)
+	  extensions  Rebirth.resetStep, Mail.registerKind
 	(contractApi / contractTxApi / contractExtensions below; bridged semantics as in the contract).
 
 	ADAPTERS (Phase 1): when a kit's module is REAL (its ModuleServers.loadServer returns a real
@@ -149,8 +146,6 @@ type State = {
 	pendingRoll: any,
 	spendReason: string?,
 	warned: { [string]: boolean },
-	removedHooks: { (any, any, any) -> () },
-	removedInTx: { [any]: boolean },
 	adapted: { [string]: any },
 }
 
@@ -184,8 +179,6 @@ local function stateFor(rt: any): State
 			pendingRoll = nil,
 			spendReason = nil,
 			warned = {},
-			removedHooks = {},
-			removedInTx = setmetatable({}, { __mode = "k" }) :: any,
 			adapted = {},
 		}
 		if signals.DisplayCleared == nil then
@@ -202,7 +195,6 @@ end
 local moduleEnabled: (st: State, name: string) -> boolean
 local adapted: (st: State, name: string) -> any
 local v12Service: (st: State, name: string) -> any
-local runRemovedHooks: (st: State, player: any, instance: any) -> ()
 
 local function warnOnce(st: State, key: string, msg: string)
 	if not st.warned[key] then
@@ -323,164 +315,6 @@ function v12Service(st: State, name: string): any
 end
 
 --------------------------------------------------------------------------------
--- Rolls through Compliance
---------------------------------------------------------------------------------
-
-local function rarityTable(st: State, tableId: any): any
-	local tables = st.config and st.config.balance.rarityTables
-	local t = if type(tables) == "table" and type(tableId) == "string" then tables[tableId] else nil
-	return if type(t) == "table" then t else nil
-end
-
-local function rollFail(reason: string): (any, any)
-	return nil, { ok = false, reason = reason, pity = false }
-end
-
--- One roll of `tableId` inside the open tx, through ctx.compliance.roll (Rarity's ctx).
-local function rollInTx(st: State, tx: any, tableId: string, luck: number?, opts: any?): (any, any)
-	local Rarity = st.services.Rarity
-	local t = rarityTable(st, tableId)
-	if t == nil then
-		return rollFail("unknown_table")
-	end
-	local o = if type(opts) == "table" then opts else {}
-	local compliance = st.ctxs.Rarity.compliance
-	local pricedInPaid = type(t.cost) == "table"
-		and compliance.isPaidCurrency(t.cost.currency)
-		and o.free ~= true
-	local paid = o.paid == true or t.paid == true or pricedInPaid
-	local RollMath = kitChild("Collection", "Rarity", "RollMath")
-	local effective =
-		RollMath.sanitizeLuck(if luck == nil then Rarity._rollLuck(tx.player, tableId, t, paid) else luck)
-	local pending = { opts = o, result = nil :: any }
-	st.pendingRoll = pending
-	local packed = table.pack(pcall(compliance.roll, tx, tableId, effective))
-	st.pendingRoll = nil
-	if not packed[1] then
-		error(packed[2], 0)
-	end
-	local result = pending.result
-	if result ~= nil then
-		return result.def, result.info
-	end
-	return rollFail(if type(packed[4]) == "string" then packed[4] else "no_outcome")
-end
-
--- Rarity.roll (the public API, the console `roll`): one framework tx per roll.
-local function bridgedRoll(st: State, tableId: any, player: any, luck: number?, opts: any?): (any, any)
-	if rarityTable(st, tableId) == nil then
-		return rollFail("unknown_table")
-	end
-	if not st.rt.data.isLoaded(player) then
-		return rollFail("not_loaded")
-	end
-	local def, info = nil, nil
-	local committed = st.rt.data.runTx(player, function(tx: any)
-		def, info = rollInTx(st, tx, tableId, luck, opts)
-	end)
-	if not committed or info == nil then
-		return rollFail("not_loaded")
-	end
-	return def, info
-end
-
-local function registerRaritySources(st: State, ctx: any)
-	local Rarity = st.services.Rarity
-	for tableId, t in st.config.balance.rarityTables or {} do
-		ctx.compliance.registerRandomSource(tableId, {
-			odds = function(player: any): any
-				return Rarity.getOddsDetail(tableId, player)
-			end,
-			-- The actual randomness: v1.2 rollInto (weighted pick + pity + mutation, and the grant
-			-- when the caller asked for one), writing into this tx's working copies.
-			sample = function(_player: any, luck: number, tx: any): any
-				local pending = st.pendingRoll
-				local o = if pending then pending.opts else {}
-				local def, info = Rarity.rollInto(tx12(st, tx), tableId, luck, o)
-				if pending then
-					pending.result = { def = def, info = info }
-				end
-				if def ~= nil and info ~= nil and info.ok then
-					return { itemId = def.id, def = def, info = info }
-				end
-				return nil
-			end,
-			luckDisclosed = t.luckDisclosed == true,
-		})
-	end
-end
-
--- RequestRoll (coin-priced tables), v1.2 Rarity's handler with the spend + roll in ONE tx.
-local function requestRoll(st: State): (any, any) -> ()
-	return function(player: any, tableId: any)
-		local rt = st.rt
-		local Validate = (require :: any)(ReplicatedStorage:WaitForChild("Core"):WaitForChild("Validate"))
-		if not Validate.isId(tableId) then
-			return
-		end
-		local t = rarityTable(st, tableId)
-		if t == nil or t.paid == true or type(t.cost) ~= "table" then
-			return
-		end
-		local cost = t.cost
-		if not Validate.isNonNegativeNumber(cost.amount) or type(cost.currency) ~= "string" then
-			return
-		end
-		local compliance = st.ctxs.Rarity.compliance
-		local paid = compliance.isPaidCurrency(cost.currency)
-		if paid and rt.policy.paidRandomRestricted(player) then
-			rt.net.feedback(player, "toast", "Not available in your region")
-			return
-		end
-		if not moduleEnabled(st, "Economy") or not moduleEnabled(st, "Inventory") then
-			return
-		end
-		local Inventory = v12Service(st, "Inventory")
-		if not rt.data.isLoaded(player) or Inventory.count(player) >= Inventory.cap(player) then
-			return -- checked before spending, so a full inventory never costs currency
-		end
-		local RollMath = kitChild("Collection", "Rarity", "RollMath")
-		local luck = RollMath.sanitizeLuck(st.services.Rarity._rollLuck(player, tableId, t, paid))
-		if paid and luck ~= 1 then
-			-- hard rule 11 checked before spending (v1.2 toast instead of the rule's error)
-			local shown = compliance.disclosed(player, tableId)
-			if t.luckDisclosed ~= true or type(shown) ~= "table" or shown.luck ~= luck then
-				rt.net.feedback(player, "toast", "Odds are updating, try again in a moment")
-				return
-			end
-		end
-		if paid then
-			local ok, err = pcall(function()
-				rt.data.runTx(player, function(tx: any)
-					st.spendReason = "roll:" .. tableId
-					st.pendingRoll = { opts = { grant = true, reason = "roll", paid = true }, result = nil }
-					compliance.spendForRoll(tx, cost.currency, cost.amount, tableId, luck)
-				end)
-			end)
-			st.spendReason = nil
-			st.pendingRoll = nil
-			if not ok then
-				rt.logSink(
-					"warn",
-					`[Compat.Rarity] RequestRoll {tableId} discarded (nothing spent): {tostring(err)}`
-				)
-			end
-			return
-		end
-		-- a free (not Robux-buyable) currency: v1.2 spend, roll, refund on failure
-		local Economy = v12Service(st, "Economy")
-		local reason = "roll:" .. tableId
-		if not Economy.spend(player, cost.amount, reason, cost.currency) then
-			return
-		end
-		local _, info = bridgedRoll(st, tableId, player, nil, { grant = true, reason = "roll", paid = false })
-		if not info.ok then
-			Economy.grant(player, cost.amount, "refund:" .. tableId, cost.currency)
-		end
-	end
-end
-
---------------------------------------------------------------------------------
 -- Economy: paid-currency spenders + starting currency
 --------------------------------------------------------------------------------
 
@@ -530,34 +364,6 @@ local function seedCurrency(st: State, ctx: any)
 				end
 			end
 		end)
-	end)
-end
-
---------------------------------------------------------------------------------
--- Mail: the v1.2 cross-server store over framework Data messages
---------------------------------------------------------------------------------
-
-local function wireMail(st: State)
-	local rt = st.rt
-	local Internal = require(script.Parent.MailInternal) :: any
-	Internal.isMock = false
-	Internal.store = {
-		MessageAsync = function(_self: any, key: string, message: any): boolean
-			local userId = tonumber(string.match(key, "^Player_(%d+)$"))
-			if userId == nil then
-				return false
-			end
-			return rt.data.sendMessage("Mail", userId, message)
-		end,
-	}
-	Internal.nudgeSave = function(userId: number)
-		rt.data.nudge(userId)
-	end
-	rt.data.onMessage("Mail", function(player: any, payload: any, processed: () -> ())
-		local deliver = Internal.deliver
-		if deliver ~= nil then
-			deliver(player, payload, processed)
-		end
 	end)
 end
 
@@ -744,11 +550,7 @@ local function buildV12(st: State, firstCtx: any)
 		signals = st.signals,
 		net = table.freeze({
 			handle = function(eventName: string, handler: (...any) -> ())
-				local fn = handler
-				if eventName == "RequestRoll" then
-					fn = requestRoll(st) -- spend + roll in one tx (compliance.spendForRoll)
-				end
-				rt.net.claim(st.current or "Compat", eventName, fn)
+				rt.net.claim(st.current or "Compat", eventName, handler)
 			end,
 			feedback = function(player: any, kind: string, text: string, rarity: string?, position: any?)
 				rt.net.feedback(player, kind, text, rarity, position)
@@ -820,18 +622,8 @@ local function initModule(st: State, name: string, ctx: any)
 		buildV12(st, ctx)
 	end
 	local service = st.services[name]
-	if name == "Rarity" then
-		-- every roll of the v1.2 service (its console, any internal caller) goes through Compliance
-		service.roll = function(tableId: any, player: any, luck: number?, opts: any?): (any, any)
-			return bridgedRoll(st, tableId, player, luck, opts)
-		end
-	elseif name == "Mail" then
-		wireMail(st)
-	elseif name == "Inventory" then
-		st.signals.ItemRemoved:Connect(function(player: any, instance: any)
-			runRemovedHooks(st, player, instance)
-		end)
-	elseif name == "Plot" then
+	-- (Rarity, Inventory and Mail are real modules since Phase 1: their bridged branches are gone)
+	if name == "Plot" then
 		st.signals.ItemUndisplayed:Connect(function(player: any, _uid: any, slotId: any)
 			st.signals.DisplayCleared:Fire(player, slotId)
 		end)
@@ -839,9 +631,7 @@ local function initModule(st: State, name: string, ctx: any)
 	st.current = name
 	service.init(st.v12)
 	st.current = nil
-	if name == "Rarity" then
-		registerRaritySources(st, ctx)
-	elseif name == "Economy" then
+	if name == "Economy" then
 		registerSpenders(st, ctx)
 		seedCurrency(st, ctx)
 	end
@@ -889,28 +679,6 @@ local function mutationList(st: State): { any }
 	return list
 end
 
--- Inventory.extensions.onItemRemoved hooks (bridged semantics): run in a fresh tx right after a
--- v1.2 removal (remove, transfer, gift) commits. A removal through txApi.remove ran them inside
--- its own tx already (removedInTx), so the signal skips it.
-function runRemovedHooks(st: State, player: any, instance: any)
-	if st.removedInTx[instance] then
-		st.removedInTx[instance] = nil
-		return
-	end
-	if #st.removedHooks == 0 or not st.rt.data.isLoaded(player) then
-		return
-	end
-	local view = frozenCopy(instance)
-	local ok, err = pcall(st.rt.data.runTx, player, function(tx: any)
-		for _, hook in table.clone(st.removedHooks) do
-			hook(tx, player, view)
-		end
-	end)
-	if not ok then
-		st.rt.logSink("warn", `[Compat.Inventory] onItemRemoved hook failed (rolled back): {tostring(err)}`)
-	end
-end
-
 local function contractApi(st: State, name: string, api: { [string]: any })
 	if name == "Items" then
 		api.mutation = function(id: any): any
@@ -936,51 +704,7 @@ end
 local HOLD = table.freeze({}) -- Mail claimFn returned false: abort its tx
 
 local function contractTxApi(st: State, name: string, service: any): any
-	if name == "Rarity" then
-		return {
-			roll = function(tx: any, tableId: string, luck: number?): (any, any)
-				return rollInTx(st, tx, tableId, luck, nil)
-			end,
-		}
-	elseif name == "Inventory" then
-		return {
-			add = function(tx: any, itemId: string, opts: any?): any
-				return service.addInto(tx12(st, tx), itemId, opts)
-			end,
-			remove = function(tx: any, uid: string, _reason: string?): boolean
-				local flat = st.data.txView(tx)
-				local instance = if type(uid) == "string" then flat.inventory[uid] else nil
-				if instance == nil then
-					return false
-				end
-				flat.inventory[uid] = nil
-				local player = tx.player
-				local view = frozenCopy(instance)
-				for _, hook in table.clone(st.removedHooks) do
-					hook(tx, player, view)
-				end
-				st.removedInTx[instance] = true
-				tx.after(function()
-					st.signals.ItemRemoved:Fire(player, instance)
-				end)
-				return true
-			end,
-			list = function(tx: any): { any }
-				local list = {}
-				for _, instance in st.data.txView(tx).inventory do
-					table.insert(list, frozenCopy(instance))
-				end
-				return list
-			end,
-			count = function(tx: any): number
-				local n = 0
-				for _ in st.data.txView(tx).inventory do
-					n += 1
-				end
-				return n
-			end,
-		}
-	elseif name == "Economy" then
+	if name == "Economy" then
 		local RateMath = kitChild("Economy", "Economy", "RateMath")
 		return {
 			grant = function(tx: any, amount: number, reason: string, currency: string?): boolean
@@ -1032,14 +756,7 @@ local function contractTxApi(st: State, name: string, service: any): any
 end
 
 local function contractExtensions(st: State, name: string, service: any): any
-	if name == "Inventory" then
-		return {
-			onItemRemoved = function(fn: (any, any, any) -> ())
-				assert(type(fn) == "function", "Inventory.onItemRemoved(fn): fn must be a function")
-				table.insert(st.removedHooks, fn)
-			end,
-		}
-	elseif name == "Rebirth" then
+	if name == "Rebirth" then
 		return {
 			-- runs inside the v1.2 rebirth Data.update; the hook gets that update's framework tx
 			resetStep = function(id: string, fn: (any, any) -> ())
@@ -1089,14 +806,8 @@ local function buildApi(st: State, name: string, service: any): any
 	local api: { [string]: any } = {}
 	for _, fnName in Bridge.API[name] do
 		assert(type(service[fnName]) == "function", `[Compat] {name}.{fnName} is not implemented`)
-		if name == "Rarity" and fnName == "roll" then
-			api.roll = function(tableId: any, player: any, luck: number?, opts: any?): (any, any)
-				return bridgedRoll(st, tableId, player, luck, opts)
-			end
-		else
-			api[fnName] = function(...: any): ...any
-				return service[fnName](...)
-			end
+		api[fnName] = function(...: any): ...any
+			return service[fnName](...)
 		end
 	end
 	if name == "Items" then
@@ -1130,18 +841,6 @@ local function purchaseOps(st: State, name: string, service: any): any
 				local o: { [string]: any } = if type(opts) == "table" then table.clone(opts) else {}
 				o.source = st.ctxs.Inventory.compliance.tagPaid(tx)
 				return service.addInto(tx12(st, tx), itemId, o)
-			end,
-		}
-	elseif name == "Rarity" then
-		return {
-			roll = function(tx: any, tableId: string, luck: number?): (any, any)
-				return rollInTx(
-					st,
-					tx,
-					tableId,
-					luck,
-					{ paid = true, grant = true, reason = "product:" .. productTag(tx) }
-				)
 			end,
 		}
 	end
@@ -1204,14 +903,15 @@ local function v12Shop(st: State): any
 				o.source = "paid:" .. productTag(ptx)
 				return v12Service(st, "Inventory").addInto(t, itemId, o)
 			end,
+			-- the REAL Rarity's purchaseOps.roll (grants "paid:<product>", M5); Phase 2: was the
+			-- bridged v1.2 roll, dead since Rarity became a real module
 			roll = function(tableId: string, luck: number?): (any, any)
-				return rollInTx(
-					st,
-					ptx,
-					tableId,
-					luck,
-					{ paid = true, grant = true, reason = "product:" .. productTag(ptx) }
-				)
+				local ref = refNamed(rt, "Rarity")
+				local ops = if ref then rt.purchaseOps[ref] else nil
+				if ops == nil or ops.roll == nil then
+					error("[Compat] tx.roll: the Rarity module is not enabled", 2)
+				end
+				return ops.roll(ptx, tableId, luck)
 			end,
 			retryLater = ptx.retryLater,
 			after = ptx.after,

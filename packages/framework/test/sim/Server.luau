@@ -544,6 +544,17 @@ function Server._platform(self): any
 				isPlayer = isPlayer,
 			})
 		end,
+		-- ctx.data.shared on the World's mock DataStore: one store shared by every sim server
+		-- (failure injection: world:failNext / failFor with store "StudWorkShared_<gameId>")
+		makeShared = function(gameId: string)
+			local SharedStore = server.require("packages/framework/server/SharedStore.luau")
+			return SharedStore.dataStore(game:GetService("DataStoreService"), "StudWorkShared_" .. gameId, {
+				isStudio = server.isStudio,
+				log = function(msg)
+					server.globals.warn(msg)
+				end,
+			})
+		end,
 		installConsole = function(run)
 			server.console = run
 		end,

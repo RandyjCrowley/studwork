@@ -11,7 +11,8 @@
 	    binding.gamepad; handler("Began"/"Ended") (Cancel counts as "Ended"). Input passes
 	    through (ContextActionResult.Pass) so default controls keep working. With
 	    touchButton = true an on-screen button is created (shown on touch devices by Roblox),
-	    titled binding.title and tinted with the palette accent. Re-binding an id replaces it.
+	    titled binding.title and tinted with the theme's accent (client/Theme.luau; GameConfig.palette
+	    overrides still win). Re-binding an id replaces it.
 	unbind(actionId)
 ]]
 
@@ -20,10 +21,10 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local UserInputService = game:GetService("UserInputService")
 
 local Core = ReplicatedStorage:WaitForChild("Core")
-local Palette = require(Core:WaitForChild("Palette"))
 local Signal = require(ReplicatedStorage:WaitForChild("Packages"):WaitForChild("Signal"))
 local Types = require(Core:WaitForChild("Types"))
 
+local ClientTheme = require(script.Parent.Theme)
 local Classify = require(script.Classify)
 
 local Input = {}
@@ -55,21 +56,31 @@ function Input.device(): Types.InputDevice
 	return current
 end
 
+-- A theme colour (GameConfig.palette overrides first, as in v1.2), as a Color3.
+local function themeColor(key: string): Color3
+	local override = if paletteOverrides then paletteOverrides[key] else nil
+	if type(override) == "string" and string.match(override, "^#%x%x%x%x%x%x$") then
+		return Color3.fromHex(override)
+	end
+	return Color3.fromHex(ClientTheme.current().colors[key])
+end
+
 local function styleTouchButton(actionId: string, title: string?)
 	if title then
 		ContextActionService:SetTitle(actionId, title)
 	end
 	local button = ContextActionService:GetButton(actionId)
 	if button and button:IsA("ImageButton") then
-		button.ImageColor3 = Palette.color("accent", paletteOverrides)
-		local minSize = Palette.metrics.minTouchTarget
+		local theme = ClientTheme.current()
+		button.ImageColor3 = themeColor("accent")
+		local minSize = theme.metrics.minTouchTarget
 		if button.AbsoluteSize.X < minSize then
 			button.Size = UDim2.fromOffset(minSize * 1.4, minSize * 1.4)
 		end
 		local titleLabel = button:FindFirstChild("ActionTitle")
 		if titleLabel and titleLabel:IsA("TextLabel") then
-			titleLabel.TextColor3 = Palette.color("text", paletteOverrides)
-			titleLabel.FontFace = Font.new(Palette.fonts.display, Enum.FontWeight.Bold)
+			titleLabel.TextColor3 = themeColor("text")
+			titleLabel.FontFace = Font.new(theme.fonts.display, Enum.FontWeight.Bold)
 		end
 	end
 end

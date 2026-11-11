@@ -4,7 +4,7 @@
 # its --self-test proves each check still catches a planted violation).
 source "$(dirname "$0")/_common.sh"
 
-PATHS="packages games templates tools"
+PATHS="packages games templates tools examples"
 echo "== selene"
 selene $PATHS
 echo "== stylua --check"

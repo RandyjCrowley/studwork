@@ -209,7 +209,28 @@ local function finish(merged: any): any
 	return merged
 end
 
-function Theme.merge(order: { any }, gameTheme: any, errors: { string }): any
+-- A module's contribution: its `theme` table, or theme(config) for a config-driven theme
+-- (core-v1.3.0 Phase 2: e.g. Rarity's tiers from config.Rarity.tiers). nil = nothing.
+local function contribution(ref: any, configs: { [string]: any }?, errors: { string }): any
+	local theme = ref.theme
+	if type(theme) ~= "function" then
+		return if type(theme) == "table" then theme else nil
+	end
+	local config = if configs then configs[ref.name] else nil
+	local ok, result = pcall(theme, config)
+	if not ok then
+		table.insert(errors, `{tostring(ref.name)}.theme(config) failed: {tostring(result)}`)
+		return nil
+	end
+	if result ~= nil and type(result) ~= "table" then
+		table.insert(errors, `{tostring(ref.name)}.theme(config) must return a table of token groups`)
+		return nil
+	end
+	return result
+end
+
+-- configs (optional): { [moduleName]: merged config }, passed to a function `theme`.
+function Theme.merge(order: { any }, gameTheme: any, errors: { string }, configs: { [string]: any }?): any
 	local base: any = FRAMEWORK_DEFAULT
 	local presetName = "framework-default"
 	if type(gameTheme) == "table" and gameTheme.preset ~= nil then
@@ -227,9 +248,10 @@ function Theme.merge(order: { any }, gameTheme: any, errors: { string }): any
 	local merged = Freeze.deepCopy(base)
 	merged.name = nil
 	for _, ref in order do
-		if type(ref) == "table" and type(ref.theme) == "table" then
-			check(ref.theme, `{tostring(ref.name)}.theme`, errors)
-			merged = apply(merged, ref.theme)
+		local layer = if type(ref) == "table" then contribution(ref, configs, errors) else nil
+		if layer ~= nil then
+			check(layer, `{tostring(ref.name)}.theme`, errors)
+			merged = apply(merged, layer)
 		end
 	end
 	if gameTheme ~= nil then

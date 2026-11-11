@@ -41,4 +41,13 @@ describe("sandbox Config", function()
 		end
 		expect(#errors).toBe(0)
 	end)
+
+	it("the testkit maps this game's Rojo project (game-local modules load in specs)", function()
+		-- tools/lune/testkit: a spec under games/<g>/ sees the game's own project children
+		local gameModule = require(ReplicatedStorage:WaitForChild("GameModule"):WaitForChild("module"))
+		expect(gameModule.name).toBe("Sandbox")
+		local SSS = game:GetService("ServerScriptService")
+		expect(SSS:WaitForChild("Modules"):FindFirstChild("Sandbox") ~= nil).toBe(true)
+		expect(SSS:WaitForChild("Game"):FindFirstChild("ServerConfig") ~= nil).toBe(true)
+	end)
 end)

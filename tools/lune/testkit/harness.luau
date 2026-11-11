@@ -17,6 +17,7 @@
 
 local fs = require("@lune/fs")
 local luau = require("@lune/luau")
+local serde = require("@lune/serde")
 local task = require("@lune/task")
 
 local Harness = {}
@@ -72,7 +73,7 @@ Harness.Stubs = Stubs
 local index: { [string]: "file" | "dir" } = {}
 local listing: { [string]: { string } } = {}
 
-local INDEX_ROOTS = { "packages", "games", "templates", "deps/Packages", "deps/ServerPackages" }
+local INDEX_ROOTS = { "packages", "games", "templates", "examples", "deps/Packages", "deps/ServerPackages" }
 local SKIP = { [".git"] = true, node_modules = true }
 
 local function indexTree(dir: string)
@@ -250,8 +251,8 @@ function folderNode(children: { [string]: any })
 	})
 end
 
-local fakeServices = {
-	ReplicatedStorage = folderNode({
+local BASE_CHILDREN: { [string]: { [string]: any } } = {
+	ReplicatedStorage = {
 		Core = "packages/core/shared",
 		FrameworkClient = "packages/framework/client",
 		UI = "packages/ui",
@@ -265,8 +266,8 @@ local fakeServices = {
 			Social = "packages/kits/social/shared",
 			Engagement = "packages/kits/engagement/shared",
 		},
-	}),
-	ServerScriptService = folderNode({
+	},
+	ServerScriptService = {
 		CoreServer = "packages/core/server",
 		Compat = "packages/kits/compat",
 		Framework = "packages/framework/server",
@@ -278,8 +279,62 @@ local fakeServices = {
 			Social = "packages/kits/social/server",
 			Engagement = "packages/kits/engagement/server",
 		},
-	}),
+	},
 }
+
+local function servicesFrom(children: { [string]: { [string]: any } }): { [string]: any }
+	local out = {}
+	for name, kids in children do
+		out[name] = folderNode(kids)
+	end
+	return out
+end
+
+local fakeServices = servicesFrom(BASE_CHILDREN)
+
+-- A spec under games/<g>/ or templates/<t>/ (Phase 2, E R2): that game's Rojo project adds its own
+-- ReplicatedStorage / ServerScriptService children (Game, GameModule, Modules, ...) next to the
+-- framework/kit mapping above (names the mapping already has keep the mapping's path), so a
+-- Config listing a game-local module (ReplicatedStorage.Modules.<X>.module) loads.
+local function projectChildren(dir: string, node: any): { [string]: any }
+	local out: { [string]: any } = {}
+	for name, child in node do
+		if string.sub(name, 1, 1) ~= "$" and type(child) == "table" then
+			if type(child["$path"]) == "string" then
+				out[name] = normalize(dir .. "/" .. child["$path"])
+			else
+				out[name] = projectChildren(dir, child)
+			end
+		end
+	end
+	return out
+end
+
+function Harness.mapGame(specPath: string?)
+	local gameDir = if specPath
+		then (string.match(specPath, "^(games/[^/]+)/") or string.match(specPath, "^(templates/[^/]+)/"))
+		else nil
+	local projectPath = if gameDir then gameDir .. "/default.project.json" else nil
+	if projectPath == nil or not fs.isFile(projectPath) then
+		fakeServices = servicesFrom(BASE_CHILDREN)
+		return
+	end
+	local project = serde.decode("json", fs.readFile(projectPath))
+	local merged: { [string]: { [string]: any } } = {}
+	for serviceName, base in BASE_CHILDREN do
+		local kids = table.clone(base)
+		local tree = project.tree and project.tree[serviceName]
+		if type(tree) == "table" then
+			for name, value in projectChildren(gameDir :: string, tree) do
+				if kids[name] == nil then
+					kids[name] = value
+				end
+			end
+		end
+		merged[serviceName] = kids
+	end
+	fakeServices = servicesFrom(merged)
+end
 
 local fakeGame = setmetatable({}, {
 	__index = function(_, key)
@@ -542,6 +597,7 @@ function Harness.runSpec(specPath: string): (number, number, { string })
 	}
 
 	Harness.resetModuleCache()
+	Harness.mapGame(specPath)
 	local ok, err = pcall(loadFile, specPath, makeNode(specPath), globals)
 	if not ok then
 		return 0, 1, { specPath .. " (load): " .. tostring(err) }

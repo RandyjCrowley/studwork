@@ -722,6 +722,9 @@ export type HudOptions = {
 export type HudAPI = {
 	mount: (opts: HudOptions?) -> (),
 	unmount: () -> (),
+	-- core-v1.3.0 Phase 2 (additive): contribute (spec) or remove (false) a HUD widget by id
+	-- ("<Module>.<widget>", spec = { slot, order?, component }); = UI.registerWidget
+	addWidget: (id: string, spec: any) -> (),
 }
 
 export type ClientAPI = {
