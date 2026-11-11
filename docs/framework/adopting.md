@@ -54,7 +54,7 @@ The audit scans every script's source: in a Rojo repo every `.luau`/`.lua` the p
 | Scripts | path, class (Script / LocalScript / ModuleScript), side (server / client / shared, from class, `RunContext` and container), line count | `scripts` |
 | DataStores | every `GetDataStore` / `GetOrderedDataStore` / `GetGlobalDataStore` call: store name (literal or `"<dynamic>"`), scope, and every read/write call on the result (`GetAsync`, `SetAsync`, `UpdateAsync`, `IncrementAsync`, `RemoveAsync`, `GetSortedAsync`, `ListKeysAsync`) with file:line and the key expression, turned into a key pattern when it's derivable (`"Player_" .. player.UserId` -> `Player_{userId}`) | `datastores` |
 | Save libraries | ProfileService (`GetProfileStore`, `LoadProfileAsync`), ProfileStore (`ProfileStore.New`, `StartSessionAsync`), DataStore2 (`DataStore2(`, `DataStore2.Combine`, `:Get`/`:Set`/`:Increment`), each with the store name, scope, key pattern and combined keys when literal | `libraries` |
-| Purchases | `ProcessReceipt` assignments (and whether the handler checks a purchase history before granting), `PromptProductPurchase` / `PromptGamePassPurchase` / `PromptPurchase` calls, `Prompt*PurchaseFinished` connections, `UserOwnsGamePassAsync` / `PlayerOwnsAsset` checks, every numeric product / pass id literal near them; and, per product handler, the save fields it grants (`sold`: a currency or item field written in the handler), and whether the handler uses randomness | `purchases` |
+| Purchases | `ProcessReceipt` assignments (and whether the handler checks a purchase history before granting), `PromptProductPurchase` / `PromptGamePassPurchase` / `PromptPurchase` calls, `Prompt*PurchaseFinished` connections, `UserOwnsGamePassAsync` / `PlayerOwnsAsset` checks, every numeric product / pass id literal near them; and, per product handler, the save fields it grants (`sold`: a currency or item field written in the handler), and whether the handler uses randomness (a handler that writes save data with no field the audit can name gets the medium risk `sold_unknown`: read the handler) | `purchases` |
 | Remotes | `RemoteEvent` / `RemoteFunction` / `UnreliableRemoteEvent` / `BindableEvent` instances (in the place, in the project's `.model.json`/`.rbxmx`, or created by `Instance.new`) with their path, and every handler (`OnServerEvent`, `OnServerInvoke`, `OnClientEvent`, `OnClientInvoke`) and firing call with file:line | `remotes` |
 | leaderstats | code creating a `leaderstats` folder and the value objects under it (name, class) | `leaderstats` |
 | UI | everything under `StarterGui` (place) or mapped to it (Rojo): ScreenGuis with their child count and the scripts inside them | `ui` |
@@ -157,14 +157,19 @@ only**, so the map, models and UI stay in the place:
   symlinks, or the run stops before writing anything.
 - **No silent overwrite:** the run writes `.studwork-from-place.json`, a manifest of every file it
   generated with its content hash. A later run overwrites a file only if it's in the manifest with
-  an unchanged hash; any other existing file stops the run. A fresh `--out` may hold only the
-  place file itself, dotfiles and earlier `studwork-adopt-report.*` (the reports are rewritten
-  every run and aren't in the manifest).
+  an unchanged hash; any other existing file stops the run. A fresh `--out` may hold other files
+  (a game's notes, sample saves): only a file at a path the run writes stops it.
 - Scripts inside `Workspace`, `StarterGui`, tools and models are **not** moved (their parent is
   part of the map or UI); the report lists them under `notExtracted` with their findings, and
   `--verify` refuses to pass while one of them still uses DataStores or purchases.
 - `RunContext` and `Disabled` are kept as `.meta.json` properties.
 - `--out` defaults to the folder of the place file. The place file itself is never modified.
+- **`tools/adopt --strip-place <project> <instance path> [...]`** retires scripts left in the place
+  once their job moved to StudWork (a shop screen's LocalScript, an old remotes folder): it writes
+  `<name>.studwork.rbxlx` (or `.rbxl`) next to `studwork.json`'s `placeFile`, without the named
+  instances (full paths as in `notExtracted[].path`), points `placeFile` at the copy and keeps the
+  original untouched for rollback. A path that doesn't exist stops it with nothing written; run
+  it again on the copy to remove more.
 - A place-file game is published from Studio (open the place, sync with `tools/dev`, publish), not
   with `tools/publish` (its build has no map); `tools/publish` says so and stops for a project whose
   `studwork.json` has `"placeFile"`.
@@ -401,7 +406,9 @@ Per fixture:
 3. **A failure kicks without changing data:** with `failNext(n)` past the retries the player is
    kicked, the StudWork save is unchanged, and the next join imports.
 4. **A partial old save:** the fixture with fields removed (each top-level field in turn) imports
-   without an error, or fails closed (kick, nothing written); never a half import.
+   without an error, or fails closed (kick, nothing written); never a half import. When removing a
+   field leaves no source at all (a map of sources where only one exists), the expected outcome is
+   "nothing found" (the `found = false` marker, no import).
 5. **Changed after import** (when the module has `merge`): import, then the old save changes (the
    fixture's `changed` value, written with a later time), rejoin: `merge` runs once, the result
    matches the fixture's `afterMerge` expectations, and a second rejoin changes nothing
@@ -496,6 +503,12 @@ balance numbers). Lint must not fail on day one, and must not let more of it in:
 - **Warn-only, with the reason:** a finding of a listed check in a listed file prints
   `warning: [legacy] <path>:<line>: [<check>] <message> (legacy: <reason>)` and doesn't fail lint.
   Findings of checks the entry doesn't list still fail.
+- **selene and StyLua skip listed files** (v1.6.0): `tools/lint` prints
+  `warning: [legacy] <path>: selene/stylua skipped (legacy: <reason>)` for each (the list comes
+  from `lune run tools/lune/guardrails --legacy-files`, which prints `<path>\t<reason>` per valid
+  entry; a broken list skips nothing and fails in the guardrails step). Don't reformat old files.
+- **Counts are per statement:** a re-wrap (StyLua splitting a call over lines) can't raise a
+  listed file's count.
 - **Never downgraded:** an assignment to `ProcessReceipt` (Shop owns it; use §4.3), the `special`
   check (framework internals) and the `packages` check (the `studwork/` pin) fail even in a listed
   file.

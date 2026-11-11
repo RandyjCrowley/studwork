@@ -165,6 +165,12 @@ files with the checks they may still break and why:
 - A finding of a listed check in a listed file prints
   `warning: [legacy] <path>:<line>: [<check>] <message> (legacy: <reason>)` and doesn't fail lint.
   Any other check in that file, and every other file, still fails.
+- **selene and StyLua skip listed files** (v1.6.0): `tools/lint` prints
+  `warning: [legacy] <path>: selene/stylua skipped (legacy: <reason>)` for each (the list comes
+  from `lune run tools/lune/guardrails --legacy-files`, which prints `<path>\t<reason>` per valid
+  entry; a broken list skips nothing and fails in the guardrails step). Don't reformat old files.
+- **Counts are per statement:** a re-wrap (StyLua splitting a call over lines) can't raise a
+  listed file's count.
 - **Never downgraded:** a `ProcessReceipt` assignment, `special` and `packages` fail in a listed
   file too; listing `special` or `packages` is itself an error.
 - **It may only shrink:** `studwork.json`'s `legacyBaseline` holds the findings per file and per

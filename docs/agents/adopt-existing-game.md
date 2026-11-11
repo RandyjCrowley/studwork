@@ -41,8 +41,9 @@ The design behind every tool and API named here is [docs/framework/adopting.md](
 - installing anything outside `<game>` and `<studwork>` (Rokit itself, Homebrew packages, Rosetta),
   or anything with `sudo`;
 - anything that costs money (Robux, paid services);
-- touching files outside `<game>` (the `<studwork>` checkout is read-only for you; running its
-  `tools/` is fine);
+- touching files outside `<game>` (don't edit files in the `<studwork>` checkout; running its
+  `tools/` is fine, including `tools/install`, which writes only that checkout's toolchain cache,
+  Wally packages and git hook setting);
 - deleting a feature of the game (as opposed to porting it).
 
 Everything else you decide yourself, with the rules on this page. Write each decision down as you
@@ -100,7 +101,9 @@ If the game is several places of one universe (a lobby and a game, each its own 
 file), give all of them: `tools/adopt --audit <game> <lobby>`. The report then lists the stores they
 share (`sharedStores`); the user must migrate those places too (cutover item 1).
 
-Read `<game>/studwork-adopt-report.md` fully. Then, from the JSON, note:
+Commit both report files (`git -C <game> add studwork-adopt-report.json studwork-adopt-report.md`,
+commit "StudWork adoption audit"), so later audits show up as a diff. Read
+`<game>/studwork-adopt-report.md` fully. Then, from the JSON, note:
 
 - `risks[]`: every `critical` and `high` entry. Each one must be gone (or, for `high`, fixed) by
   step 10.
@@ -169,6 +172,18 @@ client; StudWork saves only to its own store, so booting it next to the old scri
 guardrail. A service the old project maps with `"$path"` (e.g. `"ServerScriptService": {
 "$path": "src/server" }`) is fine: StudWork's entries are added next to it.
 
+**Init's GameConfig is empty on purpose** (when the game had no `src/shared/Config/`): the
+modules you chose at their defaults, no items, no starter items, no events,
+`paidCurrencies = {}`, and the audit's product and pass ids as `Product<id>` / `Pass<id>`
+placeholders. Fill it from the old game in steps 4-6 (names, items, paid currencies). Never copy
+the sandbox's or a template's content into it: a starter item there is granted to every imported
+player.
+
+**If the old game assigns `ProcessReceipt`** (init lists that file as "must fix before lint
+passes"): do step 6 for its products now, in the first commit: port each product to
+`ctx.shop.onProduct` in `modules/<gameId>/server/init.luau` and delete the `ProcessReceipt`
+assignment. Lint never accepts it, even in a listed file.
+
 **If init says the tag doesn't exist on GitHub** (an unreleased StudWork, or no network), it prints
 the exact `--url <studwork>` to rerun with. Use it, and write in your report that the user must run
 `git submodule set-url studwork https://github.com/RandyjCrowley/studwork.git` once the tag is
@@ -183,15 +198,19 @@ cd <game>
 tools/install
 tools/doctor
 tools/lint && tools/typecheck && tools/test && tools/build
-git add studwork studwork.json studwork-legacy.json .gitmodules .gitignore .githooks tools modules studwork-boot src default.project.json
+git add studwork studwork.json studwork-legacy.json .gitmodules .gitignore .githooks tools modules studwork-boot src default.project.json studwork-adopt-report.json studwork-adopt-report.md
 git commit -m "Adopt StudWork"
 ```
 
 (Add only what init created or changed; `--dry-run` printed the list.) **This first commit fixes
 `legacyBaseline`.** Lint compares it with this commit from now on.
 
-**Check:** `tools/lint`, `tools/typecheck`, `tools/test`, `tools/build` pass in `<game>` (old code
-shows up as `warning: [legacy] ...` lines, which is expected), and the commit exists.
+**Check:** `tools/lint`, `tools/typecheck`, `tools/test`, `tools/build` pass in `<game>`, and the
+commit exists. Old code shows up as `warning: [legacy] ...` lines, which is expected: files listed
+in `studwork-legacy.json` skip selene and StyLua (`warning: [legacy] <path>: selene/stylua skipped
+(legacy: <reason>)`), and their guardrail findings print as warnings. Don't reformat old files.
+If `tools/typecheck` fails on old code, fix the old code minimally (a type annotation, an `:: any`)
+or delete it if step 5-8 replaces it; note each in `MIGRATION_NOTES.md`.
 
 ## 4. The save map
 
@@ -332,10 +351,14 @@ The exact format is the header of `studwork/tools/lune/MigrationCheck.luau` (rea
   `{ "main": {...}, "stats": {...} }`). The runner stores it in the source's real format for you.
 - `expect`: old path -> StudWork save path (`<dataKey>.<field>...`, dots; list indexes are
   numbers). A string target must equal the old value; `{ "items": "<path>" }` means the old value
-  is a list (or map) of item ids and the inventory at that path holds exactly those ids.
+  is a list (or map) of item ids and the inventory at that path holds exactly those ids (entries
+  may be plain ids or tables with `id` / `itemId`, e.g. pets saved as `{ "id": "cat", "uid": 7 }`).
+  `_framework.legacyPurchases` is compared as the set of old receipt ids (the framework stores a
+  time per id, whatever the old value was).
   `dropped`: old path -> reason. Every leaf of `old` must be covered by one of them (an entry
   covers everything under its path).
-- `sold`: old path -> `"currency"` or `"items"`: fields a product sold (from the audit report's
+- `sold`: old path -> `"currency"`, `"items"` or another kind (e.g. `"stat"` for a sold rebirth;
+  reported as not checked): fields a product sold (from the audit report's
   `purchases.products[].sold`). A sold currency must map to a `compliance.paidCurrencies` currency.
 - `changed` / `afterMerge`: only if the module has a `merge`: the old save as an old server changed
   it later, and the StudWork values expected after the merge (`{ "<save path>": value }`).
@@ -476,9 +499,12 @@ fields). Never read leaderstats back as the truth, and never write them from the
 
 **UI:** decide per screen:
 
-- **Keep** the old UI (the default for a migration): it stays in the place / `StarterGui`. Change
-  only its server calls: old `FireServer` calls become `StudWork.use(Module).actions.x(...)`, and
-  values it read from remotes or leaderstats come from replicated state.
+- **Keep** the old UI (the default for a migration): its instances stay in the place /
+  `StarterGui`. Its code goes in the game module's client part, `modules/<gameId>/client/init.luau`
+  `start()` (init created and mapped it; it runs after `StudWork.start` on the client). Change only
+  its server calls: old `FireServer` calls become `StudWork.use(Module).actions.x(...)`, and values
+  it read from remotes or leaderstats come from replicated state
+  (`StudWork.use(Module).state()`, module-api.md §10).
 - **Move** a screen to the UI kit (`tools/make-screen`) only when the old screen is broken, or the
   framework already shows the same thing (the HUD's currency, the odds UI). A paid random item
   must show odds through the framework's odds UI either way.
@@ -505,8 +531,21 @@ Each entry is an old file that still breaks a guardrail. For each one:
 3. Keep an entry only with a true reason (old UI code you decided to keep, say), and never with the
    `purchases` check: an entry listing `purchases` blocks `tools/adopt --verify`.
 
+**Place-file game:** scripts left in the place (the report's `notExtracted[]`, e.g. a shop screen's
+LocalScript that prompts a purchase) can't be deleted from the original place file, which is never
+modified. Once their job moved to StudWork, retire them:
+
+```sh
+tools/adopt --strip-place . "StarterGui.ShopGui.ShopGuiClient" "ReplicatedStorage.Remotes"
+```
+
+This writes `<name>.studwork.rbxlx` next to the place without those instances (paths as in
+`notExtracted[].path`), points `studwork.json` `placeFile` at the copy and keeps the original for
+rollback. Run it again to remove more. Commit the copy and `studwork.json`.
+
 Lint fails if a listed file gets **more** findings than at init, so don't add old-style code to a
-listed file. Never edit `legacyBaseline`.
+listed file (reformatting can't raise a count: findings are counted per statement). Never edit
+`legacyBaseline`.
 
 **Check:** `studwork-legacy.json` is `{ "files": [] }`, or each remaining entry has a real reason
 and none lists `purchases`.

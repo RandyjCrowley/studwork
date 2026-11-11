@@ -4,6 +4,8 @@
 #   tools/adopt --from-place <file> [--out d]   a Studio-only game's code containers -> a Rojo project (§1)
 #   tools/adopt --verify <project>              fails while anything unsafe for going live is left (§1)
 #   tools/adopt --init <project> [...]          add StudWork to the project (§2)
+#   tools/adopt --strip-place <project> <path> [...]  retire scripts/remotes left in a place file:
+#                                               <name>.studwork.rbxlx, studwork.json repointed (§1)
 # Paths are relative to where the command is run. Never touches live data, never publishes.
 source "$(dirname "$0")/_common.sh"
 
@@ -16,7 +18,7 @@ case "${1:-}" in
 	lune_tool adopt "$@"
 	;;
 *)
-	echo "usage: tools/adopt --audit <project|place> [...] | --from-place <file> [--out <dir>] | --verify <project> | --init <project> [--name <gameId>] [--modules A,B] [--tag vX.Y.Z] [--url <u>] [--dry-run]" >&2
+	echo "usage: tools/adopt --audit <project|place> [...] | --from-place <file> [--out <dir>] | --verify <project> | --strip-place <project> <instance path> [...] | --init <project> [--name <gameId>] [--modules A,B|none] [--tag vX.Y.Z] [--url <u>] [--dry-run]" >&2
 	exit 2
 	;;
 esac
