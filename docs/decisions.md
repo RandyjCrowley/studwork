@@ -497,7 +497,8 @@ lead re-running lint, typecheck (6 games), tests (582), test-sim (51) and 8 rojo
   MemoryStore surface was needed for R1. **R1 is live:** per-recipient undelivered-gift cap (100) and
   return-to-sender after 14 days; the 2400-gift test passes on the real path (3 sim servers, real
   ProfileStore queue dropping past 1000, plus intermittent store failures), with a control proving the
-  cap is what saves the items. CLAUDE.md's "only gift recently active players" rule is removed.
+  cap is what saves the items. Removing CLAUDE.md's "only gift recently active players" rule is
+  pending: CLAUDE.md is a protected file and the edit needs the user's approval (asked).
 - **R3 stays partial:** clearing a sender's outbox from another server would need that sender's session;
   unsent outboxes are resent on leave and at next login.
 - **Framework clock `ctx.now()`**; kit code no longer calls `os.time()`; streak/offline/gift-expiry tests run

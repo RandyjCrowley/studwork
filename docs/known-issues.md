@@ -9,6 +9,10 @@ and what to do until it is fixed.
 ## High (residual)
 
 ### R1. ProfileStore keeps at most 1000 queued messages per player and drops the oldest
+
+**Fixed in core-v1.3.0 (Phase 2):** Mail caps undelivered gifts per recipient (100) through the framework
+shared store and returns uncollected gifts to the sender after 14 days; the 2400-gift test passes on the
+real path (`packages/framework/test/sim/GiftSoakReal.spec.luau`). The text below is the v1.2 record.
 - Where: `ProfileStore.luau:181,1683` (`MAX_MESSAGE_QUEUE`).
 - What protects it now: Mail takes a message out of that queue as soon as the receiver loads it. It
   is either delivered or held in `PlayerData.mail.box`, which now holds up to 500 messages.
