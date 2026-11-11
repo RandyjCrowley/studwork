@@ -1,123 +1,130 @@
 --!strict
 --[[
-	Core.Items. OWNED BY AGENT C (core/c-items). Public API: Types.ItemsAPI.
+	Items server part (collection kit; module-api.md §12). Items.new() -> a fresh part per runtime
+	(ModuleServers.loadServer calls it), so two servers in one process never share state.
 
-	Registry of ItemDefs. init() registers GameConfig.items; games may call register(defs) later
-	(e.g. generated items). Every batch is validated by ItemValidate and committed all-or-nothing;
-	an invalid def or a duplicate id raises "[Core.Items] ..." and registers nothing.
-
-	get(id) / all() (registration order) / byTag(tag) (indexed; returns a fresh array) /
-	incomeOf(instance) = def.incomePerSec * mutation multiplier (balance.mutations; unknown
-	mutation -> multiplier 1, unknown item -> 0). Registered defs are frozen copies.
-	v1.2 (N3): onRegistered(fn) (ctx-only, Context.ItemsInternal) runs fn(defs) after every
-	successful register() made after Items.start, so Rarity re-sends the disclosed odds.
+	api (frozen; ctx.deps[Items] / StudWork.use(Items))
+	  get(id) -> ItemDef?            frozen def from GameConfig.items, namespaced fields included
+	  all() -> { ItemDef }           GameConfig.items order (a fresh array of the frozen defs)
+	  byTag(tag) -> { ItemDef }      indexed; a fresh array
+	  mutation(id) -> MutationDef?   frozen; config.Rarity.mutations entry, namespaced fields
+	                                 included (economy.incomeMultiplier; see mutationDef)
+	  mutations() -> { MutationDef } config order
+	  register(...)                  errors: items exist only through GameConfig.items (§12)
+	extensions
+	  mutations(list)                Rarity (same kit) hands over config.Rarity.mutations in its
+	                                 init; once per runtime. Kit-internal plumbing.
+	Removed (core-v1.3.0 Breaking): incomeOf (income is Economy's: item.economy.incomePerSec x
+	mutation.economy.incomeMultiplier), register, onRegistered.
+	Boot checks (beyond the framework's base-field schema): ItemValidate per def (id/name length,
+	tags shape); rarity strings are checked by Rarity against the active tier list.
 ]]
 
-local Core = game:GetService("ReplicatedStorage"):WaitForChild("Core")
-local Types = require(Core:WaitForChild("Types"))
-local Validate = require(Core:WaitForChild("Validate"))
 local ItemValidate = require(script.ItemValidate)
+local Util = require(script.Parent.Util)
+
+local NO_LATE_ITEMS_ERROR =
+	"items must be declared in GameConfig.items; registering items after start is not supported in core-v1.3.0"
 
 local Items = {}
 
-local ctx: any = nil
-local byId: { [string]: Types.ItemDef } = {}
-local ordered: { Types.ItemDef } = {}
-local tagIndex: { [string]: { Types.ItemDef } } = {}
-local mutationMult: { [string]: number } = {}
-local registeredHooks: { (defs: { Types.ItemDef }) -> () } = {}
-local started = false
-
-local function freezeDef(def: Types.ItemDef): Types.ItemDef
-	local copy = table.clone(def)
-	if def.tags then
-		copy.tags = table.freeze(table.clone(def.tags))
+-- A MutationDef: the config entry, frozen. v1.2 configs carry `multiplier`; until Economy
+-- declares its own mutation field the def also gets economy.incomeMultiplier = multiplier when it
+-- has no `economy` table (PHASE1-CONTRACT bridged semantics, kept by the real module).
+local function mutationDef(m: any): any
+	local out = table.clone(m)
+	if type(out.economy) ~= "table" and type(out.multiplier) == "number" then
+		out.economy = { incomeMultiplier = out.multiplier }
 	end
-	return table.freeze(copy)
+	return Util.frozenCopy(out)
 end
 
-function Items.init(context: any)
-	ctx = context
-	for _, m in ctx.config.balance.mutations or {} do
-		if type(m) == "table" and type(m.id) == "string" then
-			mutationMult[m.id] = if Validate.isNonNegativeNumber(m.multiplier) then m.multiplier else 1
-		end
-	end
-	Items.register(ctx.config.items)
-end
+function Items.new(): any
+	local ctx: any = nil
+	local ordered: { any } = {}
+	local byId: { [string]: any } = {}
+	local tagIndex: { [string]: { any } } = {}
+	local mutationList: { any } = {}
+	local mutationById: { [string]: any } = {}
+	local mutationsSet = false
 
-function Items.start()
-	started = true
-end
+	local part: any = {}
 
--- ctx-only (Context.ItemsInternal): fn(defs) after each successful register() once started.
-function Items.onRegistered(fn: (defs: { Types.ItemDef }) -> ())
-	assert(type(fn) == "function", "[Core.Items] onRegistered: fn must be a function")
-	table.insert(registeredHooks, fn)
-end
-
-function Items.register(defs: { Types.ItemDef })
-	local ok, err = ItemValidate.validateBatch(defs, function(id: string): boolean
-		return byId[id] ~= nil
-	end)
-	if not ok then
-		error("[Core.Items] " .. tostring(err), 2)
-	end
-	for _, def in defs do
-		local frozen = freezeDef(def)
-		byId[frozen.id] = frozen
-		table.insert(ordered, frozen)
-		local seen: { [string]: boolean } = {}
-		for _, tag in (frozen.tags or {}) :: { string } do
-			if not seen[tag] then
-				seen[tag] = true
-				local list = tagIndex[tag]
-				if list == nil then
-					list = {}
-					tagIndex[tag] = list
+	function part.init(context: any)
+		ctx = context
+		local errors: { string } = {}
+		for i, def in ctx.gameConfig.items do
+			local err = ItemValidate.validateDef(def, false)
+			if err then
+				table.insert(errors, `items[{i}]: {err}`)
+				continue
+			end
+			local frozen = Util.frozenCopy(def)
+			byId[frozen.id] = frozen
+			table.insert(ordered, frozen)
+			local seen: { [string]: boolean } = {}
+			for _, tag in (frozen.tags or {}) :: { string } do
+				if not seen[tag] then
+					seen[tag] = true
+					local list = tagIndex[tag]
+					if list == nil then
+						list = {}
+						tagIndex[tag] = list
+					end
+					table.insert(list, frozen)
 				end
-				table.insert(list, frozen)
 			end
 		end
-	end
-	if started then
-		for _, hook in registeredHooks do
-			local hookOk, hookErr = pcall(function()
-				hook(defs)
-			end)
-			if not hookOk then
-				warn("[Core.Items] onRegistered hook failed: " .. tostring(hookErr))
-			end
+		if #errors > 0 then
+			error("invalid GameConfig.items:\n  - " .. table.concat(errors, "\n  - "), 0)
 		end
 	end
-end
 
-function Items.get(id: string): Types.ItemDef?
-	if type(id) ~= "string" then
-		return nil
-	end
-	return byId[id]
-end
+	part.api = {
+		get = function(id: string): any
+			if type(id) ~= "string" then
+				return nil
+			end
+			return byId[id]
+		end,
+		all = function(): { any }
+			return table.clone(ordered)
+		end,
+		byTag = function(tag: string): { any }
+			local list = if type(tag) == "string" then tagIndex[tag] else nil
+			return if list then table.clone(list) else {}
+		end,
+		mutation = function(id: string): any
+			if type(id) ~= "string" then
+				return nil
+			end
+			return mutationById[id]
+		end,
+		mutations = function(): { any }
+			return table.clone(mutationList)
+		end,
+		register = function()
+			error(NO_LATE_ITEMS_ERROR, 2)
+		end,
+	}
 
-function Items.all(): { Types.ItemDef }
-	return table.clone(ordered)
-end
+	part.extensions = {
+		-- Rarity's init: config.Rarity.mutations (validated there). Once per runtime.
+		mutations = function(list: { any })
+			assert(not mutationsSet, "[Items] mutations were already handed over")
+			assert(type(list) == "table", "[Items] extensions.mutations(list): list must be a table")
+			mutationsSet = true
+			for _, m in list do
+				if type(m) == "table" and type(m.id) == "string" and mutationById[m.id] == nil then
+					local def = mutationDef(m)
+					mutationById[def.id] = def
+					table.insert(mutationList, def)
+				end
+			end
+		end,
+	}
 
-function Items.byTag(tag: string): { Types.ItemDef }
-	local list = if type(tag) == "string" then tagIndex[tag] else nil
-	return if list then table.clone(list) else {}
-end
-
-function Items.incomeOf(instance: Types.ItemInstance): number
-	if type(instance) ~= "table" then
-		return 0
-	end
-	local def = byId[instance.itemId]
-	if def == nil then
-		return 0
-	end
-	local mult = if instance.mutation then (mutationMult[instance.mutation] or 1) else 1
-	return def.incomePerSec * mult
+	return part
 end
 
 return Items

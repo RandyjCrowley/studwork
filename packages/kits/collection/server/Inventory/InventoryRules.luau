@@ -1,6 +1,7 @@
 --!strict
 --[[
 	Pure inventory rules (zero Roblox dependencies; tested under Lune).
+	capacity() keeps the v1.2 Upgrades rule for the compat adapter's bridged-Upgrades cap bonus.
 
 	validateMeta(meta) -> (ok, err?)   per-copy meta is saved, so it must stay tiny:
 		<= MAX_META_KEYS keys, keys are strings <= MAX_META_KEY_LENGTH, values are
@@ -17,9 +18,9 @@
 		receiver's paid-random policy is unknown while they may be offline, so fail closed).
 ]]
 
-local Core = game:GetService("ReplicatedStorage"):WaitForChild("Core")
-local Types = require(Core:WaitForChild("Types"))
-local Validate = require(Core:WaitForChild("Validate"))
+local Validate = require(script.Parent.Parent.Util)
+
+type UpgradeConfig = { effect: string?, perLevel: number? }
 
 local InventoryRules = {}
 
@@ -77,15 +78,15 @@ end
 
 function InventoryRules.capacity(
 	base: number,
-	upgrades: { [string]: Types.UpgradeConfig }?,
+	upgrades: { [string]: UpgradeConfig }?,
 	levelOf: (upgradeId: string) -> number
 ): number
 	local cap = if Validate.isFiniteNumber(base) then base else 0
-	for id, upgrade in (upgrades or {}) :: { [string]: Types.UpgradeConfig } do
+	for id, upgrade in (upgrades or {}) :: { [string]: UpgradeConfig } do
 		if upgrade.effect == "inventoryCap" and Validate.isFiniteNumber(upgrade.perLevel) then
 			local level = levelOf(id)
 			if Validate.isNonNegativeNumber(level) then
-				cap += level * upgrade.perLevel
+				cap += level * (upgrade.perLevel :: number)
 			end
 		end
 	end

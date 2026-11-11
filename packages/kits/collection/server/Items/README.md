@@ -1,15 +1,16 @@
-# Core.Items
+# Items (collection kit)
 
-Registry of `ItemDef`s (`Types.ItemsAPI`). Owner: agent C.
+Real StudWork module (core-v1.3.0). Definition: `../../shared/Items.luau`; server part: `init.luau`.
 
-- `register(defs)`: validates the whole batch with `ItemValidate` (unique stable id of 1..64 chars
-  `[%w_%-%.:]`, name, valid `RarityTier`, finite `incomePerSec >= 0`, `tags` = array of strings,
-  `model/icon/source` strings, `keepOnRebirth` boolean). All-or-nothing: any error raises `[Core.Items] ...` and nothing is
-  registered. Duplicates (within the batch or with already registered ids) are rejected.
-  `init()` registers `GameConfig.items`; games may call `register` later.
-- `get(id)`, `all()` (registration order), `byTag(tag)` (indexed, returns a fresh array).
-- `incomeOf(instance)` = `incomePerSec * mutation.multiplier` (`balance.mutations`; unknown mutation = 1,
-  unknown item = 0). Economy (B) owns income; this is just the per-copy number.
-
-Config keys: `items`, `balance.mutations`. Registered defs are frozen copies; don't mutate them.
-Tests: `ItemValidate.spec.luau`.
+- The catalog is `GameConfig.items`, validated once at boot: the framework checks the base ItemDef
+  (`id, name, rarity, model, icon, tags, source, keepOnRebirth`) plus every enabled module's
+  namespaced `itemFields` (Economy: `item.economy.incomePerSec`); `ItemValidate` adds id/name length
+  and tag checks. Rarity checks `rarity` against the active tier list.
+- `api`: `get(id)`, `all()`, `byTag(tag)` (frozen defs), `mutation(id)`, `mutations()` (frozen
+  MutationDefs from `config.Rarity.mutations`, namespaced fields included; a v1.2 `multiplier`
+  without an `economy` table also gives `economy.incomeMultiplier`).
+- `register` errors: no items after boot (§12). `extensions.mutations(list)` is the kit-internal
+  hand-over from Rarity's init.
+- Breaking: `incomeOf`, `register`, `onRegistered` and the base `incomePerSec` are gone. Income is
+  Economy's (`item.economy.incomePerSec × mutation.economy.incomeMultiplier`); the compat adapter
+  serves `incomeOf` to the bridged v1.2 Economy until it is real.
