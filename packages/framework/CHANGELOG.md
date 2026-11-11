@@ -4,7 +4,7 @@ Core's public interface (v1.2: `Types.luau`, now `packages/framework/shared/Type
 `docs/framework/module-api.md`) only gains things: no renames, no removals; old calls are marked deprecated instead.
 Every change is recorded here, newest first.
 
-## core-v1.3.0 (in progress — framework restructure)
+## core-v1.3.0 (2026-11-10) — StudWork framework restructure
 
 Contract frozen at `core-contract-v1.3` (Phase 0). Breaking changes are allowed this round, for
 the last time (only scaffolds exist, nothing is published): see `docs/decisions.md` and
@@ -52,6 +52,33 @@ the last time (only scaffolds exist, nothing is published): see `docs/decisions.
   KITS (real kit modules) variants.
 
 ### Breaking (framework restructure)
+
+- **`Core.*` is replaced by `StudWork.*`, with no alias** (`require(ReplicatedStorage.Framework)`;
+  `StudWork.start / use / defineModule / Client / test`). Games boot with `StudWork.start(Config,
+  ServerConfig)`; their gameplay code is their own implicit module (`games/<g>/modules/<gameId>/`,
+  module-api.md §7 C4) and `Main.server.luau` only builds the world. `GameConfig.modules` takes module
+  refs; each module's config lives in `config.<Name>`; `compliance.paidCurrencies` is top level.
+- **Save layout:** one section per module (`_framework`, `inventory`, `rarity`, `economy`, `upgrades`,
+  `rebirth`, `plot`, `mail`, `streak`, the game's key). v1.2 saves migrate (`FrameworkSection` v2).
+- **Kits (Phase 1):**
+  - Collection: `ItemDef.incomePerSec` → `item.economy.incomePerSec` (Economy itemFields);
+    `Items.incomeOf`, `Items.register`, `Items.onRegistered` removed; Robux copies are tagged
+    `paid:<product>` (was `paid:<tableId>`); a caller-chosen `paid:`/`paidcur:` source is refused; a
+    failed free-currency roll discards the spend instead of refunding; `RollOptions.free` removed.
+  - Economy: spending a `compliance.paidCurrencies` currency through Economy errors (use
+    `compliance.spendForRoll` for rolls, `compliance.spendPaid` for non-random goods); rebirth never
+    wipes Robux copies, even with `keepOnRebirth = false`, and fires `ItemRemoved` per wiped copy;
+    `_framework.stats.totalEarned` is no longer written; a paid-currency roll's spend reason is `"roll"`.
+  - Base/Social/Engagement: Plot reads `plot.keepDisplayedOnRebirth` (was Rebirth's `keepDisplayed`);
+    gifts are capped per recipient (100 undelivered) and return to the sender after 14 days.
+  - Console commands are module-prefixed (`economy grant`, `rarity roll`, `plot show`, `mail dead`,
+    `shop receipt`, `policy restrict`, ...); `mailbox`/`mailclaim`/`mailreplay`/`lastseen` are gone.
+- **Theme (Phase 1 D):** one merged theme (`framework-default` = the v1.2 look); tokens `panel` /
+  `secondary` → `surface` / `accentAlt`, `metrics.outline` → `metrics.strokeThickness`,
+  `metrics.minTouch` → `metrics.minTouchTarget`. With no `onMailbox`, the mailbox badge opens the
+  default Mailbox screen.
+- **Compliance (final review):** a paid roll needs the source's odds to have been sent to the
+  player's client at any luck (a purchase without them is retried, `odds_not_disclosed`).
 
 - **Phase 2: the v1.2 leftovers are deleted.** `packages/core` (the v1.2 `Core` facade's server,
   shared files and their specs) and `packages/kits/compat` (the v1.2 bridge, adapters, flat

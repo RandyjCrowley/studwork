@@ -527,3 +527,14 @@ lead re-running lint, typecheck (6 games), tests (582), test-sim (51) and 8 rojo
   Moving receipts into their own section would remove that cost fully but is a contract change, left for later.
 - **Scaffolds match `tools/new-game` output**, keeping each game's module list and values; this adds the
   Studio console hooks, the gift mail kind/mailbox screen where Mail is listed, and per-game funnel steps.
+
+### Final review and tag (core-v1.3.0)
+
+- **Final review** (fresh subagent, own worktree, no lead summary): 2 High (lint guardrails skipped
+  shipped files; textual evasions), 0 Critical. Fixed before the tag with fail-before tests (P2-F), plus the
+  in-scope Mediums/Lows: committed sections frozen (no writes after commit), the economy kit's private
+  `KitAccess` token replaced by the public `ctx.compliance.spendPaid` (module-api §19.6–19.8), paid rolls need
+  disclosed odds at any luck, forged paid tags stripped, theme unknown-key warnings, migration-number gaps
+  are boot errors, UI text fits any theme font. Open items are R19–R24 in `known-issues.md`.
+- **Studio playtest** of final main: every MCP-drivable v1.2 row passes; overrides (b), (c), (d) and the
+  five scaffolds pass (`PLAYTEST.md`). Benchmark: 0.60–0.65 ms/tick with real kits vs v1.2 0.64 (`BENCHMARK.md`).
