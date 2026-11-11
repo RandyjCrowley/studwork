@@ -1,6 +1,6 @@
 --!nocheck
 --[[
-	Final review findings 4, 5/7 and 8 (core-v1.3.0 Phase 2, P2-F), on the framework Compliance:
+	on the framework Compliance:
 	  4  a paid roll (purchase or spendForRoll) needs the source's odds sent to the client, at any
 	     luck ("odds_not_disclosed"; inside a purchase tx.retryLater, no grant, no record).
 	  5/7 ctx.compliance.spendPaid: any module spends a paid currency on a NON-random good; a roll
@@ -195,7 +195,7 @@ local function coins(p)
 	return ctxs.Bank.data.get(p).Coins
 end
 
-describe("paid rolls need disclosed odds (final review 4)", function()
+describe("paid rolls need disclosed odds", function()
 	it("a purchase roll on a source never disclosed to the client is retried, not granted", function()
 		local h = boot({
 			EggRoll = function(tx)
@@ -236,7 +236,7 @@ describe("paid rolls need disclosed odds (final review 4)", function()
 	end)
 end)
 
-describe("compliance.spendPaid (final review 5/7)", function()
+describe("compliance.spendPaid", function()
 	it("a third-party module buys a non-random good with a paid currency", function()
 		local h = boot({})
 		local p = h:addPlayer({ userId = 1 })
@@ -308,7 +308,7 @@ describe("compliance.spendPaid (final review 5/7)", function()
 	end)
 end)
 
-describe("tagPaid can't be forged (final review 8)", function()
+describe("tagPaid can't be forged", function()
 	it("strips a caller's paid: / paidcur: prefix outside a paid tx", function()
 		local h = boot({})
 		local p = h:addPlayer({ userId = 1 })

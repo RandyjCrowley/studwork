@@ -1,6 +1,6 @@
 --!strict
 --[[
-	Rebirth module definition (kit: economy). core-v1.3.0 Phase 1: a real StudWork module; the
+	Rebirth module definition (kit: economy). v1.3.0: a real StudWork module; the
 	server part is ../server/Rebirth (README there: the rebirth transaction and the inventory
 	rules with their compliance limits).
 

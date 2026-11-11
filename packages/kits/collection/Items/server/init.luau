@@ -30,7 +30,7 @@ local Items = {}
 
 -- A MutationDef: the config entry, frozen. v1.2 configs carry `multiplier`; until Economy
 -- declares its own mutation field the def also gets economy.incomeMultiplier = multiplier when it
--- has no `economy` table (PHASE1-CONTRACT bridged semantics, kept by the real module).
+-- has no `economy` table (kit contract, docs/framework/kit-contract.md bridged semantics, kept by the real module).
 local function mutationDef(m: any): any
 	local out = table.clone(m)
 	if type(out.economy) ~= "table" and type(out.multiplier) == "number" then

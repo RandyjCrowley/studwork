@@ -1,6 +1,6 @@
 --!strict
 --[[
-	Pure daily-streak math (no Roblox globals). Owned by agent E.
+	Pure daily-streak math (no Roblox globals).
 
 	Days are day indices in a time zone: day(t, utcOffsetHours) = (t + offset * 3600) // 86400
 	(day 0 = 1970-01-01 there). utcOffsetHours defaults to 0 (UTC, the v1.2 behaviour); a value

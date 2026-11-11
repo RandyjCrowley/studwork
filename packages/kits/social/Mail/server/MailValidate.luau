@@ -1,6 +1,6 @@
 --!strict
 --[[
-	Pure Mail message validation. OWNED BY AGENT C (core/v11-c-mail). No Roblox globals.
+	Pure Mail message validation. No Roblox globals.
 	encode is injected (HttpService:JSONEncode in production) so size is measured on the wire form.
 ]]
 

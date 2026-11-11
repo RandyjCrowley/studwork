@@ -1,5 +1,5 @@
 --[[
-	core-v1.3.0 Phase 1: every entry of (internal build report, not public) is
+	Every entry of docs/framework/kit-contract.md is
 	offered by the kit modules through the framework's normal surfaces (api / txApi / extensions /
 	api.signals, Extensions.wrap*). Real kit modules, real framework: the _sandbox game (all eleven
 	modules) and the sim fixture game (a free currency, Mail).
@@ -56,7 +56,7 @@ local function record(signal): { any }
 	return calls
 end
 
-describe("Phase 1 contract on bridged modules: Collection", function()
+describe("kit contract on bridged modules: Collection", function()
 	it("Items.mutation(id) / mutations(): frozen defs with the economy namespace", function()
 		local world, server = sandbox(301)
 		local Items = api(server, "Items")
@@ -173,7 +173,7 @@ describe("Phase 1 contract on bridged modules: Collection", function()
 	)
 end)
 
-describe("Phase 1 contract on bridged modules: Economy kit", function()
+describe("kit contract on bridged modules: Economy kit", function()
 	it("Economy.txApi.grant + CurrencyChanged; txApi.spend refuses a paid currency", function()
 		local world, server, p = sandbox(305)
 		local Economy = api(server, "Economy")
@@ -231,7 +231,7 @@ describe("Phase 1 contract on bridged modules: Economy kit", function()
 		expect(api(server, "Upgrades").signals.UpgradePurchased ~= nil).toBe(true)
 		local rebirthed = record(api(server, "Rebirth").signals.Rebirthed)
 		local steps = {}
-		ext(server, "Rebirth").resetStep("phase1-test", function(tx, player)
+		ext(server, "Rebirth").resetStep("contract-test", function(tx, player)
 			local section = rt.data.section(tx, "rebirth")
 			table.insert(steps, {
 				valid = rt.data.isTxHandle(tx),
@@ -252,7 +252,7 @@ describe("Phase 1 contract on bridged modules: Economy kit", function()
 	end)
 end)
 
-describe("Phase 1 contract on bridged modules: Base and Social", function()
+describe("kit contract on bridged modules: Base and Social", function()
 	it("Plot.displayed(player) is a frozen slot -> uid map; DisplayCleared(player, slotId)", function()
 		local world, server, p = sandbox(308)
 		local Plot = api(server, "Plot")
@@ -287,7 +287,7 @@ describe("Phase 1 contract on bridged modules: Base and Social", function()
 		assert(loaded(world, server, a) and loaded(world, server, b), "load")
 		local claims = {}
 		local answer = false
-		ext(server, "Mail").registerKind("phase1_test", function(tx, player, payload, info)
+		ext(server, "Mail").registerKind("contract_test", function(tx, player, payload, info)
 			table.insert(claims, {
 				valid = rt.data.isTxHandle(tx),
 				userId = player.UserId,
@@ -301,7 +301,7 @@ describe("Phase 1 contract on bridged modules: Base and Social", function()
 		end)
 		local sent
 		inTx(server, a, function(tx)
-			sent = txApi(server, "Mail").send(tx, 312, "phase1_test", { n = 7 })
+			sent = txApi(server, "Mail").send(tx, 312, "contract_test", { n = 7 })
 		end)
 		expect(sent).toBe(true)
 		world:advanceUntil(function()
@@ -311,7 +311,7 @@ describe("Phase 1 contract on bridged modules: Base and Social", function()
 		expect(claims[1].valid).toBe(true)
 		expect(claims[1].userId).toBe(312)
 		expect(claims[1].n).toBe(7)
-		expect(claims[1].kind).toBe("phase1_test")
+		expect(claims[1].kind).toBe("contract_test")
 		local Mail = api(server, "Mail")
 		local pending = Mail.pending(b)
 		expect(#pending).toBe(1) -- held

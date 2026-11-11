@@ -1,9 +1,9 @@
 --!strict
 --[[
-	TEST FIXTURE (core-v1.3.0 Phase 2): kept from the deleted v1.2 shared Sounds.luau: the v1.2 sound table Theme.spec compares the
+	TEST FIXTURE (v1.3.0): kept from the deleted v1.2 shared Sounds.luau: the v1.2 sound table Theme.spec compares the
 	framework's default theme against.
 	Never required by game or kit code.
-	Sound keys -> Roblox audio library asset ids. OWNED BY AGENT G (core/g-client).
+	Sound keys -> Roblox audio library asset ids.
 
 	Every id below was checked (2026-11-10) with economy.roblox.com/v2/assets/<id>/details:
 	AssetTypeId 3 (Audio), Creator.Id 1 ("Roblox"), i.e. Roblox's own audio library, usable in

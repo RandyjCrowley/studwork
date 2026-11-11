@@ -57,7 +57,7 @@ describe("defineModule", function()
 		end).toThrow("optional[1] is not a ModuleRef")
 	end)
 
-	it("rejects data.replicate = true (M6) and checks replicate fields exist", function()
+	it("rejects data.replicate = true and checks replicate fields exist", function()
 		expect(function()
 			mod("A", { data = { key = "a", version = 1, default = { x = 1 }, replicate = true } })
 		end).toThrow("data.replicate = true is not supported")

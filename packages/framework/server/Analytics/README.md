@@ -1,4 +1,4 @@
-# Core.Analytics (agent E)
+# Core.Analytics
 
 Public API (`Types.AnalyticsAPI`): `funnel(player, step)`, `economy(player, flow, currency, amount, transactionType, sku?)`, `custom(player, name, value?)`.
 

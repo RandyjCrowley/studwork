@@ -1,6 +1,6 @@
 --!strict
 --[[
-	Friends module definition (kit: social). core-v1.3.0 Phase 1: a real module; the server part
+	Friends module definition (kit: social). v1.3.0: a real module; the server part
 	is ../server/Friends. No save data.
 
 	config (GameConfig.config.Friends.friends)

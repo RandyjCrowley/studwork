@@ -4,7 +4,7 @@
 
 	coreVersion = the framework version, `StudWork.VERSION = "x.y.z"` in
 	              packages/framework/shared/init.luau (what the built place reports at runtime;
-	              core-v1.3.0 step 4b-IIb, was the v1.2 Core.version).
+	              v1.3.0, was the v1.2 Core.version).
 	coreCommit  = the last commit that touched packages/framework, kits or ui (short hash), with
 	              "-dirty" appended when those folders have uncommitted changes.
 ]]

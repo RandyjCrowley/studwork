@@ -1,5 +1,5 @@
 --!nocheck
--- Override case (d) scratch game (core-v1.3.0 Phase 2, P2-C): Collection on, Economy off: items with no income.
+-- Override case (d) example game: Collection on, Economy off: items with no income.
 -- The game's real project boots in the multi-server sim (StudWork.test.sim); the client side is
 -- the client runtime started with the same Config (merged theme, GameConfig.client).
 local ReplicatedStorage = game:GetService("ReplicatedStorage")

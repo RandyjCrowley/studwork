@@ -40,7 +40,7 @@ export type ModuleRef<API = any, TxAPI = any, ClientAPI = any> = any
 local INTERNALS =
 	{ Data = true, Compliance = true, Net = true, Replication = true, Shop = true, Policy = true }
 
--- The side's runtime lives in RuntimeSlot, written only by server/Boot.luau (decision 3, Phase 0
+-- The side's runtime lives in RuntimeSlot, written only by server/Boot.luau (decision 3, v1.3.0
 -- step 4). It provides state: "booting" | "running" | "failed", bootError, phase,
 -- isEnabled(ref), api(ref), byName(name).
 local RuntimeSlot = require(script.RuntimeSlot)
@@ -118,7 +118,7 @@ end
 
 function StudWork.start(...: any): any
 	-- A second start must never replace (or poison) the runtime that is already running: v1.2
-	-- row 15 ("a second Core.start errors"). Found in the step 4b Gate 0 Studio run, where a
+	-- row 15 ("a second Core.start errors"). Found in a v1.3.0 Studio run, where a
 	-- second StudWork.start with a bad config swapped the live runtime for a failed one.
 	if RuntimeSlot.runtime ~= nil then
 		error(
@@ -179,7 +179,7 @@ function StudWork.use<A>(ref: ModuleRef<A>): A
 			error(
 				`[StudWork] StudWork.use("{ref}"): {ref} is a framework internal, not a module; use the scoped ctx.{string.lower(
 					ref
-				)} inside your module (design review C1)`,
+				)} inside your module`,
 				2
 			)
 		end
@@ -236,7 +236,7 @@ setmetatable(
 				error(
 					`[StudWork] StudWork.{key}: {key} is a framework internal with no public facade; use ctx.{string.lower(
 						key
-					)} inside your module (design review C1)`,
+					)} inside your module`,
 					2
 				)
 			end

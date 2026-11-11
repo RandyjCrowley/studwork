@@ -17,7 +17,7 @@
 	  Balance.luau sections, Items fields, products, events, tuning and the client's actions.
 	  The markers are always stripped, so a generated game never carries them. Unused kit locals
 	  are pruned, stylua formats the result, and the guardrails re-check it (lint passes with no
-	  hand trimming; core-v1.3.0 Phase 1 agent E).
+	  hand trimming; v1.3.0).
 	- writes a README stub ("Status: scaffolded")
 	- adds a row to GAMES.md (Core column "—" until the first tools/publish) and, unless
 	  --no-design-doc, creates docs/games/<name>.md from templates/game-design.md

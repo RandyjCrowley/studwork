@@ -14,7 +14,7 @@ property test in `Gift.spec.luau`). Integration tests: `../tests/Collection.spec
 - `extensions.onItemRemoved(fn(tx, player, instance))` fires inside the removing tx (remove,
   transfer, sendGift); a hook error discards the removal. Inventory never touches Plot.
   `extensions.capBonus(id, fn(player) -> number)` adds to `cap`.
-- Source tags (M5): `paid:<product>` / `paidcur:<source>` are derived from the tx; a caller's
+- Source tags: `paid:<product>` / `paidcur:<source>` are derived from the tx; a caller's
   `paid:`-prefixed `source` outside such a tx is refused.
 - Gifts: `core_gift` via `ctx.depsExt[Mail].registerKind` (optional Mail); no `paid:`/`paidcur:`
   copies by mail; `transfer` refuses paid copies when either player is restricted.

@@ -18,7 +18,7 @@
 	names, models), Rarity (optional: tier colours via tiers()), Rebirth (optional:
 	extensions.resetStep clears `displayed` inside Rebirth's tx, signals.Rebirthed re-renders).
 
-	api (PHASE1-CONTRACT): get, owner, display, clearDisplay, slots, onAssigned, displayed
+	api (kit contract, docs/framework/kit-contract.md): get, owner, display, clearDisplay, slots, onAssigned, displayed
 	signals: ItemDisplayed(player, uid, slotId), ItemUndisplayed(player, uid, slotId) (v1.2),
 	DisplayCleared(player, slotId), PlotAssigned(player, plot), PlotReleased(player, plot)
 	replicated extra: plotName
@@ -703,7 +703,7 @@ function Plot.init(context: any)
 	-- Economy (optional) earns from displayed items when config.Economy.income.source =
 	-- "displayed": Plot is the provider (Economy.extensions.displayedSource, §8 direction: Plot
 	-- optional = { Economy }), and invalidates Economy's cached rate on every display change.
-	-- Phase 1 integration glue; replaces the Economy compat adapter's shim over the bridged Plot.
+	-- v1.3.0 integration glue; replaces the Economy compat adapter's shim over the bridged Plot.
 	if ctx.isEnabled(Economy) then
 		local invalidate = ctx.depsExt[Economy].displayedSource(function(player: any): any
 			return displayedOf(player) or table.freeze({})
@@ -812,7 +812,7 @@ Plot.api = {
 		return list
 	end,
 
-	-- PHASE1-CONTRACT: frozen slotId -> uid map (empty when not loaded).
+	-- kit contract: frozen slotId -> uid map (empty when not loaded).
 	displayed = function(player: Player): { [string]: string }
 		return displayedOf(player) or table.freeze({})
 	end,

@@ -1,6 +1,6 @@
 --!strict
 --[[
-	Mail module definition (kit: social). core-v1.3.0 Phase 1: a real module; the server part is
+	Mail module definition (kit: social). v1.3.0: a real module; the server part is
 	../server/Mail (README.md there). Save section "mail" = { mail = { seen, attempts, dead,
 	box?, outbox?, sent? } }: the v1.2 field, unchanged (FrameworkSection.V12_MAP); `sent` is new
 	(escrowed gifts awaiting their recipient, R1). Not replicated (the mailbox goes out as

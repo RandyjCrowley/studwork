@@ -1,5 +1,5 @@
 --!nocheck
--- Override case (c) scratch game (core-v1.3.0 Phase 2, P2-C): the HUD replaced with a custom component, plus a custom screen.
+-- Override case (c) example game: the HUD replaced with a custom component, plus a custom screen.
 -- The game's real project boots in the multi-server sim (StudWork.test.sim); the client side is
 -- the client runtime started with the same Config (merged theme, GameConfig.client).
 local ReplicatedStorage = game:GetService("ReplicatedStorage")

@@ -1,6 +1,6 @@
 --!nocheck
 --[[
-	Virtual clock + cooperative task scheduler for the multi-server simulation (agent C, core v1.2).
+	Virtual clock + cooperative task scheduler for the multi-server simulation (since v1.2).
 	Not part of the Rojo tree (packages/framework/test is test-only) and not type-checked by
 	tools/typecheck (like harness.luau).
 

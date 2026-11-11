@@ -8,7 +8,7 @@
 		disabled: boolean?           greyed out, ignores input
 		onActivated: (() -> ())?     fires on Activated (mouse, touch, gamepad A)
 		size: UDim2?                 default: auto width, Theme.touchTarget height
-	Text fits for any theme font (Phase 2 P2-F, TextFit): auto width is at least the text's measured
+	Text fits for any theme font (v1.3.0, TextFit): auto width is at least the text's measured
 	width in the real font; with a fixed `size` the text scales down (capped at the theme size).
 		position: UDim2?, anchorPoint: Vector2?, layoutOrder: number?
 		icon: string?                optional rbxassetid image left of the text

@@ -34,7 +34,7 @@
 	                                         discards that tx (nothing is removed)
 	  capBonus(id, fn(player) -> number)     adds to cap(player) (Upgrades' "inventoryCap"); one per id
 
-	Source tag (M5): derived from the tx by ctx.compliance.tagPaid, never chosen by the caller:
+	Source tag: derived from the tx by ctx.compliance.tagPaid, never chosen by the caller:
 	"paid:<product>" inside a purchase, "paidcur:<sourceId>" after a compliance.spendForRoll in the
 	same tx, else the caller's opts.source (or nil). A caller-chosen source that starts with
 	"paid:"/"paidcur:" outside such a tx is refused (add returns nil).

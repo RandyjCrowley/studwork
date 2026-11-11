@@ -1,6 +1,6 @@
 --!nocheck
 --[[
-	Final review finding 10 (core-v1.3.0 Phase 2, P2-F): a gap in a module's migration numbers
+	a gap in a module's migration numbers
 	(between its first migration and data.version) is a boot error naming the missing number,
 	instead of Migrate.run silently skipping that step.
 ]]
@@ -24,7 +24,7 @@ local function boot(dataSpec)
 	})
 end
 
-describe("migration number gaps (final review 10)", function()
+describe("migration number gaps", function()
 	it("a missing number between the first migration and data.version is a boot error naming it", function()
 		local ok, err = boot({
 			key = "bag",

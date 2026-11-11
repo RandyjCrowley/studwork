@@ -6,9 +6,9 @@
 
 	name, config, gameConfig, deps, depsTx, depsExt, isEnabled, data (ScopedData, incl.
 	saveAsync and the cross-server `messages` channel), tx, section, framework (firstJoin,
-	lastSeen, sessions), now (the framework clock, unix seconds; Phase 2), data.shared (the
-	cross-server shared store, SharedStore.luau; Phase 2), signals, console, lifecycle, log, theme (read-only merged tree), isStudio,
-	serverConfig, and the framework services, each scoped to this module (core-v1.3.0 step 4b):
+	lastSeen, sessions), now (the framework clock, unix seconds; v1.3.0), data.shared (the
+	cross-server shared store, SharedStore.luau; v1.3.0), signals, console, lifecycle, log, theme (read-only merged tree), isStudio,
+	serverConfig, and the framework services, each scoped to this module (v1.3.0):
 	  net         Net.forModule          handle / handleEvent / feedback / fire / fireAll
 	  replicate   Replication.forModule  set / setAll / sent  (state.modules[<Name>].extra)
 	  compliance  Compliance.forModule   registerRandomSource / roll / spendForRoll / ...

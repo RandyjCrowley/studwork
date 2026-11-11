@@ -1,6 +1,6 @@
 --!nocheck
 --[[
-	Offline on the framework clock (core-v1.3.0 Phase 2: ctx.now). The real Offline + Economy
+	Offline on the framework clock (v1.3.0: ctx.now). The real Offline + Economy
 	server parts on the plain StudWork harness. Time away is measured from the framework's
 	lastSeen stamp to ctx.now, both driven only by the harness clock (h:rejoin's secondsAway),
 	which is years away from the real os.time(): a module still reading os.time() would see

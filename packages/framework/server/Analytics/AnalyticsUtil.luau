@@ -1,6 +1,6 @@
 --!strict
 --[[
-	Pure analytics argument helpers (no Roblox globals). Owned by agent E.
+	Pure analytics argument helpers (no Roblox globals).
 
 	stepIndex(steps, step)  1-based index of `step` in the configured funnel, nil if absent
 	validAmount(x)          finite number > 0

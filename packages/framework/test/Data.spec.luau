@@ -192,7 +192,7 @@ describe("disabled modules", function()
 	end)
 end)
 
-describe("owner registry (H5)", function()
+describe("owner registry", function()
 	local Squatter = def({
 		name = "Squatter",
 		version = "1.0.0",
@@ -240,7 +240,7 @@ describe("owner registry (H5)", function()
 end)
 
 describe("transactions", function()
-	it("tx is a sealed handle: no route from tx to any section (H1)", function()
+	it("tx is a sealed handle: no route from tx to any section", function()
 		local h = boot()
 		local p = h:addPlayer({ userId = 30 })
 		local probes = {}
@@ -311,7 +311,7 @@ describe("transactions", function()
 		expect(greeterCtx.data.get(p).visits).toBe(3)
 	end)
 
-	it("only one tx per call stack; a different player's tx errors (M1)", function()
+	it("only one tx per call stack; a different player's tx errors", function()
 		local h = boot()
 		local a = h:addPlayer({ userId = 32, name = "Alice" })
 		local b = h:addPlayer({ userId = 33, name = "Bob" })
@@ -398,7 +398,7 @@ describe("transactions", function()
 	end)
 end)
 
-describe("read views (H2)", function()
+describe("read views", function()
 	it("ScopedData.get is frozen in every environment and cached per section version", function()
 		for _, studio in { false, true } do
 			local h = Harness.new({ modules = { Counter }, servers = servers, isStudio = studio })

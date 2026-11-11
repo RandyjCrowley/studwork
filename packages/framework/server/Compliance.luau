@@ -13,33 +13,33 @@
 	  roll(tx, sourceId, luck?) -> (ok, outcome?, reason?)
 	      Paid when tx is a purchase transaction (Shop), free otherwise. Paid: a restricted player
 	      gets (false, nil, "restricted"); an unknown policy retries the purchase later
-	      (tx.retryLater) and outside a purchase returns (false, nil, "policy_unknown") (M4).
+	      (tx.retryLater) and outside a purchase returns (false, nil, "policy_unknown").
 	  spendForRoll(tx, currency, amount, sourceId, luck?) -> (ok, outcome?, reason?)
 	      The ONLY way to spend a currency listed in GameConfig.compliance.paidCurrencies (C3): the
 	      currency's owner registered a spender; the spend and the roll happen in the same tx, so
 	      they commit together or not at all. Always paid. Insufficient funds -> (false, nil,
 	      "insufficient"); an empty sample after the spend errors (the tx is discarded).
-	  spendPaid(tx, currency, amount, reason) -> (ok, reason?)   (added in Phase 2: final review 5/7)
+	  spendPaid(tx, currency, amount, reason) -> (ok, reason?)   (added in v1.3.0)
 	      Spends a paid currency on a NON-random good (an upgrade level, a rebirth, any module's
 	      shop item) through the registered spender. Any module may call it. Insufficient funds ->
 	      (false, "insufficient"). Marks the tx: a later roll in the same tx is a PAID roll
 	      (policy, disclosure and luck rules; "paidcur:<sourceId>" tag), and tagPaid(tx) returns
 	      "paidcur:<currency>" until then. If that roll is refused, error to discard the spend.
-	  registerCurrencySpender(currency, fn(tx, amount, reason) -> boolean)  (added in step 4b)
+	  registerCurrencySpender(currency, fn(tx, amount, reason) -> boolean)  (added in v1.3.0)
 	      The currency module (Economy) hands Compliance its spend for a paid currency. One owner per
 	      currency. Only Compliance calls it.
-	  isPaidCurrency(currency) -> boolean, paidCurrencies() -> { string }   (added in step 4b)
+	  isPaidCurrency(currency) -> boolean, paidCurrencies() -> { string }   (added in v1.3.0)
 	Boot rule (module-api.md §19.10, added in core-v1.3.1: R20): once every module has run init and
 	start, every currency in GameConfig.compliance.paidCurrencies must have a registered spender;
 	the runtime calls c.assertSpenders() and boot fails (closed) naming the first one that has none.
-	  tagPaid(tx, reason?) -> string                                       (step 4b: takes the tx)
+	  tagPaid(tx, reason?) -> string                                       (v1.3.0: takes the tx)
 	  tagPaid(sourceId) -> "paidcur:<sourceId>"   §14's frozen form, for a registered source
 	      "paid:<product>" inside a purchase, "paidcur:<sourceId>" after a spendForRoll in this tx,
 	      otherwise `reason` (or "free") with any "paid:" / "paidcur:" prefix stripped — callers
-	      can't choose the prefix (M5, final review 8).
+	      can't choose the prefix.
 	  disclose(player, sourceId?)   (re)send the player's odds (framework field `odds`)
 	  disclosed(player, sourceId) -> OddsDetail?   what the client was last sent
-	Disclosure rule (final review 4): a PAID roll on a source whose odds were never sent to the
+	Disclosure rule: a PAID roll on a source whose odds were never sent to the
 	player's client is refused: "odds_not_disclosed" (inside a purchase also tx.retryLater).
 	Luck rule (hard rule 11): a PAID roll with luck ~= 1 errors unless the source is luckDisclosed
 	AND the odds last sent to this player's client carry exactly that luck.
@@ -163,7 +163,7 @@ function Compliance.new(opts: any): any
 		if policy.paidRandomRestricted(player) then
 			return false, "restricted"
 		end
-		-- final review 4: every paid roll, at any luck, needs the source's odds to have been sent
+		-- every paid roll, at any luck, needs the source's odds to have been sent
 		-- to this player's client (replicated at join, before the player can buy)
 		if type(c.disclosed(player, sourceId)) ~= "table" then
 			if m.purchase then
@@ -258,7 +258,7 @@ function Compliance.new(opts: any): any
 				local m = meta(tx)
 				local entry = sourceFor(caller, sourceId)
 				local l = readLuck(luck)
-				-- paid inside a purchase, or after a paid-currency spendPaid in this tx (final review 7)
+				-- paid inside a purchase, or after a paid-currency spendPaid in this tx
 				local paid = m.purchase or m.paidSpent ~= nil
 				if paid then
 					local ok, reason = paidGate(tx, m, sourceId, entry, l)
@@ -315,7 +315,7 @@ function Compliance.new(opts: any): any
 				end
 				return true, outcome, nil
 			end,
-			-- (added in Phase 2: final review 5/7) a paid currency spent on a NON-random good
+			-- (added in v1.3.0) a paid currency spent on a NON-random good
 			spendPaid = function(
 				tx: any,
 				currency: string,
@@ -366,7 +366,7 @@ function Compliance.new(opts: any): any
 				if m.paidSpent then
 					return "paidcur:" .. tostring(m.paidSpent)
 				end
-				-- final review 8: a caller can't forge a paid tag outside a paid tx
+				-- a caller can't forge a paid tag outside a paid tx
 				local r = reason or "free"
 				while true do
 					local stripped = string.match(r, "^paid:(.*)$") or string.match(r, "^paidcur:(.*)$")

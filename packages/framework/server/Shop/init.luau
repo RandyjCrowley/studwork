@@ -25,13 +25,13 @@
 	  (best effort, documented): the grant itself is persisted by the session-end save and the
 	  next server only sees a duplicate. Only the purchase analytics is logged for it.
 
-	ProcessReceipt (§7.1, revised in step 4b): Shop assigns MarketplaceService.ProcessReceipt once,
+	ProcessReceipt (§7.1, revised in v1.3.0): Shop assigns MarketplaceService.ProcessReceipt once,
 	at the very end of boot (after every module's init AND start), so no module code that runs
 	during boot can win against it; tools/lint bans assigning it anywhere else. The design's
 	runtime replacement check can't be built: ProcessReceipt is a write-only callback (reading it
 	errors "you can only set the callback value, get is not available", and it fires no Changed
 	signal; verified in Studio). Shop does NOT re-assign periodically, because a blind re-assert
-	would be exactly the silent fight the design rejects. See decisions.md (step 4b).
+	would be exactly the silent fight the design rejects. See decisions.md (v1.3.0).
 
 	Gamepasses: ownsPass(player, pass) cached per player per pass (UserOwnsGamePassAsync once, with
 	retries; failures not cached); PromptGamePassPurchaseFinished(true) marks it owned;
@@ -418,7 +418,7 @@ function Shop.new(opts: any): any
 		end
 	end
 
-	-- N9 (step 4b): a player leaving while a grant's save is still unconfirmed. Called by the
+	-- N9 (v1.3.0): a player leaving while a grant's save is still unconfirmed. Called by the
 	-- runtime BEFORE Data releases the player (the record is still there; may yield). One more
 	-- confirmed save is attempted; if it lands, the parked tx.after effects run now (they must not
 	-- assume the player is still in the server: analytics, cross-player Mail/messages, signals),

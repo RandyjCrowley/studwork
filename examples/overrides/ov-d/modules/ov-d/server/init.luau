@@ -29,7 +29,7 @@ end
 function Sandbox.init(ctx: any)
 	-- Robux products: receipt-safe, data-only handlers. Everything goes through `tx` inside the
 	-- transaction that records the receipt; erroring (or tx.retryLater) grants nothing. An
-	-- unknown policy is retried by Compliance itself (M4).
+	-- unknown policy is retried by Compliance itself.
 	ctx.shop.onProduct("EggRoll", function(tx: any)
 		local def, info = tx.use(Rarity).roll("Egg")
 		if info.reason == "restricted" then

@@ -48,7 +48,7 @@ describe("Plot.SlotCache", function()
 	end)
 end)
 
-describe("Plot early-out order (M5)", function()
+describe("Plot early-out order", function()
 	it("precheck rejects unowned / already displayed items without a slot lookup", function()
 		local cache = fixture()
 		local displayed = { slot1 = "u1" }

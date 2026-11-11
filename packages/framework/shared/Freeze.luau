@@ -74,7 +74,7 @@ end
 Freeze.deepEqual = deepEqual
 
 --[[
-	Structural sharing at commit (core-v1.3.0 Phase 2 step 7, benchmark fix). `new` is a
+	Structural sharing at commit (v1.3.0, benchmark fix). `new` is a
 	transaction's working copy (a fresh deep copy the transaction owns), `old` the committed value.
 	Returns (value, changed): `old` itself when the two are deep-equal, else `new` with every
 	deep-equal subtree replaced by the committed one, so unchanged subtrees keep their identity.
@@ -136,7 +136,7 @@ end
 Freeze.share = share
 
 --[[
-	Frozen deep copy that reuses the previous one (core-v1.3.0 Phase 2 step 7, benchmark fix).
+	Frozen deep copy that reuses the previous one (v1.3.0, benchmark fix).
 	`prevSource` is the committed table the frozen `prevView` was built from. Any subtree of `value`
 	that is still the very same table as in prevSource is returned as prevView's frozen subtree
 	without a walk, so a view rebuilt after a commit only copies the tables the commit replaced

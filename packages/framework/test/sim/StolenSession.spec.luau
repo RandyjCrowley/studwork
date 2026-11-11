@@ -1,5 +1,5 @@
 --[[
-	A save session stolen by another server (core-v1.3.0 step 4b-IIb, framework Store/Data).
+	A save session stolen by another server (v1.3.0, framework Store/Data).
 	Real framework Data + real ProfileStore 1.0.3 (LIVE mode) on the shared mock DataStore.
 
 	When ProfileStore reports that another server took the session, the old server must

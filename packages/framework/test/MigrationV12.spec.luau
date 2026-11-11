@@ -1,6 +1,6 @@
 --!nocheck
 --[[
-	The full v1.2 save migration (core-v1.3.0 Phase 2). A real v1.2 PlayerData save with every
+	The full v1.2 save migration (v1.3.0). A real v1.2 PlayerData save with every
 	field (fixtures/v12_save.luau) is put in the store the way a v1.2 server left it (ProfileStore
 	`Data`), then loads through the real framework boot of the _sandbox game: its real Config, its
 	own module and every real kit module, the real ProfileStore 1.0.3 on the sim's mock DataStore

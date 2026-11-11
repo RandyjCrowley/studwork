@@ -1,6 +1,6 @@
 --!strict
 --[[
-	Streak module definition (kit: engagement). core-v1.3.0 Phase 1: a real module; the server
+	Streak module definition (kit: engagement). v1.3.0: a real module; the server
 	part is ../server/Streak. Save section "streak" = { streak = { day, lastDay } }: the v1.2
 	field, unchanged (FrameworkSection.V12_MAP), replicated to the owning client.
 

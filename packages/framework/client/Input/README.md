@@ -1,4 +1,4 @@
-# client/Input (agent G)
+# client/Input
 
 `Types.InputAPI`.
 

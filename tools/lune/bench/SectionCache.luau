@@ -1,7 +1,7 @@
 --!strict
 --[[
-	core-v1.3.0 step 4b: v1.2 leftover restored here (compat) for the still-live v1.2 Core.start
-	Replication; the framework Replication caches by section version itself. Delete in Phase 2.
+	v1.3.0: v1.2 leftover restored here (compat) for the still-live v1.2 Core.start
+	Replication; the framework Replication caches by section version itself. Delete in v1.3.0.
 
 	Pure per-player section cache for Replication (zero dependencies, tested under Lune). M2.
 

@@ -8,7 +8,7 @@ Definition: `module.luau`. Logic: `Delivery.luau` (delivery + mailbox), `Outbox.
 `init.luau` (ctx only: `ctx.data` section `mail`, `ctx.data.messages` for the cross-server queue,
 `ctx.replicate` extra `mailbox`). End-to-end gifting property test: `../../collection/Inventory/server/Gift.spec.luau`.
 
-## core-v1.3.0 surfaces (PHASE1-CONTRACT)
+## Kit contract surfaces (docs/framework/kit-contract.md)
 
 - `api`: `send`, `onReceive`, `pending`, `claim` (v1.2 names; `send`/`onReceive` refuse `core_` kinds).
 - `txApi.send(tx, toUserId, kind, payload, key?) -> boolean`: the outbox write (v1.2 `sendInto`).
@@ -20,7 +20,7 @@ Definition: `module.luau`. Logic: `Delivery.luau` (delivery + mailbox), `Outbox.
 
 Kinds in `config.Mail.mail.returnKinds` (default `{ "core_gift" }`) sent through `txApi.send` are
 **escrowed** when the framework offers `ctx.data.shared` (a shared, durable, atomic
-`update(key, fn)` store; requested from the lead, see the Phase 1 report). One record per
+`update(key, fn)` store, added to the framework in v1.3.0). One record per
 recipient holds every escrowed gift until the recipient's server consumed it:
 
 - **cap** (`giftCap`, default 100): checked atomically before the message is sent; over the cap the

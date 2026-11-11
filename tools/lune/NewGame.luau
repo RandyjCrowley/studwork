@@ -27,7 +27,7 @@
 	                                    removes every marker
 	markerNames(src)                -> { string }        every module name a marker mentions
 
-	Module markers (templates/new-game, core-v1.3.0 Phase 1 agent E). Comments, so the template
+	Module markers (templates/new-game, v1.3.0). Comments, so the template
 	stays a working game; tools/new-game strips them from every .luau file it writes:
 	  -- @if A,B      (own line) block start: kept when ALL of A, B are chosen
 	  -- @if A|B      (own line) block start: kept when ANY of A, B is chosen

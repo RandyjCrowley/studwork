@@ -22,8 +22,8 @@ charm-sync's `patch.diff` treats `old == new` as "unchanged" and walks everythin
 Now each player has a `SectionCache`: per top-level PlayerData key it keeps the sanitised copy, the source table reference and `ctx.services.Data.sectionVersion(player, section)` at copy time. A rebuild re-copies a section only when its version moved (or its source table reference changed, e.g. reload); every other section reuses last time's copy by reference, so the diff skips it. The top-level `data` table is new each rebuild. Scalar sections are copied by value.
 
 - Server-only sections `purchases`, `pity`, `funnel`, `mail` are **never replicated** (`SectionCache.SERVER_ONLY`).
-- Correctness depends on Data's contract: a committed update that changes a section bumps that section's version. With the Phase 0 single-counter stub every section is re-copied (correct, just no savings). If Data has no `sectionVersion`, a fallback counter forces a full copy.
-- Bench (`tools/bench`, 50 players x 100 items, Economy tick): see `REPORT_D` numbers in the v1.1 build report; roughly 25x less time and 20x less allocation per tick with real per-section versions.
+- Correctness depends on Data's contract: a committed update that changes a section bumps that section's version. With a single-counter stub every section is re-copied (correct, just no savings). If Data has no `sectionVersion`, a fallback counter forces a full copy.
+- Bench (`tools/bench`, 50 players x 100 items, Economy tick): with real per-section versions a rebuild takes roughly 25x less time and 20x less allocation per tick than re-copying every section.
 
 ## Wire safety (`Snapshot.copy`)
 String keys or dense arrays only (sparse/mixed numeric keys -> strings; charm-sync `fixArrays` stays on), NaN/inf -> 0, functions/Instances/userdata dropped, depth cap 16. Blink `unknown` = normal Roblox remote serialisation.

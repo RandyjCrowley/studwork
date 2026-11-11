@@ -1,6 +1,6 @@
 --!strict
 --[[
-	Core.Client.Input. OWNED BY AGENT G (core/g-client). Public API: Types.InputAPI. See README.md.
+	Core.Client.Input. Public API: Types.InputAPI. See README.md.
 
 	device() -> "KeyboardMouse" | "Touch" | "Gamepad"
 	    From UserInputService.PreferredInput (Enum.PreferredInput, observed with

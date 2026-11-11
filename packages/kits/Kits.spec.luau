@@ -1,5 +1,5 @@
 --!nocheck
--- core-v1.3.0 Phase 0 step 5: the kits' thin defineModule wrappers resolve and boot through the
+-- v1.3.0: the kits' thin defineModule wrappers resolve and boot through the
 -- framework loader (stub server parts; the real v1.2 services need Roblox and are covered by
 -- their own specs + the multi-server sim).
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
@@ -30,7 +30,7 @@ for kit, list in KITS do
 end
 table.sort(names)
 
-describe("kit module wrappers (Phase 0 step 5)", function()
+describe("kit module wrappers", function()
 	it("every v1.2 service has a valid ModuleRef named after it", function()
 		expect(#names).toBe(11)
 		for name, ref in refs do

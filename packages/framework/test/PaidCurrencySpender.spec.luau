@@ -65,7 +65,7 @@ describe("R20: every paid currency has a registered spender at boot", function()
 	end)
 
 	it("Economy enabled with a paid currency it owns boots (Economy registers its spender)", function()
-		-- core-v1.3.1 final review High 1: Economy owns primaryCurrency + config.Economy.currencies only
+		-- core-v1.3.1: Economy owns primaryCurrency + config.Economy.currencies only
 		local h, err = StudWork.test.boot({
 			modules = { Economy },
 			config = { Economy = { currencies = { "Gems" } } },
@@ -82,7 +82,7 @@ describe("R20: every paid currency has a registered spender at boot", function()
 	end)
 
 	it("Economy doesn't own every listed currency: a typo'd paid currency still fails boot", function()
-		-- final review High 1 repro: paidCurrencies = { "Gemz_TYPO" } used to boot (Economy registered a
+		-- repro: paidCurrencies = { "Gemz_TYPO" } used to boot (Economy registered a
 		-- spender for every listed currency)
 		local h, err = StudWork.test.boot({
 			modules = { Economy },
@@ -93,7 +93,7 @@ describe("R20: every paid currency has a registered spender at boot", function()
 	end)
 
 	it("a third-party module can own a paid currency alongside Economy", function()
-		-- final review Medium 2: 'currency 'Tokens' already has a spender (owned by Economy)'
+		-- 'currency 'Tokens' already has a spender (owned by Economy)'
 		local h, err = StudWork.test.boot({
 			modules = { Economy, Wallet },
 			servers = { WalletR20 = walletPart },

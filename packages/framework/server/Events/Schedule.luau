@@ -1,6 +1,6 @@
 --!strict
 --[[
-	Pure live-event schedule math (no Roblox globals). Owned by agent E.
+	Pure live-event schedule math (no Roblox globals).
 
 	All times are unix seconds in UTC. A schedule (Types.EventSchedule) is
 	{ weekday: 1..7? (1 = Sunday, nil = every day), hourUtc: 0..23, minuteUtc: 0..59? }.

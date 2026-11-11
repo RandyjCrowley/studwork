@@ -98,7 +98,7 @@ local function Row(props: { row: Odds.OddsRow, layoutOrder: number })
 			Text = Format.percent(row.probability),
 			FontFace = Theme.font("display"),
 			TextSize = Theme.text.body,
-			TextScaled = true, -- fixed-width cell: fits for any theme font (Phase 2 P2-F, TextFit)
+			TextScaled = true, -- fixed-width cell: fits for any theme font (v1.3.0, TextFit)
 			TextColor3 = color,
 			TextXAlignment = Enum.TextXAlignment.Right,
 			BackgroundTransparency = 1,

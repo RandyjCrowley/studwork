@@ -90,7 +90,7 @@ function Policy.new(opts: any): any
 			end
 		end
 		-- Background retry on a timer (not a wait loop): a platform whose wait() returns at once
-		-- (Platform.inert, the Lune harness) can't spin here forever (step 4b hang fix).
+		-- (Platform.inert, the Lune harness) can't spin here forever (v1.3.0 hang fix).
 		local function retry()
 			if not tracking[player] or not isPlayer(player) or restricted[player] ~= nil then
 				return

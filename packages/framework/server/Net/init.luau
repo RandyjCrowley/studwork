@@ -273,7 +273,7 @@ function Net.new(opts: any): any
 			end
 			mine[name] = { limit = lim, handler = handler }
 			if event == nil and type(moduleNet) == "table" then
-				-- final review (Low): the module ships a wire but no event backs this action, so a
+				-- the module ships a wire but no event backs this action, so a
 				-- client can never reach it; say so instead of binding it silently wire-less
 				log(
 					`[StudWork.Net] {owner}.actions.{name}: no Blink event '{name}' or '{pascal(name)}' in the module's net.blink; the action is only callable server-side`

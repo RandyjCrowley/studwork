@@ -1,6 +1,6 @@
 --!strict
 --[[
-	Plot module definition (kit: base). core-v1.3.0 Phase 1: a real module; the server part is
+	Plot module definition (kit: base). v1.3.0: a real module; the server part is
 	../server/Plot (README.md there). Save section "plot" = { displayed = { [slotId]: uid } },
 	unchanged from v1.2 (FrameworkSection.V12_MAP), replicated to the owning client.
 

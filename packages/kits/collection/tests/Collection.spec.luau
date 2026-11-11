@@ -1,5 +1,5 @@
 --!nocheck
--- core-v1.3.0 Phase 1 (agent A): the REAL Collection kit modules (Items, Inventory, Rarity) on the
+-- v1.3.0: the REAL Collection kit modules (Items, Inventory, Rarity) on the
 -- module API, booted through the framework harness with only their own parts plus small fake
 -- Mail / Economy parts where a test needs one.
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
@@ -246,7 +246,7 @@ describe("Rarity tiers from config", function()
 		expect(h:use(Rarity).tiers()[2].id).toBe("Silver")
 		expect(h:use(Rarity).getOdds("Mine", 2).bar).toBeNear(2 / 7, 6)
 		expect(h:use(Rarity).getOddsDetail("Mine").pity.items.bar).toBe(1)
-		-- config only, no GameConfig.theme: Rarity's theme(config) contributes the list (Phase 2;
+		-- config only, no GameConfig.theme: Rarity's theme(config) contributes the list (v1.3.0;
 		-- this used to warn "theme.rarity.tiers differs" and ask the game to repeat the list)
 		expect(warned(h, "theme.rarity.tiers")).toBe(false)
 		expect(#h.runtime.theme.rarity.tiers).toBe(3)
@@ -729,7 +729,7 @@ describe("Rarity rolls through Compliance", function()
 	end)
 end)
 
--- core-v1.3.0 Phase 2: was the v1.2 adapter test (the deleted Collection adapter).
+-- v1.3.0: was the v1.2 adapter test (the deleted Collection adapter).
 -- The same behaviours on the real modules: item income = item.economy x mutation.economy (read by
 -- the real Economy), and paid copies tagged "paid:<product>" by Inventory's purchase ops.
 describe("Collection with the real Economy and purchases", function()

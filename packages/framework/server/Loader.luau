@@ -19,7 +19,7 @@ local Resolve = requireShared(Shared.Resolve)
 
 local Loader = {}
 
--- net (step 4b): the module's own generated Blink server module; its events back `actions`
+-- net (v1.3.0): the module's own generated Blink server module; its events back `actions`
 local SURFACES = { "api", "txApi", "extensions", "purchaseOps", "actions", "net" }
 
 -- The live lookup (module-api.md §19.9, added in core-v1.3.1: R19, one folder per module):

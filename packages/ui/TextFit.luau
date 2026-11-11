@@ -1,6 +1,6 @@
 --!strict
 --[[
-	Pure text-fit rules for the UI kit (core-v1.3.0 Phase 2 P2-F, playtest finding: with a wider
+	Pure text-fit rules for the UI kit (v1.3.0, playtest finding: with a wider
 	display font such as LuckiestGuy the action-bar text "Upgrade income (50)" overflowed its
 	button). Text must fit its box for ANY theme font:
 

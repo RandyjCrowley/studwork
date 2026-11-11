@@ -113,7 +113,7 @@ function HudLayout.resolve(
 		if spec == false then
 			merged[id] = nil
 		elseif HudLayout.isBareComponent(spec) then
-			-- (added in Phase 2: final review 6) a bare component replaces the widget's component
+			-- (added in v1.3.0) a bare component replaces the widget's component
 			-- and keeps its slot, order and module gate
 			local base = merged[id]
 			assert(

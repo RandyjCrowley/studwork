@@ -1,6 +1,6 @@
 --!nocheck
 --[[
-	Streak on the framework clock (core-v1.3.0 Phase 2: ctx.now). The real Streak + Economy
+	Streak on the framework clock (v1.3.0: ctx.now). The real Streak + Economy
 	server parts on the plain StudWork harness; the harness clock (h.clock, h:rejoin's
 	secondsAway) is the only time source, far from the real os.time(), so a module still reading
 	os.time() would fail every day rollover below.

@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # tools/bench [runs] [variant...]   replication / tick benchmark (tools/lune/bench/replication)
-# tools/bench views [runs]          frozen read view costs (tools/lune/bench/views, design review H2)
-# Lune micro-benchmarks for the framework. Not part of tools/test. Results: (internal build report, not public)
+# tools/bench views [runs]          frozen read view costs (tools/lune/bench/views)
+# Lune micro-benchmarks for the framework. Not part of tools/test. The KITS variant is the tick-cost budget reference.
 source "$(dirname "$0")/_common.sh"
 
 if [ "${1:-}" = "views" ]; then

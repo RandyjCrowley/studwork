@@ -7,7 +7,7 @@
 	v1.2 shape), ctx.data.messages (the framework's cross-server channel; no DataStore here),
 	ctx.replicate (extra.mailbox), actions.claimMail (net.blink ClaimMail), ctx.console, ctx.lifecycle.
 
-	api (PHASE1-CONTRACT, v1.2 names)
+	api (kit contract, docs/framework/kit-contract.md, v1.2 names)
 	  send(userId, kind, payload, key?) -> boolean    YIELDS. "core_" kinds are refused.
 	  onReceive(kind, handler(player, payload, info) -> boolean?) -> Connection
 	      false = held in the mailbox (no time limit); an error = retried with backoff, then
@@ -24,7 +24,7 @@
 
 	R1 (gifts to players who never return): a kind in config.mail.returnKinds (default
 	{ "core_gift" }) sent through txApi.send is ESCROWED in the framework's shared atomic store
-	(ctx.data.shared, framework Phase 2: one DataStore, UpdateAsync): a per-recipient record caps
+	(ctx.data.shared, v1.3.0: one DataStore, UpdateAsync): a per-recipient record caps
 	undelivered gifts (config.mail.giftCap, default 100, far below ProfileStore's 1000-message
 	queue); over the cap the gift is refused and goes straight back to the sender (their
 	mailbox, auto-claimed). A gift nobody collected within config.mail.returnAfterDays (default
@@ -63,7 +63,7 @@ local function encode(value: any): string
 	return HttpService:JSONEncode(value)
 end
 
--- the framework clock (ctx.now, Phase 2): tests advance it to reach the 14-day return
+-- the framework clock (ctx.now, v1.3.0): tests advance it to reach the 14-day return
 local function now(): number
 	return ctx.now()
 end

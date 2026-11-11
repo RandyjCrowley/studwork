@@ -1,5 +1,5 @@
 --!nocheck
--- Docs that must match the code (core-v1.3.0 Phase 2 P2-F, final review 9).
+-- Docs that must match the code (v1.3.0).
 local fs = (getmetatable(getfenv(1)) :: any).__index.require("@lune/fs")
 local Theme = require("packages/framework/shared/Theme.luau")
 
@@ -10,7 +10,7 @@ describe("docs/framework/getting-started.md", function()
 	end)
 end)
 
-describe("docs/framework/theme.md token table matches the framework defaults (final review 6)", function()
+describe("docs/framework/theme.md token table matches the framework defaults", function()
 	it("names only real tokens, with the default values", function()
 		local doc = fs.readFile("docs/framework/theme.md")
 		local d = Theme.DEFAULT
