@@ -1,24 +1,42 @@
-# Core.Rebirth
+# Rebirth (economy kit)
 
-Public API: `Types.RebirthAPI`. Pure math: `RebirthMath.luau` (+ spec).
+A real StudWork module (core-v1.3.0 Phase 1). Definition: `../../shared/Rebirth.luau`. Pure math:
+`RebirthMath.luau`; the inventory rules: `Rebirth.keeps` (`RebirthRules.spec.luau`).
 
-## Config: `balance.rebirth`
-`baseCost`, `costGrowth` (cost = floor(baseCost * costGrowth ^ rebirths)), `currency` (default
-primary), `multiplierPerRebirth` (multiplier = 1 + rebirths * per), `keepInventory`,
-`keepDisplayed`, `resetCurrencies` (default `{ primary }`), `maxRebirths`.
-Also reads `balance.startingCurrency` (reset value) and `balance.upgrades[*].resetsOnRebirth`.
+## Config (`config.Rebirth`)
+- `rebirth = { baseCost, costGrowth, currency?, multiplierPerRebirth, keepInventory, keepDisplayed?,
+  resetCurrencies? (default { primary }), maxRebirths? }`; defaults 5000 / 3 / 0.5 / false / false
+  (the template's values). cost = `floor(baseCost * costGrowth ^ rebirths)`, multiplier =
+  `1 + rebirths * multiplierPerRebirth`.
+- `onRebirth` (the inventory rules, below).
 
-## Behaviour
-`rebirth(player)` does ONE `Data.update` that re-checks max/balance, pays the cost (only when the
-cost currency is not reset anyway), resets `resetCurrencies` to their starting value (or 0),
-runs the registered reset steps (Upgrades resets its levels, Plot drops displayed slots whose uid
-left the inventory), and with `keepInventory = false` filters the inventory with
-`RebirthMath.keptInventory`: a copy is kept when `ItemDef.keepOnRebirth == true`, or when it is
-nil and `instance.source` starts with `"paid:"` (bought with Robux); wiped when
-`keepOnRebirth == false` or not paid. Unknown item ids are kept (and warned). Without the Items
-module everything is kept. Increments `rebirths`. Rebirth itself writes only `currency`,
-`inventory` and `rebirths`. Then fires
-`CurrencyChanged` (reason `rebirth`) for changed currencies, `Rebirthed(player, n)` (listeners
-re-read everything; no per-item ItemRemoved, per the pinned contract), a `toast` feedback and
-analytics (`economy Sink rebirth`, `custom "Rebirth"`).
-`RequestRebirth` remote -> `rebirth(player)` (no client args).
+## Save data
+Section `rebirth` = `{ rebirths }` (replicated).
+
+## API
+`canRebirth`, `rebirth(player) -> boolean`, `cost`, `multiplier`, `signals.Rebirthed(player, n)`.
+Client action `rebirth` (`RequestRebirth`).
+`extensions.resetStep(id, fn(tx, player))`: runs inside the rebirth transaction, in registration
+order, before `rebirths` is incremented. Each step writes its own section (`ctx.section(tx)`).
+Upgrades and Plot reset themselves this way.
+
+## The rebirth transaction
+One `ctx.tx`: re-check max + balance; pay the cost (`Economy.txApi.spend`, only when the cost
+currency isn't reset anyway); reset `resetCurrencies` to `Economy.startingBalance(id)`; unless
+`keepInventory`, remove the wiped copies with `Inventory.txApi.remove(tx, uid, "rebirth")`
+(optional Inventory; each fires Inventory's `onItemRemoved` hooks and `ItemRemoved`); run the
+reset steps; `rebirths += 1`. After commit: `Rebirthed`, the Economy rate refresh, a `toast`,
+`analytics.custom("Rebirth")`. `CurrencyChanged` (reason `"rebirth"`) comes from Economy.
+
+## Inventory rules (`config.Rebirth.onRebirth`)
+Defaults are the v1.2 rules. Collection derives a copy's source tag and Rebirth never rewrites it,
+so the trade/policy rules that read the tag apply to whatever is kept.
+
+| key | default | allowed | meaning |
+|---|---|---|---|
+| `paid` | `"keep"` | `"keep"` only | Robux copies (`paid:`) are always kept. Any other value fails boot; `ItemDef.keepOnRebirth = false` doesn't wipe them either. |
+| `paidCurrency` | `"wipe"` | `"wipe"`, `"keep"` | copies rolled with a paid currency (`paidcur:`). `"keep"` keeps the tag: still a paid random item (odds shown, untradeable for restricted players). Wiping is the default so spending earned Coins right before a rebirth can't make items rebirth-proof. |
+| `earned` | `"wipe"` | `"wipe"`, `"keep"` | every other copy |
+| `itemOverrides` | `true` | boolean | `ItemDef.keepOnRebirth` true keeps / false wipes a non-Robux copy |
+
+`rebirth.keepInventory = true` keeps everything. Unknown item ids are kept and warned about.

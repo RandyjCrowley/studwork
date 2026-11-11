@@ -1,18 +1,19 @@
-# Core.Offline
+# Offline (economy kit)
 
-Public API: `Types.OfflineAPI` (`onReturn(fn(player, secondsAway))`). Pure math: `OfflineMath.luau`.
+A real StudWork module (core-v1.3.0 Phase 1), no save section. Definition:
+`../../shared/Offline.luau`. Pure math: `OfflineMath.luau` (+ spec).
 
-## Config: `balance.offline`
-`capSeconds`, `minSeconds`, `payoutFraction` (clamped 0..1), `autoPay`.
+## Config (`config.Offline.offline`, defaults)
+`capSeconds = 28800` (8 h), `minSeconds = 60`, `payoutFraction = 0.5`, `autoPay = true` (needs
+Economy). The cap is config here so other modules coordinate with it through config, not files.
+
+## API
+`onReturn(fn(player, secondsAway)) -> Connection`.
 
 ## Behaviour
-In `Data.onLoaded`: skipped on the first session (`stats.sessions <= 1`) or `lastSeen <= 0`.
-`secondsAway = clamp(now - lastSeen, 0, capSeconds)` (clock skew -> 0 -> skipped); skipped below
-`minSeconds`. If `autoPay`: pays `floor(Economy.getRate * secondsAway * payoutFraction)` (reason
-`offline`, logged as an analytics Source by Economy) and sends feedback `pop` `"+N"`. Handlers
-always run when not skipped.
-
-## Ordering
-`Economy.getRate` computes from PlayerData (displayed/inventory, rebirths, upgrade levels, saved
-multipliers) on demand, so no waiting on Plot/Upgrades onLoaded handlers is needed. Session boosts
-applied later (co-play, passes) are not included in the offline payout.
+On `ctx.lifecycle.onPlayerLoaded` (the framework keeps `ctx.framework.lastSeen` at the previous
+session's last save until this session's first save): `secondsAway = clamp(now - lastSeen, 0,
+capSeconds)`, skipped on the first session (`ctx.framework.sessions == 1`) or below `minSeconds`.
+With `autoPay` and Economy enabled it grants `floor(Economy.getRate * secondsAway *
+payoutFraction)` (reason `"offline"`) with a `pop` feedback. `onReturn` handlers run each time
+(own thread). Session-only boosts aren't in the rate (by design).
