@@ -3,20 +3,24 @@
 	tools/lune/Layout: pure checks of the core v1.3.0 repo layout, shared by tools/doctor and
 	tools/core-status (zero requires; callers read the files). Specs: Layout.spec.luau.
 
-	The layout (core-v1.3.0 Phase 2):
+	The layout (core-v1.3.0 Phase 2; kits one folder per module since core-v1.3.1, R19):
 	  packages/framework/{shared,server,client}   the StudWork runtime (StudWork.VERSION in
 	                                              shared/init.luau)
-	  packages/kits/<kit>/{shared,server}         the built-in kits (collection, economy, ...)
+	  packages/kits/<kit>/<Module>/module.luau    the built-in kits' modules (collection, economy,
+	                                              ...), each with server/, client/, shared/ parts
+	  packages/kits/<kit>/{shared,server}         GONE (the pre-v1.3.1 kit layout)
 	  packages/ui                                 the UI kit
 	  packages/core                               GONE (the v1.2 facade, deleted in Phase 2)
 
-	Layout.repoIssues(exists)                     -> { string }  exists(path) -> boolean
+	Layout.repoIssues(exists, kits, kitModules?)  -> { string }  exists(path) -> boolean;
+	    kitModules = { [kit] = { <Module folder> } } (a kit with none is reported)
 	Layout.projectIssues(project, gameDir, kits)  -> { string }  one game's *.project.json:
 	    ReplicatedStorage.Framework -> packages/framework/shared, FrameworkClient -> .../client,
-	    ServerScriptService.Framework -> .../server, Kits.<Kit> -> packages/kits/<kit>/shared|server
-	    for every kit it maps, and no $path into packages/core
-	Layout.projectKits(project)                   -> { string }  the kit names a project maps
-	    (ReplicatedStorage.Kits children), sorted
+	    ServerScriptService.Framework -> .../server, no `Kits` folder, every kit module entry
+	    ReplicatedStorage.Modules.<M>.module -> packages/kits/<kit>/<M>/module.luau (and
+	    ServerScriptService.Modules.<M> -> .../<M>/server), and no $path into packages/core
+	Layout.projectKits(project)                   -> { string }  the kit modules a project maps
+	    (ReplicatedStorage.Modules children whose module is under packages/kits), sorted
 	Layout.normalize(path)                        -> string      collapses "a/b/../c" and "./"
 ]]
 
@@ -43,7 +47,11 @@ function Layout.normalize(path: string): string
 end
 
 -- Repo-level checks. `exists(path)` answers for files and folders.
-function Layout.repoIssues(exists: (string) -> boolean, kits: { string }): { string }
+function Layout.repoIssues(
+	exists: (string) -> boolean,
+	kits: { string },
+	kitModules: { [string]: { string } }?
+): { string }
 	local issues = {}
 	for _, sub in { "shared", "server", "client" } do
 		if not exists(Layout.FRAMEWORK .. "/" .. sub) then
@@ -58,8 +66,20 @@ function Layout.repoIssues(exists: (string) -> boolean, kits: { string }): { str
 	end
 	for _, kit in kits do
 		for _, sub in { "shared", "server" } do
-			if not exists(`{Layout.KITS_DIR}/{kit}/{sub}`) then
-				table.insert(issues, `{Layout.KITS_DIR}/{kit}/{sub} is missing`)
+			if exists(`{Layout.KITS_DIR}/{kit}/{sub}`) then
+				table.insert(
+					issues,
+					`{Layout.KITS_DIR}/{kit}/{sub} is the pre-v1.3.1 kit layout (one folder per module: {Layout.KITS_DIR}/{kit}/<Module>/)`
+				)
+			end
+		end
+		local modules = if kitModules then kitModules[kit] else nil
+		if kitModules and (modules == nil or #modules == 0) then
+			table.insert(issues, `{Layout.KITS_DIR}/{kit} has no module folder (<Module>/module.luau)`)
+		end
+		for _, m in modules or {} do
+			if not exists(`{Layout.KITS_DIR}/{kit}/{m}/module.luau`) then
+				table.insert(issues, `{Layout.KITS_DIR}/{kit}/{m}/module.luau is missing`)
 			end
 		end
 	end
@@ -99,17 +119,38 @@ local function allPaths(node: any, gameDir: string, where: string, out: { { at: 
 	end
 end
 
-function Layout.projectKits(project: any): { string }
-	local kits = child(child(child(project, "tree"), "ReplicatedStorage"), "Kits")
+local function kitModuleOf(path: string?): (string?, string?, string?)
+	-- packages/kits/<kit>/<Module>/<rest>
+	if path == nil then
+		return nil, nil, nil
+	end
+	return string.match(path, "^" .. Layout.KITS_DIR .. "/([^/]+)/([^/]+)/?(.*)$")
+end
+
+local function moduleChildren(service: any): { string }
 	local out = {}
-	if type(kits) == "table" then
-		for name, node in kits do
+	local modules = child(service, "Modules")
+	if type(modules) == "table" then
+		for name, node in modules do
 			if type(name) == "string" and string.sub(name, 1, 1) ~= "$" and type(node) == "table" then
 				table.insert(out, name)
 			end
 		end
 	end
 	table.sort(out)
+	return out
+end
+
+function Layout.projectKits(project: any): { string }
+	local rs = child(child(project, "tree"), "ReplicatedStorage")
+	local out = {}
+	for _, name in moduleChildren(rs) do
+		local node = child(child(rs, "Modules"), name)
+		local p = child(child(node, "module"), "$path")
+		if type(p) == "string" and string.find(p, Layout.KITS_DIR .. "/", 1, true) then
+			table.insert(out, name)
+		end
+	end
 	return out
 end
 
@@ -132,28 +173,46 @@ function Layout.projectIssues(project: any, gameDir: string, kits: { string }): 
 	expect(child(rs, "Framework"), "ReplicatedStorage.Framework", Layout.FRAMEWORK .. "/shared")
 	expect(child(rs, "FrameworkClient"), "ReplicatedStorage.FrameworkClient", Layout.FRAMEWORK .. "/client")
 	expect(child(sss, "Framework"), "ServerScriptService.Framework", Layout.FRAMEWORK .. "/server")
-	local known: { [string]: string } = {}
+	local known: { [string]: boolean } = {}
 	for _, kit in kits do
-		known[string.lower(kit)] = kit
+		known[kit] = true
 	end
-	for _, name in Layout.projectKits(project) do
-		local folder = known[string.lower(name)]
-		if folder == nil then
+	for _, service in { { "ReplicatedStorage", rs }, { "ServerScriptService", sss } } do
+		if child(service[2], "Kits") ~= nil then
 			table.insert(
 				issues,
-				`ReplicatedStorage.Kits.{name}: no kit '{string.lower(name)}' under {Layout.KITS_DIR}`
+				`{service[1]}.Kits: the pre-v1.3.1 kit layout (removed; run tools/sync-projects)`
 			)
-		else
-			expect(
-				child(child(rs, "Kits"), name),
-				"ReplicatedStorage.Kits." .. name,
-				`{Layout.KITS_DIR}/{folder}/shared`
-			)
-			expect(
-				child(child(sss, "Kits"), name),
-				"ServerScriptService.Kits." .. name,
-				`{Layout.KITS_DIR}/{folder}/server`
-			)
+		end
+	end
+	-- kit module entries: ReplicatedStorage.Modules.<M>.module / ServerScriptService.Modules.<M>
+	local projectDir = gameDir
+	for _, name in moduleChildren(rs) do
+		local node = child(child(rs, "Modules"), name)
+		local where = "ReplicatedStorage.Modules." .. name
+		local modulePath = pathOf(child(node, "module"), projectDir)
+		local kit, folder, rest = kitModuleOf(modulePath)
+		if kit ~= nil then
+			if not known[kit :: string] then
+				table.insert(issues, `{where}: no kit '{kit}' under {Layout.KITS_DIR}`)
+			elseif folder ~= name or rest ~= "module.luau" then
+				table.insert(
+					issues,
+					`{where}.module maps {modulePath} (want {Layout.KITS_DIR}/{kit}/{name}/module.luau)`
+				)
+			end
+		end
+	end
+	for _, name in moduleChildren(sss) do
+		local where = "ServerScriptService.Modules." .. name
+		local serverPath = pathOf(child(child(sss, "Modules"), name), projectDir)
+		local kit, folder, rest = kitModuleOf(serverPath)
+		if kit ~= nil then
+			if not known[kit :: string] then
+				table.insert(issues, `{where}: no kit '{kit}' under {Layout.KITS_DIR}`)
+			elseif folder ~= name or rest ~= "server" then
+				table.insert(issues, `{where} maps {serverPath} (want {Layout.KITS_DIR}/{kit}/{name}/server)`)
+			end
 		end
 	end
 	local paths = {}

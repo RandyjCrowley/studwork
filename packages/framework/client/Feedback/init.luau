@@ -427,7 +427,7 @@ local function onMessage(message: any)
 	end
 	local kind: string = message.Kind
 	local text: string = message.Text
-	local rarity: Types.RarityTier? = if tierOf(message.Rarity) then message.Rarity else nil
+	local rarity: Types.RarityTier? = if tierOf(message.Tier) then message.Tier else nil
 	local position: Vector3? = if typeof(message.Position) == "Vector3" then message.Position else nil
 	if kind == "item" then
 		Feedback.pop(text, position, rarity)

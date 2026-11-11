@@ -20,7 +20,7 @@ Automated coverage you don't need to repeat by hand:
 | friend detection, co-play multiplier on/off, invite kind, lookup failures | `sim/CoPlay.spec.luau` |
 | BindToClose with saves in flight, receipts across shutdown/crash never doubled or lost | `sim/Shutdown.spec.luau` |
 | session lock held by another server (release request, steal after 40 s, stale lock, outage, newer data) | `sim/SessionLock.spec.luau` |
-| cross-server gifting, mailbox, claim | `sim/GiftingCrossServer.spec.luau`, `server/Inventory/Gift.spec.luau` (never-duplicated/never-lost property test) |
+| cross-server gifting, mailbox, claim | `sim/GiftingCrossServer.spec.luau`, `Inventory/server/Gift.spec.luau` (never-duplicated/never-lost property test) |
 
 ## Checklist
 

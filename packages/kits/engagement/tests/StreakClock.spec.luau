@@ -7,12 +7,11 @@
 ]]
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local Harness = require("packages/framework/test/harness.luau")
-local EngagementServers = require("packages/kits/engagement/server/ModuleServers.luau")
-local EconomyServers = require("packages/kits/economy/server/ModuleServers.luau")
+local Loader = require("packages/framework/server/Loader.luau") -- the live part lookup (§19.9)
 
-local Kits = ReplicatedStorage:WaitForChild("Kits")
-local Streak = require(Kits:WaitForChild("Engagement"):WaitForChild("Streak"))
-local Economy = require(Kits:WaitForChild("Economy"):WaitForChild("Economy"))
+local Modules = ReplicatedStorage:WaitForChild("Modules")
+local Streak = require(Modules:WaitForChild("Streak"):WaitForChild("module"))
+local Economy = require(Modules:WaitForChild("Economy"):WaitForChild("module"))
 
 local DAY = 86400
 local HOUR = 3600
@@ -22,8 +21,8 @@ local function boot()
 	return Harness.new({
 		modules = { Economy, Streak },
 		servers = {
-			Economy = EconomyServers.loadServer({ name = "Economy", server = "Economy" }),
-			Streak = EngagementServers.loadServer({ name = "Streak", server = "Streak" }),
+			Economy = Loader.defaultLoadServer({ name = "Economy", server = "Economy" }),
+			Streak = Loader.defaultLoadServer({ name = "Streak", server = "Streak" }),
 		},
 		startTime = NOON,
 		config = {

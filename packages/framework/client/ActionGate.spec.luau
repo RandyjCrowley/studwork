@@ -1,7 +1,7 @@
 local ActionGate = require(script.Parent.ActionGate)
-local Resolve =
-	require(game:GetService("ReplicatedStorage"):WaitForChild("Framework"):WaitForChild("Resolve"))
 
+-- core-v1.3.1 (R19): the kit-owned actions' not-enabled check moved with the actions to the kits'
+-- client parts (packages/kits/KitClients.spec.luau asserts the same message for every one).
 describe("Client.ActionGate", function()
 	it("errors before Core.start", function()
 		local g = ActionGate.new()
@@ -10,17 +10,15 @@ describe("Client.ActionGate", function()
 		)
 	end)
 
-	it("module actions error with the not-enabled message when the module is off", function()
+	it("framework actions run once started, whatever modules are on", function()
 		local g = ActionGate.new()
 		ActionGate.start(g, { "Economy", "Rebirth" })
-		expect(ActionGate.check(g, "rebirth")).toBe(nil)
 		expect(ActionGate.check(g, "triggerEvent")).toBe(nil)
 		expect(ActionGate.check(g, "funnel")).toBe(nil)
-		for action, owner in ActionGate.CLIENT_ACTIONS do
-			if owner ~= "Rebirth" then
-				expect(ActionGate.check(g, action)).toBe("[Core] " .. Resolve.notEnabledMessage(owner))
-			end
-		end
+		local none = ActionGate.new()
+		ActionGate.start(none, {})
+		expect(ActionGate.check(none, "triggerEvent")).toBe(nil)
+		expect(ActionGate.check(none, "funnel")).toBe(nil)
 	end)
 
 	it("isEnabled: foundation always, modules when listed", function()

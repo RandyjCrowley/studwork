@@ -5,7 +5,8 @@
 	StudWork.start(Config). That boots the client modules (StudWork.use(X) = X's ClientAPI with
 	its actions, §9) and this framework client UI, exposed as StudWork.Client:
 	  state()            the replicated state, as sent (§10: { loaded, framework, modules })
-	  Hud, Feedback, Input, onFeedbackEvent, onMailbox   the client UI on theme tokens + HUD slots
+	  Hud, Feedback, Input, onFeedbackEvent   the client UI on theme tokens + HUD slots
+	                     (core-v1.3.1: onMailbox moved to the mail module's client API)
 	  Hud.addWidget(id, spec | false)   the one call a module or game uses to contribute (or
 	                     remove) a HUD widget (= UI.registerWidget; Phase 2)
 	The UI reads the replicated state as sent (State.raw through Hud/Slices).
@@ -28,7 +29,6 @@ local Hud = require(script.Hud)
 local Input = require(script.Input)
 local Runtime = require(script.Runtime)
 local State = require(script.State)
-local Visibility = require(script.Hud.Visibility)
 
 local Client = {}
 
@@ -42,51 +42,13 @@ local function pick(source: { [string]: any }, names: { string }): any
 	return table.freeze(out)
 end
 
--- v1.2 (N1): handler(count) when the loaded mailbox count changes (and once now if loaded).
-local function onMailbox(handler: (count: number) -> ()): Types.Connection
-	assert(type(handler) == "function", "Core.Client.onMailbox: handler must be a function")
-	local function countOf(): number
-		local s = State.atom()
-		return if s.loaded then Visibility.mailboxCount(s) else -1
-	end
-	local last = countOf()
-	if last >= 0 then
-		task.spawn(handler, last)
-	end
-	local cleanup = Charm.subscribe(countOf, function(n: number)
-		if n >= 0 and n ~= last then
-			last = n
-			task.spawn(handler, n)
-		end
-	end)
-	local connection = { Connected = true }
-	function connection.Disconnect(self: any)
-		if self.Connected then
-			self.Connected = false
-			cleanup()
-		end
-	end
-	return (connection :: any) :: Types.Connection
-end
-
 Client.api = table.freeze({
 	state = State.atom,
 	Feedback = pick(Feedback, { "pop", "flash", "sound", "shake" }),
 	Input = pick(Input, { "device", "deviceChanged", "bind", "unbind" }),
-	Actions = pick(Actions, {
-		"display",
-		"clearDisplay",
-		"rebirth",
-		"upgrade",
-		"roll",
-		"gift",
-		"triggerEvent",
-		"funnel",
-		"claimMail",
-	}),
+	Actions = pick(Actions, { "triggerEvent", "funnel" }),
 	Hud = pick(Hud, { "mount", "unmount", "addWidget" }),
 	onFeedbackEvent = Feedback.onFeedbackEvent,
-	onMailbox = onMailbox,
 }) :: Types.ClientAPI
 
 function Client.start(
@@ -110,30 +72,22 @@ Client.studWork = table.freeze({
 	Input = Client.api.Input,
 	Hud = Client.api.Hud,
 	onFeedbackEvent = Feedback.onFeedbackEvent,
-	onMailbox = onMailbox,
 })
 
 -- Step 4 of the client boot: the framework client UI. The state is the replicated state as sent
--- (Hud and onMailbox read it raw). The UI's config carries what it reads: GameConfig.client.palette
--- overrides and the primary currency (config.Economy.primaryCurrency, default "Coins").
+-- (the HUD reads it raw). The UI's config carries what it reads: GameConfig.client.palette
+-- overrides. core-v1.3.1 (R19): no module's config is read here (the currency widget, with its
+-- primary currency, is the economy module's client part).
 local function startUi(info: any): any
 	local names: { string } = {}
 	for _, ref in info.order do
 		table.insert(names, ref.name)
 	end
-	local configs = info.configs or {}
-	local economy = configs.Economy
 	local client = info.gameConfig.client
 	local view = {
 		gameId = info.gameConfig.gameId,
 		modules = names,
 		palette = if type(client) == "table" then client.palette else nil,
-		balance = {
-			primaryCurrency = if type(economy) == "table"
-					and type(economy.primaryCurrency) == "string"
-				then economy.primaryCurrency
-				else "Coins",
-		},
 	}
 	Client.start((nil :: any) :: Types.CoreAPI, view :: any, {}, names)
 	return Client.studWork

@@ -2,17 +2,15 @@
 -- Fixture game for tests/RealKits.spec.luau (override case f: the example module loaded next to
 -- the real kit modules). Test fixture numbers, not a game's balance.
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
-local Collection = ReplicatedStorage:WaitForChild("Kits"):WaitForChild("Collection")
-local EconomyKit = ReplicatedStorage:WaitForChild("Kits"):WaitForChild("Economy")
-local GameModules = ReplicatedStorage:WaitForChild("Modules")
+local Modules = ReplicatedStorage:WaitForChild("Modules")
 
 return {
 	gameId = "leaderboard-fixture",
 	modules = {
-		require(Collection:WaitForChild("Items")),
-		require(Collection:WaitForChild("Inventory")),
-		require(EconomyKit:WaitForChild("Economy")),
-		require(GameModules:WaitForChild("SessionLeaderboard"):WaitForChild("module")),
+		require(Modules:WaitForChild("Items"):WaitForChild("module")),
+		require(Modules:WaitForChild("Inventory"):WaitForChild("module")),
+		require(Modules:WaitForChild("Economy"):WaitForChild("module")),
+		require(Modules:WaitForChild("SessionLeaderboard"):WaitForChild("module")),
 	} :: { any },
 	config = {
 		Economy = {

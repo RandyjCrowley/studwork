@@ -1,6 +1,8 @@
 local Slices = require(script.Parent.Slices)
-local Visibility = require(script.Parent.Visibility)
 
+-- core-v1.3.1 (R19): the kit-specific readers (currency, rate, mailbox, odds, inventory, plot name)
+-- moved with their assertions to the kits' client/State.spec.luau; these are the generic readers
+-- they replaced, on the same pinned keys.
 local modular = {
 	loaded = true,
 	framework = { paidRandomRestricted = false },
@@ -15,29 +17,29 @@ local modular = {
 
 describe("Hud.Slices (per-module client slices, no FlatState)", function()
 	it("reads the pinned keys from state.modules", function()
-		expect(Slices.currency(modular, "Coins")).toBe(120)
-		expect(Slices.currency(modular, "Gems")).toBe(0)
-		expect(Slices.ratePerSec(modular)).toBe(7)
-		expect(#Slices.mailbox(modular)).toBe(2)
-		expect(Slices.plotName(modular)).toBe("Plot3")
-		expect(Slices.odds(modular).Chest).never.toBeNil()
-		expect(#Slices.inventory(modular)).toBe(1)
-		expect(Visibility.mailboxCount(modular)).toBe(2)
+		expect(Slices.isModular(modular)).toBe(true)
+		expect(Slices.data(modular, "Economy").currency.Coins).toBe(120)
+		expect(Slices.extra(modular, "Economy", "ratePerSec")).toBe(7)
+		expect(#Slices.extra(modular, "Mail", "mailbox")).toBe(2)
+		expect(Slices.extra(modular, "Plot", "plotName")).toBe("Plot3")
+		expect(Slices.extra(modular, "Rarity", "odds").Chest).never.toBeNil()
+		expect(#Slices.data(modular, "Inventory").inventory).toBe(1)
 	end)
 
 	it("handles disabled modules and unloaded state", function()
 		local s = { loaded = false, modules = {} }
-		expect(Slices.currency(s, "Coins")).toBe(0)
-		expect(Slices.ratePerSec(s)).toBeNil()
-		expect(#Slices.mailbox(s)).toBe(0)
-		expect(Visibility.mailboxCount(s)).toBe(0)
+		expect(Slices.data(s, "Economy")).toBeNil()
+		expect(Slices.extra(s, "Economy", "ratePerSec")).toBeNil()
+		expect(Slices.extra(s, "Mail", "mailbox")).toBeNil()
 		expect(Slices.loaded(s)).toBe(false)
+		expect(Slices.loaded(modular)).toBe(true)
 	end)
 
 	it("still reads a v1.2 flat state", function()
 		local flat = { loaded = true, data = { currency = { Coins = 5 } }, ratePerSec = 3, mailbox = { {} } }
-		expect(Slices.currency(flat, "Coins")).toBe(5)
-		expect(Slices.ratePerSec(flat)).toBe(3)
-		expect(Visibility.mailboxCount(flat)).toBe(1)
+		expect(Slices.isModular(flat)).toBe(false)
+		expect(Slices.data(flat, "Economy").currency.Coins).toBe(5)
+		expect(Slices.extra(flat, "Economy", "ratePerSec")).toBe(3)
+		expect(#Slices.extra(flat, "Mail", "mailbox")).toBe(1)
 	end)
 end)

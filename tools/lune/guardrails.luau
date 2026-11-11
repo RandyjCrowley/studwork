@@ -32,9 +32,16 @@
 	            anything under ReplicatedStorage.Framework / FrameworkClient / FrameworkTest other
 	            than the public StudWork facade (require(...Framework) itself) and UI, the server
 	            runtime (ServerScriptService.Framework), RuntimeSlot / CompatDoor by name, or
-	            another kit's server internals (ServerScriptService.Kits.<Other>). Catches alias
-	            variables, WaitForChild / FindFirstChild chains, literal string concatenation,
-	            dynamic child names on those chains and script.Parent climbing into the framework.
+	            another module's server part (ServerScriptService.Modules.<Other>, core-v1.3.1; the
+	            pre-v1.3.1 ServerScriptService.Kits.<Other> too). Catches alias variables,
+	            WaitForChild / FindFirstChild chains, literal string concatenation, dynamic child
+	            names on those chains and script.Parent climbing into the framework.
+	            Framework half (core-v1.3.1 R19): framework code (packages/framework/{shared,
+	            server,client}, not test/, specs or Blink outputs) and framework.blink may not name
+	            a kit module (whole word, from packages/kits/*/*/module.luau), an event a kit's
+	            net.blink declares, a v1.2 kit request event, or Kits / ModuleServers /
+	            ModuleClients / kitLoadServer; on the comment-stripped and the normalised text.
+	            The only allow-list is TRANSITIONAL_V131 (deleted in core-v1.3.1 Phase 3).
 	  theme     (D's R4) a hex colour literal ("#RRGGBB"), a Color3.fromRGB literal or an asset id
 	            ("rbxassetid://123") in UI or kit/example/game-module client code outside a theme or
 	            config file (THEME_ALLOWED): colours and assets come from the theme.
@@ -45,8 +52,8 @@
 local fs = require("@lune/fs")
 local process = require("@lune/process")
 
--- the kit module manifest, read from the kit module definitions (packages/kits/*/shared;
--- core-v1.3.0 step 4b-IIb, was the v1.2 module manifest)
+-- the kit module manifest, read from the kit module definitions (packages/kits/<kit>/<Module>/
+-- module.luau since core-v1.3.1; core-v1.3.0 step 4b-IIb, was the v1.2 module manifest)
 local Modules = require("./KitModules").load(fs)
 
 local Guard = {}
@@ -66,8 +73,9 @@ for _, name in Modules.ORDER do
 	MODULE_SET[name] = true
 end
 
--- Extracts the module names from a Config init.luau source: v1.3 module refs
--- (`modules = { require(Collection:WaitForChild("Items")), ... }`) or v1.2 names
+-- Extracts the module names from a Config init.luau source: module refs
+-- (`modules = { require(Modules:WaitForChild("Items"):WaitForChild("module")), ... }`, core-v1.3.1;
+-- the v1.3.0 `require(Collection:WaitForChild("Items"))` form) or v1.2 names
 -- (`modules = { "A", "B" }`). Comments inside the block are ignored.
 function Guard.parseModules(source: string): { [string]: boolean }?
 	local body = string.match(source, "modules%s*=%s*(%b{})")
@@ -77,7 +85,9 @@ function Guard.parseModules(source: string): { [string]: boolean }?
 	local set = {}
 	for line in string.gmatch(body, "[^\n]+") do
 		local code = string.gsub(line, "%-%-.*$", "")
-		local ref = string.match(code, 'WaitForChild%("([%w_]+)"%)%)')
+		-- core-v1.3.1 refs: require(Modules:WaitForChild("Items"):WaitForChild("module"))
+		local ref = string.match(code, 'WaitForChild%("([%w_]+)"%):WaitForChild%("module"%)%)')
+			or string.match(code, 'WaitForChild%("([%w_]+)"%)%)')
 		if ref then
 			set[ref] = true
 		else
@@ -449,7 +459,15 @@ function Guard.scanSource(source: string, ctx): { string }
 			-- v1.3: a kit module ref required in game code (`require(Economy:WaitForChild("Rebirth"))`
 			-- for ctx.deps / StudWork.use / dependsOn) must be enabled. Config/ itself is the list.
 			if not ctx.inConfig then
+				local refs = {}
 				for ref in string.gmatch(code, 'require%([%w_]+:WaitForChild%("([%w_]+)"%)%)') do
+					table.insert(refs, ref)
+				end
+				-- core-v1.3.1: require(Modules:WaitForChild("Rebirth"):WaitForChild("module"))
+				for ref in string.gmatch(code, 'WaitForChild%("([%w_]+)"%)%s*:%s*WaitForChild%("module"%)') do
+					table.insert(refs, ref)
+				end
+				for _, ref in refs do
 					if MODULE_SET[ref] and not ctx.modules[ref] then
 						add(
 							lineNo,
@@ -806,7 +824,8 @@ local function childRefs(code: string, name: string): { number }
 	return out
 end
 
--- Scans one module file. ctx = { path, kit? (own kit folder name, e.g. "Economy") }.
+-- Scans one module file. ctx = { path, kit? (own kit folder name, e.g. "Economy"), module? (own
+-- module folder, e.g. "Upgrades": packages/kits/<kit>/<Module>/) }.
 function Guard.scanSpecial(source: string, ctx: any): { string }
 	local findings = {}
 	local function add(lineNo: number, message: string)
@@ -817,6 +836,7 @@ function Guard.scanSpecial(source: string, ctx: any): { string }
 	local sss = { ServerScriptService = true }
 	local fw = {}
 	local kits = {}
+	local mods = {}
 	local lineNo = 0
 	local inBlock = false
 	for raw in string.gmatch(source .. "\n", "([^\n]*)\n") do
@@ -895,6 +915,17 @@ function Guard.scanSpecial(source: string, ctx: any): { string }
 					flag("ServerScriptService.Kits: kit server internals (use module refs)")
 				end
 			end
+			-- core-v1.3.1 (R19): ServerScriptService.Modules.<Other> is another module's server part
+			for _, pos in childRefs(code, "Modules") do
+				local kind, name = childAfter(code, pos)
+				if kind == "dynamic" then
+					flag("dynamic child name under ServerScriptService.Modules: name the module literally")
+				elseif kind == "child" and name ~= ctx.module then
+					flag(
+						`ServerScriptService.Modules.{name}: another module's server internals (use its module ref, ReplicatedStorage.Modules.{name}.module)`
+					)
+				end
+			end
 			-- a dynamic child of ServerScriptService itself (evasion of the names above)
 			local receivers = { "GetService%s*%(%s*[\"']ServerScriptService[\"']%s*%)()" }
 			for name in sss do
@@ -923,6 +954,16 @@ function Guard.scanSpecial(source: string, ctx: any): { string }
 				local kind, child = childAfter(code, pos)
 				if kind ~= nil then
 					flag(`{name} (= Framework) .{child or "<dynamic>"}: framework internal`)
+				end
+			end
+		end
+		for name in mods do
+			for pos in string.gmatch(code, "%f[%w_]" .. escape(name) .. "()%f[^%w_]") do
+				local kind, child = childAfter(code, pos)
+				if kind == "dynamic" or (kind == "child" and child ~= ctx.module) then
+					flag(
+						`{name} (= ServerScriptService.Modules) .{child or "<dynamic>"}: another module's server internals`
+					)
 				end
 			end
 		end
@@ -961,6 +1002,12 @@ function Guard.scanSpecial(source: string, ctx: any): { string }
 			end
 			if #childRefs(rhs, "Kits") > 0 and isSSS(rhs) then
 				kits[lhs] = true
+			end
+			if #childRefs(rhs, "Modules") > 0 and isSSS(rhs) then
+				local _, child = childAfter(rhs, childRefs(rhs, "Modules")[1])
+				if child == nil then
+					mods[lhs] = true
+				end
 			end
 			for name in sss do
 				if string.match(rhs, "^" .. escape(name) .. "%s*$") then
@@ -1078,8 +1125,12 @@ end
 function Guard.scanSpecialAll(): { string }
 	local findings = {}
 	for _, path in moduleFiles(Guard.SPECIAL_ROOTS) do
-		local kitFolder = string.match(path, "^packages/kits/([^/]+)/")
-		local ctx = { path = path, kit = if kitFolder then KIT_FOLDERS[kitFolder] else nil }
+		local kitFolder, moduleFolder = string.match(path, "^packages/kits/([^/]+)/([^/]+)/")
+		local ctx = {
+			path = path,
+			kit = if kitFolder then KIT_FOLDERS[kitFolder] else nil,
+			module = moduleFolder,
+		}
 		for _, f in Guard.scanSpecial(fs.readFile(path), ctx) do
 			table.insert(findings, f)
 		end
@@ -1090,6 +1141,238 @@ function Guard.scanSpecialAll(): { string }
 				table.insert(findings, f)
 			end
 		end
+	end
+	return findings
+end
+
+--------------------------------------------------------------------------------
+-- special, framework half (core-v1.3.1 R19, "nothing is special, for real"): the framework knows no
+-- kit. Framework code (packages/framework/{shared,server,client}/**, not test/, not specs, not the
+-- generated Blink outputs) and the framework's own Blink file may not name a kit module (a whole
+-- word, case-sensitive: every `name = "..."` of packages/kits/*/*/module.luau), an event a kit
+-- declares in its own net.blink, or the pre-v1.3.1 kit loader names. Read on the comment-stripped
+-- code AND on the normalised text (Guard.normalize: whitespace removed, "a" .. "b" folded, x["N"]
+-- read as x.N), so string literals, field access, indexing and concatenation are all seen.
+--------------------------------------------------------------------------------
+
+Guard.FRAMEWORK_SPECIAL_ROOTS =
+	{ "packages/framework/shared", "packages/framework/server", "packages/framework/client" }
+Guard.FRAMEWORK_BLINK = "packages/framework/shared/net/framework.blink"
+
+-- The pre-v1.3.1 kit layout's names: never in framework code.
+Guard.FRAMEWORK_FIXED_NAMES = { "Kits", "ModuleServers", "ModuleClients", "kitLoadServer" }
+
+-- The kit request events that lived in framework.blink before R19 (v1.2 -> v1.3.0).
+Guard.KIT_V12_EVENTS = {
+	"RequestDisplay",
+	"RequestClearDisplay",
+	"RequestRebirth",
+	"RequestUpgrade",
+	"RequestRoll",
+	"RequestGift",
+	"RequestMailClaim",
+}
+
+-- TRANSITIONAL (core-v1.3.1 Phase 1 -> Phase 3): the ONLY allow-list of the framework scan. The kit
+-- request events still in framework.blink / Net.LIMITS / CLIENT_EVENTS, and the `net = "framework"`
+-- marker kit client parts use until their own net.blink lands (Runtime.buildActions). The
+-- lead DELETES this constant in Phase 3; the scan then flags whatever is left.
+local TRANSITIONAL_V131 = {
+	names = {
+		"RequestDisplay",
+		"RequestClearDisplay",
+		"RequestRebirth",
+		"RequestUpgrade",
+		"RequestRoll",
+		"RequestGift",
+		"RequestMailClaim",
+	},
+	markers = { 'net=="framework"' },
+}
+Guard.TRANSITIONAL_V131 = TRANSITIONAL_V131
+
+-- The names the scan flags: { [name] = reason }. Pure: `kitModules` = kit module names,
+-- `kitEvents` = Blink event names declared in kit net.blink files.
+function Guard.frameworkSpecialNames(kitModules: { string }, kitEvents: { string }): { [string]: string }
+	local names = {}
+	for _, n in kitModules do
+		names[n] = `kit module '{n}'`
+	end
+	for _, n in kitEvents do
+		names[n] = names[n] or `kit event '{n}' (declared in a kit net.blink)`
+	end
+	for _, n in Guard.KIT_V12_EVENTS do
+		names[n] = names[n] or `kit request event '{n}' (belongs in the kit module's own net.blink)`
+	end
+	for _, n in Guard.FRAMEWORK_FIXED_NAMES do
+		names[n] = `pre-v1.3.1 kit layout name '{n}'`
+	end
+	return names
+end
+
+-- Blink event names in a .blink source (`event Name {`), comments ignored.
+function Guard.blinkEvents(source: string): { string }
+	local out = {}
+	for line in string.gmatch(source .. "\n", "([^\n]*)\n") do
+		local code = string.gsub(line, "%-%-.*$", "")
+		local name = string.match(code, "^%s*event%s+([%a_][%w_]*)")
+		if name then
+			table.insert(out, name)
+		end
+	end
+	return out
+end
+
+-- Kit module names and kit net.blink events from the repo (ModuleDiscovery).
+function Guard.kitNamesOnDisk(): ({ string }, { string })
+	local ModuleDiscovery = require("./ModuleDiscovery")
+	local modules, events = {}, {}
+	for _, entry in ModuleDiscovery.discover(fs) do
+		if entry.kit ~= nil then
+			table.insert(modules, entry.name)
+			if entry.blink then
+				for _, e in Guard.blinkEvents(fs.readFile(entry.blink)) do
+					table.insert(events, e)
+				end
+			end
+		end
+	end
+	return modules, events
+end
+
+-- Comment-stripped lines of a Luau (or, with isBlink, a Blink) source; line numbers kept.
+local function codeLinesOf(source: string, isBlink: boolean?): ({ string }, { string })
+	local codeLines, rawLines = {}, {}
+	local inBlock = false
+	for raw in string.gmatch(source .. "\n", "([^\n]*)\n") do
+		local text = raw
+		if isBlink then
+			text = string.gsub(text, "%-%-.*$", "")
+		else
+			if inBlock then
+				local close = string.find(text, "]]", 1, true)
+				if close == nil then
+					text = ""
+				else
+					inBlock = false
+					text = string.sub(text, close + 2)
+				end
+			end
+			local open = string.find(text, "--[[", 1, true) or string.find(text, "--[=[", 1, true)
+			if open then
+				local close = string.find(text, "]]", open + 4, true)
+				if close == nil then
+					inBlock = true
+					text = string.sub(text, 1, open - 1)
+				else
+					text = string.sub(text, 1, open - 1) .. string.sub(text, close + 2)
+				end
+			end
+			text = stripComment(text)
+		end
+		table.insert(codeLines, text)
+		table.insert(rawLines, raw)
+	end
+	return codeLines, rawLines
+end
+
+-- Scans one framework file. ctx = { path, names ({ [name] = reason }), isBlink?, transitional?
+-- (default TRANSITIONAL_V131; the self-test passes {} to prove the allow-list is what lets the
+-- transitional names through) }.
+function Guard.scanFrameworkSpecial(source: string, ctx: any): { string }
+	local transitional = ctx.transitional or TRANSITIONAL_V131
+	local allowedName = {}
+	for _, n in transitional.names or {} do
+		allowedName[n] = true
+	end
+	local codeLines, rawLines = codeLinesOf(source, ctx.isBlink)
+	local norm, lineOf = Guard.normalize(codeLines)
+	local findings, seen = {}, {}
+	local function add(line: number, message: string)
+		if allowed(rawLines[line] or "", "special") then
+			return
+		end
+		local key = `{line}|{message}`
+		if not seen[key] then
+			seen[key] = true
+			table.insert(findings, { line = line, text = `{ctx.path}:{line}: [special] {message}` })
+		end
+	end
+	local function message(reason: string): string
+		return `{reason} in framework code: the framework knows no kit (R19; move it into the kit module)`
+	end
+	local names = {}
+	for name in ctx.names do
+		table.insert(names, name)
+	end
+	table.sort(names)
+	for _, name in names do
+		if not allowedName[name] then
+			local pattern = "%f[%w_]" .. escape(name) .. "%f[^%w_]"
+			-- 1. each comment-stripped line, concatenations folded (`return Mail`, `"Ma" .. "il"`)
+			for lineNo, code in codeLines do
+				if string.find(foldConcat(code), pattern) then
+					add(lineNo, message(ctx.names[name]))
+				end
+			end
+			-- 2. the normalised file (split across lines, x["Mail"] -> x.Mail)
+			local init = 1
+			while true do
+				local s, e = string.find(norm, pattern, init)
+				if s == nil then
+					break
+				end
+				add(lineOf[s] or 1, message(ctx.names[name]))
+				init = (e or s) + 1
+			end
+		end
+	end
+	-- the transitional `net = "framework"` marker (kit client parts on the framework's Blink file)
+	local markers = { 'net=="framework"' }
+	local allowedMarker = {}
+	for _, m in transitional.markers or {} do
+		allowedMarker[m] = true
+	end
+	for _, marker in markers do
+		if not allowedMarker[marker] then
+			local s = string.find(norm, marker, 1, true)
+			if s then
+				add(lineOf[s] or 1, message('the kit net marker net == "framework"'))
+			end
+		end
+	end
+	table.sort(findings, function(a, b)
+		return a.line < b.line
+	end)
+	local out = {}
+	for _, f in findings do
+		table.insert(out, f.text)
+	end
+	return out
+end
+
+function Guard.scanFrameworkSpecialAll(): { string }
+	local modules, events = Guard.kitNamesOnDisk()
+	local names = Guard.frameworkSpecialNames(modules, events)
+	local generated = Guard.generatedFiles()
+	local findings = {}
+	local files = {}
+	for _, root in Guard.FRAMEWORK_SPECIAL_ROOTS do
+		walk(root, files)
+	end
+	table.sort(files)
+	for _, path in files do
+		if not string.match(path, "%.spec%.luau$") and not generated[normalizePath(path)] then
+			for _, f in Guard.scanFrameworkSpecial(fs.readFile(path), { path = path, names = names }) do
+				table.insert(findings, f)
+			end
+		end
+	end
+	local blink = Guard.FRAMEWORK_BLINK
+	for _, f in
+		Guard.scanFrameworkSpecial(fs.readFile(blink), { path = blink, names = names, isBlink = true })
+	do
+		table.insert(findings, f)
 	end
 	return findings
 end
@@ -1505,6 +1788,133 @@ local function selfTest(): boolean
 		"special allowed",
 		Guard.scanSpecial("local S = require(RS.Framework.Resolve) -- guard: allow special", kitCtx)
 	)
+	-- special, SSS.Modules (core-v1.3.1 R19): another module's server part is internal
+	local modCtx =
+		{ path = "packages/kits/economy/Upgrades/server/init.luau", kit = "Economy", module = "Upgrades" }
+	for _, case in
+		{
+			{
+				"other module server",
+				'local SSS = game:GetService("ServerScriptService")\nlocal I = require(SSS:WaitForChild("Modules"):WaitForChild("Inventory"))',
+			},
+			{
+				"other module server dot",
+				'local I = require(game:GetService("ServerScriptService").Modules.Inventory)',
+			},
+			{
+				"other module alias",
+				'local SSS = game:GetService("ServerScriptService")\nlocal M = SSS:WaitForChild("Modules")\nlocal I = require(M.Inventory)',
+			},
+			{
+				"dynamic module",
+				'local SSS = game:GetService("ServerScriptService")\nlocal I = require(SSS.Modules[name])',
+			},
+		}
+	do
+		expectCheck("special " .. case[1], Guard.scanSpecial(case[2], modCtx), "special")
+	end
+	expectClean(
+		"special clean module refs",
+		Guard.scanSpecial(
+			'local Economy = require(ReplicatedStorage:WaitForChild("Modules"):WaitForChild("Economy"):WaitForChild("module"))',
+			modCtx
+		)
+	)
+	-- v1.3.1 module refs in Config and game code (modules check)
+	local refMods131 = Guard.parseModules(
+		'modules = {\n\trequire(Modules:WaitForChild("Items"):WaitForChild("module")), -- "Rebirth"\n} :: { any },'
+	)
+	if not (refMods131 and refMods131.Items and not refMods131.Rebirth and not refMods131.module) then
+		table.insert(failures, "parseModules: v1.3.1 ref lines not read (or a comment / 'module' was)")
+	end
+	expectCheck(
+		"ref off v1.3.1",
+		Guard.scanSource(
+			'local Rebirth = require(Modules:WaitForChild("Rebirth"):WaitForChild("module"))',
+			{ path = "games/x/modules/x/server/init.luau", modules = refMods131, isServer = true }
+		),
+		"modules"
+	)
+
+	-- special, framework half (core-v1.3.1 R19): planted kit names in framework code are caught
+	local fwNames = Guard.frameworkSpecialNames({ "Mail", "Economy" }, { "SendGift" })
+	local fwCtx = { path = "packages/framework/server/X.luau", names = fwNames }
+	for _, case in
+		{
+			{ "string literal", 'local x = "Mail"' },
+			{ "field", "local n = state.modules.Mail" },
+			{ "index", 'local n = state.modules["Mail"]' },
+			{ "concat", 'local n = state.modules["Ma" .. "il"]' },
+			{ "concat split", 'local n = "Ma"\n\t.. "il"' },
+			{ "bare word", "return Mail" },
+			{ "widget id", 'UI.registerWidget("Economy.currency", spec)' },
+			{ "kit event", "local e = Generated.SendGift" },
+			{ "loader name", 'local k = sss:FindFirstChild("Kits")' },
+			{ "loader fn", "local function kitLoadServer() end" },
+			{ "ModuleClients", "local c = require(kit.ModuleClients)" },
+		}
+	do
+		expectCheck("framework special " .. case[1], Guard.scanFrameworkSpecial(case[2], fwCtx), "special")
+	end
+	expectCheck(
+		"framework special kit event in framework.blink",
+		Guard.scanFrameworkSpecial(
+			"event SendGift {\n    From: Client,\n    Data: u8\n}",
+			{ path = Guard.FRAMEWORK_BLINK, names = fwNames, isBlink = true }
+		),
+		"special"
+	)
+	expectCheck(
+		"framework special kit module in a framework.blink field",
+		Guard.scanFrameworkSpecial(
+			"struct M {\n    Mail: string?\n}",
+			{ path = Guard.FRAMEWORK_BLINK, names = fwNames, isBlink = true }
+		),
+		"special"
+	)
+	for _, clean in
+		{
+			{ "comment only", "-- Mail and Economy are kits\nlocal x = 1" },
+			{ "block comment", "--[[\n\tMail\n]]\nlocal x = 1" },
+			{ "longer word", "local MailboxEntry = 1\nlocal t: RarityTier? = nil" },
+			{ "lower case key", "local mail = section.mail" },
+			{ "transitional event", "local e = Generated.RequestMailClaim" },
+			{ "transitional marker", 'if net == "framework" then end' },
+		}
+	do
+		expectClean("framework special clean " .. clean[1], Guard.scanFrameworkSpecial(clean[2], fwCtx))
+	end
+	expectClean(
+		"framework special blink comment",
+		Guard.scanFrameworkSpecial(
+			"-- the Mail kit used to live here\nevent Ping {\n    From: Client\n}",
+			{ path = Guard.FRAMEWORK_BLINK, names = fwNames, isBlink = true }
+		)
+	)
+	-- without the transitional allow-list (Phase 3) the same lines are findings
+	local noTransition = { path = fwCtx.path, names = fwNames, transitional = {} }
+	expectCheck(
+		"framework special event without TRANSITIONAL_V131",
+		Guard.scanFrameworkSpecial("local e = Generated.RequestMailClaim", noTransition),
+		"special"
+	)
+	expectCheck(
+		"framework special marker without TRANSITIONAL_V131",
+		Guard.scanFrameworkSpecial('if net == "framework" then end', noTransition),
+		"special"
+	)
+	expectCheck(
+		"framework special event in framework.blink without TRANSITIONAL_V131",
+		Guard.scanFrameworkSpecial(
+			"event RequestUpgrade {\n    From: Client\n}",
+			{ path = Guard.FRAMEWORK_BLINK, names = fwNames, isBlink = true, transitional = {} }
+		),
+		"special"
+	)
+	if #Guard.blinkEvents("-- event Nope {\nevent Yes {\n}\n") ~= 1 then
+		table.insert(failures, "blinkEvents: commented-out event read")
+	end
+
 	-- theme (D's R4)
 	local ui = { path = "packages/ui/Badge.luau" }
 	expectCheck(
@@ -1570,6 +1980,9 @@ if runGit then
 		table.insert(findings, f)
 	end
 	for _, f in Guard.scanSpecialAll() do
+		table.insert(findings, f)
+	end
+	for _, f in Guard.scanFrameworkSpecialAll() do
 		table.insert(findings, f)
 	end
 end

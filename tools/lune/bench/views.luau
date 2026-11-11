@@ -29,9 +29,10 @@ Harness.mapGame(nil)
 local ReplicatedStorage = Harness.game:GetService("ReplicatedStorage")
 local StudWork = Harness.require(ReplicatedStorage.Framework)
 local Freeze = Harness.require("packages/framework/shared/Freeze.luau")
-local Kits = ReplicatedStorage.Kits
+local Modules = ReplicatedStorage.Modules
 local function kit(k, m)
-	return Harness.require(Kits[k][m])
+	local _ = k -- kit folder (pre-v1.3.1); modules are found by name
+	return Harness.require(Modules[m].module)
 end
 local Items = kit("Collection", "Items")
 local Inventory = kit("Collection", "Inventory")

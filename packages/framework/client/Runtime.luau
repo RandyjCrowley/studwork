@@ -7,7 +7,7 @@
 	  1. resolve       GameConfig.modules + the game's implicit module (§7, C4), same Resolve as
 	                   the server (refs, hard deps listed, unique names/keys, topo order)
 	  2. validate      the shared ConfigValidate (config.<Name>, items, theme); all errors at once
-	  3. client parts  each module's client part, found BY NAME (ref.client): see defaultLoadClient
+	  3. client parts  each module's client part, found BY NAME (ref.client): Runtime.defaultLoadClient
 	  4. ui            the framework client UI (State sync, Input, Feedback, Hud) unless opts.ui == false
 	  5. init(ctx), start(ctx) of every client part, in boot order
 
@@ -42,37 +42,42 @@ local function pascal(name: string): string
 	return string.upper(string.sub(name, 1, 1)) .. string.sub(name, 2)
 end
 
--- ReplicatedStorage.Modules.<client>.client (§1), the game module's GameModule.client, then the
--- Phase 0 kit layout: ReplicatedStorage.Kits.<Kit>.ModuleClients.loadClient(ref) (TEMPORARY).
-local function defaultLoadClient(ref: any, isGame: boolean): any
+-- The live client part lookup (module-api.md §19.9, added in core-v1.3.1: R19, one folder per
+-- module): the game module's ReplicatedStorage.GameModule.client, else
+-- ReplicatedStorage.Modules[ref.client].client. A part without a `net` field gets that instance's
+-- `Net` ModuleScript child (the module's generated Blink client module, from its net.blink) as
+-- `net`, so `actions = { "name" }` fires the module's own event. nil when there is none.
+local function bindNet(instance: any, part: any): any
+	if type(part) ~= "table" or part.net ~= nil then
+		return part
+	end
+	local net = instance:FindFirstChild("Net")
+	if net == nil or not net:IsA("ModuleScript") then
+		return part
+	end
+	local out = if table.isfrozen(part) then table.clone(part) else part
+	out.net = (require :: any)(net)
+	return out
+end
+
+-- `root` (tests): the ReplicatedStorage stand-in to look in.
+function Runtime.defaultLoadClient(ref: any, isGame: boolean?, root: any?): any
 	if ref.client == nil then
 		return nil
 	end
-	local ReplicatedStorage = game:GetService("ReplicatedStorage")
+	local ReplicatedStorage = root or game:GetService("ReplicatedStorage")
 	if isGame then
 		local folder = ReplicatedStorage:FindFirstChild("GameModule")
 		local part = folder and folder:FindFirstChild("client")
 		if part and part:IsA("ModuleScript") then
-			return (require :: any)(part)
+			return bindNet(part, (require :: any)(part))
 		end
 	end
 	local modules = ReplicatedStorage:FindFirstChild("Modules")
 	local holder = modules and modules:FindFirstChild(ref.client)
 	local part = holder and holder:FindFirstChild("client")
 	if part and part:IsA("ModuleScript") then
-		return (require :: any)(part)
-	end
-	local kits = ReplicatedStorage:FindFirstChild("Kits")
-	if kits then
-		for _, kit in kits:GetChildren() do
-			local clients = kit:FindFirstChild("ModuleClients")
-			if clients and clients:IsA("ModuleScript") then
-				local found = (require :: any)(clients).loadClient(ref)
-				if found ~= nil then
-					return found
-				end
-			end
-		end
+		return bindNet(part, (require :: any)(part))
 	end
 	return nil
 end
@@ -222,7 +227,7 @@ function Runtime.start(gameConfig: any, serverConfig: any?, opts: any?): any
 		local stateAtom: any = o.state
 		local computed: any = o.computed
 		for _, ref in order do
-			local part = if o.loadClient then o.loadClient(ref) else defaultLoadClient(ref, ref == gm)
+			local part = if o.loadClient then o.loadClient(ref) else Runtime.defaultLoadClient(ref, ref == gm)
 			if part ~= nil and type(part) ~= "table" then
 				error(`{ref.name}: client part must return a table, got {type(part)}`, 0)
 			end

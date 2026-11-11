@@ -1,42 +1,21 @@
 --!strict
 --[[
-	What the core HUD shows for the enabled modules (pure).
-	  currency/rate: only with Economy (no currencies without it); rate also honours opts.showRate.
+	What the framework HUD itself shows (pure).
 	  goal: whenever the game passes opts.nextGoal (the text is game-defined, any module set).
-	  mailbox: the mailbox badge slot, only with Mail (v1.2, N1); drawn while mailboxCount > 0.
+	core-v1.3.1 (R19): module widgets (the currency counter, the mailbox badge) are registered by
+	their modules' client parts with UI.registerWidget and gated by their own module; the framework
+	decides nothing per module.
 ]]
-
-local Slices = require(script.Parent.Slices)
 
 local Visibility = {}
 
-export type Shown = { currency: boolean, rate: boolean, goal: boolean, mailbox: boolean }
-
--- Number of held mailbox messages (0 when absent or malformed). Reads Mail's client slice
--- (state.modules.Mail.extra.mailbox) and, for a v1.2 flat state, state.mailbox.
-function Visibility.mailboxCount(state: any): number
-	local box = Slices.extra(state, "Mail", "mailbox")
-	if type(box) ~= "table" then
-		return 0
-	end
-	local n = 0
-	for _ in box do
-		n += 1
-	end
-	return n
-end
+export type Shown = { goal: boolean }
 
 function Visibility.of(
-	isEnabled: (name: string) -> boolean,
+	_isEnabled: (name: string) -> boolean,
 	opts: { showRate: boolean?, nextGoal: any? }
 ): Shown
-	local economy = isEnabled("Economy")
-	return {
-		currency = economy,
-		rate = economy and opts.showRate ~= false,
-		goal = opts.nextGoal ~= nil,
-		mailbox = isEnabled("Mail"),
-	}
+	return { goal = opts.nextGoal ~= nil }
 end
 
 return Visibility

@@ -4,14 +4,13 @@
 
 ```lua
 -- games/<g>/src/shared/Config/init.luau
-local Collection = ReplicatedStorage:WaitForChild("Kits"):WaitForChild("Collection")
-local EconomyKit = ReplicatedStorage:WaitForChild("Kits"):WaitForChild("Economy")
+local Modules = ReplicatedStorage:WaitForChild("Modules")
 return {
 	gameId = "my-game",
 	modules = {
-		require(Collection:WaitForChild("Items")),
-		require(Collection:WaitForChild("Inventory")),
-		require(EconomyKit:WaitForChild("Economy")),
+		require(Modules:WaitForChild("Items"):WaitForChild("module")),
+		require(Modules:WaitForChild("Inventory"):WaitForChild("module")),
+		require(Modules:WaitForChild("Economy"):WaitForChild("module")),
 	},
 	config = { Economy = { primaryCurrency = "Coins" } },
 	items = { { id = "pebble", name = "Pebble", rarity = "Common", economy = { incomePerSec = 1 } } },

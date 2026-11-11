@@ -212,9 +212,9 @@ end
 -- Fake `game` exposing only the Rojo mapping of core (see games/_sandbox/default.project.json):
 --   ReplicatedStorage.FrameworkClient -> packages/framework/client, .UI -> packages/ui,
 --   .Packages -> Packages, .Framework -> packages/framework/shared,
---   .Kits.<Kit> -> packages/kits/<kit>/shared; ServerScriptService.Framework ->
---   packages/framework/server, .FrameworkTest -> packages/framework/test (StudWork.test),
---   .Kits.<Kit> -> packages/kits/<kit>/server.
+--   .Modules.<Name>.{module,client,shared} -> each module folder's parts (below);
+--   ServerScriptService.Framework -> packages/framework/server, .FrameworkTest ->
+--   packages/framework/test (StudWork.test), .Modules.<Name> -> each module's server/.
 -- Any other service errors, so a spec cannot silently depend on the engine.
 local folderNode
 function folderNode(children: { [string]: any })
@@ -251,30 +251,25 @@ function folderNode(children: { [string]: any })
 	})
 end
 
+-- Every shipped module folder (packages/kits/*/*/module.luau, examples/modules/*/module.luau),
+-- mapped like Rojo (core-v1.3.1 R19, module-api.md §1): ReplicatedStorage.Modules.<Name>.{module,
+-- client, shared} and ServerScriptService.Modules.<Name> (the server part). Discovery is shared
+-- with the sim and tools/sync-projects (tools/lune/ModuleDiscovery.luau).
+local ModuleDiscovery = require("../ModuleDiscovery")
+local MODULE_CHILDREN = ModuleDiscovery.children(ModuleDiscovery.discover(fs))
+
 local BASE_CHILDREN: { [string]: { [string]: any } } = {
 	ReplicatedStorage = {
 		FrameworkClient = "packages/framework/client",
 		UI = "packages/ui",
 		Packages = "deps/Packages",
 		Framework = "packages/framework/shared",
-		Kits = {
-			Collection = "packages/kits/collection/shared",
-			Economy = "packages/kits/economy/shared",
-			Base = "packages/kits/base/shared",
-			Social = "packages/kits/social/shared",
-			Engagement = "packages/kits/engagement/shared",
-		},
+		Modules = MODULE_CHILDREN.ReplicatedStorage,
 	},
 	ServerScriptService = {
 		Framework = "packages/framework/server",
 		FrameworkTest = "packages/framework/test", -- the StudWork module harness (specs only)
-		Kits = {
-			Collection = "packages/kits/collection/server",
-			Economy = "packages/kits/economy/server",
-			Base = "packages/kits/base/server",
-			Social = "packages/kits/social/server",
-			Engagement = "packages/kits/engagement/server",
-		},
+		Modules = MODULE_CHILDREN.ServerScriptService,
 	},
 }
 
@@ -316,18 +311,25 @@ function Harness.mapGame(specPath: string?)
 		return
 	end
 	local project = serde.decode("json", fs.readFile(projectPath))
-	local merged: { [string]: { [string]: any } } = {}
-	for serviceName, base in BASE_CHILDREN do
+	-- names the base mapping already has keep the base path; folders (Modules) merge per child,
+	-- so the game's own ServerScriptService.Modules.<GameModule> sits next to the kit modules
+	local function merge(base: { [string]: any }, extra: { [string]: any }): { [string]: any }
 		local kids = table.clone(base)
-		local tree = project.tree and project.tree[serviceName]
-		if type(tree) == "table" then
-			for name, value in projectChildren(gameDir :: string, tree) do
-				if kids[name] == nil then
-					kids[name] = value
-				end
+		for name, value in extra do
+			if kids[name] == nil then
+				kids[name] = value
+			elseif type(kids[name]) == "table" and type(value) == "table" then
+				kids[name] = merge(kids[name], value)
 			end
 		end
-		merged[serviceName] = kids
+		return kids
+	end
+	local merged: { [string]: { [string]: any } } = {}
+	for serviceName, base in BASE_CHILDREN do
+		local tree = project.tree and project.tree[serviceName]
+		merged[serviceName] = if type(tree) == "table"
+			then merge(base, projectChildren(gameDir :: string, tree))
+			else table.clone(base)
 	end
 	fakeServices = servicesFrom(merged)
 end

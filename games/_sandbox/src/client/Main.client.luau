@@ -25,12 +25,12 @@ local UI = require(ReplicatedStorage:WaitForChild("UI"))
 
 local Charm = require(ReplicatedStorage:WaitForChild("Packages"):WaitForChild("Charm"))
 
-local KitDefs = ReplicatedStorage:WaitForChild("Kits")
-local Rarity = require(KitDefs:WaitForChild("Collection"):WaitForChild("Rarity"))
-local EconomyDef = require(KitDefs:WaitForChild("Economy"):WaitForChild("Economy"))
-local Upgrades = require(KitDefs:WaitForChild("Economy"):WaitForChild("Upgrades"))
-local Rebirth = require(KitDefs:WaitForChild("Economy"):WaitForChild("Rebirth"))
-local Mail = require(KitDefs:WaitForChild("Social"):WaitForChild("Mail"))
+local Modules = ReplicatedStorage:WaitForChild("Modules")
+local Rarity = require(Modules:WaitForChild("Rarity"):WaitForChild("module"))
+local EconomyDef = require(Modules:WaitForChild("Economy"):WaitForChild("module"))
+local Upgrades = require(Modules:WaitForChild("Upgrades"):WaitForChild("module"))
+local Rebirth = require(Modules:WaitForChild("Rebirth"):WaitForChild("module"))
+local Mail = require(Modules:WaitForChild("Mail"):WaitForChild("module"))
 
 local e = React.createElement
 

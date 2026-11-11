@@ -7,18 +7,20 @@
 	parseArgs(args)                 -> (opts?, error?)   opts = { name, modules: {string}?, designDoc }
 	resolveModules(Modules, names)  -> (ordered?, added?, errors?)  adds missing hard dependencies
 	                                    (transitively) and reports them in `added`
-	rewriteModulesBlock(src, list, kitFolder?) -> (src?, error?)
+	rewriteModulesBlock(src, list, modulesVar?) -> (src?, error?)
 	                                    keeps the template's commented line of every chosen module
 	                                    in the Config `modules = { ... }` block. Lines are either
-	                                    v1.2 names (`"Items", -- ...`) or v1.3 module refs
-	                                    (`require(Collection:WaitForChild("Items")), -- ...`);
-	                                    kitFolder(name) names the Kits folder for added ref lines
+	                                    v1.2 names (`"Items", -- ...`) or module refs
+	                                    (`require(Modules:WaitForChild("Items"):WaitForChild("module")),`;
+	                                    core-v1.3.1 R19); added ref lines use the local
+	                                    `modulesVar` (default "Modules" = ReplicatedStorage.Modules)
 	trimDependsOn(src, list)        -> (src?, error?)    the game module's `dependsOn = { ... }`:
 	                                    drops the refs of modules not in `list` (adds none)
 	pruneKitLocals(src)             -> src               drops the kit locals nothing uses any more:
-	                                    `local X = KitDefs:WaitForChild("X")`, `local KitDefs =
-	                                    ReplicatedStorage:WaitForChild("Kits")` and `local X =
-	                                    require(Y:WaitForChild("Z"))` (repeated until stable)
+	                                    `local Modules = ReplicatedStorage:WaitForChild("Modules")`,
+	                                    `local X = require(Modules:WaitForChild("X"):WaitForChild(
+	                                    "module"))`, the pre-v1.3.1 Kits forms, and unused
+	                                    `game:GetService` locals (repeated until stable)
 	applyMarkers(src, chosen)       -> (src?, error?)    the template's module markers (below):
 	                                    keeps the code of the chosen modules, drops the rest and
 	                                    removes every marker
@@ -147,7 +149,9 @@ function NewGame.resolveModules(Modules: any, names: { string }): ({ string }?, 
 end
 
 local function lineModule(line: string): string?
-	local ref = string.match(line, 'require%([%w_]+:WaitForChild%("([%w_]+)"%)%)')
+	-- v1.3.1 refs: require(Modules:WaitForChild("Items"):WaitForChild("module"))
+	local ref = string.match(line, 'require%([%w_]+:WaitForChild%("([%w_]+)"%):WaitForChild%("module"%)%)')
+		or string.match(line, 'require%([%w_]+:WaitForChild%("([%w_]+)"%)%)')
 	if ref then
 		return ref
 	end
@@ -215,12 +219,12 @@ end
 function NewGame.rewriteModulesBlock(
 	source: string,
 	list: { string },
-	kitFolder: ((name: string) -> string?)?
+	modulesVar: string?
 ): (string?, string?)
+	local folder = modulesVar or "Modules"
 	local out, err = rewriteBlock(source, "modules", list, function(n: string, refStyle: boolean): string
-		local folder = kitFolder and kitFolder(n)
-		if refStyle and folder then
-			return `\t\trequire({folder}:WaitForChild("{n}")),`
+		if refStyle then
+			return `\t\trequire({folder}:WaitForChild("{n}"):WaitForChild("module")),`
 		end
 		return '\t\t"' .. n .. '",'
 	end)
@@ -237,7 +241,9 @@ end
 local KIT_LOCAL_PATTERNS = {
 	'^local ([%w_]+) = KitDefs:WaitForChild%("[%w_]+"%)$',
 	'^local ([%w_]+) = ReplicatedStorage:WaitForChild%("Kits"%)$',
+	'^local ([%w_]+) = ReplicatedStorage:WaitForChild%("Modules"%)$',
 	'^local ([%w_]+) = require%([%w_]+:WaitForChild%("[%w_]+"%)%)$',
+	'^local ([%w_]+) = require%([%w_]+:WaitForChild%("[%w_]+"%):WaitForChild%("module"%)%)$',
 	'^local ([%w_]+) = game:GetService%("%a+"%)$',
 }
 

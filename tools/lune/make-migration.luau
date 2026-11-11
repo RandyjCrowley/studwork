@@ -82,14 +82,18 @@ end
 -- a module inside a game: make sure its Rojo mapping carries the migrations folder
 local gameName, folder = string.match(dir, "^games/([^/]+)/modules/([^/]+)$")
 if gameName then
-	local serde = require("@lune/serde")
+	-- order-preserving JSON (tools/sync-projects), so lint's sync-projects --check stays clean
+	local SyncProjects = require("./SyncProjects")
 	local projectPath = "games/" .. gameName .. "/default.project.json"
-	local project = serde.decode("json", fs.readFile(projectPath))
-	local rsModules = project.tree.ReplicatedStorage and project.tree.ReplicatedStorage.Modules
-	local entry = rsModules and rsModules[plan.name]
-	if entry and entry.migrations == nil then
-		entry.migrations = { ["$path"] = "modules/" .. folder .. "/migrations" }
-		fs.writeFile(projectPath, serde.encode("json", project, true) .. "\n")
+	local project = SyncProjects.decode(fs.readFile(projectPath))
+	local rs = project.vals.tree.vals.ReplicatedStorage
+	local rsModules = rs and rs.vals.Modules
+	local entry = rsModules and rsModules.vals[plan.name]
+	if entry and entry.vals.migrations == nil then
+		local node = SyncProjects.newObject()
+		SyncProjects.set(node, "$path", "modules/" .. folder .. "/migrations")
+		SyncProjects.set(entry, "migrations", node)
+		fs.writeFile(projectPath, SyncProjects.encode(project))
 		print("mapped " .. plan.name .. ".migrations in " .. projectPath)
 	elseif entry == nil then
 		print(

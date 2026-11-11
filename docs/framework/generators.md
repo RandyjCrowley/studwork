@@ -42,6 +42,7 @@ markers for every single module, for all and for none, and checks the result com
 ```
 tools/make-module <Name> --game <game>     # games/<game>/modules/<name-kebab>/, mapped in the game's project
 tools/make-module <Name> --dir <path>      # anywhere, e.g. examples/modules/<name>
+tools/make-module <Name> ... --net         # also net.blink (the module's own messages)
 ```
 
 Writes the module anatomy:
@@ -53,10 +54,27 @@ Writes the module anatomy:
 | `client/init.luau` | a client `api` reading the replicated slice |
 | `tests/<Name>.spec.luau` | a passing harness test (boot, save section, config override) |
 | `README.md` | config, API and save-data tables to fill in |
+| `net.blink` (`--net`) | the module's own client <-> server events: `option RemoteScope = "STUDWORK_<NAME>"`, `Casing = Pascal`, `ServerOutput = "server/Net.luau"`, `ClientOutput = "client/Net.luau"` (the core-v1.3.1 convention); run `tools/net` to generate both `Net.luau` files, which the framework binds as the parts' `net` (module-api.md §19.9) |
 
 With `--game` it adds `ReplicatedStorage.Modules.<Name>` (`module`, `client`) and
 `ServerScriptService.Modules.<Name>` to the game's `default.project.json`. It prints the
 `GameConfig.modules` line to add. No `migrations/` folder until the first migration.
+
+## tools/sync-projects
+
+```
+tools/sync-projects            # rewrite the generated module entries of every *.project.json
+tools/sync-projects --check    # exit 1 on drift (tools/lint runs it)
+```
+
+Every built-in kit module (`packages/kits/<kit>/<Module>/`) is mapped in every project under
+`games/`, `templates/` and `examples/` as `ReplicatedStorage.Modules.<Module>.{module, client,
+shared}` and `ServerScriptService.Modules.<Module>` (the parts that exist); an example module
+(`examples/modules/<x>/`) only in the projects inside its own folder (its fixture games). Those
+entries are generated (core-v1.3.1, one folder per module): don't edit them by hand. The project's
+own `Modules` entries (the game module's server part, a game-local module from `make-module
+--game`) are kept as written. Module folders are found by `tools/lune/ModuleDiscovery.luau`, the
+same discovery the Lune testkit and the multi-server sim use.
 
 ## tools/make-migration
 

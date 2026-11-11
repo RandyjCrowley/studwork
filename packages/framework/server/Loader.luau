@@ -22,50 +22,46 @@ local Loader = {}
 -- net (step 4b): the module's own generated Blink server module; its events back `actions`
 local SURFACES = { "api", "txApi", "extensions", "purchaseOps", "actions", "net" }
 
--- The Phase 0 kit layout (core-v1.3.0 step 4b-IIa, TEMPORARY until the Phase 1 kit rewrite moves
--- each kit module to ServerScriptService.Modules): the eleven v1.2 services sit in
--- ServerScriptService.Kits.<Kit>, and each kit's ModuleServers.loadServer(ref) returns the
--- module's server part (packages/kits/<kit>/server/ModuleServers.luau).
-local function kitLoadServer(ref: any): any
-	local kits = game:GetService("ServerScriptService"):FindFirstChild("Kits")
-	if kits == nil then
+-- The live lookup (module-api.md §19.9, added in core-v1.3.1: R19, one folder per module):
+-- ServerScriptService.Modules[ref.server], a direct child and nothing else (Rojo maps every
+-- module folder's server/ there). Then:
+--   * a required table with a `new` function and no `init`/`start` is a part FACTORY: new() builds
+--     a fresh part, so two runtimes in one process (tests, the sim) never share module state;
+--   * a part without a `net` field gets the server part instance's `Net` ModuleScript child (the
+--     module's generated Blink server module, from its net.blink) as `net`; it backs `actions`.
+-- nil when the module has no server part (a definition-only module is valid).
+-- `modulesFolder` (tests): the folder to look in instead of ServerScriptService.Modules.
+-- `opts.bindNet == false` (the Lune testkit and the sim: no Blink wire there, and a generated Net
+-- module needs the engine): don't bind the Net child.
+function Loader.defaultLoadServer(ref: any, modulesFolder: any?, opts: { bindNet: boolean? }?): any
+	local folder = modulesFolder or game:GetService("ServerScriptService"):FindFirstChild("Modules")
+	if folder == nil then
 		return nil
 	end
-	for _, kit in kits:GetChildren() do
-		local servers = kit:FindFirstChild("ModuleServers")
-		if servers and servers:IsA("ModuleScript") then
-			local impl = (require :: any)(servers).loadServer(ref)
-			if impl ~= nil then
-				return impl
-			end
+	local instance = folder:FindFirstChild(ref.server)
+	if instance == nil or not instance:IsA("ModuleScript") then
+		return nil
+	end
+	local part = (require :: any)(instance)
+	if type(part) ~= "table" then
+		return part -- Loader.load reports the type
+	end
+	if type(part.new) == "function" and part.init == nil and part.start == nil then
+		part = part.new()
+		if type(part) ~= "table" then
+			error(`{ref.server}.new() must return the server part table, got {type(part)}`, 0)
 		end
 	end
-	return nil
-end
-
--- ServerScriptService.Modules.<server>, or one level down in a kit folder
--- (ServerScriptService.Modules.<Kit>.<server>), so a game's Rojo project can map each kit's
--- server/modules folder as a whole; then the Phase 0 kit layout (kitLoadServer).
-local function defaultLoadServer(ref: any): any
-	local folder = game:GetService("ServerScriptService"):FindFirstChild("Modules")
-	if folder == nil then
-		return kitLoadServer(ref)
-	end
-	local part = folder:FindFirstChild(ref.server)
-	if part == nil then
-		for _, child in folder:GetChildren() do
-			if child:IsA("Folder") then
-				part = child:FindFirstChild(ref.server)
-				if part then
-					break
-				end
+	if part.net == nil and not (opts and opts.bindNet == false) then
+		local net = instance:FindFirstChild("Net")
+		if net ~= nil and net:IsA("ModuleScript") then
+			if table.isfrozen(part) then
+				part = table.clone(part)
 			end
+			part.net = (require :: any)(net)
 		end
 	end
-	if part == nil or not part:IsA("ModuleScript") then
-		return kitLoadServer(ref)
-	end
-	return (require :: any)(part)
+	return part
 end
 
 function Loader.load(
@@ -80,7 +76,7 @@ function Loader.load(
 	if order == nil then
 		error("invalid GameConfig.modules:\n  - " .. table.concat(errors :: { string }, "\n  - "), 0)
 	end
-	local find = loadServer or defaultLoadServer
+	local find = loadServer or Loader.defaultLoadServer
 	local impls: { [any]: any } = {}
 	local implErrors: { string } = {}
 	for _, ref in order do

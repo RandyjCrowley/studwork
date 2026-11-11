@@ -1,14 +1,14 @@
 # Social kit: Friends, Mail
 
 Co-play detection and cross-server, offline-safe messages with a mailbox. Code:
-`packages/kits/social`. Phase 1 status: being rebuilt on the module API (agent C). Entries marked
+`packages/kits/social/<Module>/` (one folder per module since core-v1.3.1: `module.luau`, `server/`, `client/`; Rojo `ReplicatedStorage.Modules.<Module>`, `ServerScriptService.Modules.<Module>`). Phase 1 status: being rebuilt on the module API (agent C). Entries marked
 **(contract)** are pinned by
 [PHASE1-CONTRACT.md]((internal build report, not public)).
 
 ```lua
-local Social = ReplicatedStorage:WaitForChild("Kits"):WaitForChild("Social")
-local Friends = require(Social:WaitForChild("Friends"))
-local Mail = require(Social:WaitForChild("Mail"))
+local Modules = ReplicatedStorage:WaitForChild("Modules")
+local Friends = require(Modules:WaitForChild("Friends"):WaitForChild("module"))
+local Mail = require(Modules:WaitForChild("Mail"):WaitForChild("module"))
 ```
 
 ## Friends
@@ -56,6 +56,12 @@ idempotent (key them on the message id). Messages reach offline players and othe
 - **Widget and screen:** the mailbox badge and the `Mailbox` screen (theme guide).
 - **Save data:** section `mail`: `{ mail = { seen, attempts, dead, box?, outbox? } }`, not
   replicated (the mailbox goes out as `extra.mailbox`).
+
+**Client part (`Mail/client/`, core-v1.3.1):** `StudWork.use(Mail).actions.claimMail(messageId)`;
+`StudWork.use(Mail).onMailbox(fn(count)) -> Connection` (was `StudWork.Client.onMailbox`); the HUD
+badge widget `"Social.mailbox"` (topCenter, order 3, while messages wait; tapping calls
+`HudOptions.onMailbox` or opens the `"Mailbox"` screen), registered with `UI.registerWidget` at
+start, so `client.hud.widgets["Social.mailbox"] = false` still removes it.
 
 ## Example: a gift kind your module owns
 

@@ -3,11 +3,11 @@
 	One simulated Roblox server, booted through StudWork.start: the REAL framework server runtime
 	(packages/framework/server: Data + Store.profileStore, Net, Shop, Policy, Compliance,
 	Replication, ...) with the REAL vendored ProfileStore 1.0.3 against the World's mock
-	DataStore/MessagingService, and the REAL kit modules (packages/kits/*/{shared,server}).
+	DataStore/MessagingService, and the REAL kit modules (packages/kits/<kit>/<Module>/, mapped like Rojo).
 	Reached by specs as StudWork.test.sim (module-api.md §15) or this folder's Fixtures.
 
 	What is real vs modelled (see also README.md in this folder):
-	  real      packages/framework/{shared,server}, packages/kits/*/{shared,server} (every module
+	  real      packages/framework/{shared,server}, packages/kits/*/<Module> (every module
 	            in the config's `modules`), ProfileStore.luau.
 	  modelled  Roblox engine services (Players, RunService, DataStoreService, MessagingService,
 	            HttpService, MarketplaceService), the framework's engine adapter (a sim Platform:
@@ -40,25 +40,13 @@
 	                                            "framework.<Signal>"; framework.PlayerLoaded is
 	                                            recorded as (player, sections at load)
 	  server.runtime                            the framework server runtime
+	  server.partPaths[name]                    the source folder of each module's server part
+	                                            (ServerScriptService.Modules.<Name>; nil = injected
+	                                            or none)
 ]]
 
 local Loader = require(script.Parent.Loader)
 
--- Kit of each v1.2 module (packages/kits/<kit>/{shared,server}).
-local KIT_OF = {
-	Items = "collection",
-	Inventory = "collection",
-	Rarity = "collection",
-	Economy = "economy",
-	Upgrades = "economy",
-	Rebirth = "economy",
-	Offline = "economy",
-	Plot = "base",
-	Friends = "social",
-	Mail = "social",
-	Streak = "engagement",
-}
-local KITS = { "collection", "economy", "base", "social", "engagement" }
 local Signal = require(script.Parent.Signal)
 
 local Server = {}
@@ -168,6 +156,15 @@ function Server._buildEngine(self)
 	self.MarketplaceService = MarketplaceService
 
 	self.RunService = RunService
+	-- every module folder, mapped like Rojo (Loader.moduleChildren: tools/lune/ModuleDiscovery)
+	local rsModules = {}
+	for name, parts in Loader.moduleChildren.ReplicatedStorage do
+		rsModules[name] = Loader.folder(parts)
+	end
+	local moduleFolders = {
+		ReplicatedStorage = Loader.folder(rsModules),
+		ServerScriptService = Loader.folder(Loader.moduleChildren.ServerScriptService),
+	}
 	local services = {
 		Players = Players,
 		RunService = RunService,
@@ -191,24 +188,12 @@ function Server._buildEngine(self)
 			-- wally packages the kit services require (Plot: Trove)
 			Packages = Loader.folder({ Trove = "deps/Packages/_Index/sleitnick_trove@1.8.0/trove" }),
 			Framework = "packages/framework/shared",
-			Kits = Loader.folder({
-				Collection = "packages/kits/collection/shared",
-				Economy = "packages/kits/economy/shared",
-				Base = "packages/kits/base/shared",
-				Social = "packages/kits/social/shared",
-				Engagement = "packages/kits/engagement/shared",
-			}),
+			Modules = moduleFolders.ReplicatedStorage,
 		}),
 		ServerStorage = Loader.folder({ ServerPackages = "deps/ServerPackages" }),
 		ServerScriptService = Loader.folder({
 			Framework = "packages/framework/server",
-			Kits = Loader.folder({
-				Collection = "packages/kits/collection/server",
-				Economy = "packages/kits/economy/server",
-				Base = "packages/kits/base/server",
-				Social = "packages/kits/social/server",
-				Engagement = "packages/kits/engagement/server",
-			}),
+			Modules = moduleFolders.ServerScriptService,
 		}),
 	}
 
@@ -234,8 +219,18 @@ function Server._buildEngine(self)
 				local base = services[serviceName]
 				local extra = children(tree)
 				for name in table.clone(extra) do
-					if base:FindFirstChild(name) ~= nil then
-						extra[name] = nil -- framework/kit/package mapping: the sim's own (same paths)
+					local own = base:FindFirstChild(name)
+					if name == "Modules" and own ~= nil then
+						-- the project's own modules (the game module's server part) next to the
+						-- sim's module mapping (the generated kit entries map the same paths)
+						local projectModules = extra[name]
+						extra[name] = Loader.folder(setmetatable({}, {
+							__index = function(_, key)
+								return projectModules:FindFirstChild(key) or own:FindFirstChild(key)
+							end,
+						}))
+					elseif own ~= nil then
+						extra[name] = nil -- framework/package mapping: the sim's own (same paths)
 					end
 				end
 				services[serviceName] = Loader.folder(setmetatable(extra, {
@@ -603,8 +598,9 @@ function Server._fixtureConfig(self): (any, any)
 	local refs = {}
 	for _, name in self.modules do
 		enabled[name] = true
-		assert(KIT_OF[name], "sim: unknown kit module " .. tostring(name))
-		table.insert(refs, self.require(`packages/kits/{KIT_OF[name]}/shared/{name}.luau`))
+		local holder = Loader.moduleChildren.ReplicatedStorage[name]
+		assert(holder, "sim: unknown module " .. tostring(name))
+		table.insert(refs, self.require(holder.module))
 	end
 	local config = {}
 	for owner, c in fixture.config or {} do
@@ -640,7 +636,6 @@ function Server._boot(self, opts: any)
 	local FrameworkServer = self.require("packages/framework/server")
 
 	local gameConfig, gameModule, serverConfig
-	local projectModules: any = nil
 	if self.project then
 		-- a real game (Fixtures.gameServer): its own Config, game module and ServerConfig, required
 		-- inside this server through its Rojo project mapping, exactly what StudWork.start gets live
@@ -651,7 +646,6 @@ function Server._boot(self, opts: any)
 		local gameServer = SSS:FindFirstChild("Game")
 		local serverConfigNode = gameServer and gameServer:FindFirstChild("ServerConfig")
 		serverConfig = if serverConfigNode then self.require(serverConfigNode) else {}
-		projectModules = SSS:FindFirstChild("Modules")
 		self.modules = gameConfig.modules
 		self.config = { gameId = gameConfig.gameId, modules = gameConfig.modules }
 	else
@@ -669,23 +663,21 @@ function Server._boot(self, opts: any)
 		serverConfig = opts.serverConfig or {}
 	end
 
+	self.partPaths = {}
 	local function loadServer(ref: any): any
 		-- opts.serverParts[name]: a test's own server part for a kit module (a test double)
 		local injected = opts.serverParts and opts.serverParts[ref.name]
 		if injected ~= nil then
 			return injected
 		end
-		local part = projectModules and projectModules:FindFirstChild(ref.server or ref.name)
-		if part then
-			return self.require(part)
-		end
-		for _, kit in KITS do
-			local impl = self.require(`packages/kits/{kit}/server/ModuleServers.luau`).loadServer(ref)
-			if impl ~= nil then
-				return impl
-			end
-		end
-		return nil
+		-- the live lookup (framework Loader.defaultLoadServer, module-api.md §19.9) against this
+		-- server's ServerScriptService.Modules: the module folders + the project's own modules
+		local folder = self.game:GetService("ServerScriptService"):FindFirstChild("Modules")
+		local instance = folder and folder:FindFirstChild(ref.server or ref.name)
+		self.partPaths[ref.name] = instance and instance.__path
+		-- no Blink wire in the sim (a generated Net.luau needs the engine): Net children are not bound
+		return self.require("packages/framework/server/Loader.luau")
+			.defaultLoadServer(ref, nil, { bindNet = false })
 	end
 
 	if opts.beforeStart then

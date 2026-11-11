@@ -8,18 +8,18 @@
 ]]
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local Harness = require("packages/framework/test/harness.luau")
-local ModuleServers = require("packages/kits/economy/server/ModuleServers.luau")
+local Loader = require("packages/framework/server/Loader.luau") -- the live part lookup (§19.9)
 
-local Kit = ReplicatedStorage:WaitForChild("Kits"):WaitForChild("Economy")
-local Economy = require(Kit:WaitForChild("Economy"))
-local Offline = require(Kit:WaitForChild("Offline"))
+local Modules = ReplicatedStorage:WaitForChild("Modules")
+local Economy = require(Modules:WaitForChild("Economy"):WaitForChild("module"))
+local Offline = require(Modules:WaitForChild("Offline"):WaitForChild("module"))
 
 local function boot(offline: any?)
 	return Harness.new({
 		modules = { Economy, Offline },
 		servers = {
-			Economy = ModuleServers.loadServer({ name = "Economy", server = "Economy" }),
-			Offline = ModuleServers.loadServer({ name = "Offline", server = "Offline" }),
+			Economy = Loader.defaultLoadServer({ name = "Economy", server = "Economy" }),
+			Offline = Loader.defaultLoadServer({ name = "Offline", server = "Offline" }),
 		},
 		startTime = 1_600_000_000,
 		config = {

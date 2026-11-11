@@ -7,7 +7,7 @@ local StudWork = require(FrameworkShared)
 local ConfigValidate = require(FrameworkShared:WaitForChild("ConfigValidate"))
 local Resolve = require(FrameworkShared:WaitForChild("Resolve"))
 local Rebirth =
-	require(ReplicatedStorage:WaitForChild("Kits"):WaitForChild("Economy"):WaitForChild("Rebirth"))
+	require(ReplicatedStorage:WaitForChild("Modules"):WaitForChild("Rebirth"):WaitForChild("module"))
 
 local gameModule = StudWork.defineModule({
 	name = "FoundationOnly",

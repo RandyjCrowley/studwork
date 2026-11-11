@@ -1,17 +1,17 @@
 # Economy kit: Economy, Upgrades, Rebirth, Offline
 
 Currencies, item income and multipliers, level upgrades, rebirth, and offline earnings. Code:
-`packages/kits/economy`. Phase 1 status: being rebuilt on the module API (agent B). Entries marked
+`packages/kits/economy/<Module>/` (one folder per module since core-v1.3.1: `module.luau`, `server/`, `client/`; Rojo `ReplicatedStorage.Modules.<Module>`, `ServerScriptService.Modules.<Module>`). Phase 1 status: being rebuilt on the module API (agent B). Entries marked
 **(contract)** are pinned by
 [PHASE1-CONTRACT.md]((internal build report, not public)) and offered today through
 the compat bridge.
 
 ```lua
-local EconomyKit = ReplicatedStorage:WaitForChild("Kits"):WaitForChild("Economy")
-local Economy = require(EconomyKit:WaitForChild("Economy"))
-local Upgrades = require(EconomyKit:WaitForChild("Upgrades")) -- needs Economy
-local Rebirth = require(EconomyKit:WaitForChild("Rebirth"))   -- needs Economy
-local Offline = require(EconomyKit:WaitForChild("Offline"))
+local Modules = ReplicatedStorage:WaitForChild("Modules")
+local Economy = require(Modules:WaitForChild("Economy"):WaitForChild("module"))
+local Upgrades = require(Modules:WaitForChild("Upgrades"):WaitForChild("module")) -- needs Economy
+local Rebirth = require(Modules:WaitForChild("Rebirth"):WaitForChild("module"))   -- needs Economy
+local Offline = require(Modules:WaitForChild("Offline"):WaitForChild("module"))
 ```
 
 Switch the whole kit off and Collection still works: items without an `economy` field earn
@@ -47,6 +47,14 @@ Paid currencies are framework config: `GameConfig.compliance.paidCurrencies = { 
 - **Replicated:** `data.currency`; `extra.ratePerSec`, `extra.multiplier` (sent when they change).
 - **Save data:** section `economy`: `{ currency = { [id] = number }, multipliers = { [id] = {
   mult, expiresAt? } } }` (saved boosts; session boosts are memory only).
+
+**Client part (`Economy/client/`, core-v1.3.1):** the HUD currency widget `"Economy.currency"`
+(topCenter, order 1: `config.Economy.primaryCurrency` + its rate unless `HudOptions.showRate ==
+false`), registered with `UI.registerWidget` at start (it used to be built into the framework HUD;
+same id, so `client.hud.widgets["Economy.currency"]` overrides work unchanged). Client actions:
+`StudWork.use(Upgrades).actions.upgrade(id)`, `StudWork.use(Rebirth).actions.rebirth()` (from
+`Upgrades/client/`, `Rebirth/client/`; were the framework client's `Actions.upgrade` / `.rebirth`,
+the v1.2 `Core.Client.Actions`).
 
 ## Upgrades
 

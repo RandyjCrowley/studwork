@@ -149,7 +149,7 @@ local Queue: any = {
 }
 
 export type Id = string
-export type FeedbackMessage = { Kind: string, Text: string, Rarity: string?, Position: Vector3? }
+export type FeedbackMessage = { Kind: string, Text: string, Tier: string?, Position: Vector3? }
 
 
 

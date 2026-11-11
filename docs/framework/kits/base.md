@@ -1,11 +1,11 @@
 # Base kit: Plot
 
-Per-player plots with item display slots. Code: `packages/kits/base`. Phase 1 status: being
+Per-player plots with item display slots. Code: `packages/kits/base/<Module>/` (one folder per module since core-v1.3.1: `module.luau`, `server/`, `client/`; Rojo `ReplicatedStorage.Modules.<Module>`, `ServerScriptService.Modules.<Module>`). Phase 1 status: being
 rebuilt on the module API (agent C). Entries marked **(contract)** are pinned by
 [PHASE1-CONTRACT.md]((internal build report, not public)).
 
 ```lua
-local Plot = require(ReplicatedStorage:WaitForChild("Kits"):WaitForChild("Base"):WaitForChild("Plot")) -- needs Inventory
+local Plot = require(ReplicatedStorage:WaitForChild("Modules"):WaitForChild("Plot"):WaitForChild("module")) -- needs Inventory
 ```
 
 ## Config (`config.Plot`)

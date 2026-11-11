@@ -8,7 +8,7 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local StudWork = require(ReplicatedStorage:WaitForChild("Framework"))
 local Signal = require(ReplicatedStorage:WaitForChild("Framework"):WaitForChild("Signal"))
 local Economy =
-	require(ReplicatedStorage:WaitForChild("Kits"):WaitForChild("Economy"):WaitForChild("Economy"))
+	require(ReplicatedStorage:WaitForChild("Modules"):WaitForChild("Economy"):WaitForChild("module"))
 
 local DIR = "examples/modules/session-leaderboard"
 local Definition = require(DIR .. "/module.luau")
