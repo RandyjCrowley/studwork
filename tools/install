@@ -19,7 +19,13 @@ case "${1:-}" in
 esac
 
 if [ "$HOOKS_ONLY" -eq 0 ]; then
-	(cd "$CORE_ROOT" && rokit install)
+	# CI machines have never trusted these tools, and rokit refuses untrusted tools without
+	# --no-trust-check (rokit recommends it for CI only). Locally the trust check stays on.
+	if [ -n "${CI:-}" ]; then
+		(cd "$CORE_ROOT" && rokit install --no-trust-check)
+	else
+		(cd "$CORE_ROOT" && rokit install)
+	fi
 	(cd "$CORE_ROOT/deps" && wally install)
 	echo "install: toolchain and packages done ($(core_path deps/Packages), $(core_path deps/ServerPackages))"
 fi
