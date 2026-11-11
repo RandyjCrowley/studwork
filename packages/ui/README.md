@@ -1,7 +1,8 @@
 # UI kit (`ReplicatedStorage.UI`)
 
-React-lua (jsdotlua React 17.2.1 + ReactRoblox) components themed from `Core.Palette` /
-`Core.RarityTiers`. Games require it and never edit it (requests go to `CORE_REQUESTS.md`).
+React-lua (jsdotlua React 17.2.1 + ReactRoblox) components themed from the one merged theme
+(`GameConfig.theme`, module-api.md §13; `Framework/shared/Theme`). No component hardcodes a colour,
+font, size or sound id. Games require it and never edit it (requests go to `CORE_REQUESTS.md`).
 
 ```lua
 local UI = require(ReplicatedStorage:WaitForChild("UI"))
@@ -28,10 +29,45 @@ inside `UI.ScaledRoot` (full-screen root that applies the responsive UIScale and
 | `ScaledRoot` | children. Full-screen root with the responsive UIScale (use this for screens). |
 | `AutoScale` | none. Bare UIScale following the viewport; only under a content-sized frame (under a full-screen frame it pushes content off screen - use `ScaledRoot`). |
 
-Helpers: `UI.Theme` (`color`, `rarity`, `font`, `gradient`, `setOverrides`, `metrics`, `text`,
-`touchTarget`), `UI.Primitives` (corner/stroke/padding/gradient/shadow/list/textSize elements),
+Helpers: `UI.Theme` (`set`, `current`, `color`, `rarity`, `tiers`, `tierOrder`, `sound`, `font`,
+`gradient`, `setOverrides`, `subscribe`, `metrics`, `text`, `touchTarget`), pure `UI.ThemeTokens`, `UI.Primitives` (corner/stroke/padding/gradient/shadow/list/textSize elements),
 pure `UI.Format` (`abbreviate`, `percent`), `UI.Odds` (`rows`, `total`, `mutationRows`, `outcomeRows`, `pityLine`), `UI.ToastQueue`,
 `UI.Responsive`. The pure ones have `*.spec.luau` tests.
+
+## Theme
+
+The framework HUD installs the runtime's merged theme at boot (`framework-default` preset, then
+each enabled module's `theme`, then `GameConfig.theme`). The `framework-default` preset is the v1.2
+look token for token (golden test in `packages/framework/shared/Theme.spec.luau`).
+
+```lua
+theme = {
+	colors = { accent = "#FF5DA2" },
+	fonts = { display = "rbxasset://fonts/families/LuckiestGuy.json" },
+	metrics = { cornerRadius = 8, text = { body = 20 } },
+	sounds = { coin_tick = { id = 123, volume = 0.3 } },
+	rarity = { preset = "standard7" }, -- or { tiers = { { id = "Bronze", color = "#CD7F32" } } }
+}
+```
+
+## Screens
+
+`UI.registerScreen(name, component)` adds or replaces a screen; `UI.open(name, props?)`,
+`UI.close(name)`, `UI.isOpen(name)`. Open screens render in a `CoreScreens` ScreenGui
+(DisplayOrder 10, created on first open) and get `onClose`. A `bind` prop (a function / Charm
+selector returning a table) is re-read on state changes and merged into the props. Default screens:
+`Odds` (`detail`, `items`, `restricted?`, `actions?`), `Inventory` (`items`, `onSelect?`), `Mailbox`
+(`messages`, `onClaim?`).
+
+## HUD slots and widgets
+
+The framework HUD (`StudWork.Client.Hud.mount(opts?)`) is a layout with slots `topLeft`,
+`topCenter`, `topRight`, `left`, `right`, `bottom`. Default widgets: `Economy.currency`,
+`Game.nextGoal`, `Social.mailbox` (all `topCenter`). `UI.registerWidget(id, { slot, order?,
+component, module? })` contributes one (or `false` removes it); widgets get props
+`{ state, opts, primary, layoutOrder }`. `GameConfig.client.hud` = `"default"` | `false` |
+`<ModuleScript or component>` | `{ layout = ..., widgets = { ["Social.mailbox"] = false } }`. A
+custom layout gets `{ slots = { [slot] = elements }, toasts, state, opts }`.
 
 ## Mounting a screen
 

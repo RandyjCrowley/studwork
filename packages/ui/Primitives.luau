@@ -41,7 +41,7 @@ function Primitives.shadow(offset: number?, radius: number?)
 	return e("Frame", {
 		Size = UDim2.fromScale(1, 1),
 		Position = UDim2.fromOffset(0, o),
-		BackgroundColor3 = Color3.new(0, 0, 0),
+		BackgroundColor3 = Theme.color("dropShadow"),
 		BackgroundTransparency = 0.6,
 		BorderSizePixel = 0,
 		ZIndex = -1,
