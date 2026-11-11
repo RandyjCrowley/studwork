@@ -1,3 +1,7 @@
+<p align="center">
+  <img src=".github/assets/studwork-banner.png" alt="StudWork: Luau framework for Roblox games" width="100%">
+</p>
+
 # StudWork
 
 [![CI](https://github.com/RandyjCrowley/studwork/actions/workflows/ci.yml/badge.svg)](https://github.com/RandyjCrowley/studwork/actions/workflows/ci.yml)
