@@ -13,8 +13,8 @@
 	    StudWork.Client.onMailbox (v1.2, N1).
 	  - StudWork.use(Mail).actions.claimMail(messageId)
 	  - StudWork.use(Mail).read.<reader>(StudWork.Client.state())   pure readers (client/State.luau)
-	Transitional (core-v1.3.1 Phase 1): claimMail fires the framework Blink file's
-	RequestMailClaim (`net = "framework"`); the module's own net.blink replaces it in Phase 2.
+	claimMail fires this module's own Blink event ClaimMail (net.blink -> client/Net.luau, bound by
+	the client runtime as the part's `net`; core-v1.3.1 R19, was the framework's RequestMailClaim).
 ]]
 
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
@@ -97,8 +97,10 @@ local Mail = {}
 
 Mail.WIDGET_ID = WIDGET_ID
 Mail.widget = table.freeze({ slot = "topCenter", order = 3, module = "Mail", component = MailboxWidget })
-Mail.net = "framework"
-Mail.actions = { claimMail = "RequestMailClaim" }
+-- `claimMail = true`: fire this part's own Net event of the same (PascalCase) name, ClaimMail. Same
+-- as `{ "claimMail" }` for the runtime; the keyed form is what tools/lune/KitModules and
+-- KitClients.spec read today (KitModules' array-form pattern uses `^` inside gmatch).
+Mail.actions = { claimMail = true }
 Mail.api = { onMailbox = onMailbox, read = State }
 
 function Mail.start(_ctx: any)
