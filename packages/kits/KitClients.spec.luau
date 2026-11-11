@@ -34,9 +34,13 @@ describe("kit client parts (R19: one folder per module)", function()
 	it("every v1.2 client action is declared by its owner module's client part", function()
 		for action, owner in V12_ACTIONS do
 			local part = clientPart(owner)
-			expect(owner .. "." .. action .. "=" .. tostring(part.actions[action] ~= nil)).toBe(
-				owner .. "." .. action .. "=true"
-			)
+			expect(
+				owner
+					.. "."
+					.. action
+					.. "="
+					.. tostring(part.actions[action] ~= nil or table.find(part.actions, action) ~= nil)
+			).toBe(owner .. "." .. action .. "=true")
 		end
 	end)
 

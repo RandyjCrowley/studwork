@@ -42,9 +42,9 @@ end
 
 local function parts(extra)
 	local s = {
-		Items = Loader.defaultLoadServer(Items),
-		Inventory = Loader.defaultLoadServer(Inventory),
-		Rarity = Loader.defaultLoadServer(Rarity),
+		Items = Loader.defaultLoadServer(Items, nil, { bindNet = false }),
+		Inventory = Loader.defaultLoadServer(Inventory, nil, { bindNet = false }),
+		Rarity = Loader.defaultLoadServer(Rarity, nil, { bindNet = false }),
 	}
 	for k, v in extra or {} do
 		s[k] = v
@@ -643,7 +643,7 @@ describe("Rarity rolls through Compliance", function()
 		expect(rarity.getLuck(p, "Robux")).toBe(2)
 	end)
 
-	it("RequestRoll: a paid currency spends + rolls in one tx (paidcur tag); a free one too", function()
+	it("roll action: a paid currency spends + rolls in one tx (paidcur tag); a free one too", function()
 		local spent = {}
 		local econCtx
 		local fakeEconomy = {
@@ -691,14 +691,14 @@ describe("Rarity rolls through Compliance", function()
 			s.currency.Gems = 15
 			s.currency.Coins = 4
 		end)
-		h:fire(p, "RequestRoll", "Chest")
+		h:action(p, Rarity, "roll", "Chest")
 		expect(inv.count(p)).toBe(1)
 		expect(inv.list(p)[1].source).toBe("paidcur:Chest")
 		expect(section(h, p, "economy").currency.Gems).toBe(5)
-		h:fire(p, "RequestRoll", "Chest") -- insufficient: nothing spent, nothing granted
+		h:action(p, Rarity, "roll", "Chest") -- insufficient: nothing spent, nothing granted
 		expect(inv.count(p)).toBe(1)
 		expect(section(h, p, "economy").currency.Gems).toBe(5)
-		h:fire(p, "RequestRoll", "Crate")
+		h:action(p, Rarity, "roll", "Crate")
 		expect(inv.count(p)).toBe(2)
 		expect(section(h, p, "economy").currency.Coins).toBe(1)
 		expect(spent[1]).toBe("roll:Crate")
@@ -708,9 +708,9 @@ describe("Rarity rolls through Compliance", function()
 			econCtx.section(tx).currency.Coins = 10
 		end)
 		inv.add(p, "pebble")
-		h:fire(p, "RequestRoll", "Crate")
+		h:action(p, Rarity, "roll", "Crate")
 		expect(section(h, p, "economy").currency.Coins).toBe(10)
-		h:fire(p, "RequestRoll", "Robux") -- Robux tables are never client-rollable
+		h:action(p, Rarity, "roll", "Robux") -- Robux tables are never client-rollable
 		expect(inv.count(p)).toBe(3)
 	end)
 

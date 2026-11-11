@@ -28,14 +28,14 @@
 	        no grant unless opts.grant
 	purchaseOps.roll(tx, tableId, luck?) -> (def?, info)   grants (source "paid:<product>", M5)
 	Paid rolls: a purchase tx, a table with paid = true, or a cost in a
-	GameConfig.compliance.paidCurrencies currency (RequestRoll -> compliance.spendForRoll: the spend
+	GameConfig.compliance.paidCurrencies currency (action roll -> compliance.spendForRoll: the spend
 	and the roll commit together). Hard rule 11 (paid roll with luck ~= 1 needs luckDisclosed AND
 	the client shown that luck) is enforced by Compliance for purchases / spendForRoll and here
 	(LuckRule) for a paid = true table rolled outside a purchase.
 	Replicated extra `odds` = { [tableId]: OddsDetail } for every table with a cost, paid = true or
 	luckDisclosed = true (shared, luck 1), with a per-player override while that player's luck ~= 1
 	on a luckDisclosed table (OddsSync). Section 'rarity' = { pity = { [tableId]: count } }.
-	RequestRoll (client action `roll`): a table with a currency cost and paid ~= true. Capacity and
+	Client action `roll(tableId)` (own net.blink event Roll, 4/s burst 8): a table with a currency cost and paid ~= true. Capacity and
 	the luck rule are checked before anything is spent; a paid currency goes through
 	compliance.spendForRoll, a free one through Economy.txApi.spend in the SAME tx as the roll (no
 	refund step: a failed roll discards the spend).
@@ -397,9 +397,15 @@ function Rarity.new(): any
 			end
 		end)
 		if not ok then
-			ctx.log.warn(`RequestRoll {tableId} discarded (nothing spent): {tostring(err)}`)
+			ctx.log.warn(`roll {tableId} discarded (nothing spent): {tostring(err)}`)
 		end
 	end
+
+	-- Client action `roll(tableId)` (own net.blink event Roll; core-v1.3.1 R19, was the framework
+	-- event RequestRoll). Same rate limit as before (4/s, burst 8).
+	part.actions = {
+		roll = { limit = { rate = 4, burst = 8 }, handler = requestRoll },
+	}
 
 	------------------------------------------------------------------ validation
 
@@ -529,7 +535,6 @@ function Rarity.new(): any
 			overridden[player] = nil
 			luckRegistry:clear(player)
 		end)
-		ctx.net.handle("RequestRoll", requestRoll)
 
 		if ctx.isStudio then
 			ctx.console.register("roll", function(caller: any, tableId: any, userId: any): string

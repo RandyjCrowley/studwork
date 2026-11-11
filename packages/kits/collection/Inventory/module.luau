@@ -11,7 +11,7 @@
 	unchanged: FrameworkSection.V12_MAP splits a v1.2 save into exactly this shape). Version 1;
 	migration 1 normalises a split v1.2 section, sanitize drops malformed instances.
 	optional: Mail (the "core_gift" mail kind and the crash-safe gift outbox).
-	client: the `gift` action (RequestGift), served by ./client/init.luau.
+	client: the `gift` action (own net.blink event Gift), served by ./client/init.luau.
 ]]
 
 local ReplicatedStorage = game:GetService("ReplicatedStorage")

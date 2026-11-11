@@ -1,6 +1,6 @@
 --[[
 	Two-player gifting in one server (known-issues: "Gifting between two players").
-	Real Data + Inventory (transfer and the RequestGift remote handler) + Items; Policy is a
+	Real Data + Inventory (transfer and the `gift` action handler) + Items; Policy is a
 	fake driven by world.restricted (PolicyService "paid random items restricted").
 ]]
 
@@ -106,29 +106,34 @@ describe("two-player gifting in one server (Inventory.transfer)", function()
 		expect(Inventory.get(a, item.uid)).never.toBeNil()
 	end)
 
-	it("RequestGift remote: validates arguments and applies the per-sender cooldown", function()
+	it("gift action: validates arguments and applies the per-sender cooldown", function()
 		local world, s, a, b = setup(29, 30)
 		local Inventory = s:use("Inventory")
 		local one = Inventory.add(a, "rock", { source = "drop" })
 		local two = Inventory.add(a, "dust", { source = "drop" })
 
 		-- garbage from the client is ignored without errors
-		s:remote("RequestGift", a, "30", one.uid)
-		s:remote("RequestGift", a, 30, { one.uid })
-		s:remote("RequestGift", a, 29, one.uid) -- self
-		s:remote("RequestGift", a, 31337, one.uid) -- not in server
-		s:remote("RequestGift", b, 29, one.uid) -- b does not own it
+		-- (the action path applies Net's limit, 1/s burst 3: space the calls so each one reaches the handler)
+		s:spawn(s.runtime.action, a, s:ref("Inventory"), "gift", "30", one.uid)
+		world:advance(1)
+		s:spawn(s.runtime.action, a, s:ref("Inventory"), "gift", 30, { one.uid })
+		world:advance(1)
+		s:spawn(s.runtime.action, a, s:ref("Inventory"), "gift", 29, one.uid) -- self
+		world:advance(1)
+		s:spawn(s.runtime.action, a, s:ref("Inventory"), "gift", 31337, one.uid) -- not in server
+		world:advance(1)
+		s:spawn(s.runtime.action, b, s:ref("Inventory"), "gift", 29, one.uid) -- b does not own it
 		world:advance(0.1)
 		expect(Inventory.get(a, one.uid)).never.toBeNil()
 
-		s:remote("RequestGift", a, 30, one.uid)
-		s:remote("RequestGift", a, 30, two.uid) -- within the cooldown: dropped
+		s:spawn(s.runtime.action, a, s:ref("Inventory"), "gift", 30, one.uid)
+		s:spawn(s.runtime.action, a, s:ref("Inventory"), "gift", 30, two.uid) -- within the cooldown: dropped
 		world:advance(0.1)
 		expect(Inventory.get(b, one.uid)).never.toBeNil()
 		expect(Inventory.get(a, two.uid)).never.toBeNil()
 
 		world:advance(2.5)
-		s:remote("RequestGift", a, 30, two.uid)
+		s:spawn(s.runtime.action, a, s:ref("Inventory"), "gift", 30, two.uid)
 		world:advance(0.1)
 		expect(Inventory.get(b, two.uid)).never.toBeNil()
 		expect(#world:errors()).toBe(0)

@@ -20,7 +20,16 @@ Real StudWork module (core-v1.3.0). Definition: `module.luau`; server part:
   luck?)` (grants, `paid:<product>`).
 - Hard rule 11 (luck on a paid roll needs `luckDisclosed` and the client shown that luck):
   Compliance for purchases / `spendForRoll`, LuckRule here for a `paid = true` table outside a
-  purchase. RequestRoll checks capacity and the rule before anything is spent.
+  purchase. The `roll` action checks capacity and the rule before anything is spent.
 - Save section `rarity = { pity = { [tableId]: count } }` (the v1.2 field, unchanged; server-only).
 - Replicated `extra.odds` for tables with a cost, `paid` or `luckDisclosed` (luck-adjusted per
   player while their luck ~= 1 on a luckDisclosed table).
+
+## Actions and wire
+
+| Action | Wire (`net.blink`, RemoteScope `STUDWORK_RARITY`) | Limit |
+|---|---|---|
+| `roll(tableId)` | event `Roll`, `Data: Id` (generated `server/Net.luau`, `client/Net.luau`) | 4/s, burst 8 |
+
+Client: `StudWork.use(Rarity).actions.roll(tableId)`. Tests: `h:action(p, Rarity, "roll", ...)`.
+core-v1.3.1 (R19): replaces the framework Blink event `RequestRoll`.
