@@ -26,7 +26,12 @@ status=$?
 # v1.6.0: a single-game project with legacy fixtures (tests/legacy/, modules/*/tests/legacy/) also
 # runs its imports against them (docs/framework/adopting.md §3, tools/test-migration)
 if [ $# -eq 0 ] && [ $status -eq 0 ] && is_single_game; then
-	if ls tests/legacy/*.json modules/*/tests/legacy/*.json >/dev/null 2>&1; then
+	# (v1.6.0 dogfood) any one of the globs: `ls a b` fails when either is missing
+	has_fixtures=0
+	for f in tests/legacy/*.json modules/*/tests/legacy/*.json; do
+		[ -f "$f" ] && has_fixtures=1 && break
+	done
+	if [ "$has_fixtures" = 1 ]; then
 		echo "== tools/test-migration"
 		"$CORE_ROOT/tools/test-migration" || exit 1
 	fi
