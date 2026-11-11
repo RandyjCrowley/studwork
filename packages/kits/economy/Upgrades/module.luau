@@ -7,7 +7,7 @@
 	(default Economy's primary), maxLevel, effect = "incomeMultiplier" | "inventoryCap" | "custom",
 	perLevel, resetsOnRebirth? (default true) } }                                default {}
 	data: section `upgrades` = { upgrades = { [upgradeId]: level } }.
-	client: the `upgrade` action (RequestUpgrade), served by ./client/init.luau.
+	client: the `upgrade` action (own Blink event `Upgrade`, ./net.blink), served by ./client/init.luau.
 	optional: Rebirth (levels reset on rebirth through Rebirth.extensions.resetStep), Inventory
 	("inventoryCap" upgrades add to Inventory.cap through Inventory.extensions.capBonus).
 ]]

@@ -11,7 +11,8 @@
 	  registration order, BEFORE `rebirths` is incremented (§8; each step writes only its own
 	  section through its own ctx.section(tx)). Upgrades resets its levels this way, Plot its
 	  displayed slots.
-	Client action: RequestRebirth().
+	Client action: rebirth(), limit 0.5/s burst 2 (own Blink event `Rebirth` in Rebirth/net.blink,
+	  core-v1.3.1).
 
 	rebirth(): ONE ctx.tx:
 	  1. re-checks maxRebirths and the balance (Economy.txApi.balance);
@@ -245,16 +246,24 @@ function Rebirth.new(): any
 		table.insert(resetSteps, { id = id, fn = fn })
 	end
 
-	local part: { [string]: any } = { api = api, extensions = extensions }
+	-- Client action (core-v1.3.1 R19): wire event `Rebirth` in ./net.blink (generated server/Net.luau,
+	-- bound by the loader). Limit moved unchanged from the framework's Net.LIMITS.RequestRebirth.
+	local actions = {
+		rebirth = {
+			limit = { rate = 0.5, burst = 2 },
+			handler = function(player: any)
+				api.rebirth(player)
+			end,
+		},
+	}
+
+	local part: { [string]: any } = { api = api, extensions = extensions, actions = actions }
 
 	function part.init(context: any)
 		ctx = context
 		created.Rebirthed = ctx.signals.new("Rebirthed")
 		invalidateRate = ctx.depsExt[EconomyRef].rateFactor("Rebirth", function(player: any): number
 			return api.multiplier(player)
-		end)
-		ctx.net.handle("RequestRebirth", function(player: any)
-			api.rebirth(player)
 		end)
 	end
 

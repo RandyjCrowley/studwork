@@ -70,7 +70,10 @@ describe("client part lookup (Runtime.defaultLoadClient)", function()
 	end)
 
 	it("resolves the real kit client parts from ReplicatedStorage.Modules", function()
-		local part = Runtime.defaultLoadClient(ref("Upgrades"), false)
-		expect(part.actions.upgrade).toBe("RequestUpgrade")
+		-- core-v1.3.1 R19: Upgrades now has a generated client/Net.luau, which the live lookup binds and
+		-- Lune can't run (no Blink wire); Economy's client part (no net.blink) exercises the same lookup.
+		-- Upgrades' declared `upgrade` action is pinned by packages/kits/KitClients.spec.luau.
+		local part = Runtime.defaultLoadClient(ref("Economy"), false)
+		expect(type(part.start)).toBe("function")
 	end)
 end)

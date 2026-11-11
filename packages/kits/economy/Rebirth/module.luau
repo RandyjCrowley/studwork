@@ -12,7 +12,7 @@
 	    itemOverrides = boolean }        default { "keep", "wipe", "wipe", true } (the v1.2 rules)
 	  paid accepts only "keep": a Robux-bought copy can never be made wipeable.
 	data: section `rebirth` = { rebirths }.
-	client: the `rebirth` action (RequestRebirth), served by ./client/init.luau.
+	client: the `rebirth` action (own Blink event `Rebirth`, ./net.blink), served by ./client/init.luau.
 	optional: Inventory (the inventory wipe uses Inventory.txApi.list / remove).
 ]]
 

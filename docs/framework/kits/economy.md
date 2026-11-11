@@ -54,7 +54,9 @@ false`), registered with `UI.registerWidget` at start (it used to be built into 
 same id, so `client.hud.widgets["Economy.currency"]` overrides work unchanged). Client actions:
 `StudWork.use(Upgrades).actions.upgrade(id)`, `StudWork.use(Rebirth).actions.rebirth()` (from
 `Upgrades/client/`, `Rebirth/client/`; were the framework client's `Actions.upgrade` / `.rebirth`,
-the v1.2 `Core.Client.Actions`).
+the v1.2 `Core.Client.Actions`). Since core-v1.3.1 each fires its module's own Blink event
+(`Upgrades/net.blink` `Upgrade(Id)`, limit 6/s burst 12; `Rebirth/net.blink` `Rebirth`, limit 0.5/s
+burst 2) instead of the framework events `RequestUpgrade` / `RequestRebirth`.
 
 ## Upgrades
 
@@ -67,7 +69,7 @@ level)`; `currency` defaults to the primary; `resetsOnRebirth` defaults to `true
 - **API:** `level(player, id)`, `cost(player, id) -> number?` (nil at max), `purchase(player, id)
   -> (ok, reason?)` (`unknown_upgrade`, `not_loaded`, `maxed`, `cannot_afford`).
 - **Signals (contract):** `UpgradePurchased(player, upgradeId, level)`.
-- **Client action:** `upgrade(upgradeId)`.
+- **Client action:** `upgrade(upgradeId)` (wire: `Upgrades/net.blink` event `Upgrade`, limit 6/s burst 12).
 - **Replicated `data`:** `upgrades`. **Save data:** section `upgrades`: `{ upgrades = { [id] = level } }`.
 
 ## Rebirth
@@ -87,7 +89,7 @@ is `"keep"`). It is applied through
 - **Extensions (contract):** `resetStep(id, fn(tx, player))`: runs inside Rebirth's single
   transaction; write your own section with `ctx.section(tx)` (Upgrades and Plot reset this way).
 - **Signals (contract):** `Rebirthed(player, count)`.
-- **Client action:** `rebirth()`.
+- **Client action:** `rebirth()` (wire: `Rebirth/net.blink` event `Rebirth`, limit 0.5/s burst 2).
 - **Replicated `data`:** `rebirths`. **Save data:** section `rebirth`: `{ rebirths = 0 }`.
 
 ## Offline
