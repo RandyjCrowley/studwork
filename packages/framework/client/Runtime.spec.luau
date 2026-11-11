@@ -32,9 +32,10 @@ local Off = StudWork.defineModule({ name = "OffT", version = "1.0.0", framework 
 local function start(opts: any): (any, { any })
 	Boot.attach(nil)
 	local log = {}
-	local net = { RequestUpgrade = fakeEvent(log, "RequestUpgrade") }
+	-- core-v1.3.1 R19: the module's own Blink event (Upgrades/net.blink `Upgrade`), `upgrade = true` looks it up
+	local net = { Upgrade = fakeEvent(log, "Upgrade") }
 	local parts = opts.parts or {
-		UpgradesT = { net = net, actions = { upgrade = "RequestUpgrade" } },
+		UpgradesT = { net = net, actions = { upgrade = true } },
 	}
 	local rt = Runtime.start(opts.config or { gameId = "t", modules = { Economy, Upgrades } }, nil, {
 		loadClient = function(ref: any)
@@ -52,7 +53,7 @@ describe("StudWork client runtime", function()
 		local _, log = start({})
 		StudWork.use(Upgrades).actions.upgrade("IncomeBoost")
 		expect(#log).toBe(1)
-		expect(log[1].name).toBe("RequestUpgrade")
+		expect(log[1].name).toBe("Upgrade")
 		expect(log[1].args[1]).toBe("IncomeBoost")
 	end)
 

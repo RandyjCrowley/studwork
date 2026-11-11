@@ -17,7 +17,8 @@ Section `rebirth` = `{ rebirths }` (replicated).
 
 ## API
 `canRebirth`, `rebirth(player) -> boolean`, `cost`, `multiplier`, `signals.Rebirthed(player, n)`.
-Client action `rebirth` (`RequestRebirth`).
+Client action `rebirth()`: wire event `Rebirth` (no data) in this module's `net.blink` (RemoteScope
+`STUDWORK_REBIRTH`), limit 0.5/s burst 2 (core-v1.3.1; was the framework event `RequestRebirth`).
 `extensions.resetStep(id, fn(tx, player))`: runs inside the rebirth transaction, in registration
 order, before `rebirths` is incremented. Each step writes its own section (`ctx.section(tx)`).
 Upgrades and Plot reset themselves this way.

@@ -15,8 +15,9 @@ Section `upgrades` = `{ upgrades = { [id]: level } }` (replicated).
 ## API
 `level(player, id)`, `cost(player, id) -> number?` (`floor(baseCost * costGrowth ^ level)`, nil when
 maxed/unknown), `purchase(player, id) -> (ok, reason?)` (`unknown_upgrade`, `not_loaded`, `maxed`,
-`cannot_afford`), `signals.UpgradePurchased(player, id, level)`. Client action `upgrade`
-(`RequestUpgrade`).
+`cannot_afford`), `signals.UpgradePurchased(player, id, level)`. Client action `upgrade(id)`: wire event `Upgrade`
+(`Data: Id` = `string(1..64)`) in this module's `net.blink` (RemoteScope `STUDWORK_UPGRADES`), limit
+6/s burst 12; unknown ids are dropped (core-v1.3.1; was the framework event `RequestUpgrade`).
 
 ## Behaviour
 - `purchase` is one transaction: the level is re-read, the cost is paid with `Economy.txApi.spend`

@@ -52,7 +52,7 @@ end
 local function servers()
 	local out = { Box = boxServer() }
 	for _, name in { "Economy", "Upgrades", "Rebirth", "Offline" } do
-		out[name] = Loader.defaultLoadServer({ name = name, server = name })
+		out[name] = Loader.defaultLoadServer({ name = name, server = name }, nil, { bindNet = false }) -- no Blink wire in Lune
 	end
 	return out
 end
@@ -148,6 +148,41 @@ describe("Economy kit on the StudWork harness (no bridge)", function()
 		expect(economy.getRate(p)).toBe(4)
 		h:tick(3)
 		expect(economy.balance(p)).toBe(12) -- 4/s on the shared ticker
+	end)
+
+	-- core-v1.3.1 R19: the client actions are the modules' own `actions` (own net.blink), not
+	-- framework events; h:action takes the live Net path (loaded check, rate limit, pcall).
+	it("client actions: Upgrades.upgrade and Rebirth.rebirth, validated and rate-limited", function()
+		local h = boot()
+		local p = h:addPlayer({ userId = 7 })
+		local economy, upgrades, rebirth = h:use(Economy), h:use(Upgrades), h:use(Rebirth)
+		economy.grant(p, 30, "test", "Gems")
+		expect(h:action(p, Upgrades, "upgrade", "Boost")).toBe(true)
+		expect(upgrades.level(p, "Boost")).toBe(1)
+		expect(economy.balance(p, "Gems")).toBe(20)
+		-- malformed / unknown ids are dropped by the handler (no error, no spend)
+		for _, bad in { 42, "", "Nope", string.rep("x", 65) } do
+			expect(h:action(p, Upgrades, "upgrade", bad)).toBe(true)
+		end
+		expect(upgrades.level(p, "Boost")).toBe(1)
+		expect(economy.balance(p, "Gems")).toBe(20)
+		-- burst 12: a flood without advancing the clock is cut off
+		local limited = 0
+		for _ = 1, 20 do
+			local ok, reason = h:action(p, Upgrades, "upgrade", "Nope")
+			if not ok and reason == "rate_limited" then
+				limited += 1
+			end
+		end
+		expect(limited > 0).toBe(true)
+		-- rebirth: burst 2 at 0.5/s
+		local before = rebirth.multiplier(p)
+		h:action(p, Rebirth, "rebirth")
+		expect(rebirth.multiplier(p)).toBe(before) -- can't afford: no-op
+		local r1 = table.pack(h:action(p, Rebirth, "rebirth"))
+		local r2 = table.pack(h:action(p, Rebirth, "rebirth"))
+		expect(r1[1]).toBe(true)
+		expect(r2[1]).toBe(false)
 	end)
 
 	it("Rebirth: one tx, resetStep inside it, multiplier through Economy; Upgrades reset", function()

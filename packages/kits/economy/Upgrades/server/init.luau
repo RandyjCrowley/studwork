@@ -9,8 +9,8 @@
 	  purchase(player, id) -> (ok, reason?)   reasons "unknown_upgrade" | "not_loaded" | "maxed" |
 	                                          "cannot_afford"
 	  signals.UpgradePurchased(player, upgradeId, level)
-	Client action: RequestUpgrade(upgradeId) (framework Blink event; StudWork.use(Upgrades)
-	  .actions.upgrade(id) on the client).
+	Client action: upgrade(upgradeId), limit 6/s burst 12 (own Blink event `Upgrade` in
+	  Upgrades/net.blink, core-v1.3.1; StudWork.use(Upgrades).actions.upgrade(id) on the client).
 
 	- cost(level) = floor(baseCost * costGrowth ^ level); nil when maxed or unknown.
 	- purchase is ONE transaction: re-reads the level, pays through Economy.txApi.spend, or
@@ -141,7 +141,21 @@ function Upgrades.new(): any
 		return true, nil
 	end
 
-	local part: { [string]: any } = { api = api }
+	-- Client action (core-v1.3.1 R19): wire event `Upgrade` in ./net.blink (generated server/Net.luau,
+	-- bound by the loader). Limit moved unchanged from the framework's Net.LIMITS.RequestUpgrade.
+	local actions = {
+		upgrade = {
+			limit = { rate = 6, burst = 12 },
+			handler = function(player: any, upgradeId: any)
+				if configOf(upgradeId) == nil then
+					return -- unknown / malformed id from the client
+				end
+				api.purchase(player, upgradeId)
+			end,
+		},
+	}
+
+	local part: { [string]: any } = { api = api, actions = actions }
 
 	function part.init(context: any)
 		ctx = context
@@ -177,12 +191,6 @@ function Upgrades.new(): any
 				s.upgrades = UpgradeMath.afterRebirth(ctx.config.upgrades, s.upgrades or {})
 			end)
 		end
-		ctx.net.handle("RequestUpgrade", function(player: any, upgradeId: any)
-			if configOf(upgradeId) == nil then
-				return -- unknown / malformed id from the client
-			end
-			api.purchase(player, upgradeId)
-		end)
 	end
 
 	return part

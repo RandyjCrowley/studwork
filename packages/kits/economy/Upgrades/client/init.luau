@@ -1,16 +1,14 @@
 --!strict
 --[[
 	Upgrades client part (module-api.md §9; core-v1.3.1 R19: one folder per module, found by the client
-	runtime as ReplicatedStorage.Modules.Upgrades.client). Client actions:
-	  StudWork.use(Upgrades).actions.<name>(...)
-	Transitional (core-v1.3.1 Phase 1): the actions fire the framework Blink file's request events
-	(`net = "framework"`, the content of the deleted kit ModuleClients); the module's own
-	net.blink replaces them in Phase 2.
+	runtime as ReplicatedStorage.Modules.Upgrades.client). Client action:
+	  StudWork.use(Upgrades).actions.upgrade(...)
+	fires this module's own Blink event `Upgrade` (./net.blink -> generated ./Net.luau, bound by the
+	runtime as the part's `net`).
 ]]
 
 return {
-	net = "framework",
 	actions = {
-		upgrade = "RequestUpgrade",
+		upgrade = true, -- the event `Upgrade` in ./Net.luau (generated from ../net.blink)
 	},
 }

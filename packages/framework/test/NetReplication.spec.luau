@@ -25,31 +25,38 @@ local Wallet = mod("Wallet", {
 local Other = mod("Other", { data = { key = "other", version = 1, default = { n = 0 } } })
 
 describe("ctx.net (Net)", function()
-	it("routes a framework client event to its one owner, rate-limited, pcall'd", function()
+	-- core-v1.3.1 R19: Upgrades' `upgrade` action is the module's own Blink event (fake wire here,
+	-- same limit 6/12 the framework's RequestUpgrade had); the Net pipeline exercised is the same.
+	it("routes a module action's client event to its one owner, rate-limited, pcall'd", function()
 		local got = {}
+		local ev = Harness.fakeEvent("Upgrade", {})
 		local h = Harness.new({
 			modules = { Wallet },
 			servers = {
 				Wallet = {
-					init = function(ctx)
-						ctx.net.handle("RequestUpgrade", function(_player, id)
-							table.insert(got, id)
-							if id == "boom" then
-								error("handler blew up")
-							end
-						end)
-					end,
+					net = { Upgrade = ev },
+					actions = {
+						upgrade = {
+							limit = { rate = 6, burst = 12 },
+							handler = function(_player, id)
+								table.insert(got, id)
+								if id == "boom" then
+									error("handler blew up")
+								end
+							end,
+						},
+					},
 				},
 			},
 		})
 		local p = h:addPlayer({ userId = 1 })
-		h:fire(p, "RequestUpgrade", "a")
-		h:fire(p, "RequestUpgrade", "boom")
+		h:fireCustom(ev, p, "a")
+		h:fireCustom(ev, p, "boom")
 		expect(table.concat(got, ",")).toBe("a,boom")
-		expect(table.concat(h:warnings(), "\n")).toContain("RequestUpgrade handler error")
+		expect(table.concat(h:warnings(), "\n")).toContain("action:Wallet.upgrade handler error")
 		-- burst 12 at rate 6/s: a flood is cut off without advancing the clock
 		for i = 1, 30 do
-			h:fire(p, "RequestUpgrade", "x" .. i)
+			h:fireCustom(ev, p, "x" .. i)
 		end
 		expect(#got < 20).toBe(true)
 		expect(h.runtime.net.stats.limited > 0).toBe(true)
@@ -83,28 +90,34 @@ describe("ctx.net (Net)", function()
 
 	it("drops requests from players who left or aren't loaded; queues before boot finishes", function()
 		local got = {}
+		-- core-v1.3.1 R19: Rebirth's `rebirth` action on its own (fake) Blink event, limit 0.5/2
+		local ev = Harness.fakeEvent("Rebirth", {})
 		local h = Harness.new({
 			modules = { Wallet },
 			servers = {
 				Wallet = {
-					init = function(ctx)
-						ctx.net.handle("RequestRebirth", function(player)
-							table.insert(got, player.UserId)
-						end)
-					end,
+					net = { Rebirth = ev },
+					actions = {
+						rebirth = {
+							limit = { rate = 0.5, burst = 2 },
+							handler = function(player)
+								table.insert(got, player.UserId)
+							end,
+						},
+					},
 				},
 			},
 		})
 		local ghost = Harness.player(99)
-		h:fire(ghost, "RequestRebirth") -- not in the game
+		h:fireCustom(ev, ghost) -- not in the game
 		local p = Harness.player(5)
 		h.players[5] = p
 		h.inGame[p] = true -- joined, data not loaded yet
-		h:fire(p, "RequestRebirth")
+		h:fireCustom(ev, p)
 		expect(#got).toBe(0)
 		expect(h.runtime.net.stats.notLoaded).toBe(1)
 		h:addPlayer({ userId = 5 })
-		h:fire(p, "RequestRebirth")
+		h:fireCustom(ev, p)
 		expect(table.concat(got, ",")).toBe("5")
 	end)
 

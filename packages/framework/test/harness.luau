@@ -11,7 +11,7 @@
 	h:rejoin(p, { secondsAway = 3600 })                  -- save -> release -> load -> migrate
 	h:use(A).something(p)
 	h:saved(p)                                           -- the stored save (deep copy)
-	h:fire(p, "RequestUpgrade", "IncomeBoost")           -- a framework Blink client event
+	h:fire(p, "StateInit")                               -- a framework Blink client event
 	h:fireCustom(event, p, ...)                          -- a module's own fake Blink event
 	h.fake                                               -- recorded engine traffic: feedback,
 	                                                     -- serverEvents, analytics, receipts...
