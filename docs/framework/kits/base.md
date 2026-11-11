@@ -1,8 +1,7 @@
 # Base kit: Plot
 
-Per-player plots with item display slots. Code: `packages/kits/base/<Module>/` (one folder per module since core-v1.3.1: `module.luau`, `server/`, `client/`; Rojo `ReplicatedStorage.Modules.<Module>`, `ServerScriptService.Modules.<Module>`). Phase 1 status: being
-rebuilt on the module API (agent C). Entries marked **(contract)** are pinned by
-[PHASE1-CONTRACT.md]((internal build report, not public)).
+Per-player plots with item display slots. Code: `packages/kits/base/<Module>/` (one folder per module: `module.luau`, `server/`, `client/`; Rojo `ReplicatedStorage.Modules.<Module>`, `ServerScriptService.Modules.<Module>`). Entries marked
+**(contract)** are part of the cross-module surface listed in [kit-contract.md](../kit-contract.md).
 
 ```lua
 local Plot = require(ReplicatedStorage:WaitForChild("Modules"):WaitForChild("Plot"):WaitForChild("module")) -- needs Inventory
@@ -14,13 +13,15 @@ local Plot = require(ReplicatedStorage:WaitForChild("Modules"):WaitForChild("Plo
 |---|---|---|
 | `plot.slotCount` | all slots | keep the first N slots (natural `SlotId` order) |
 | `plot.autoDisplay` | `false` | new items (and items owned before the plot was assigned) go to the first compatible free slot |
+| `plot.keepDisplayedOnRebirth` | `false` | keep owned items on display through a rebirth |
 | `assetsFolderName` | `"GameAssets"` | child of ReplicatedStorage holding item models (`ItemDef.model`) |
+| `plotTag` | `"CorePlot"` | CollectionService tag that marks a plot Model |
 
-The plot model and tag set (agent C makes the tag configurable in Phase 1; the default stays):
+The plot model and the tags and attributes Plot reads:
 
 | Where | Name | Meaning |
 |---|---|---|
-| plot Model | tag `CorePlot` | this Model is a plot (added/removed at runtime is fine) |
+| plot Model | tag `CorePlot` (`plotTag`) | this Model is a plot (added/removed at runtime is fine) |
 | plot Model | attribute `PlotOrder` (number, optional) | assignment order; then natural `Name` order |
 | plot Model | attribute `OwnerUserId` | written by the framework while owned; don't set it |
 | BasePart in plot | attribute `SlotId` (string) | a display slot; same ids on every plot keep a player's layout |
@@ -39,17 +40,19 @@ uid, slotId?) -> (ok, reason?)` (`no_plot`, `not_owned`, `already_displayed`, `n
 
 - `Inventory.onItemRemoved` (contract): when an item leaves the inventory, Plot clears its slot in
   the same transaction, writing only its own section.
-- `Rebirth.resetStep` (contract): clears the slots, or with `config.Rebirth.rebirth.keepDisplayed`
+- `Rebirth.resetStep` (contract): clears the slots, or with `config.Plot.plot.keepDisplayedOnRebirth`
   keeps owned items.
+- `Economy.displayedSource` (contract): supplies the displayed set for `income.source = "displayed"`.
 
 ## Signals (contract)
 
-`ItemDisplayed(player, uid, slotId)`, `DisplayCleared(player, slotId)`.
+`ItemDisplayed(player, uid, slotId)`, `ItemUndisplayed(player, uid, slotId)`,
+`DisplayCleared(player, slotId)`, `PlotAssigned(player, plot)`, `PlotReleased(player, plot)`.
 
 ## Client actions
 
 `StudWork.use(Plot).actions.display(uid, slotId?)`, `.clearDisplay(uid)`: they act on the sender's
-own plot only and check the uid is in the sender's inventory. Since core-v1.3.1 (R19) they are
+own plot only and check the uid is in the sender's inventory. Since v1.3.1 they are
 module actions (module-api.md §9) on Plot's own `net.blink` (`RemoteScope = "STUDWORK_PLOT"`):
 
 | Action | Blink event | Wire types | Limit (per player) |

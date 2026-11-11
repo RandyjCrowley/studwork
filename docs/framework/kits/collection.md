@@ -1,10 +1,9 @@
 # Collection kit: Items, Rarity, Inventory
 
 Items, weighted rolls with luck, pity and mutations, and owned item copies. Code:
-`packages/kits/collection/<Module>/` (one folder per module since core-v1.3.1: `module.luau`, `server/`, `client/`; Rojo `ReplicatedStorage.Modules.<Module>`, `ServerScriptService.Modules.<Module>`). Phase 1 status: being rebuilt on the module API (agent A). Every entry
-marked **(contract)** is pinned by
-[PHASE1-CONTRACT.md]((internal build report, not public)) and offered today through
-the compat bridge; names and meanings don't change when the real module lands.
+`packages/kits/collection/<Module>/` (one folder per module: `module.luau`, `server/`, `client/`; Rojo `ReplicatedStorage.Modules.<Module>`, `ServerScriptService.Modules.<Module>`). Entries
+marked **(contract)** are part of the cross-module surface listed in
+[kit-contract.md](../kit-contract.md).
 
 ```lua
 local Modules = ReplicatedStorage:WaitForChild("Modules")
@@ -54,7 +53,7 @@ A rarity table:
   `getOddsDetail(tableId, player?) -> OddsDetail?`, `tiers()` (the resolved ordered tier list,
   contract), `setLuck(player, luck, tableId?)`, `getLuck(player, tableId?)`. `RollInfo = { ok,
   reason?, mutation?, pity, instance? }`; reasons: `unknown_table`, `restricted`, `not_loaded`,
-  `inventory_full`, `empty_table`.
+  `inventory_full`, `empty_table`, `policy_unknown`.
 - **purchaseOps (contract):** `roll(tx, tableId, luck?) -> (def?, info)`: a paid roll inside a
   purchase, through `compliance.roll`; the item is granted with a `paid:` source.
 - **txApi (contract):** `roll(tx, tableId, luck?) -> (def?, info)`: a free roll inside your tx.
@@ -63,7 +62,7 @@ A rarity table:
   `net.blink` event `Roll` (`Data: Id`, RemoteScope `STUDWORK_RARITY`), rate limit 4/s, burst 8.
   Client: `StudWork.use(Rarity).actions.roll(tableId)`; tests: `h:action(p, Rarity, "roll", tableId)`.
 - **Replicated `extra`:** `odds = { [tableId] = OddsDetail }` for every table with a `cost`,
-  `paid = true` or `luckDisclosed = true`. Render it with `UI.OddsTable`; never compute odds on the
+  `paid = true` or `luckDisclosed = true`; `tiers` (the resolved tier list). Render it with `UI.OddsTable`; never compute odds on the
   client.
 - **Theme (contract):** contributes `theme.rarity = { tiers = <resolved list> }`.
 - **Save data:** section `rarity`: `{ pity = { [tableId] = count } }`, not replicated.
@@ -90,7 +89,8 @@ Owned item copies, capacity, transfers and gifts.
   is derived from the transaction, your `source` becomes the reason suffix.
 - **Extensions (contract):** `onItemRemoved(fn(tx, player, instance))`: runs inside the removing
   transaction; `ctx.section(tx)` in the hook is the registering module's own section (Plot clears
-  its slot this way).
+  its slot this way). `capBonus(id, fn(player) -> number)`: adds slots to `cap(player)` (Upgrades'
+  `inventoryCap` effect).
 - **Mail kind:** owns `"core_gift"`, registered with `Mail.registerKind` when Mail is enabled.
 - **Signals (contract):** `ItemAdded(player, instance)`, `ItemRemoved(player, instance)`.
 - **Client action:** `gift(toUserId, uid)` (same server: instant transfer). Wire: Inventory's own

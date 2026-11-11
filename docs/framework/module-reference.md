@@ -1,11 +1,11 @@
 # Module API reference
 
 The public API every module uses, built-in kits and third-party modules alike. Derived from the
-frozen design ([module-api.md](module-api.md), tag `core-contract-v1.3`) and the code in
+design ([module-api.md](module-api.md)) and the code in
 `packages/framework`. Where they differ, this page follows the code and says so.
 
 Public surface: `StudWork` (`ReplicatedStorage.Framework`) and the `ctx` your module receives.
-Everything under `packages/framework/server`, `packages/framework/client` and `packages/kits/compat`
+Everything under `packages/framework/server` and `packages/framework/client`
 is internal: modules and games never require it.
 
 - [StudWork](#studwork)
@@ -242,10 +242,13 @@ module that registered it, so each hook writes only its own section. The kits' e
 Signals are part of a module's API: `ctx.deps[Economy].signals.CurrencyChanged:Connect(fn)`.
 Connections return `{ Disconnect }`; handlers run in pcall, in connection order.
 
-Known gap (core v1.3.0 Phase 1): `ctx.signals.new` is only reachable from `init`, but `api` is
-wrapped before `init`, so a module can't yet publish a signal it creates in `init` under
-`api.signals`. Until that is settled, offer `api.onSomething(fn)` built on `StudWork.hook()`, as
-the example module does (`onNewBest`).
+Publishing a signal: `ctx.signals.new` is only reachable from `init`, but the framework copies
+`api` (and a plain `api.signals` table) before `init`. So make `api.signals` a table that exists
+by identity before `init` and serves what `init` creates: the kits use a small proxy with a
+metatable (`packages/kits/base/Plot/server/SignalTable.luau`, or the `__index` proxy in
+`packages/kits/economy/Economy/server/init.luau`) and assign `signals.X = ctx.signals.new("X")` in
+`init`. Or offer `api.onSomething(fn)` built on `StudWork.hook()`, as the example module does
+(`onNewBest`).
 
 ## Purchases
 
@@ -323,9 +326,9 @@ Server -> client: `ctx.net.fire(player, event, ...)` / `fireAll(event, ...)` on 
 Blink events; `ctx.net.feedback(player, "toast" | "pop" | "item", text, rarity?)` for the built-in
 cosmetic feedback. Raw `RemoteEvent`/`RemoteFunction`/`OnServerEvent` are forbidden (lint).
 
-Blink files: `tools/net` compiles `packages/framework`, `packages/kits` and
-`games/*/src/shared/net/*.blink` today. A module folder's own `net.blink` outside those paths isn't
-picked up yet (requested); generate it with `blink <file>` meanwhile.
+Blink files: `tools/net` compiles every `.blink` file under `packages/framework`, `packages/kits`,
+`examples/` and `games/` (game-local modules included) and writes the generated `Net.luau` files,
+which are committed. Run it after changing a `net.blink`.
 
 ## Replication and client state
 
@@ -364,7 +367,7 @@ Base item fields (framework): `id`, `name`, `rarity?` (a tier name), `model?`, `
 `source?`, `keepOnRebirth?`. Modules add namespaced fields with `itemFields`; Economy adds
 `item.economy.incomePerSec` and `mutation.economy.incomeMultiplier`. A namespace no enabled module
 declared is a boot error. Items exist only through `GameConfig.items`, validated once at boot;
-registering items after start is not supported in core v1.3.0.
+registering items after start is not supported …
 
 ## Rojo layout
 
@@ -374,13 +377,13 @@ registering items after start is not supported in core v1.3.0.
 | `client/` | `ReplicatedStorage.Modules.<Name>.client` |
 | `migrations/` | `ReplicatedStorage.Modules.<Name>.migrations` (next to `module.luau`: `script.Parent.migrations`) |
 | `shared/` | `ReplicatedStorage.Modules.<Name>.shared` |
-| `server/` | `ServerScriptService.Modules.<Name>` (a direct child; core-v1.3.1 dropped the `<Folder>.<Name>` scan) |
+| `server/` | `ServerScriptService.Modules.<Name>` (a direct child; there is no `<Folder>.<Name>` scan) |
 
 The loaders find parts by name (`ref.server`, `ref.client`; module-api.md §19.9): a server part
 that is a factory (`new`, no `init`/`start`) is built fresh per runtime, and a `Net` child
 (generated from `net.blink`) becomes the part's `net`. The game's own module is mapped as
 `ReplicatedStorage.GameModule.module` + `ServerScriptService.Modules.<GameModuleName>`.
-`tools/make-module --game` writes these entries. Since core v1.3.1 the built-in kits use the same
+`tools/make-module --game` writes these entries. Since v1.3.1 the built-in kits use the same
 layout (`packages/kits/<kit>/<Module>/`), and `tools/sync-projects` generates their entries in
 every project (lint fails on drift).
 
