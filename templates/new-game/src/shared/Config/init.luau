@@ -41,12 +41,42 @@ local Config = {
 	config = require(script.Balance),
 	-- @if Economy
 	-- Coins are sold for Robux (CoinPack), so the Coin-priced Chest is a paid random item too.
+	-- List every currency players can buy with Robux: rolls priced in one follow the paid
+	-- random item rules (odds disclosure, PolicyService). compliance = {} if none is sold.
 	compliance = { paidCurrencies = { "Coins" } },
 	-- @end
 	items = require(script.Items),
 	products = require(script.Products),
 	events = require(script.Events),
-	client = { palette = require(script.Palette) },
+	client = {
+		palette = require(script.Palette), -- legacy per-game colour overrides (hex), applied last
+		-- Override points (docs/framework/override-levels.md level 3). Uncomment to use.
+		-- The HUD (docs/framework/theme.md#hud): nil / "default" = the default slot layout.
+		-- hud = false, -- no HUD at all (toasts and screens still work)
+		-- hud = script.Parent.MyHud, -- src/shared/MyHud.luau: a ModuleScript returning a React component
+		-- hud = {
+		-- 	layout = "default", -- or false, or a component / ModuleScript as above
+		-- 	widgets = {
+		-- 		["Social.mailbox"] = false, -- remove a default widget -- @if Mail
+		-- 		["Economy.currency"] = { slot = "topRight", order = 1, component = MyCounter }, -- @if Economy
+		-- 		["Game.nextGoal"] = false,
+		-- 	},
+		-- },
+	},
+	-- The theme (docs/framework/theme.md): merged as framework-default preset -> each module's
+	-- contribution -> this table. Partial: only what you name changes. Colours are "#RRGGBB".
+	-- theme = {
+	-- 	preset = "framework-default", -- or a preset table (itself layered on framework-default)
+	-- 	colors = { accent = "#FFB547", accentAlt = "#5ED1C9", currency = "#FFD23F", background = "#1E2235" },
+	-- 	fonts = {
+	-- 		display = "rbxasset://fonts/families/FredokaOne.json",
+	-- 		body = "rbxasset://fonts/families/BuilderSans.json",
+	-- 	},
+	-- 	metrics = { cornerRadius = 12, padding = 12, minTouchTarget = 44, text = { body = 18 } },
+	-- 	sounds = { coin_tick = { id = 16480580213, volume = 0.35 }, purchase = { id = 17208380755 } },
+	-- },
+	-- Rarity tiers are config, not theme: config.Rarity.tiers in Balance.luau (Rarity contributes
+	-- them to theme.rarity, so the UI picks up their colours, glows and soundKeys). -- @if Rarity
 	analytics = {
 		funnel = {
 			"Joined",

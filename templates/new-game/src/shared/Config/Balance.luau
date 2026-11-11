@@ -1,6 +1,9 @@
 --!strict
 -- Sandbox balance: every number the sandbox loop uses, as each kit module's config
 -- (GameConfig.config.<Name>). The keys inside each module are the v1.2 `balance` keys.
+-- Each module's config is merged over its defaults and checked against its schema at boot
+-- (unknown keys are warnings). Commented lines show the other keys with their default values:
+-- uncomment one to change it (docs/framework/override-levels.md level 2, kit pages for meanings).
 local Balance = {
 	-- @if Economy
 	Economy = {
@@ -8,23 +11,34 @@ local Balance = {
 		startingCurrency = { Coins = 0 },
 		income = { tickSeconds = 1, source = "displayed" }, -- @if Plot
 		-- @unless Plot: income = { tickSeconds = 1, source = "owned" },
-		multiplierStacking = "multiply",
+		multiplierStacking = "multiply", -- or "add": 1 + sum(factor - 1)
 	},
 	-- @end
 	-- @if Inventory
 	Inventory = {
 		inventory = { cap = 50 },
 		starterItems = { "pebble" }, -- first reward: earning starts the moment you join
+		-- defaults: inventory = { cap = 50 }, starterItems = {}
 	},
 	-- @end
 	-- @if Plot
 	Plot = {
 		plot = { slotCount = 8, autoDisplay = true },
+		-- plot = { keepDisplayedOnRebirth = false },
 		assetsFolderName = "GameAssets",
+		-- plotTag = "CorePlot", -- CollectionService tag of the plot models
 	},
 	-- @end
 	-- @if Rarity
 	Rarity = {
+		-- tiers = "standard7", -- the default: Common .. Secret. Or your own ordered list; items'
+		-- `rarity` must then use these ids, and the UI takes each tier's look from here:
+		-- tiers = {
+		-- 	{ id = "Bronze", color = "#CD7F32", soundKey = "rarity_common" },
+		-- 	{ id = "Silver", color = "#C0C0C0", soundKey = "rarity_rare" },
+		-- 	{ id = "Gold", color = "#FFD23F", glow = "#FFF2B3", glowStrength = 0.6, soundKey = "rarity_epic" },
+		-- 	{ id = "Diamond", color = "#7DF9FF", glow = "#FFFFFF", glowStrength = 1, soundKey = "rarity_secret" },
+		-- },
 		rarityTables = {
 			-- free: touching the collect block
 			Block = {
@@ -95,6 +109,8 @@ local Balance = {
 				perLevel = 5,
 				resetsOnRebirth = false,
 			},
+			-- each upgrade: { name, baseCost, costGrowth, currency? (default primary), maxLevel,
+			-- effect ("incomeMultiplier" | "inventoryCap" | "custom"), perLevel, resetsOnRebirth? }
 		},
 	},
 	-- @end
@@ -107,7 +123,11 @@ local Balance = {
 			keepInventory = false,
 			keepDisplayed = false,
 			resetCurrencies = { "Coins" },
+			-- currency = "Coins", -- cost currency (default Economy's primary)
+			-- maxRebirths = nil, -- no limit
 		},
+		-- What a rebirth wipes (defaults = the v1.2 rules; Robux-bought copies are always kept):
+		-- onRebirth = { paid = "keep", paidCurrency = "wipe", earned = "wipe", itemOverrides = true },
 	},
 	-- @end
 	-- @if Offline
@@ -119,6 +139,7 @@ local Balance = {
 	Streak = {
 		streak = {
 			graceHours = 6,
+			-- utcOffsetHours = 0, -- the streak day boundary (UTC by default)
 			-- @if Economy
 			rewards = {
 				{ day = 1, amount = 100 },
@@ -136,6 +157,14 @@ local Balance = {
 		friends = { checkIntervalSec = 30, coPlayMultiplier = 1.1 }, -- @if Economy
 		-- @unless Economy: friends = { checkIntervalSec = 30 },
 	},
+	-- @end
+	-- @if Mail
+	-- Mail = { -- defaults:
+	-- 	mail = { giftCap = 100, returnAfterDays = 14, returnKinds = { "core_gift" }, sweepSeconds = 3600 },
+	-- },
+	-- @end
+	-- @if Items
+	-- Items has no config: item definitions live in Items.luau (GameConfig.items).
 	-- @end
 }
 

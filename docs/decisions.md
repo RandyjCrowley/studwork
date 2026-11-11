@@ -507,3 +507,23 @@ lead re-running lint, typecheck (6 games), tests (582), test-sim (51) and 8 rojo
   `theme.rarity.tiers` from `config.Rarity.tiers` (no duplication in GameConfig.theme).
 - **HUD widgets:** `UI.registerWidget` is the one documented call; `Hud.addWidget` on the client facade.
 - `examples/` is linted, typechecked, simmed and tested by default; game specs see their project tree.
+
+### Phase 2 (P2-B, P2-C)
+
+- **`StudWork.test` is the public test entry** (module-api.md §19.5); specs, generators and docs use it.
+  Every spec moved off the compat handles with assertions kept before the delete; the 81 tests that
+  went with `packages/core` are mapped in `TEST-COUNTS.md`.
+- **`packages/core` and `packages/kits/compat` are deleted.** Types/HandlerList moved into the framework,
+  the CHANGELOG to `packages/framework/CHANGELOG.md`. The kit loader fallbacks (`kitLoadServer`,
+  `ModuleClients`) stay: they live in the kits, and §1's one-folder-per-module mapping is follow-up work.
+- **Two new guardrails:** `special` (no kit/example/game module reaches framework internals or another
+  kit's server internals; 18 planted violations/evasions in its self-test) and `theme` (no hex colours,
+  `fromRGB` literals or asset ids outside theme/config files).
+- **Benchmark root cause and fix:** the 4.2 ms tick came from v1.2's per-tick `stats` write landing in
+  `_framework` beside every purchase receipt, so each commit re-copied, re-froze and re-diffed them all.
+  Data commits now share unchanged subtables, and views/replication rebuild only the changed path. The
+  real-kit tick is 0.60-0.62 ms median (v1.2: 0.64). **Rule:** nothing writes `_framework` every tick; per-tick
+  stats live in a module's own section (the literal v1.2-shaped port that does is still 1.6-1.8 ms, flagged).
+  Moving receipts into their own section would remove that cost fully but is a contract change, left for later.
+- **Scaffolds match `tools/new-game` output**, keeping each game's module list and values; this adds the
+  Studio console hooks, the gift mail kind/mailbox screen where Mail is listed, and per-game funnel steps.

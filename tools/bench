@@ -1,5 +1,12 @@
 #!/usr/bin/env bash
-# tools/bench [runs]: Lune micro-benchmarks for core (tools/lune/bench/*). Not part of tools/test.
+# tools/bench [runs] [variant...]   replication / tick benchmark (tools/lune/bench/replication)
+# tools/bench views [runs]          frozen read view costs (tools/lune/bench/views, design review H2)
+# Lune micro-benchmarks for the framework. Not part of tools/test. Results: (internal build report, not public)
 source "$(dirname "$0")/_common.sh"
 
-lune run tools/lune/bench/replication "$@"
+if [ "${1:-}" = "views" ]; then
+	shift
+	lune run tools/lune/bench/views "$@"
+else
+	lune run tools/lune/bench/replication "$@"
+fi

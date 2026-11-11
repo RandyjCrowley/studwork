@@ -233,8 +233,11 @@ function Store.profileStore(opts: any): any
 		end
 		entry.saveSeq = math.max(entry.saveSeq, entry.committedSeq) + 1
 		local target = entry.saveSeq
-		root._framework.stats = root._framework.stats or {}
-		root._framework.stats[Store.SAVE_SEQ_KEY] = target
+		-- copy-on-write: committed tables are never mutated in place (Data's incremental read views)
+		local fw = table.clone(root._framework)
+		fw.stats = if type(fw.stats) == "table" then table.clone(fw.stats) else {}
+		fw.stats[Store.SAVE_SEQ_KEY] = target
+		root._framework = fw
 		profile:Save()
 		local deadline = clock() + Store.SAVE_TIMEOUT
 		while entry.committedSeq < target do

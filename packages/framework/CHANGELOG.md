@@ -10,6 +10,25 @@ Contract frozen at `core-contract-v1.3` (Phase 0). Breaking changes are allowed 
 the last time (only scaffolds exist, nothing is published): see `docs/decisions.md` and
 `docs/framework/module-api.md` for the full design.
 
+### Phase 2 (P2-C): performance, override suite, scaffolds, tools
+
+- **Tick cost back under budget** ((internal build report, not public)). Commits keep the
+  committed table for every unchanged subtree (`Freeze.share`), read views are rebuilt only along
+  the changed path (`Freeze.freezeShared`), and Replication's wire copy reuses the last copy of
+  unchanged frozen subtrees (`Snapshot.copyShared`), so charm-sync skips them by reference.
+  Framework writes to committed tables (`Data.beforeSave`, `Store.saveNow`) are copy-on-write.
+  Real kit modules at 50 players x 100 items: 0.60 ms/tick (v1.2: 0.64). No API change.
+- `packages/framework/test/Overrides.spec.luau`: the five override levels, cases (a)-(f).
+- The template and the five scaffolds show every override point as commented examples (theme,
+  rarity tiers, client.hud and widgets, each module's config keys with defaults,
+  compliance.paidCurrencies); the scaffolds are now generator output (`tools/new-game --modules`)
+  with their own game-specific values kept, and the template's header comments are trimmed by the
+  module markers too.
+- `tools/doctor` and `tools/core-status` check the v1.3 layout (`tools/lune/Layout.luau`):
+  packages/framework, packages/kits, no packages/core, and every Rojo project's mapping.
+- `tools/bench views`: the frozen read view costs (H2); `tools/bench` gained the MERGED-V13 and
+  KITS (real kit modules) variants.
+
 ### Breaking (framework restructure)
 
 - **Phase 2: the v1.2 leftovers are deleted.** `packages/core` (the v1.2 `Core` facade's server,

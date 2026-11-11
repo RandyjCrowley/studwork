@@ -116,7 +116,8 @@ type Record = {
 	player: any,
 	root: { [string]: any },
 	versions: { [string]: number },
-	views: { [string]: { version: number, view: any } },
+	-- source = the committed section table the view was built from (Freeze.freezeShared)
+	views: { [string]: { version: number, view: any, source: any } },
 }
 
 type TxState = {
@@ -242,9 +243,17 @@ function Data.new(opts: any): any
 
 	-- Stamped right before every write of this record (memory save, ProfileStore OnSave).
 	local function beforeSave(record: Record)
-		local fw = record.root._framework
+		-- copy-on-write: committed tables are never mutated in place (the incremental read views
+		-- rely on it, Freeze.freezeShared)
+		local fw = table.clone(record.root._framework)
 		fw.lastSeen = now()
-		prunePurchases(fw.purchases, Data.PURCHASES_CAP)
+		if type(fw.purchases) == "table" then
+			local purchases = table.clone(fw.purchases)
+			if prunePurchases(purchases, Data.PURCHASES_CAP) > 0 then
+				fw.purchases = purchases
+			end
+		end
+		record.root._framework = fw
 		record.versions._framework = nextVersion()
 	end
 
@@ -411,7 +420,11 @@ function Data.new(opts: any): any
 		local version = record.versions[key] or 0
 		local hit = record.views[key]
 		if hit == nil or hit.version ~= version then
-			hit = { version = version, view = Freeze.freezeCopy(value) }
+			-- rebuilt sharing every still-equal subtree with the previous view (benchmark fix)
+			local view = if hit
+				then Freeze.freezeShared(value, hit.source, hit.view)
+				else Freeze.freezeCopy(value)
+			hit = { version = version, view = view, source = value }
 			record.views[key] = hit
 		end
 		return hit.view
@@ -592,8 +605,10 @@ function Data.new(opts: any): any
 			if w == NO_SECTION then
 				continue
 			end
-			if not Freeze.deepEqual(w, record.root[key]) then
-				record.root[key] = w
+			-- structural sharing: unchanged subtrees keep the committed tables (benchmark fix)
+			local merged, differs = Freeze.share(w, record.root[key])
+			if differs then
+				record.root[key] = merged
 				record.versions[key] = nextVersion()
 				anyChange = true
 			end

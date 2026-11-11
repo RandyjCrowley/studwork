@@ -2,7 +2,9 @@
 # tools/core-status: for every game (including _sandbox): the core it was last stamped with
 # (deploy.json coreVersion/coreCommit, written by tools/publish) against the current core, whether
 # its test/live ids are still placeholders, and whether test/live are in sync with HEAD
-# (deploy.json <target>.published / .dryRun commits). Report only: always exits 0.
+# (deploy.json <target>.published / .dryRun commits), and whether its Rojo projects map the core
+# v1.3.0 layout (StudWork in packages/framework, kits in packages/kits, nothing in packages/core).
+# Report only: always exits 0.
 source "$(dirname "$0")/_common.sh"
 
 lune run tools/lune/core-status
