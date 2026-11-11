@@ -1,7 +1,7 @@
 --!strict
 --[[
 	Pure helpers shared by the collection kit's server parts (zero Roblox dependencies; tested
-	under Lune). Replaces the v1.2 Core.Validate imports (kit code may not import packages/core).
+	under Lune). Replaces the v1.2 Core.Validate imports (kit code may not import framework internals).
 
 	isFiniteNumber / isPositiveNumber / isNonNegativeNumber / isInteger
 	isShortString(value, maxLen, pattern?)   non-empty string <= maxLen matching pattern

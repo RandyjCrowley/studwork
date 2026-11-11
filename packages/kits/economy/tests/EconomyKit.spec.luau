@@ -1,12 +1,11 @@
 --!nocheck
 --[[
 	Economy kit (core-v1.3.0 Phase 1): the REAL Economy / Upgrades / Rebirth / Offline modules in
-	the multi-server sim, next to the still-bridged Collection / Base / Social / Engagement modules
-	(their v1.2 surface reaches the real modules through packages/kits/compat/adapters/Economy.luau).
+	the multi-server sim (StudWork.test.sim), next to the other real kit modules.
 ]]
 
--- the sim lives outside the Rojo tree (Lune only), so the require is untyped
-local F = (require :: any)("packages/framework/test/sim/Fixtures.luau")
+local StudWork = require(game:GetService("ReplicatedStorage"):WaitForChild("Framework"))
+local F = StudWork.test.sim
 
 local SANDBOX = "games/_sandbox/default.project.json"
 
@@ -51,10 +50,11 @@ local function income(server, itemId: string): number
 end
 
 describe("Economy kit: real modules", function()
-	it("are real server parts, adapted (not bridged) for the v1.2 surface", function()
+	it("are real server parts (built by the kit's own ModuleServers)", function()
 		local _, server = sandbox(701)
+		local kitServers = server.require("packages/kits/economy/server/ModuleServers.luau")
 		for _, name in { "Economy", "Upgrades", "Rebirth", "Offline" } do
-			expect(tostring(server.services[name])).toBe("AdaptedModule(" .. name .. ")")
+			expect(name .. "=" .. tostring(kitServers.isReal(server:ref(name)))).toBe(name .. "=true")
 		end
 		-- config defaults merged under the game's config
 		local configs = server.runtime.configs
@@ -100,7 +100,7 @@ describe("Economy kit: real modules", function()
 			config = {
 				items = {
 					{ id = "card", name = "Card", rarity = "Common" },
-					{ id = "gem", name = "Gem", rarity = "Rare", incomePerSec = 10 },
+					{ id = "gem", name = "Gem", rarity = "Rare", economy = { incomePerSec = 10 } },
 				},
 			},
 		})
@@ -108,10 +108,10 @@ describe("Economy kit: real modules", function()
 		local p = server:join(703)
 		assert(loaded(world, server, p), "load")
 		expect(server.runtime.gameConfigPublic.items.byId("card").economy).toBeNil()
-		server.services.Inventory.add(p, "card", { source = "drop" })
-		expect(server.services.Economy.getRate(p)).toBe(0)
-		server.services.Inventory.add(p, "gem", { source = "drop" })
-		expect(server.services.Economy.getRate(p)).toBe(10)
+		server:use("Inventory").add(p, "card", { source = "drop" })
+		expect(server:use("Economy").getRate(p)).toBe(0)
+		server:use("Inventory").add(p, "gem", { source = "drop" })
+		expect(server:use("Economy").getRate(p)).toBe(10)
 		expect(#world:errors()).toBe(0)
 	end)
 
@@ -123,10 +123,15 @@ describe("Economy kit: real modules", function()
 					{ id = "card", name = "Card", rarity = "Common" },
 					{ id = "badge", name = "Badge", rarity = "Rare" },
 				},
-				balance = {
-					rarityTables = {
-						Pack = {
-							entries = { { itemId = "card", weight = 3 }, { itemId = "badge", weight = 1 } },
+				config = {
+					Rarity = {
+						rarityTables = {
+							Pack = {
+								entries = {
+									{ itemId = "card", weight = 3 },
+									{ itemId = "badge", weight = 1 },
+								},
+							},
 						},
 					},
 				},
@@ -138,12 +143,12 @@ describe("Economy kit: real modules", function()
 		local p = server:join(704)
 		assert(loaded(world, server, p), "load")
 		for _ = 1, 3 do
-			local def, info = server.services.Rarity.roll("Pack", p, nil, { grant = true, reason = "test" })
+			local def, info = server:use("Rarity").roll("Pack", p, nil, { grant = true, reason = "test" })
 			expect(info.ok).toBe(true)
 			expect(def.economy).toBeNil()
 		end
-		expect(server.services.Inventory.count(p)).toBe(3)
-		for _, instance in server.services.Inventory.list(p) do
+		expect(server:use("Inventory").count(p)).toBe(3)
+		for _, instance in server:use("Inventory").list(p) do
 			expect(server.runtime.gameConfigPublic.items.byId(instance.itemId).economy).toBeNil()
 		end
 		world:advance(5)
@@ -226,7 +231,7 @@ describe("Economy kit: Upgrades and Rebirth", function()
 		local Economy, Upgrades = api(server, "Economy"), api(server, "Upgrades")
 		local Rebirth, Inventory = api(server, "Rebirth"), api(server, "Inventory")
 		local rebirthed = record(Rebirth.signals.Rebirthed)
-		local v12Rebirthed = record(server.signals.Rebirthed)
+		local heard = server:heard("Rebirth.Rebirthed") -- the sim records every module signal
 		Economy.grant(p, 400, "test")
 		assert(Upgrades.purchase(p, "IncomeBoost") and Upgrades.purchase(p, "BiggerBag"), "upgrades")
 		for _, item in Inventory.list(p) do
@@ -263,7 +268,7 @@ describe("Economy kit: Upgrades and Rebirth", function()
 		expect(Economy.getMultiplier(p)).toBe(1.5)
 		expect(#rebirthed).toBe(1)
 		expect(rebirthed[1][2]).toBe(1)
-		expect(#v12Rebirthed).toBe(1) -- forwarded to the v1.2 signal set (bridged Plot listens)
+		expect(heard:count()).toBe(1) -- fired once for every listener (Plot re-renders on it)
 		expect(#world:errors()).toBe(0)
 	end)
 end)

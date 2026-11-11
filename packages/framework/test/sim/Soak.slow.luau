@@ -29,7 +29,9 @@ describe("soak: players hopping between servers with flaky DataStore", function(
 			return seed / 2147483648
 		end
 
-		local world = F.world({ config = { balance = { offline = { capSeconds = 0, minSeconds = 1e9 } } } })
+		local world = F.world({
+			config = { config = { Offline = { offline = { capSeconds = 0, minSeconds = 1e9 } } } },
+		})
 		local servers = { F.server(world), F.server(world), F.server(world) }
 		local where: { [number]: any } = {} -- userId -> { server, player }
 		local confirmed: { [number]: number } = {}
@@ -81,7 +83,7 @@ describe("soak: players hopping between servers with flaky DataStore", function(
 					where[userId] = { server = s, player = s:join(userId), joinedAt = world.scheduler.now }
 				elseif at and at.server:isLoaded(at.player) then
 					checks += 1
-					local coins = at.server:data(at.player).currency.Coins or 0
+					local coins = at.server:section(at.player, "economy").currency.Coins or 0
 					if at.checked == nil then
 						at.checked = true
 						assert(
@@ -98,15 +100,15 @@ describe("soak: players hopping between servers with flaky DataStore", function(
 					end
 					if roll < 0.5 then
 						local amount = 1 + math.floor(rand() * 50)
-						if at.server.services.Economy.grant(at.player, amount, "soak") then
+						if at.server:use("Economy").grant(at.player, amount, "soak") then
 							granted[userId] += amount
 						end
 					elseif roll < 0.6 then
 						local s, p = at.server, at.player
 						local h = s:spawn(function()
-							return s.services.Data.saveAsync(p)
+							return s:save(p)
 						end)
-						local expected = s:data(p).currency.Coins or 0
+						local expected = s:section(p, "economy").currency.Coins or 0
 						world:advanceUntil(function()
 							return h.done
 						end, 40, 0.25)

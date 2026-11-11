@@ -2,7 +2,7 @@
 --[[
 	Server parts of the engagement kit's modules for the framework loader (loadServer(ref) -> impl).
 	core-v1.3.0 Phase 1: every module of this kit is REAL (Streak): loadServer returns its
-	server part (init / start / api / txApi / extensions), no compat bridge. The framework's
+	server part (init / start / api / txApi / extensions), (a real module). The framework's
 	default loader finds this file in the kit layout (ServerScriptService.Kits.<Kit>.ModuleServers).
 	Requires are lazy, so loading this file never boots a module.
 ]]

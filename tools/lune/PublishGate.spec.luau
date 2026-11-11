@@ -80,7 +80,7 @@ describe("PublishGate.decide", function()
 	end)
 
 	it("dirty tree -> refuse a real publish", function()
-		local d = PublishGate.decide(input({ dirty = { "games/g/src/x.luau", "packages/core/y.luau" } }))
+		local d = PublishGate.decide(input({ dirty = { "games/g/src/x.luau", "packages/framework/y.luau" } }))
 		expect(d.ok).toBe(false)
 		expect(hasMessage(d.errors, "games/g/src/x.luau")).toBe(true)
 	end)

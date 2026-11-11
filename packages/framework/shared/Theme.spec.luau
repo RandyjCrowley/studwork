@@ -1,7 +1,7 @@
 local Theme = require(script.Parent.Theme)
-local Palette = require(script.Parent.Parent.Parent.core.shared.Palette)
-local Sounds = require(script.Parent.Parent.Parent.core.shared.Sounds)
-local RarityTiers = require(script.Parent.Parent.Parent.core.shared.RarityTiers)
+local Palette = require(script.Parent.Parent.test.fixtures.PaletteV12)
+local Sounds = require(script.Parent.Parent.test.fixtures.SoundsV12)
+local RarityTiers = require(script.Parent.Parent.test.fixtures.RarityTiersV12)
 
 local function merge(order, gameTheme)
 	local errors = {}

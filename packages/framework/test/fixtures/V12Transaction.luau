@@ -1,5 +1,8 @@
 --!strict
 --[[
+	TEST FIXTURE (core-v1.3.0 Phase 2): kept from the deleted v1.2 server Data/Transaction.luau: the pure v1.2 copy-on-read transaction the
+	Gift / Outbox unit specs drive their pure logic with.
+	Never required by game or kit code.
 	Pure Data.update transaction (L6). OWNED BY AGENT A. No Roblox globals; tested in Lune.
 
 	Transaction.newState() -> State          per-player: running flag + per-section versions.

@@ -18,7 +18,6 @@ Files:
 - `init.luau`: the service (Roblox glue)
 - `Slots.luau`: pure selection logic (slot order, slotCount, tag filter, validation, stale-entry
   cleanup, auto-display plan, plot order) + `Slots.spec.luau`
-- `packages/core/shared/PlotLayout`: pure layout math for generating slot pads (grid, ring) + spec
 
 ## Game-facing contract (attributes / names)
 

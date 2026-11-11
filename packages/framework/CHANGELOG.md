@@ -1,7 +1,7 @@
 # Core changelog
 
-Core's public interface (`packages/core/shared/Types.luau`, `packages/core/shared/net/core.blink`)
-only gains things: no renames, no removals; old calls are marked deprecated instead.
+Core's public interface (v1.2: `Types.luau`, now `packages/framework/shared/Types.luau`; v1.3:
+`docs/framework/module-api.md`) only gains things: no renames, no removals; old calls are marked deprecated instead.
 Every change is recorded here, newest first.
 
 ## core-v1.3.0 (in progress — framework restructure)
@@ -11,6 +11,26 @@ the last time (only scaffolds exist, nothing is published): see `docs/decisions.
 `docs/framework/module-api.md` for the full design.
 
 ### Breaking (framework restructure)
+
+- **Phase 2: the v1.2 leftovers are deleted.** `packages/core` (the v1.2 `Core` facade's server,
+  shared files and their specs) and `packages/kits/compat` (the v1.2 bridge, adapters, flat
+  `V12Data` view, `V12Config`, `FlatState`) are gone, with the framework's compat doors
+  (`CompatDoor`, `Server.start` opt `compat`, `rt.gameConfig`, `Data.compatLive/compatTouch/
+  compatSetLastSeen`, the client's `State.setView`, the Mail kit's `_compat` surface) and the
+  `Core` / `CompatShared` / `Compat` Rojo mappings. Live v1.2 saves still load: the v1.2 split is a
+  migration (FrameworkSection), proven end to end by `test/MigrationV12.spec.luau`.
+- Removed with them (no caller left): the v1.2 manifest `Modules.luau` (the client ActionGate
+  carries its own action table), the v1.2 `ConfigValidate` (the `Config.spec` "v1.2 view" check),
+  `PlotLayout` (pad layout math with no caller), `Validate`, `Signals`, the `lastseen` console
+  override. `Types.luau` moved to `packages/framework/shared/Types.luau` and `HandlerList.luau` to
+  `packages/framework/client/` (the framework client UI still reads them). This changelog moved
+  here from `packages/core/CHANGELOG.md`.
+- `StudWork.test` (module-api.md §15, §19.5) is the public test entry: `harness` (real kit
+  modules unless a part is injected), `purchase` with re-delivery, shared `memoryStore` with
+  failure injection, and `sim` (several servers on real ProfileStore session locks).
+- Guardrails: `special` ("nothing is special": kits, examples and game modules use only the
+  StudWork facade, UI and module refs) and `theme` (no colour / asset literals in UI and client
+  code outside theme and config files).
 
 - **No post-boot item registration.** v1.2's `Items.register` could be called at any time, with
   `Items.onRegistered` re-sending disclosed odds for the new items (N3). v1.3 has no equivalent:

@@ -20,9 +20,8 @@ local ContextActionService = game:GetService("ContextActionService")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local UserInputService = game:GetService("UserInputService")
 
-local Core = ReplicatedStorage:WaitForChild("Core")
 local Signal = require(ReplicatedStorage:WaitForChild("Packages"):WaitForChild("Signal"))
-local Types = require(Core:WaitForChild("Types"))
+local Types = require(ReplicatedStorage:WaitForChild("Framework"):WaitForChild("Types"))
 
 local ClientTheme = require(script.Parent.Theme)
 local Classify = require(script.Classify)

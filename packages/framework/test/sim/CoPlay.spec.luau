@@ -1,7 +1,7 @@
 --[[
 	Co-play with mocked friends (known-issues: "real friend co-play multiplier").
 	Real Friends + Economy + Data; IsFriendsWithAsync answers come from world.friends (with
-	latency and injectable failures). balance.friends.coPlayMultiplier = 1.5 in the fixture.
+	latency and injectable failures). config.Friends.friends.coPlayMultiplier = 1.5 in the fixture.
 ]]
 
 local F = require(script.Parent.Fixtures)
@@ -28,7 +28,7 @@ end
 
 local function coPlayFires(s, player)
 	local list = {}
-	for _, args in s.signals.CoPlay.history do
+	for _, args in s:heard("Friends.CoPlay").history do
 		if args[1] == player then
 			table.insert(list, { friends = args[2], kind = args[3] })
 		end
@@ -42,7 +42,7 @@ describe("co-play with friends in the same server", function()
 		world:setFriends(41, 42)
 		local s = F.server(world)
 		local a, b, c = joinAll(world, s, { 41, 42, 43 })
-		local Friends, Economy = s.services.Friends, s.services.Economy
+		local Friends, Economy = s:use("Friends"), s:use("Economy")
 
 		expect(#Friends.friendsInServer(a)).toBe(1)
 		expect(Friends.friendsInServer(a)[1].UserId).toBe(b.UserId)
@@ -70,13 +70,13 @@ describe("co-play with friends in the same server", function()
 		world:setFriends(44, 45)
 		local s = F.server(world)
 		local a = joinAll(world, s, { 44 })
-		s.services.Inventory.add(a, "gem", { source = "drop" })
-		expect(s.services.Economy.getRate(a)).toBeNear(10)
+		s:use("Inventory").add(a, "gem", { source = "drop" })
+		expect(s:use("Economy").getRate(a)).toBeNear(10)
 		joinAll(world, s, { 45 })
-		expect(s.services.Economy.getRate(a)).toBeNear(15)
-		local before = s:data(a).currency.Coins
+		expect(s:use("Economy").getRate(a)).toBeNear(15)
+		local before = s:section(a, "economy").currency.Coins
 		world:advance(4)
-		expect(s:data(a).currency.Coins - before).toBeNear(60, 1e-6)
+		expect(s:section(a, "economy").currency.Coins - before).toBeNear(60, 1e-6)
 	end)
 
 	it("reports kind = invite when the referrer is a friend in the server", function()
@@ -96,21 +96,21 @@ describe("co-play with friends in the same server", function()
 		world.friendFailures = 100 -- every lookup fails for now
 		local s = F.server(world)
 		local a = joinAll(world, s, { 48, 49 })
-		expect(#s.services.Friends.friendsInServer(a)).toBe(0)
+		expect(#s:use("Friends").friendsInServer(a)).toBe(0)
 		expect(#world:errors()).toBe(0) -- failures are pcall'd, not thread errors
 		world.friendFailures = 0
 		world:advance(31, 0.25) -- checkIntervalSec = 30
-		expect(#s.services.Friends.friendsInServer(a)).toBe(1)
-		expect(s.services.Economy.getMultiplier(a)).toBeNear(1.5)
+		expect(#s:use("Friends").friendsInServer(a)).toBe(1)
+		expect(s:use("Economy").getMultiplier(a)).toBeNear(1.5)
 	end)
 
 	it("no multiplier when coPlayMultiplier is not configured, but CoPlay still fires", function()
 		local world = F.world()
-		world.config.balance.friends.coPlayMultiplier = nil
+		world.config.config.Friends.friends.coPlayMultiplier = nil
 		world:setFriends(50, 51)
 		local s = F.server(world)
 		local a = joinAll(world, s, { 50, 51 })
 		expect(#coPlayFires(s, a)).toBe(1)
-		expect(s.services.Economy.getMultiplier(a)).toBeNear(1)
+		expect(s:use("Economy").getMultiplier(a)).toBeNear(1)
 	end)
 end)

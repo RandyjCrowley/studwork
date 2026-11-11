@@ -1,6 +1,6 @@
 --!nocheck
 --[[
-	Economy kit modules on the plain StudWork test harness (no compat bridge, no Collection): the
+	Economy kit modules on the plain StudWork test harness (no Collection): the
 	real server parts from ModuleServers, a tiny third-party module that rolls with a paid
 	currency through compliance.spendForRoll, and the config guardrails.
 ]]

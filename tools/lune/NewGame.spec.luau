@@ -2,7 +2,7 @@
 -- tools/ is outside the harness index (packages, games, templates), so load by file path.
 local NewGame = require("tools/lune/NewGame.luau")
 -- the kit module manifest, read from the kit module definitions (core-v1.3.0 step 4b-IIb; was
--- packages/core/shared/Modules.luau)
+-- the v1.2 module manifest)
 local fs = (getmetatable(getfenv(1)) :: any).__index.require("@lune/fs")
 local Modules = require("tools/lune/KitModules.luau").load(fs)
 

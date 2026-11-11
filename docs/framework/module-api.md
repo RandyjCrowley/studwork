@@ -807,3 +807,32 @@ that errors, or returns something other than a table, is a boot error. Rarity co
 `StudWork.Client.Hud.addWidget` is the same function, also listed in `Types.HudAPI`. Call it from
 a module's client `start` or from a game's client script. Games hide a widget with
 `GameConfig.client.hud = { widgets = { [id] = false } }`.
+
+### 19.5 `StudWork.test` in full (added in Phase 2: §15 sketched the harness; specs moved off the v1.2 handles needed shared stores, failure injection and several servers)
+
+`StudWork.test` is Lune-only: the test kit serves it (`packages/framework/test/Public.luau`), and
+it's never in a game build (outside Lune it errors).
+
+- `StudWork.test.harness(opts)`: the §15 harness. Every module's server part is found the way a live
+  game finds it, so kit modules run for real. `opts.servers = { Name = part }` injects a part (a
+  test double, or the module under test), which wins over the live lookup. The other options are
+  the GameConfig keys (`config`, `items`, `products`, `events`, `compliance`, `gameId`, `theme`,
+  `analytics`) plus `serverConfig`, `store`, `startTime`, `isStudio`, `policy` and `owned`.
+- `h:purchase(p, product, { retries?, redeliver?, purchaseId?, price? }) -> (decision, all)` builds the
+  receipt for a devProduct name or id. It re-delivers while the answer is `NotProcessedYet`, up to
+  `retries` times, or every time when `redeliver` is set.
+- `StudWork.test.boot(opts) -> (h?, err?)` returns a boot error instead of raising it.
+- `StudWork.test.memoryStore()` is one in-memory store that several harnesses can share (one
+  "DataStore" for several servers). `store.failNext(n)` makes the next `n` loads or saves raise.
+- `StudWork.test.player(userId, name?)` is a bare mock player.
+- `StudWork.test.sim.*` is the multi-server simulation: real ProfileStore session locks on a mock
+  DataStore and MessagingService, latency, crashes, server close (BindToClose) and failure
+  injection (`world:failNext` / `failFor`).
+  - `sim.world({ epoch? })`, `sim.server(world, opts)`, `sim.gameServer(world, projectPath)`,
+    `sim.bootGame(projectPath)` and `sim.buyItem(world, server, player, product, itemId)`.
+  - A server offers `server:join` / `leave` / `purchase` / `crash` and server close.
+  - It also offers `server:use(Ref | name)`, `server:ref(name)`, `server:section(p, key)`,
+    `server:sections(p)` and `server:update(p, fn(sections, tx))`.
+  - Further: `server:save(p)`, `server:onProduct(product, fn(tx))`, and `server:heard("<Module>.<Signal>"
+    | "framework.<Signal>")`, which records every firing since boot.
+  - Stored sectioned saves: `sim.saved(world, userId)` and `sim.section(world, userId, key)`.

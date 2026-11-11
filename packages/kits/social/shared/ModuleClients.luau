@@ -7,8 +7,6 @@
 	framework Blink file (shared/net/framework.blink), whose server handler is the v1.2 service's.
 ]]
 
-local ReplicatedStorage = game:GetService("ReplicatedStorage")
-
 local ModuleClients = {}
 
 -- module -> { action = framework Blink client event }
@@ -21,10 +19,8 @@ function ModuleClients.loadClient(ref: any): any
 	if actions == nil then
 		return nil
 	end
-	local net = (require :: any)(
-		ReplicatedStorage:WaitForChild("FrameworkClient"):WaitForChild("Net"):WaitForChild("Generated")
-	)
-	return { net = net, actions = actions }
+	-- "framework": the framework client resolves its own Blink file (kits never require it)
+	return { net = "framework", actions = actions }
 end
 
 return ModuleClients

@@ -77,7 +77,7 @@ describe("tools/make-module", function()
 			-- public API only: no framework internals anywhere in the skeleton
 			for rel, source in files do
 				for _, internal in
-					{ "CompatDoor", "RuntimeSlot", "Framework/server", "packages/core", "FrameworkClient" }
+					{ "RuntimeSlot", "Framework/server", "framework/test/harness", "FrameworkClient" }
 				do
 					expect(string.find(source, internal, 1, true) == nil and rel or internal).toBe(rel)
 				end

@@ -5,7 +5,6 @@
     "$className": "DataModel",
     "ReplicatedStorage": {
       "Packages": { "$path": "../../../../../deps/Packages" },
-      "Core": { "$path": "../../../../../packages/core/shared" },
       "FrameworkClient": { "$path": "../../../../../packages/framework/client" },
       "Framework": { "$path": "../../../../../packages/framework/shared" },
       "Kits": {
@@ -18,7 +17,6 @@
       },
       "UI": { "$path": "../../../../../packages/ui" },
       "Game": { "$path": "src/shared" },
-      "CompatShared": { "$path": "../../../../../packages/kits/compat/shared" },
       "GameModule": {
         "$className": "Folder",
         "module": { "$path": "game-module/module.luau" }
@@ -33,7 +31,6 @@
       }
     },
     "ServerScriptService": {
-      "Compat": { "$path": "../../../../../packages/kits/compat" },
       "Framework": { "$path": "../../../../../packages/framework/server" },
       "Kits": {
         "$className": "Folder",

@@ -1,13 +1,10 @@
 -- The game config must always pass StudWork's boot checks (StudWork.start refuses invalid
--- configs): module resolution with the game's own module, the framework ConfigValidate, and,
--- while the v1.2 services run behind the compat bridge, the v1.2 validator on the v1.2 view
--- the bridge hands them (V12Config.validateView; core-v1.3.0 step 4b-IIa, gone in Phase 2).
+-- configs): module resolution with the game's own module and the framework ConfigValidate.
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local Config = require(script.Parent.Config)
 local FrameworkShared = ReplicatedStorage:WaitForChild("Framework")
 local ConfigValidate = require(FrameworkShared:WaitForChild("ConfigValidate"))
 local Resolve = require(FrameworkShared:WaitForChild("Resolve"))
-local V12Config = require(ReplicatedStorage:WaitForChild("CompatShared"):WaitForChild("V12Config"))
 
 local function bootErrors(gameModule: any): { string }
 	local modules = table.clone(Config.modules)
@@ -19,10 +16,7 @@ local function bootErrors(gameModule: any): { string }
 	local config = table.clone(Config) :: any
 	config.modules = modules
 	local result = ConfigValidate.validate(order, config)
-	if #result.errors > 0 then
-		return result.errors
-	end
-	return V12Config.validateView(V12Config.view(config, result.configs, gameModule))
+	return result.errors
 end
 
 describe("sandbox Config", function()

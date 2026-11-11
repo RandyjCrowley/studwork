@@ -6,9 +6,8 @@
 	process (tests, the multi-server sim) never share module state. The framework's default loader
 	finds this file in the kit layout (ServerScriptService.Kits.Economy.ModuleServers).
 
-	isReal(ref) -> boolean: whether `ref`'s part came from here (the compat adapter,
-	packages/kits/compat/adapters/Economy.luau, adapts only this kit's own parts; Phase 2 deletes
-	it with compat).
+	isReal(ref) -> boolean: whether `ref`'s part came from here (EconomyKit.spec checks that the
+	running parts are this kit's own).
 ]]
 
 local ModuleServers = {}

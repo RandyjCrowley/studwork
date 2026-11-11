@@ -14,9 +14,6 @@
       "Packages": {
         "$path": "../../deps/Packages"
       },
-      "Core": {
-        "$path": "../../packages/core/shared"
-      },
       "FrameworkClient": {
         "$path": "../../packages/framework/client"
       },
@@ -47,9 +44,6 @@
       "Game": {
         "$path": "foundation-only/shared"
       },
-      "CompatShared": {
-        "$path": "../../packages/kits/compat/shared"
-      },
       "GameModule": {
         "$className": "Folder",
         "module": {
@@ -58,9 +52,6 @@
       }
     },
     "ServerScriptService": {
-      "Compat": {
-        "$path": "../../packages/kits/compat"
-      },
       "Framework": {
         "$path": "../../packages/framework/server"
       },

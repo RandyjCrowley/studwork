@@ -37,8 +37,6 @@
 	                               GameConfig.modules unless already listed; the game never lists
 	                               itself. Its data.key must be the gameId (the v1.2 game[gameId]
 	                               table splits into that section).
-	  compat                       opaque options for the compat bridge (packages/kits/compat; the
-	                               multi-server sim injects its signal factory). Deleted in Phase 2.
 ]]
 
 local Shared = require(script.Shared)
@@ -51,7 +49,6 @@ local StudWork = requireShared(Shared)
 local Admins = require(script.Events.Admins)
 local Analytics = require(script.Analytics)
 local Boot = require(script.Boot)
-local CompatDoor = require(script.CompatDoor)
 local Compliance = require(script.Compliance)
 local Context = require(script.Context)
 local Data = require(script.Data)
@@ -136,7 +133,6 @@ function Server.start(gameConfig: any, serverConfig: any?, opts: any?): any
 		serverConfig = serverConfig,
 		order = {},
 		platform = platform,
-		compat = o.compat, -- compat bridge options (Phase 2: delete)
 		gameModule = nil,
 	}
 
@@ -185,10 +181,27 @@ function Server.start(gameConfig: any, serverConfig: any?, opts: any?): any
 	end
 
 	Boot.attach(rt)
-	CompatDoor.attach(rt) -- compat bridge only (deleted in Phase 2)
 
 	local impls: { [any]: any } = {}
 	local ctxs: { [any]: any } = {}
+	-- The signals a module created with ctx.signals.new, by name (framework-internal; the test
+	-- harnesses record them, StudWork.test.sim's server:heard).
+	function rt.moduleSignals(ref: any): { [string]: any }
+		local out: { [string]: any } = {}
+		local c = ctxs[ref]
+		if c ~= nil then
+			for name, signal in c.signals do
+				if
+					type(name) == "string"
+					and type(signal) == "table"
+					and type(rawget(signal, "Connect")) == "function"
+				then
+					out[name] = signal
+				end
+			end
+		end
+		return out
+	end
 
 	local function kick(player: any, msg: string)
 		if o.kick then
@@ -345,7 +358,6 @@ function Server.start(gameConfig: any, serverConfig: any?, opts: any?): any
 
 	local function boot()
 		gameConfig = withGameModule(gameConfig)
-		rt.gameConfig = gameConfig -- framework-internal (the compat bridge reads it; Phase 2: drop)
 		-- 1. resolve
 		local order, found = Loader.load(gameConfig, StudWork.VERSION, o.loadServer)
 		impls = found

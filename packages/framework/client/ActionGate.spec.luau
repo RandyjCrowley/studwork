@@ -1,5 +1,6 @@
 local ActionGate = require(script.Parent.ActionGate)
-local Modules = require(game:GetService("ReplicatedStorage"):WaitForChild("Core"):WaitForChild("Modules"))
+local Resolve =
+	require(game:GetService("ReplicatedStorage"):WaitForChild("Framework"):WaitForChild("Resolve"))
 
 describe("Client.ActionGate", function()
 	it("errors before Core.start", function()
@@ -15,9 +16,9 @@ describe("Client.ActionGate", function()
 		expect(ActionGate.check(g, "rebirth")).toBe(nil)
 		expect(ActionGate.check(g, "triggerEvent")).toBe(nil)
 		expect(ActionGate.check(g, "funnel")).toBe(nil)
-		for action, owner in Modules.CLIENT_ACTIONS do
+		for action, owner in ActionGate.CLIENT_ACTIONS do
 			if owner ~= "Rebirth" then
-				expect(ActionGate.check(g, action)).toBe("[Core] " .. Modules.notEnabledMessage(owner))
+				expect(ActionGate.check(g, action)).toBe("[Core] " .. Resolve.notEnabledMessage(owner))
 			end
 		end
 	end)

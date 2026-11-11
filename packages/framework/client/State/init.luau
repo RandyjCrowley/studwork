@@ -14,9 +14,7 @@
 
 	core-v1.3.0 (step 4b-IIa): charm-sync now patches State.raw, the replicated state as the
 	server sends it (StudWork.Client.state(), module-api.md §10: { loaded, framework, modules }).
-	State.atom is a selector over it through State.setView. Since Phase 2 the client bootstrap no
-	longer installs the compat FlatState view (Hud reads State.raw through Hud/Slices, onMailbox
-	reads either shape), so State.atom is the raw state unless a caller installs a view.
+	State.atom is a read-only selector over it (Hud reads State.raw through Hud/Slices).
 ]]
 
 local Players = game:GetService("Players")
@@ -25,7 +23,7 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local Packages = ReplicatedStorage:WaitForChild("Packages")
 local Charm = require(Packages:WaitForChild("Charm"))
 local CharmSync = require(Packages:WaitForChild("CharmSync")) :: any
-local Types = require(ReplicatedStorage:WaitForChild("Core"):WaitForChild("Types"))
+local Types = require(ReplicatedStorage:WaitForChild("Framework"):WaitForChild("Types"))
 
 local PayloadCheck = require(script.PayloadCheck)
 
@@ -44,21 +42,13 @@ local initial: Types.ReplicatedState = {
 -- What charm-sync patches: the server's replicated state, unchanged.
 State.raw = (Charm.atom(initial) :: any) :: Types.Atom<any>
 
-local view: (raw: any) -> any = function(raw: any): any
-	return raw
-end
-
--- The flat v1.2 view the v1.2 UI reads (identity until the bootstrap installs a view).
+-- The replicated state (a read-only selector over State.raw; the v1.2 flat view and its
+-- State.setView hook were deleted in core-v1.3.0 Phase 2).
 State.atom = (
 	Charm.computed(function(): any
-		return view(State.raw())
+		return State.raw()
 	end) :: any
 ) :: Types.Atom<Types.ReplicatedState>
-
--- An optional view over the raw state (none is installed since Phase 2).
-function State.setView(fn: (raw: any) -> any)
-	view = fn
-end
 
 local started = false
 

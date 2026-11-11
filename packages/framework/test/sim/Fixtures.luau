@@ -25,31 +25,36 @@ local function merge(into: { [string]: any }, from: { [string]: any })
 	end
 end
 
--- A valid GameConfig. `balance` overrides are merged one level deep per table.
+-- A valid fixture GameConfig (v1.3 shape; `modules` are kit module names, `data` is the fixture
+-- game module's own data). Overrides are merged recursively into every non-array table
+-- (e.g. { config = { Offline = { offline = { autoPay = false } } } }).
 function Fixtures.config(overrides: { [string]: any }?): any
 	local config = {
 		gameId = Fixtures.GAME_ID,
 		modules = { "Items", "Inventory", "Economy", "Offline", "Friends", "Mail" },
 		items = {
-			{ id = "rock", name = "Rock", rarity = "Common", incomePerSec = 2 },
-			{ id = "gem", name = "Gem", rarity = "Rare", incomePerSec = 10 },
-			{ id = "egg", name = "Egg", rarity = "Epic", incomePerSec = 5 },
-			{ id = "dust", name = "Dust", rarity = "Common", incomePerSec = 0 },
+			{ id = "rock", name = "Rock", rarity = "Common", economy = { incomePerSec = 2 } },
+			{ id = "gem", name = "Gem", rarity = "Rare", economy = { incomePerSec = 10 } },
+			{ id = "egg", name = "Egg", rarity = "Epic", economy = { incomePerSec = 5 } },
+			{ id = "dust", name = "Dust", rarity = "Common", economy = { incomePerSec = 0 } },
 		},
-		balance = {
-			primaryCurrency = "Coins",
-			startingCurrency = { Coins = 0 },
-			starterItems = {},
-			income = { tickSeconds = 1, source = "owned" },
-			multiplierStacking = "multiply",
-			inventory = { cap = 3 },
-			mutations = {},
-			offline = { capSeconds = 3600, minSeconds = 60, payoutFraction = 0.5, autoPay = true },
-			friends = { checkIntervalSec = 30, coPlayMultiplier = 1.5 },
+		config = {
+			Economy = {
+				primaryCurrency = "Coins",
+				startingCurrency = { Coins = 0 },
+				income = { tickSeconds = 1, source = "owned" },
+				multiplierStacking = "multiply",
+			},
+			Inventory = { inventory = { cap = 3 }, starterItems = {} },
+			Rarity = { mutations = {} },
+			Offline = {
+				offline = { capSeconds = 3600, minSeconds = 60, payoutFraction = 0.5, autoPay = true },
+			},
+			Friends = { friends = { checkIntervalSec = 30, coPlayMultiplier = 1.5 } },
 		},
-		products = { passes = {}, devProducts = { Coins100 = 1001 } },
+		products = { passes = {}, devProducts = { Coins100 = 1001, Egg = 1002 } },
 		events = {},
-		data = { defaults = {}, version = 1 },
+		data = { default = {}, version = 1 },
 	}
 	if overrides then
 		merge(config, World.deepCopy(overrides))
@@ -57,10 +62,10 @@ function Fixtures.config(overrides: { [string]: any }?): any
 	return config
 end
 
--- One world + helpers. opts.config overrides Fixtures.config.
+-- One world + helpers. opts.config overrides Fixtures.config; opts.epoch = the unix time at t = 0.
 function Fixtures.world(opts: any?)
 	local o = opts or {}
-	local world = World.new({ dt = o.dt, verbose = o.verbose })
+	local world = World.new({ dt = o.dt, verbose = o.verbose, epoch = o.epoch })
 	world.config = Fixtures.config(o.config)
 	return world
 end
@@ -74,8 +79,8 @@ end
 
 -- A server that boots a REAL game (core-v1.3.0 step 4b-IIb boot tests): the game's own
 -- Config, game module and ServerConfig, through its Rojo project (`projectPath`, e.g.
--- "games/example-collector/default.project.json"), with the real framework, kit wrappers and the
--- compat bridge. Call on the spec's main thread (the project file is read here).
+-- "games/example-collector/default.project.json"), with the real framework and kit modules. Call on
+-- the spec's main thread (the project file is read here).
 function Fixtures.gameServer(world: any, projectPath: string, opts: any?)
 	local Loader = require(script.Parent.Loader)
 	local o = table.clone(opts or {})
@@ -120,43 +125,15 @@ end
 
 -- The v1.3 save root of a user as it is in the mock DataStore right now (ProfileStore's `Data`
 -- field: _framework, _versions and one section per module), or nil.
-function Fixtures.storedRaw(world: any, userId: number): any
+function Fixtures.saved(world: any, userId: number): any
 	local raw = world:peek(Fixtures.STORE, Fixtures.key(userId))
 	return raw and raw.Data
 end
 
--- A sectioned save as the flat v1.2 PlayerData the scenarios assert on (the inverse of
--- FrameworkSection.splitV12): every section's fields at the top level, the _framework fields,
--- schemaVersion = _framework.schemaVersion, game[gameId] = the game module's section.
--- core-v1.3.0 step 4b-IIa: the save layout changed (module-api.md §6), the assertions didn't.
-function Fixtures.flatten(root: any): any
-	if type(root) ~= "table" or type(root._framework) ~= "table" then
-		return root -- empty template (never saved) or not a v1.3 save
-	end
-	local flat: { [string]: any } = {}
-	for key, section in root do
-		if key == "_framework" then
-			for k, v in section do
-				if k == "schemaVersion" then
-					flat.schemaVersion = v
-				elseif k ~= "_owners" then
-					flat[k] = v
-				end
-			end
-		elseif key == Fixtures.GAME_ID then
-			flat.game = { [Fixtures.GAME_ID] = section }
-		elseif key ~= "_versions" and type(section) == "table" then
-			for k, v in section do
-				flat[k] = v
-			end
-		end
-	end
-	return flat
-end
-
--- The saved PlayerData of a user as it is in the mock DataStore right now, flattened, or nil.
-function Fixtures.stored(world: any, userId: number): any
-	return Fixtures.flatten(Fixtures.storedRaw(world, userId))
+-- One section of the stored save (`saved(...)[key]`), or nil.
+function Fixtures.section(world: any, userId: number, key: string): any
+	local root = Fixtures.saved(world, userId)
+	return if type(root) == "table" then root[key] else nil
 end
 
 -- The ProfileStore session holder (JobId) recorded in the DataStore, or nil.
@@ -213,15 +190,46 @@ function Fixtures.writerViolations(world: any, userId: number): { string }
 	return violations
 end
 
--- Every value fired on a signal with the given reason (CurrencyChanged history).
+-- Every amount Economy granted `player` with the given reason (Economy.CurrencyChanged history).
 function Fixtures.grants(server: any, player: any, reason: string): { number }
 	local list = {}
-	for _, args in server.signals.CurrencyChanged.history do
+	for _, args in server:heard("Economy.CurrencyChanged").history do
 		if args[1] == player and args[5] == reason then
 			table.insert(list, args[4])
 		end
 	end
 	return list
+end
+
+-- A real purchase of `product` (a fixture devProduct) by `player` whose handler adds `itemId`
+-- through Inventory's purchase ops, so the copy carries the "paid:<product>" source the framework
+-- derives from the purchase (M5). Advances the world until ProcessReceipt answers; returns the
+-- player's instance.
+local purchaseSeq = 0
+function Fixtures.buyItem(world: any, server: any, player: any, product: string, itemId: string): any
+	server._itemProducts = server._itemProducts or {}
+	local slot = server._itemProducts[product]
+	if slot == nil then
+		slot = {}
+		server._itemProducts[product] = slot
+		server:onProduct(product, function(tx)
+			slot.last = tx.use(server:ref("Inventory")).addItem(slot.itemId)
+		end)
+	end
+	slot.itemId = itemId
+	slot.last = nil
+	purchaseSeq += 1
+	local productId = world.config.products.devProducts[product]
+	assert(productId, "sim: no fixture devProduct " .. product)
+	local h = server:purchase(Fixtures.receipt(player.UserId, "buyItem-" .. purchaseSeq, productId))
+	assert(
+		world:advanceUntil(function()
+			return h.done
+		end, 30),
+		"buyItem: ProcessReceipt answered"
+	)
+	assert(h.result == "PurchaseGranted" and slot.last ~= nil, "buyItem: " .. tostring(h.result or h.error))
+	return server:use("Inventory").get(player, slot.last.uid)
 end
 
 function Fixtures.receipt(userId: number, purchaseId: string, productId: number?): any

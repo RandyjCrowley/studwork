@@ -732,60 +732,78 @@ describe("Rarity rolls through Compliance", function()
 	end)
 end)
 
-describe("compat adapter (packages/kits/compat/adapters/Collection.luau)", function()
-	local adapter = require(
-		ServerScriptService:WaitForChild("Compat"):WaitForChild("adapters"):WaitForChild("Collection")
-	)
-
-	it("serves Items.incomeOf from item.economy x mutation.economy, and Inventory's v1.2 entries", function()
+-- core-v1.3.0 Phase 2: was the v1.2 adapter test (the deleted Collection adapter).
+-- The same behaviours on the real modules: item income = item.economy x mutation.economy (read by
+-- the real Economy), and paid copies tagged "paid:<product>" by Inventory's purchase ops.
+describe("Collection with the real Economy and purchases", function()
+	it("item income comes from item.economy x mutation.economy; purchases tag paid:<product>", function()
 		local items = {
 			{ id = "pebble", name = "Pebble", rarity = "Common", economy = { incomePerSec = 3 } },
 			{ id = "egg", name = "Egg", rarity = "Rare" },
 		}
-		local h = boot({
-			modules = { Items, Rarity, Inventory, Economy },
-			servers = { Economy = {} },
-			items = items,
+		local Shop = StudWork.defineModule({
+			name = "ItemShop",
+			version = "1.0.0",
+			framework = "^1.3.0",
+			dependsOn = { Inventory },
 		})
-		local rt = h.runtime
-		local itemsV12 = adapter("Items", rt, rt.apis[Items], rt.txApis[Items], rt.exts[Items])
-		expect(itemsV12.incomeOf({ itemId = "pebble" })).toBe(3)
-		expect(itemsV12.incomeOf({ itemId = "pebble", mutation = "Gold" })).toBe(6)
-		expect(itemsV12.incomeOf({ itemId = "egg" })).toBe(0)
-		expect(itemsV12.incomeOf({ itemId = "nope" })).toBe(0)
-		expect(itemsV12.get("egg").name).toBe("Egg")
-
-		local fired = {}
-		local v12 = {
-			ItemAdded = {
-				Fire = function(_, _p, i)
-					table.insert(fired, i.uid)
-				end,
+		local h = StudWork.test.harness({
+			modules = { Items, Rarity, Inventory, Economy, Shop },
+			items = items,
+			config = {
+				Inventory = { inventory = { cap = 5 } },
+				Rarity = rarityConfig(),
+				Economy = { income = { tickSeconds = 1, source = "owned" } },
 			},
-			ItemRemoved = { Fire = function() end },
-		}
-		rt.compat = {
-			signals = function()
-				return v12
-			end,
-		}
-		local invV12 = adapter("Inventory", rt, rt.apis[Inventory], rt.txApis[Inventory], rt.exts[Inventory])
+			products = { passes = {}, devProducts = { Egg = 2001, Pack = 2002 } },
+			servers = {
+				ItemShop = {
+					init = function(ctx)
+						ctx.shop.onProduct("Egg", function(tx)
+							tx.use(Inventory).addItem("egg")
+						end)
+						ctx.shop.onProduct("Pack", function(tx)
+							tx.use(Inventory).addItem("pebble")
+						end)
+					end,
+				},
+			},
+		})
+		local inv, econ = h:use(Inventory), h:use(Economy)
+		expect(h:use(Items).get("egg").name).toBe("Egg")
 		local p = h:addPlayer({ userId = 1 })
-		local paid = invV12.add(p, "egg", { source = "paid:Egg" }) -- v1.2 test seeding keeps the tag
-		expect(paid.source).toBe("paid:Egg")
-		expect(fired[1]).toBe(paid.uid) -- forwarded to the v1.2 signal set
-		local added
-		rt.data.runTx(p, function(tx)
-			local working = rt.data.section(tx, "inventory")
-			added = invV12.addInto(
-				{ player = p, data = working, after = tx.after },
-				"pebble",
-				{ source = "paid:Pack" }
-			)
+		local fired = {}
+		inv.signals.ItemAdded:Connect(function(_p, instance)
+			table.insert(fired, instance.uid)
 		end)
-		expect(added.source).toBe("paid:Pack")
-		expect(invV12.get(p, added.uid).itemId).toBe("pebble")
-		expect(invV12.count(p)).toBe(2)
-		expect(#fired).toBe(2)
+		-- income: pebble 3/s, a Gold pebble 3 x 2, an egg (no economy table) 0, unknown items 0
+		expect(econ.getRate(p)).toBe(0)
+		local plain = inv.add(p, "pebble", { source = "drop" })
+		expect(econ.getRate(p)).toBe(3)
+		inv.add(p, "pebble", { source = "drop", mutation = "Gold" })
+		expect(econ.getRate(p)).toBe(3 + 6)
+		expect(h:purchase(p, "Egg")).toBe("PurchaseGranted")
+		expect(econ.getRate(p)).toBe(3 + 6)
+		-- the purchase's copy carries the paid tag the framework derives from the purchase
+		local paid
+		for _, instance in inv.list(p) do
+			if instance.itemId == "egg" then
+				paid = instance
+			end
+		end
+		expect(paid.source).toBe("paid:Egg")
+		expect(fired[#fired]).toBe(paid.uid) -- ItemAdded fired for it
+		expect(h:purchase(p, "Pack")).toBe("PurchaseGranted")
+		local packed
+		for _, instance in inv.list(p) do
+			if instance.source == "paid:Pack" then
+				packed = instance
+			end
+		end
+		expect(packed.source).toBe("paid:Pack")
+		expect(inv.get(p, packed.uid).itemId).toBe("pebble")
+		expect(inv.count(p)).toBe(4)
+		expect(#fired).toBe(4)
+		expect(inv.get(p, plain.uid).source).toBe("drop")
 	end)
 end)

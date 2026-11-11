@@ -5,7 +5,7 @@
 -- CurrencyChanged (the real Economy server needs the engine; tests/RealKits.spec.luau boots it with
 -- the real kit modules in the multi-server sim).
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
-local Harness = require("packages/framework/test/harness.luau")
+local StudWork = require(ReplicatedStorage:WaitForChild("Framework"))
 local Signal = require(ReplicatedStorage:WaitForChild("Framework"):WaitForChild("Signal"))
 local Economy =
 	require(ReplicatedStorage:WaitForChild("Kits"):WaitForChild("Economy"):WaitForChild("Economy"))
@@ -33,7 +33,8 @@ local function boot(opts: any?): any
 		servers.Economy = part
 		modules = { Economy, Definition }
 	end
-	local h = Harness.new({ modules = modules, servers = servers, config = o.config, store = o.store })
+	local h =
+		StudWork.test.harness({ modules = modules, servers = servers, config = o.config, store = o.store })
 	return h, changed
 end
 
@@ -65,7 +66,7 @@ describe("SessionLeaderboard (example third-party module)", function()
 		expect(function()
 			api.add(p, 0 / 0)
 		end).toThrow("finite")
-		expect(api.add(Harness.player(99), 1)).toBe(false) -- not loaded
+		expect(api.add(StudWork.test.player(99), 1)).toBe(false) -- not loaded
 	end)
 
 	it("with Economy enabled, positive CurrencyChanged deltas are points (spends are not)", function()
@@ -137,7 +138,7 @@ describe("SessionLeaderboard (example third-party module)", function()
 	end)
 
 	it("rejects a bad config at boot (schema), with the module named", function()
-		local h, err = Harness.boot({
+		local h, err = StudWork.test.boot({
 			modules = { Definition },
 			servers = { SessionLeaderboard = Server },
 			config = { SessionLeaderboard = { top = 0 } },

@@ -70,8 +70,8 @@ Yes: register a screen with the same name (`tools/make-screen <game> Inventory`)
 `client.hud.widgets["<Module>.<widget>"]` to your component or `false` ([theme guide](theme.md)).
 
 **How do I test without Studio?**
-`tools/test <folder>` runs Lune specs. Modules use the framework harness
-(`packages/framework/test/harness.luau`); whole games boot in the multi-server sim through their
+`tools/test <folder>` runs Lune specs. Modules use `StudWork.test.harness` (module-api.md §15);
+multi-server scenarios use `StudWork.test.sim`; whole games boot in the sim through their
 `Boot.spec.luau`. `tools/make-module` writes a passing test to start from.
 
 **Where's the example of a third-party module?**

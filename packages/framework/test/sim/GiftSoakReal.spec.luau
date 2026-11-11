@@ -82,18 +82,20 @@ end
 local function newWorld(extra: any?)
 	local config = {
 		modules = { "Items", "Inventory", "Mail" },
-		balance = { inventory = { cap = 2 * EACH } },
-		mail = { giftCap = CAP, returnAfterDays = 14 },
+		config = {
+			Inventory = { inventory = { cap = 2 * EACH } },
+			Mail = { mail = { giftCap = CAP, returnAfterDays = 14 } },
+		},
 	}
-	for k, v in extra or {} do
-		config[k] = v
+	for module, c in extra or {} do
+		config.config[module] = c -- e.g. { Mail = { mail = { giftCap = 50 } } }
 	end
 	local world = F.world({ config = config })
 	local servers = { F.server(world), F.server(world), F.server(world) }
 	return world, servers
 end
 
--- where every uid is right now: data(userId) -> flat save (live when online, stored otherwise)
+-- where every uid is right now: data(userId) -> sectioned save (live when online, stored otherwise)
 local function custody(world, senders: { number }, data: (number) -> any): { [string]: number }
 	local seen: { [string]: number } = {}
 	local function add(uid: any)
@@ -108,10 +110,10 @@ local function custody(world, senders: { number }, data: (number) -> any): { [st
 	end
 	for _, userId in senders do
 		local d = data(userId) or {}
-		for uid in d.inventory or {} do
+		for uid in (d.inventory or {}).inventory or {} do
 			add(uid)
 		end
-		local mail = d.mail or {}
+		local mail = (d.mail or {}).mail or {}
 		for _, entry in mail.outbox or {} do
 			add(entry.payload.item.uid)
 		end
@@ -145,14 +147,14 @@ end
 
 local function stored(world): (number) -> any
 	return function(userId: number): any
-		return F.stored(world, userId)
+		return F.saved(world, userId)
 	end
 end
 
 local function homeCount(world, senders: { number }): number
 	local n = 0
 	for _, userId in senders do
-		n += count((F.stored(world, userId) or {}).inventory)
+		n += count((F.section(world, userId, "inventory") or {}).inventory)
 	end
 	return n
 end
@@ -195,7 +197,7 @@ describe("R1 soak on the real path: 2400 gifts to a recipient who never logs in"
 		local accepted = 0
 		for _, o in online do
 			local mine = {}
-			for uid in o.s:data(o.p).inventory do
+			for uid in o.s:section(o.p, "inventory").inventory do
 				table.insert(mine, uid)
 			end
 			table.sort(mine)
@@ -215,7 +217,7 @@ describe("R1 soak on the real path: 2400 gifts to a recipient who never logs in"
 		end
 		local live = function(userId: number): any
 			local o = byServer[userId]
-			return o.s:data(o.p)
+			return o.s:sections(o.p)
 		end
 		assertConserved(world, senders, uids, live)
 		-- at most CAP escrowed gifts ever reached the recipient's queue; the rest bounced home
@@ -223,7 +225,7 @@ describe("R1 soak on the real path: 2400 gifts to a recipient who never logs in"
 		expect(count(record(world))).toBe(CAP)
 		local home = 0
 		for _, userId in senders do
-			home += count(live(userId).inventory)
+			home += count(live(userId).inventory.inventory)
 		end
 		expect(home).toBe(SENDERS * EACH - CAP)
 
@@ -248,7 +250,15 @@ describe("R1 soak on the real path: 2400 gifts to a recipient who never logs in"
 		assertConserved(world, senders, uids, stored(world))
 		expect(homeCount(world, senders)).toBe(SENDERS * EACH)
 		for _, userId in senders do
-			expect((next((F.stored(world, userId) or {}).mail and F.stored(world, userId).mail.sent or {}))).toBeNil()
+			expect(
+				(
+					next(
+						(F.section(world, userId, "mail") or {}).mail
+								and F.section(world, userId, "mail").mail.sent
+							or {}
+					)
+				)
+			).toBeNil()
 		end
 		-- the queue never dropped anything: it never grew past the cap
 		expect(#queue(world)).toBe(CAP)
@@ -263,7 +273,7 @@ describe("R1 soak on the real path: 2400 gifts to a recipient who never logs in"
 	end)
 
 	it("shared-store outages only delay: no gift is lost or doubled", function()
-		local world, servers = newWorld({ mail = { giftCap = 50, returnAfterDays = 14 } })
+		local world, servers = newWorld({ Mail = { mail = { giftCap = 50, returnAfterDays = 14 } } })
 		local senders, uids, online = {}, {}, {}
 		for i = 1, 6 do
 			local s = servers[(i - 1) % #servers + 1]
@@ -285,7 +295,7 @@ describe("R1 soak on the real path: 2400 gifts to a recipient who never logs in"
 		end)
 		for _, o in online do
 			local mine = {}
-			for uid in o.s:data(o.p).inventory do
+			for uid in o.s:section(o.p, "inventory").inventory do
 				table.insert(mine, uid)
 			end
 			table.sort(mine)

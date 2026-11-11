@@ -25,7 +25,7 @@ local SURFACES = { "api", "txApi", "extensions", "purchaseOps", "actions", "net"
 -- The Phase 0 kit layout (core-v1.3.0 step 4b-IIa, TEMPORARY until the Phase 1 kit rewrite moves
 -- each kit module to ServerScriptService.Modules): the eleven v1.2 services sit in
 -- ServerScriptService.Kits.<Kit>, and each kit's ModuleServers.loadServer(ref) returns the
--- wrapper's server part (packages/kits/<kit>/server/ModuleServers.luau, compat bridge).
+-- module's server part (packages/kits/<kit>/server/ModuleServers.luau).
 local function kitLoadServer(ref: any): any
 	local kits = game:GetService("ServerScriptService"):FindFirstChild("Kits")
 	if kits == nil then

@@ -16,8 +16,8 @@ local F = require(script.Parent.Fixtures)
 local KICK = "Your save data was opened in another server. Please rejoin." -- Server.KICK_SESSION_ENDED
 
 local function withShop(s)
-	s.services.Shop.onProduct("Coins100", function(_data, _receipt, tx)
-		tx.grant(100)
+	s:onProduct("Coins100", function(tx)
+		tx.use(s:ref("Economy")).grant(100)
 	end)
 	return s
 end
@@ -35,7 +35,7 @@ end
 
 local function save(world, s, p)
 	local h = s:spawn(function()
-		return s.services.Data.saveAsync(p)
+		return s:save(p)
 	end)
 	assert(
 		world:advanceUntil(function()
@@ -77,7 +77,7 @@ describe("stolen save session (multi-server)", function()
 		world.messagingEnabled = false -- A never hears B's request; it learns at its next save
 		local a = withShop(F.server(world))
 		local p = joinLoaded(world, a, 81)
-		a.services.Economy.grant(p, 10, "test")
+		a:use("Economy").grant(p, 10, "test")
 		save(world, a, p)
 
 		-- 1. B steals the session (after ProfileStore's SESSION_STEAL wait) and moves on.
@@ -85,17 +85,17 @@ describe("stolen save session (multi-server)", function()
 		local q = joinLoaded(world, b, 81, 100)
 		local stolenAt = world.scheduler.now
 		expect(F.lockHolder(world, 81)).toBe(b.jobId)
-		b.services.Economy.grant(q, 5, "test")
+		b:use("Economy").grant(q, 5, "test")
 		save(world, b, q)
-		expect(F.stored(world, 81).currency.Coins).toBe(15)
+		expect(F.section(world, 81, "economy").currency.Coins).toBe(15)
 
 		-- 2. A still thinks it owns the profile: it changes its copy, then has an autosave-style
 		--    save AND a Robux purchase (Shop settle save + tx.after effects) in flight together.
 		world.latency = 2
-		a.services.Economy.grant(p, 999, "test")
+		a:use("Economy").grant(p, 999, "test")
 		expect(#kicksOf(a, 81)).toBe(0)
 		local inflightAt = world.scheduler.now
-		local inflight = a:spawn(a.services.Data.saveAsync, p)
+		local inflight = a:spawn(a.save, a, p)
 		local buy = a:purchase(F.receipt(81, "stolen-1"))
 
 		-- 3. A kicks right away: as soon as that save sees the lock gone, within one save round trip.
@@ -115,10 +115,10 @@ describe("stolen save session (multi-server)", function()
 		expect(inflight.result).toBe(false) -- the in-flight save is NOT reported as confirmed
 		expect(buy.result).toBe("NotProcessedYet") -- Shop settle: no grant confirmed here
 		expect(#F.grants(a, p, "product:Coins100")).toBe(0) -- its tx.after effects never ran
-		expect(a.services.Data.update(p, function(d)
-			d.currency.Coins = 123456
+		expect(a:update(p, function(d)
+			d.economy.currency.Coins = 123456
 		end)).toBe(false)
-		local late = a:spawn(a.services.Data.saveAsync, p)
+		local late = a:spawn(a.save, a, p)
 		world:advance(400, 0.5) -- past ProfileStore's AUTO_SAVE_PERIOD (300 s): no autosave either
 		expect(late.done).toBe(true)
 		expect(late.result).toBe(false)
@@ -132,11 +132,11 @@ describe("stolen save session (multi-server)", function()
 		end
 
 		-- 5. B's data is never overwritten: A's 999, its purchase and its update never land.
-		expect(F.stored(world, 81).currency.Coins).toBe(15)
+		expect(F.section(world, 81, "economy").currency.Coins).toBe(15)
 		expect(F.lockHolder(world, 81)).toBe(b.jobId)
-		b.services.Economy.grant(q, 1, "test")
+		b:use("Economy").grant(q, 1, "test")
 		save(world, b, q)
-		expect(F.stored(world, 81).currency.Coins).toBe(16)
+		expect(F.section(world, 81, "economy").currency.Coins).toBe(16)
 		expect(#F.writerViolations(world, 81)).toBe(0)
 		expect(#world:errors()).toBe(0)
 	end)
@@ -145,12 +145,12 @@ describe("stolen save session (multi-server)", function()
 		local world = F.world()
 		local a = withShop(F.server(world))
 		local p = joinLoaded(world, a, 82)
-		a.services.Economy.grant(p, 20, "test")
+		a:use("Economy").grant(p, 20, "test")
 		save(world, a, p)
 
 		-- an autosave-style save is in flight on A when B asks for the session
 		world.latency = 1
-		local inflight = a:spawn(a.services.Data.saveAsync, p)
+		local inflight = a:spawn(a.save, a, p)
 		local b = withShop(F.server(world))
 		local askedAt = world.scheduler.now
 		local q = b:join(82)
@@ -167,15 +167,15 @@ describe("stolen save session (multi-server)", function()
 		expect(world:advanceUntil(function()
 			return b:isLoaded(q) and inflight.done
 		end, 90, 0.25)).toBe(true)
-		expect(b:data(q).currency.Coins).toBe(20)
-		b.services.Economy.grant(q, 7, "test")
+		expect(b:section(q, "economy").currency.Coins).toBe(20)
+		b:use("Economy").grant(q, 7, "test")
 		save(world, b, q)
 
 		-- every later path on A: update, saveAsync, purchase settle, autosave period, BindToClose
-		expect(a.services.Data.update(p, function(d)
-			d.currency.Coins = 999
+		expect(a:update(p, function(d)
+			d.economy.currency.Coins = 999
 		end)).toBe(false)
-		local late = a:spawn(a.services.Data.saveAsync, p)
+		local late = a:spawn(a.save, a, p)
 		local buy = a:purchase(F.receipt(82, "external-1"))
 		world:advance(400, 0.5)
 		expect(late.result).toBe(false)
@@ -191,7 +191,7 @@ describe("stolen save session (multi-server)", function()
 		for _, w in writesBy(world, a, 82, releasedAt + 5) do
 			expect(dataChanged(w)).toBe(false)
 		end
-		expect(F.stored(world, 82).currency.Coins).toBe(27)
+		expect(F.section(world, 82, "economy").currency.Coins).toBe(27)
 		expect(F.lockHolder(world, 82)).toBe(b.jobId)
 		expect(#F.writerViolations(world, 82)).toBe(0)
 		expect(#world:errors()).toBe(0)
