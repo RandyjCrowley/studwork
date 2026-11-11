@@ -59,7 +59,10 @@ simulation, generators, publishing). Why it is built this way: [docs/philosophy.
 3. In Roblox Studio, open a new Baseplate, then **Plugins > Rojo**, set the port to `34872`
    (address `localhost`) and **Connect**.
 
-4. Press **Play**. Edit code in your editor; Rojo syncs on save.
+4. Press **Play**. You get a plot and the StudWork HUD: touch the glowing block to get an item, it
+   goes on your plot and earns coins every second, and the action bar has Upgrade, Chest, Robux egg
+   and Rebirth buttons ([docs/manual-qa.md](docs/manual-qa.md) has the full checklist and the
+   server console). Edit code in your editor; Rojo syncs on save.
 
 To build a place file instead: `tools/build sandbox` (writes `build/sandbox.rbxl`).
 More examples: `examples/overrides/ov-a` … `ov-f` (one override case each) and
@@ -68,7 +71,8 @@ More examples: `examples/overrides/ov-a` … `ov-f` (one override case each) and
 ## Using StudWork in your games
 
 Games don't live in this repo. Make a **games repo** that has StudWork as a git submodule at
-`roblox-core/`, pinned at a release tag, and copy the skeleton from
+`roblox-core/` (the tools expect that folder name, which is why you'll see it in the docs), pinned at
+a release tag, and copy the skeleton from
 [`templates/games-repo/`](templates/games-repo/). Its `tools/` wrappers run this repo's tools
 against your games:
 
