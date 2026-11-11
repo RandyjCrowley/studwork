@@ -22,6 +22,23 @@
 	                                  src/), sorted
 	Roots.findGame(fs, nameOrPath) -> string?   games/<n>, examples/<n>, examples/overrides/<n> or
 	                                  a folder path
+
+	(added in v1.5.0, docs/framework/single-game-project.md) a third layout:
+	  single-game mode  STUDWORK_LAYOUT = "single-game" (tools/_common.sh) or, without it, an
+	                    external core plus the committed marker studwork.json at the project root
+	                    with { "layout": "single-game" }: the project root IS the game and the core
+	                    is its studwork/ submodule
+	Roots.LAYOUT                      "core" | "games-repo" | "single-game"
+	Roots.single                      true in single-game mode (Roots.external is true too)
+	Roots.MARKER                      "studwork.json"
+	Roots.layoutOf(coreDir, envLayout?, fs?) -> string   pure layout decision (specs)
+	Roots.isSingleMarker(text) -> boolean   the marker file's text says single-game
+	Roots.rootName(fs) -> string?     single-game mode: the root game's deploy.json name
+	Roots.parentsFor(layout) -> { string }   GAME_PARENTS of a layout
+	gameDirs(fs, layout?) / findGame(fs, name, layout?): `layout` overrides Roots.LAYOUT (specs)
+	In single-game mode GAME_PARENTS is empty, gameDirs returns { "." } (when the root has
+	default.project.json and src/) and findGame returns "." for nil, "", "." or the root game's
+	name.
 ]]
 
 local Roots = {}
@@ -54,19 +71,79 @@ end
 Roots.CORE = clean(env.STUDWORK_CORE_DIR)
 Roots.external = Roots.CORE ~= "."
 
+Roots.MARKER = "studwork.json"
+
+function Roots.isSingleMarker(text: string?): boolean
+	return type(text) == "string" and string.find(text, '"layout"%s*:%s*"single%-game"') ~= nil
+end
+
+-- core | games-repo | single-game. tools/_common.sh exports its decision (STUDWORK_LAYOUT); without
+-- it (a Lune tool run directly) the marker file decides, exactly like _common.sh does.
+function Roots.layoutOf(coreDir: string?, envLayout: string?, fsLib: any?): string
+	if clean(coreDir) == "." then
+		return "core"
+	end
+	if envLayout == "single-game" or envLayout == "games-repo" then
+		return envLayout
+	end
+	if fsLib and fsLib.isFile(Roots.MARKER) and Roots.isSingleMarker(fsLib.readFile(Roots.MARKER)) then
+		return "single-game"
+	end
+	return "games-repo"
+end
+
+local fsModule = nil
+do
+	local ok, lfs = pcall(require, "@lune/fs")
+	if ok and type(lfs) == "table" then
+		fsModule = lfs
+	end
+end
+Roots.LAYOUT = Roots.layoutOf(Roots.CORE, env.STUDWORK_LAYOUT, fsModule)
+Roots.single = Roots.LAYOUT == "single-game"
+
 function Roots.core(path: string): string
 	return Roots.prefix(Roots.CORE, path)
 end
 
-Roots.GAME_PARENTS = if Roots.external then { "games" } else { "games", "examples", "examples/overrides" }
+-- (v1.5.0) the folders whose children may be games, for a layout
+function Roots.parentsFor(layout: string): { string }
+	if layout == "single-game" then
+		return {}
+	elseif layout == "games-repo" then
+		return { "games" }
+	end
+	return { "games", "examples", "examples/overrides" }
+end
+
+Roots.GAME_PARENTS = Roots.parentsFor(Roots.LAYOUT)
 
 local function isGame(fs: any, dir: string): boolean
+	if dir == "." then
+		return fs.isFile("default.project.json") and fs.isDir("src")
+	end
 	return fs.isFile(dir .. "/default.project.json") and fs.isDir(dir .. "/src")
 end
 
-function Roots.gameDirs(fs: any): { string }
+-- The root game's name (deploy.json "name"), single-game mode.
+function Roots.rootName(fs: any): string?
+	if not fs.isFile("deploy.json") then
+		return nil
+	end
+	return string.match(fs.readFile("deploy.json"), '"name"%s*:%s*"([^"]+)"')
+end
+
+-- `layout` (v1.5.0, optional, for specs): defaults to this run's Roots.LAYOUT
+function Roots.gameDirs(fs: any, layout: string?): { string }
 	local out = {}
-	for _, parent in Roots.GAME_PARENTS do
+	local parents = if layout then Roots.parentsFor(layout) else Roots.GAME_PARENTS
+	if (layout or Roots.LAYOUT) == "single-game" then
+		if isGame(fs, ".") then
+			table.insert(out, ".")
+		end
+		return out
+	end
+	for _, parent in parents do
 		if fs.isDir(parent) then
 			for _, entry in fs.readDir(parent) do
 				local dir = parent .. "/" .. entry
@@ -80,12 +157,20 @@ function Roots.gameDirs(fs: any): { string }
 	return out
 end
 
-function Roots.findGame(fs: any, nameOrPath: string): string?
+function Roots.findGame(fs: any, nameOrPath: string?, layout: string?): string?
+	local parents = if layout then Roots.parentsFor(layout) else Roots.GAME_PARENTS
+	if (layout or Roots.LAYOUT) == "single-game" then
+		local wanted = clean(nameOrPath)
+		if isGame(fs, ".") and (wanted == "." or wanted == Roots.rootName(fs)) then
+			return "."
+		end
+		return nil
+	end
 	local trimmed = clean(nameOrPath)
 	if string.find(trimmed, "/", 1, true) and fs.isDir(trimmed) and isGame(fs, trimmed) then
 		return trimmed
 	end
-	for _, parent in Roots.GAME_PARENTS do
+	for _, parent in parents do
 		local dir = parent .. "/" .. trimmed
 		if fs.isDir(dir) and isGame(fs, dir) then
 			return dir

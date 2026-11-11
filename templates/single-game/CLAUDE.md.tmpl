@@ -1,0 +1,211 @@
+# CLAUDE.md — rules for game agents in this repo
+
+This repo is **one game**, `{{name}}`, published as its own Roblox experience and built on
+**StudWork**. It is a StudWork *single-game project*: the repository root is the game, and StudWork
+lives in the git submodule `studwork/`, pinned at a release tag (`{{tag}}`). Language: **Luau,
+`--!strict`**.
+
+Read, inside the submodule: `studwork/docs/philosophy.md` (why it is opinionated),
+`studwork/docs/framework/` (start with `getting-started.md`; `single-game-project.md` explains this
+repo's setup) and `studwork/docs/framework/module-api.md` (the source of truth for the module API).
+This repo's own docs: `README.md`, `docs/design.md`, `FRAMEWORK_REQUESTS.md`.
+
+## Hard rules
+
+1. **Never edit `studwork/`** (framework, kits, ui, vendor, tools, docs: anything in it). Game work
+   happens on a feature branch (e.g. `game/<topic>`). `tools/lint` fails if the submodule is not at
+   exactly a release tag or has local changes, and the `packages` guardrail refuses a `studwork`
+   change on a `game/*` branch or the pointer staged together with any other file. Need something?
+   Add an entry to `FRAMEWORK_REQUESTS.md` (or open an issue on the StudWork repository); the
+   framework ships it in a release, then the pointer is bumped in its own commit (README.md, "Bump
+   StudWork"). If you changed something there by accident: `git -C studwork checkout -- .`.
+2. **The module API is not yours to change.** Use what the pinned tag documents; additive changes are
+   requested in `FRAMEWORK_REQUESTS.md`.
+3. **The server is authoritative.** Clients only send requests (module actions, §9). The server
+   validates every argument (type, range, ownership) and every action is rate-limited by the
+   framework's Net. Never trust amounts, item ids, uids, prices or positions from a client. Robux
+   purchases go through `ctx.shop.onProduct` (receipt-safe, data-only handlers, see "Purchases"),
+   never through a remote.
+4. **Every balance number lives in the game's Config** (`src/shared/Config`): kit settings in
+   `config.<Module>` (`Balance.luau`), game-own numbers in `Tuning.luau`. Modules read their config
+   from `ctx.config`; kits ship opinionated defaults, documented on each kit page.
+5. **No secrets in the repo.** Open Cloud keys come from env vars or the git-ignored `.env`. No
+   absolute paths in committed files either.
+6. **Libraries come from StudWork.** This repo has no `wally.toml` / `rokit.toml`: Wally packages and
+   tool versions are StudWork's pins (`studwork/deps/wally.toml`, `studwork/rokit.toml`). Need a new
+   library? File a `FRAMEWORK_REQUESTS.md` entry; don't add pins here.
+7. **Git:** feature branches, local commits only unless the user asks otherwise. Never push or add
+   remotes without being asked. Commit only your own paths; never `--no-verify`.
+8. **Paid random items** (Compliance, module-api §14 and §19.6–19.7):
+   - Odds are always disclosed: every random source registers with `ctx.compliance`; players see the
+     server's odds (mutations, pity, luck) in the odds UI. Never recompute odds on the client.
+   - Paid rolls go only through `ctx.compliance.roll` (inside a purchase) or
+     `ctx.compliance.spendForRoll` (priced in a currency listed in `compliance.paidCurrencies`). A
+     paid currency spent on a non-random good goes through `ctx.compliance.spendPaid`; any roll later
+     in that tx counts as paid. `Economy.spend` refuses paid currencies.
+   - A paid roll needs the source's odds already sent to that player's client (a purchase without
+     them is retried). Luck other than 1 on a paid roll is refused unless the table has
+     `luckDisclosed = true` and the client received odds computed with that exact luck. Give luck
+     with `Rarity.setLuck`, never as a hidden roll argument. Free rolls may use any luck.
+   - Players restricted by `PolicyService` can't buy paid random items: a Robux product handler
+     grants a fixed non-random fallback (`tx.paidRandomRestricted`), never takes money for nothing.
+     Copies from paid sources are tagged by the framework (`paid:<product>`, `paidcur:<table>`); tags
+     can't be forged and those copies can't be traded or mailed.
+9. **No text-chat dependence** (chat is age-gated): pings, emotes, roles.
+10. **Ask the user** before installing anything outside the repo or with sudo, spending money,
+    publishing to Roblox, or touching files outside the repo root.
+11. **Nothing is special.** Game modules use only the `StudWork` facade, their `ctx`, the UI kit and
+    other modules' public APIs (`StudWork.use(ref)` / `ctx.deps[ref]`). Never require framework
+    internals (`ServerScriptService.Framework`), never read or write another module's save section,
+    never walk the framework's instances. The `special` guardrail enforces it.
+12. **Network only through the framework.** Declare a module's actions/events (§9); never use
+    `OnServerEvent`/`OnServerInvoke`, `RemoteEvent`/`RemoteFunction` instances, `ProcessReceipt`,
+    `Prompt*PurchaseFinished`, `DataStoreService` or ProfileStore directly. The framework owns
+    `ProcessReceipt` exclusively (§7.1).
+13. **Full inventory is not a failure.** A Mail handler that can't accept a message now returns
+    `false`: the message waits in the player's mailbox with no time limit. Only thrown errors are
+    retried and dead-lettered. Handlers must be safe to run twice.
+14. **Items are declared in `GameConfig.items`**, validated once at boot. Registering items after
+    `StudWork.start` errors (so nothing enters a paid table before its odds are disclosed).
+15. **`tools/lint` guardrails must stay clean** (`studwork/docs/framework/guardrails.md`): `modules`,
+    `numbers`, `remotes`, `purchases`, `packages` (incl. the framework pin), `special`, `theme`. They
+    scan every file Rojo syncs. `-- guard: allow <check>` on a line is a last resort and needs a
+    reason on the line above.
+
+## Folder map
+
+```
+studwork/                   StudWork submodule (read-only): packages/framework, packages/kits,
+                            packages/ui, packages/vendor, deps/ (Wally packages), tools/, docs/
+studwork.json               layout marker ({"layout": "single-game"}): the root is the game
+default.project.json        the Rojo project ($paths into studwork/...)
+deploy.json                 servePort, test/live ids (placeholders are 0), framework stamps
+src/shared/Config/          ReplicatedStorage.Game.Config      init (GameConfig), Balance, Items,
+                                                               Products, Events, Palette, Tuning
+src/server/                 ServerScriptService.Game           Main.server.luau (world + StudWork.start),
+                                                               ServerConfig (admins; never reaches clients)
+src/client/                 StarterPlayerScripts.Game          Main.client.luau
+modules/<name>/             the game's own module: module.luau -> ReplicatedStorage.GameModule.module,
+                            server/ -> ServerScriptService.Modules.<Name>; more modules from
+                            tools/make-module live next to it
+tools/                      wrappers around studwork/tools/ (see Commands)
+docs/design.md              the design doc
+FRAMEWORK_REQUESTS.md       requests to StudWork
+```
+
+Kit modules (in `studwork/packages/kits/`): collection: Items Rarity Inventory; economy: Economy
+Upgrades Rebirth Offline; base: Plot; social: Friends Mail; engagement: Streak. Kit pages:
+`studwork/docs/framework/kits/`.
+
+## The API (summary — `studwork/docs/framework/module-api.md` is the source of truth)
+
+```lua
+local StudWork = require(ReplicatedStorage.Framework)
+StudWork.start(Config, ServerConfig)       -- server, once (a second call errors)
+StudWork.start(Config)                     -- client, once
+StudWork.use(ModuleRef) -> API             -- frozen public API; a module not in GameConfig.modules errors
+StudWork.defineModule({ name, version, framework = "^1.3.0", dependsOn, optional, data, config,
+                        itemFields, theme, server = "<Folder>", client = ... }) -> ModuleRef
+StudWork.Client.state()                    -- Charm atom of the local player's replicated state
+StudWork.test                              -- harness / purchase / memoryStore / sim for specs
+```
+
+A module's server part gets `ctx` (§5): `config`, `deps[ref]`, `depsTx`, `depsExt`, `isEnabled`,
+`data` (its own section only), `tx(player, fn)` + `section(tx)` for atomic multi-module changes,
+`framework` (read-only facts), `net`, `replicate`, `compliance`, `policy`, `analytics`, `events`,
+`shop`, `signals`, `console` (commands auto-prefixed), `lifecycle`, `log`, `theme`, `now()`,
+`serverConfig`.
+
+## Override levels (`studwork/docs/framework/override-levels.md`)
+
+Go only as deep as you need:
+1. **Use the defaults:** list kit modules in `GameConfig.modules`.
+2. **Change config:** `config.<Module>` in `Balance.luau`, `GameConfig.theme`.
+3. **Replace a piece:** your own rarity preset, theme, HUD widget (`client.hud.widgets`,
+   `UI.registerWidget`), whole HUD (`client.hud`) or screen (`UI.registerScreen`).
+4. **Switch a kit off:** leave it out of `modules` (edit `modules`, then `tools/sync-projects`).
+   Disabled modules keep their save sections; calls to them error clearly.
+5. **Write your own module:** `tools/make-module <Name>`; the same public API the kits use.
+
+## Data and purchases
+
+- **One save section per module** (`data = { key, version, default, migrations, replicate, sanitize }`).
+  `ctx.data` reaches only that section. Migrations are numbered with no gaps (a gap is a boot error).
+  A failed load never writes; a stolen session stops all writes.
+- **Transactions:** `ctx.tx(player, function(tx) ... end)` runs on a working copy and commits only if
+  it returns without error (an error discards every write); it must not yield. Use `depsTx` (e.g.
+  `Economy.grantInto`, `Inventory.addInto`) to combine modules atomically. Committed data is frozen:
+  never keep a `section(tx)` reference past the tx.
+- **Purchases (receipt-safe).** A product handler is data-only:
+  ```lua
+  ctx.shop.onProduct("EggRoll", function(data, receipt, tx)
+  	if not tx.policyKnown then tx.retryLater("policy_unknown") end -- NotProcessedYet, nothing saved
+  	if tx.paidRandomRestricted then assert(tx.addItem("crystal")) return end -- fixed fallback
+  	local def, info = tx.roll("Egg")          -- paid roll, granted in the same commit
+  	assert(def and info.ok, info.reason)      -- error = nothing granted, nothing recorded
+  end)
+  ```
+  The grant and the receipt record are one commit; `PurchaseGranted` is returned only after the save
+  is confirmed. Side effects (sounds, analytics) go in `tx.after`.
+- **Rebirth keeps Robux-bought copies** (`paid:`), always; `paidcur:` and earned copies are wiped
+  unless `keepOnRebirth = true`.
+- **Admins are server-only:** `ServerConfig.admins`.
+
+## Server console (Studio / admin)
+
+`game.ServerScriptService.Framework.StudWorkConsole:Invoke("help")` from the Studio command bar
+(Server context during Play). Commands are module-prefixed: `economy grant 100 Coins <userId>`,
+`rarity roll Block <userId>`, `shop receipt EggRoll <purchaseId> <userId>`, `data dump <userId>`.
+
+## How the game uses StudWork
+
+- `src/shared/Config/init.luau` returns a GameConfig (`gameId`, `modules = { require(<kit module>) ... }`,
+  `items`, `config` per module, `products`, `theme`, `client.hud`, `compliance.paidCurrencies`).
+  Unknown config and theme keys are boot warnings, so typos show up.
+- `src/server/Main.server.luau` builds the world and calls `StudWork.start(Config, ServerConfig)`.
+  Gameplay lives in the game's own module (`modules/<name>/`), which the framework adds by itself;
+  its save section is the gameId.
+- `src/client/Main.client.luau` calls `StudWork.start(Config)`; read state with
+  `StudWork.Client.state()`.
+- UI: render inside `UI.ScaledRoot`, use theme tokens (no colour/asset literals: `theme` guardrail),
+  `studwork/docs/framework/theme.md`, `studwork/packages/ui/README.md` (mobile checklist).
+
+## Commands (from this repo's root; no game name needed)
+
+```sh
+tools/install                 # StudWork toolchain + Wally packages into studwork/deps/ + hook (--hooks-only)
+tools/doctor                  # toolchain, packages, hook, framework pin, .env keys (never values), port
+tools/lint                    # selene + stylua --check + sync-projects --check + guardrails + framework pin
+tools/typecheck               # luau-lsp strict
+tools/test [paths]            # Lune specs (Boot.spec boots the game in the sim)
+tools/build                   # rojo build -> build/<name>.rbxl
+tools/net                     # Blink codegen after editing a .blink file
+tools/sync-projects           # regenerate kit module entries after changing GameConfig.modules
+tools/make-module <Name> / tools/make-screen <Screen> / tools/make-migration <module>
+tools/dev                     # rojo serve on the game's port + Studio connect steps
+tools/framework-status        # the stamped StudWork version vs the pinned tag
+tools/publish --test|--live [--dry-run]   # ask the user first
+```
+
+`tools/test-sim` and `tools/bench` are framework suites; they run in the StudWork repo, not here.
+
+## Publish flow (`studwork/docs/framework/publishing.md` has the one-time setup)
+
+1. The user creates a test and a live experience and an Open Cloud key with only
+   `universe-places:write` for those experiences, in the git-ignored `.env`
+   (`ROBLOX_OPEN_CLOUD_API_KEY`). Agents never create keys or upload without the user's OK.
+2. Put the universe/place ids in `deploy.json` (placeholders are 0; publish refuses them).
+3. `tools/publish --test --dry-run`, then (with the user's OK) `tools/publish --test`.
+4. Playtest the test place (framework items: `studwork/docs/manual-qa.md`).
+5. `tools/publish --live`: refused unless the same build went to `--test` first and the tree is
+   clean; asks for the game name to confirm. Commit the stamped `deploy.json`.
+
+## Definition of done
+
+- Behaviour implemented for real (no stub left in your scope), server-authoritative, config-driven.
+- Pure logic has `*.spec.luau` tests (`StudWork.test` for module tests); `tools/test` passes.
+- `tools/lint` clean (incl. the framework pin: `studwork/` untouched, at its tag); `tools/typecheck`
+  clean.
+- `tools/build` succeeds.
+- No change under `studwork/`; anything needed from StudWork is a `FRAMEWORK_REQUESTS.md` entry.
+- Report: what you built, files touched, test output, open questions.

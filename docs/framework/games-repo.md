@@ -1,5 +1,9 @@
 # Using StudWork from a games repo
 
+> One game per repository is simpler: `tools/new-project` makes a **single-game project** (the repo
+> root is the game, StudWork at `studwork/`), see [single-game-project.md](single-game-project.md).
+> This page describes the alternative layout: several games in one games repo.
+
 StudWork lives in its own repo (this one; the docs call it "the core"). Your games live in your
 own **games repo**, which has StudWork as a git submodule at `roblox-core/`, pinned at a release
 tag, and runs the core's tools against its own `games/` folder. The folder name `roblox-core/` is
@@ -58,12 +62,12 @@ git init my-games && cd my-games
 git submodule add <url-or-path-of-studwork> roblox-core
 #   a local path: git blocks the file transport by default, so allow it for this command:
 #   git -c protocol.file.allow=always submodule add /path/to/studwork roblox-core
-git -C roblox-core checkout v1.4.1
+git -C roblox-core checkout v1.5.0
 cp -R roblox-core/templates/games-repo/. .
 mv gitignore .gitignore && mv env.example .env.example && rm README.md
-git add -A && git commit -m "games repo on StudWork v1.4.1"
+git add -A && git commit -m "games repo on StudWork v1.5.0"
 tools/install            # rokit install + wally install into roblox-core/deps/ + this repo's hook
-tools/doctor             # every line ok, incl. "framework pin  roblox-core/ at v1.4.1, clean"
+tools/doctor             # every line ok, incl. "framework pin  roblox-core/ at v1.5.0, clean"
 ```
 
 A fresh clone of the games repo needs the submodule first:

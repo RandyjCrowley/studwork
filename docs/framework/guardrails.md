@@ -134,7 +134,7 @@ The lint self-test plants each case; `-- guard: allow special` on a framework li
 | `numbers` | balance-looking number literals outside `src/shared/Config` (heuristic) |
 | `remotes` | raw remotes and handlers that bypass the framework's Net |
 | `purchases` | `ProcessReceipt =`, `Prompt*PurchaseFinished`, `DataStoreService`/`ProfileStore` |
-| `packages` | game branches editing `packages/`; in a games repo also the framework pin: `roblox-core/` initialised, exactly at a release tag, no local changes, and its pointer never staged together with game edits ([games-repo.md](games-repo.md)) |
+| `packages` | game branches editing `packages/`; in a games repo also the framework pin: `roblox-core/` initialised, exactly at a release tag, no local changes, and its pointer never staged together with game edits ([games-repo.md](games-repo.md)); in a single-game project (v1.5.0) the same against `studwork/`, where any other staged file counts as game work, except in the project's first commit ([single-game-project.md](single-game-project.md)) |
 
 In this repo (not in a games repo), a maintainer committing a deliberate framework change on `main`
 or a `core/*` branch can skip the `packages` check with `GUARD_ALLOW_CORE=1 tools/lint` (and the same

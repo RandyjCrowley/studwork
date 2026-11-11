@@ -1,11 +1,11 @@
-# Games repo skeleton (StudWork v1.4.1)
+# Games repo skeleton (StudWork v1.5.0)
 
 Copy into a new games repo (`docs/framework/games-repo.md` in roblox-core has the full steps):
 
 ```sh
 git init my-games && cd my-games
 git -c protocol.file.allow=always submodule add <path-or-url-of-roblox-core> roblox-core
-git -C roblox-core checkout v1.4.1
+git -C roblox-core checkout v1.5.0
 cp -R roblox-core/templates/games-repo/. .
 mv gitignore .gitignore && mv env.example .env.example && rm README.md
 tools/install && tools/doctor

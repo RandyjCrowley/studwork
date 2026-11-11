@@ -1,0 +1,21 @@
+#!/usr/bin/env bash
+# tools/_studwork <studwork-tool> [args...]: run studwork/tools/<studwork-tool> with this project as
+# the project root (StudWork v1.5.0 single-game project, studwork/docs/framework/single-game-project.md).
+# Every other file in tools/ is a one-line wrapper around this one. Copied from
+# studwork/templates/single-game/ by tools/new-project.
+set -euo pipefail
+ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+CORE="$ROOT/studwork"
+TOOL="${1:-}"
+[ -n "$TOOL" ] || {
+	echo "usage: tools/_studwork <studwork-tool> [args...]" >&2
+	exit 1
+}
+shift
+if [ ! -x "$CORE/tools/$TOOL" ]; then
+	echo "error: studwork/tools/$TOOL not found. Initialise the framework submodule:" >&2
+	echo "  git submodule update --init && tools/install" >&2
+	exit 1
+fi
+export STUDWORK_PROJECT_ROOT="$ROOT"
+exec "$CORE/tools/$TOOL" "$@"

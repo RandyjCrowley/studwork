@@ -111,4 +111,30 @@ describe("SyncProjects", function()
 			"../../roblox-core/packages/kits/economy/Economy/module.luau"
 		)
 	end)
+
+	it("(v1.5.0) maps a single-game project's root project into studwork/", function()
+		expect(SyncProjects.relative(".", "studwork/packages/ui")).toBe("studwork/packages/ui")
+		expect(SyncProjects.relative("./", "studwork/deps/Packages")).toBe("studwork/deps/Packages")
+		expect(SyncProjects.relative("games/x", "roblox-core/packages/ui")).toBe(
+			"../../roblox-core/packages/ui"
+		)
+		local text = SyncProjects.encode(SyncProjects.toOrdered({
+			name = "my-game",
+			tree = { ReplicatedStorage = { Modules = { ["$className"] = "Folder" } } },
+		}))
+		local entries = {
+			{
+				name = "Economy",
+				dir = "studwork/packages/kits/economy/Economy",
+				kit = "economy",
+				module = "studwork/packages/kits/economy/Economy/module.luau",
+				server = "studwork/packages/kits/economy/Economy/server",
+			},
+		}
+		local out = SyncProjects.decode((SyncProjects.sync("default.project.json", text, entries)))
+		local econ = out.vals.tree.vals.ReplicatedStorage.vals.Modules.vals.Economy
+		expect(econ.vals.module.vals["$path"]).toBe("studwork/packages/kits/economy/Economy/module.luau")
+		local server = out.vals.tree.vals.ServerScriptService.vals.Modules.vals.Economy
+		expect(server.vals["$path"]).toBe("studwork/packages/kits/economy/Economy/server")
+	end)
 end)

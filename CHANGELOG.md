@@ -11,6 +11,47 @@ Identifiers like `R19` or `V1` are issue ids: open ones are listed in [docs/know
 
 ## [Unreleased]
 
+## [1.5.0] - 2026-11-11
+
+Single-game projects. No module API change; `framework = "^1.3.0"` ranges still match.
+
+### Added
+
+- **Single-game projects** (`docs/framework/single-game-project.md`): a third project layout next to
+  the core repo and the games repo. The repository root is the game and StudWork is the git
+  submodule `studwork/`, pinned at a release tag. The layout is recognised by a committed
+  `studwork.json` marker (`{"layout": "single-game"}`): `tools/_common.sh` exports
+  `STUDWORK_LAYOUT`, and `tools/lune/Roots.luau` adds `Roots.LAYOUT`, `Roots.single`,
+  `Roots.layoutOf`, `Roots.parentsFor`, `Roots.rootName` (`gameDirs` / `findGame` return the root
+  game `"."`, with an optional layout argument).
+- `tools/new-project <path> [--name] [--modules] [--url] [--tag] [--no-install] [--author-name]
+  [--author-email]`: creates a complete single-game repo (git init, the `studwork/` submodule at a
+  tag, the game scaffolded at the root with `$path`s into `studwork/`, `docs/design.md`, wrappers,
+  hook, `.gitignore`, `.env.example`, `README.md`, `CLAUDE.md` for game agents,
+  `FRAMEWORK_REQUESTS.md`, `tools/install`, and the first commit through the real pre-commit hook).
+- `templates/single-game/`: the skeleton `tools/new-project` copies.
+- In a single-game project every tool works with no game name: `tools/dev`, `lint` (the project's
+  own Luau; never `studwork/`, `build/`, `.cache/`), `typecheck`, `test`, `build`
+  (`build/<deploy.json name>.rbxl`), `publish --test|--live [--dry-run]` (stamps the root
+  `deploy.json`; no `GAMES.md`; the clean-tree gate covers the whole project + `studwork/`),
+  `framework-status`, `doctor`, `make-module <Name>`, `make-screen <Name>`, `sync-projects`, `net`.
+  `tools/new-game` refuses with a pointer to `tools/new-project`.
+- Guardrails (`packages`) in a single-game project: the `studwork/` pin (initialised, exactly at a
+  release tag, no local changes), a `studwork` pointer staged with any other file is refused (except
+  in the project's first commit), and a `game/*` branch must not move it; planted cases in
+  `guardrails --self-test`.
+- `tools/test-single-game [--keep]`: an end-to-end test of the mode against a local fixture remote
+  (a tagged snapshot of the working tree); `tools/test` (no arguments) runs it after
+  `tools/test-games-repo`, so CI does too.
+- Specs: `Roots.spec.luau` (layout detection, the root game), `NewProject.spec.luau` (arguments,
+  skeleton, template checks), `DeployStamp.spec.luau` (`tools/lune/DeployStamp.luau`: stamping
+  without `GAMES.md`), `GuardrailsSingle.spec.luau`, and a `SyncProjects.spec.luau` case for root
+  projects.
+
+### Fixed
+
+- `SyncProjects.relative(".", path)` no longer prefixes `../` for a project at the root.
+
 ## [1.4.1] - 2026-11-11
 
 Public release preparation. No module API change; `framework = "^1.3.0"` ranges still match.
@@ -274,7 +315,8 @@ First release: the foundation services and kits.
   instead of an unprocessed purchase loop.
 - Leaving or shutting down no longer kicks with "opened in another server".
 
-[Unreleased]: https://github.com/RandyjCrowley/studwork/compare/v1.4.1...HEAD
+[Unreleased]: https://github.com/RandyjCrowley/studwork/compare/v1.5.0...HEAD
+[1.5.0]: https://github.com/RandyjCrowley/studwork/compare/v1.4.1...v1.5.0
 [1.4.1]: https://github.com/RandyjCrowley/studwork/compare/v1.4.0...v1.4.1
 [1.4.0]: https://github.com/RandyjCrowley/studwork/compare/v1.3.1...v1.4.0
 [1.3.1]: https://github.com/RandyjCrowley/studwork/compare/v1.3.0...v1.3.1

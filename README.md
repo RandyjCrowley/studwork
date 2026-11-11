@@ -33,9 +33,29 @@ simulation, generators, publishing). Why it is built this way: [docs/philosophy.
 - Roblox Studio with the [Rojo plugin](https://rojo.space/docs/v7/getting-started/installation/)
   (7.7.x, to match Rojo 7.7.1).
 
-## Quick start (5 minutes)
+## Quick start: a new game (5 minutes)
 
-1. Install Rokit (see its README), then clone and install:
+Install Rokit (see its README), then let StudWork create your game's repository: the repo root is
+the game and StudWork is a git submodule (`studwork/`) pinned at a release tag
+([single-game projects](docs/framework/single-game-project.md)):
+
+```sh
+git clone https://github.com/RandyjCrowley/studwork.git
+studwork/tools/new-project my-game --modules Items,Rarity,Inventory,Economy
+cd my-game
+tools/doctor    # every line should say ok
+tools/dev       # rojo serve + the Studio connect steps
+```
+
+`tools/new-project` installs the toolchain and Wally packages, scaffolds a game that boots and
+passes lint, typecheck, test and build, enables the pre-commit hook and makes the first commit.
+Every tool in the project works without a game name: `tools/lint`, `tools/test`, `tools/build`,
+`tools/make-module <Name>`, `tools/publish --test --dry-run`. The project's `README.md` and
+`CLAUDE.md` explain the rest.
+
+## Try the sandbox
+
+1. Clone and install:
 
    ```sh
    git clone https://github.com/RandyjCrowley/studwork.git
@@ -70,7 +90,9 @@ More examples: `examples/overrides/ov-a` … `ov-f` (one override case each) and
 
 ## Using StudWork in your games
 
-Games don't live in this repo. Make a **games repo** that has StudWork as a git submodule at
+Games don't live in this repo. The simplest setup is one repository per game made by
+`tools/new-project` (above; [single-game-project.md](docs/framework/single-game-project.md)).
+The alternative, several games in one repo: make a **games repo** that has StudWork as a git submodule at
 `roblox-core/` (the tools expect that folder name, which is why you'll see it in the docs), pinned at
 a release tag, and copy the skeleton from
 [`templates/games-repo/`](templates/games-repo/). Its `tools/` wrappers run this repo's tools
@@ -78,7 +100,7 @@ against your games:
 
 ```sh
 git submodule add https://github.com/RandyjCrowley/studwork.git roblox-core
-git -C roblox-core checkout v1.4.1
+git -C roblox-core checkout v1.5.0
 tools/new-game my-game --modules Items,Rarity,Inventory,Economy   # from the games repo
 ```
 
@@ -109,7 +131,8 @@ Start at the docs index, [docs/README.md](docs/README.md). Main pages:
   [module reference](docs/framework/module-reference.md)
 - [Override levels](docs/framework/override-levels.md)
 - [Guardrails](docs/framework/guardrails.md)
-- [Games repo](docs/framework/games-repo.md)
+- [Single-game projects](docs/framework/single-game-project.md) (`tools/new-project`)
+- [Games repo](docs/framework/games-repo.md) (several games in one repo)
 - [Theme](docs/framework/theme.md)
 - [Kits](docs/framework/kits/)
 - [Decisions](docs/decisions.md): why things are the way they are.

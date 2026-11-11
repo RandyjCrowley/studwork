@@ -1,0 +1,26 @@
+#!/usr/bin/env bash
+# .githooks/pre-commit (single-game project, StudWork v1.5.0): lint (incl. the studwork/ framework
+# pin and the "bump the framework in its own commit" check) + the game's tests before every
+# commit. Enabled by tools/install (git config core.hooksPath .githooks). bash 3.2 compatible.
+# studwork/tools/_common.sh keeps git's hook variables (GIT_INDEX_FILE, ...) for this repo's
+# staged-file checks (normal and partial commits) and clears them for `git -C studwork`.
+set -u
+ROOT="$(git rev-parse --show-toplevel)" || exit 1
+cd "$ROOT" || exit 1
+LOG="$(mktemp "${TMPDIR:-/tmp}/pre-commit.XXXXXX")"
+trap 'rm -f "$LOG"' EXIT
+step() {
+	local label="$1"
+	shift
+	printf 'pre-commit: %-6s ... ' "$label"
+	if "$@" >"$LOG" 2>&1; then
+		echo "ok ($(tail -1 "$LOG"))"
+		return 0
+	fi
+	echo "FAILED"
+	cat "$LOG"
+	echo "pre-commit: commit blocked by '$label'. Fix it (run: $*)."
+	exit 1
+}
+step lint tools/lint
+step tests tools/test

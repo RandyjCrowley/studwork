@@ -36,7 +36,7 @@ table.sort(kits)
 -- "ok" or the number of layout issues over the game's *.project.json files (details printed below)
 local layoutDetails = {}
 local function layoutOf(dir: string): string
-	local entry = dir
+	local entry = if dir == "." then (Roots.rootName(fs) or ".") .. " (root)" else dir
 	local issues = {}
 	for _, file in fs.readDir(dir) do
 		if string.match(file, "%.project%.json$") then
@@ -57,9 +57,18 @@ end
 
 local rows = {}
 for _, entry in Roots.gameDirs(fs) do
-	local path = entry .. "/deploy.json"
+	local path = if entry == "." then "deploy.json" else entry .. "/deploy.json"
 	if not fs.isFile(path) then
-		table.insert(rows, { entry, "-", "-", "no deploy.json", "-", "-", "-", layoutOf(entry) })
+		table.insert(rows, {
+			if entry == "." then ". (root)" else entry,
+			"-",
+			"-",
+			"no deploy.json",
+			"-",
+			"-",
+			"-",
+			layoutOf(entry),
+		})
 	elseif fs.isFile(path) then
 		local ok, deploy = pcall(serde.decode, "json", fs.readFile(path))
 		if not ok then
@@ -89,7 +98,8 @@ for _, entry in Roots.gameDirs(fs) do
 				then string.format("%s @ %s", tostring(deploy.coreStamp.how), tostring(deploy.coreStamp.at))
 				else "-"
 			table.insert(rows, {
-				entry,
+				-- (v1.5.0) a single-game project's root game: shown by its name
+				if entry == "." then (Roots.rootName(fs) or ".") .. " (root)" else entry,
 				if version and deploy.coreTag then `{version} ({deploy.coreTag})` else version or "-",
 				commit or "-",
 				status,
@@ -106,15 +116,17 @@ table.sort(rows, function(a, b)
 end)
 
 if Roots.external then
-	-- games repo: this is `tools/framework-status` (v1.4.0): the pinned framework submodule
+	-- games repo / single-game project: this is `tools/framework-status` (v1.4.0): the pinned
+	-- framework submodule
 	local tag = CoreInfo.tag()
 	print(
 		string.format(
-			"pinned framework: %s/ at %s (StudWork %s, %s); games repo HEAD %s",
+			"pinned framework: %s/ at %s (StudWork %s, %s); %s HEAD %s",
 			Roots.CORE,
 			tag or "NO TAG (lint fails: pin a release tag)",
 			currentVersion,
 			string.sub(CoreInfo.headSha() or "?", 1, 7),
+			if Roots.single then "project" else "games repo",
 			string.sub(head, 1, 7)
 		)
 	)

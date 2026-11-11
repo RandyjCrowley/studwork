@@ -11,5 +11,10 @@
 # the project's $paths point into roblox-core/.
 source "$(dirname "$0")/_common.sh"
 
+# v1.5.0: a single-game project IS one game (its root); tools/new-project makes another project
+if is_single_game && [ "${STUDWORK_NEW_PROJECT:-}" != "1" ]; then
+	die "this is a single-game project (studwork.json): the project root is the game, so tools/new-game does not apply. Add a module with tools/make-module <Name>, or start another game with studwork/tools/new-project <path> (docs/framework/single-game-project.md)"
+fi
+
 [ $# -ge 1 ] || die "usage: tools/new-game <name> [--modules A,B,C] [--no-design-doc] [--into <folder>]"
 lune_tool new-game "$@"

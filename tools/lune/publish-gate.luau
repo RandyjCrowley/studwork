@@ -10,7 +10,7 @@
 
 	The API key is never passed to this script (only whether it is set).
 	Build-relevant paths: the game folder (minus deploy.json), packages, deps (in a games repo: the
-	roblox-core submodule). <name> is a game name (tools/lune/Roots.luau findGame) or folder.
+	roblox-core submodule; in a single-game project, v1.5.0: the whole project + studwork/). <name> is a game name (tools/lune/Roots.luau findGame) or folder.
 ]]
 
 local fs = require("@lune/fs")
@@ -39,10 +39,14 @@ if cmd == nil or name == nil or (target ~= "test" and target ~= "live") then
 	process.exit(2)
 end
 local gameDir = Roots.findGame(fs, name) or ("games/" .. name)
-local deployPath = gameDir .. "/deploy.json"
+local deployPath = if gameDir == "." then "deploy.json" else gameDir .. "/deploy.json"
 -- build inputs: the game folder, and the core (its packages + deps in the core repo; the whole
 -- roblox-core submodule in a games repo, whose pointer/working tree shows up as one path)
-local BUILD_PATHS = if Roots.external then { gameDir, Roots.CORE } else { gameDir, "packages", "deps" }
+-- (v1.5.0) single-game project: the whole project (it IS the game) + the studwork/ submodule
+local BUILD_PATHS = if Roots.single
+	then { ".", Roots.CORE }
+	elseif Roots.external then { gameDir, Roots.CORE }
+	else { gameDir, "packages", "deps" }
 local ok, deploy = pcall(serde.decode, "json", fs.readFile(deployPath))
 if not ok then
 	print("error: cannot read " .. deployPath .. ": " .. tostring(deploy))

@@ -1,0 +1,156 @@
+#!/usr/bin/env bash
+# tools/new-project <path> [--name <gameId>] [--modules A,B,C] [--url <studwork-url>] [--tag vX.Y.Z]
+#                   [--no-install] [--author-name <name>] [--author-email <email>]
+# (StudWork v1.5.0, docs/framework/single-game-project.md) Create a complete single-game project
+# at <path> (refused if it exists and is not empty): the repo root is the game, StudWork is the git
+# submodule studwork/ pinned at a release tag.
+#   1. git init -b main; repo-local identity: --author-name/--author-email, else
+#      $STUDWORK_AUTHOR_NAME/$STUDWORK_AUTHOR_EMAIL, else this StudWork checkout's own repo-local
+#      user.name/user.email (git config --local), else git's global identity applies
+#   2. git submodule add <url> studwork (default https://github.com/RandyjCrowley/studwork.git; a
+#      local path gets -c protocol.file.allow=always), check out --tag (default v<StudWork.VERSION>
+#      of this checkout); refused when the tag doesn't exist there
+#   3. the game at the root (studwork/tools/new-game, templates/new-game: $paths into studwork/,
+#      --name defaults to the folder name, --modules validated like new-game, docs/design.md) and
+#      the skeleton from studwork/templates/single-game (studwork.json marker, tools/ wrappers,
+#      .githooks/pre-commit, .gitignore, .env.example, README.md, CLAUDE.md, FRAMEWORK_REQUESTS.md)
+#   4. tools/install in the new project (toolchain + Wally packages into studwork/deps/ + hook);
+#      --no-install skips rokit/wally and copies this checkout's deps/Packages + deps/ServerPackages
+#      into studwork/deps/ instead (tests, offline), then enables the hook
+#   5. the first commit, through the project's real pre-commit hook (lint + tests)
+# Never writes an absolute path into a project file (the submodule URL is whatever --url says).
+source "$(dirname "$0")/_common.sh"
+
+is_games_repo && die "run tools/new-project from a StudWork checkout itself (e.g. studwork/tools/new-project <path>), not through a project's tools/"
+
+# (Lune runs from this checkout: rokit picks the pinned versions from its rokit.toml)
+PARSED="$(lune_tool new-project parse "$@")" || {
+	echo "$PARSED" >&2
+	exit 1
+}
+P_PATH="" P_NAME="" P_MODULES="" P_URL="" P_TAG="" P_INSTALL="1" P_AUTHOR_NAME="" P_AUTHOR_EMAIL=""
+while IFS="$(printf '\t')" read -r key value; do
+	case "$key" in
+	path) P_PATH="$value" ;;
+	name) P_NAME="$value" ;;
+	modules) P_MODULES="$value" ;;
+	url) P_URL="$value" ;;
+	tag) P_TAG="$value" ;;
+	install) P_INSTALL="$value" ;;
+	authorName) P_AUTHOR_NAME="$value" ;;
+	authorEmail) P_AUTHOR_EMAIL="$value" ;;
+	esac
+done <<EOF
+$PARSED
+EOF
+
+VERSION="$(sed -n 's/^StudWork\.VERSION = "\(.*\)"$/\1/p' "$CORE_ROOT/packages/framework/shared/init.luau")"
+[ -n "$VERSION" ] || die "could not read StudWork.VERSION"
+[ -n "$P_TAG" ] || P_TAG="v$VERSION"
+
+# the target folder, absolute (relative to where the command was run)
+case "$P_PATH" in
+/*) TARGET="$P_PATH" ;;
+*) TARGET="$STUDWORK_CALLER_PWD/$P_PATH" ;;
+esac
+CREATED=0
+if [ -e "$TARGET" ]; then
+	[ -d "$TARGET" ] || die "$P_PATH exists and is not a folder"
+	[ -z "$(ls -A "$TARGET")" ] || die "$P_PATH exists and is not empty"
+else
+	mkdir -p "$TARGET"
+	CREATED=1
+fi
+TARGET="$(cd "$TARGET" && pwd)"
+case "$TARGET/" in
+"$CORE_ROOT"/*) die "the new project can't live inside this StudWork checkout ($P_PATH)" ;;
+esac
+OK=0
+cleanup() {
+	if [ "$OK" -ne 1 ] && [ "$CREATED" -eq 1 ] && [ -z "${STUDWORK_NEW_PROJECT_KEEP:-}" ]; then
+		echo "new-project: failed; removing $P_PATH (set STUDWORK_NEW_PROJECT_KEEP=1 to keep it)" >&2
+		rm -rf "$TARGET"
+	fi
+}
+trap cleanup EXIT
+
+# identity (documented default: this checkout's own repo-local identity)
+[ -n "$P_AUTHOR_NAME" ] || P_AUTHOR_NAME="${STUDWORK_AUTHOR_NAME:-}"
+[ -n "$P_AUTHOR_EMAIL" ] || P_AUTHOR_EMAIL="${STUDWORK_AUTHOR_EMAIL:-}"
+[ -n "$P_AUTHOR_NAME" ] || P_AUTHOR_NAME="$(git -C "$CORE_ROOT" config --local --get user.name 2>/dev/null || true)"
+[ -n "$P_AUTHOR_EMAIL" ] || P_AUTHOR_EMAIL="$(git -C "$CORE_ROOT" config --local --get user.email 2>/dev/null || true)"
+
+# a local path (or file://) needs git's file transport, off by default for submodules
+SUBMODULE_GIT=(git)
+case "$P_URL" in
+http://* | https://* | ssh://* | git://* | *@*:*) ;;
+*) SUBMODULE_GIT=(git -c protocol.file.allow=always) ;;
+esac
+
+echo "== tools/new-project $P_PATH (game $P_NAME, StudWork $P_TAG from $P_URL)"
+cd "$TARGET"
+git init -q -b main
+if [ -n "$P_AUTHOR_NAME" ]; then git config user.name "$P_AUTHOR_NAME"; fi
+if [ -n "$P_AUTHOR_EMAIL" ]; then git config user.email "$P_AUTHOR_EMAIL"; fi
+if [ -z "$P_AUTHOR_NAME" ] || [ -z "$P_AUTHOR_EMAIL" ]; then
+	echo "note: no repo-local identity set (pass --author-name/--author-email); git's global identity applies"
+fi
+
+# a relative local --url is relative to where the command was run
+SUB_URL="$P_URL"
+case "$P_URL" in
+http://* | https://* | ssh://* | git://* | file://* | *@*:* | /*) ;;
+*)
+	if [ -d "$STUDWORK_CALLER_PWD/$P_URL" ]; then
+		SUB_URL="$(cd "$STUDWORK_CALLER_PWD/$P_URL" && pwd)"
+	fi
+	;;
+esac
+echo "== git submodule add $SUB_URL studwork"
+"${SUBMODULE_GIT[@]}" submodule add -q "$SUB_URL" studwork || die "git submodule add failed ($SUB_URL)"
+git -C studwork fetch -q --tags origin 2>/dev/null || true
+git -C studwork rev-parse -q --verify "refs/tags/$P_TAG" >/dev/null ||
+	die "tag $P_TAG does not exist in $SUB_URL (tags: $(git -C studwork tag -l 'v*' | tail -5 | tr '\n' ' '))"
+git -C studwork checkout -q "$P_TAG" || die "could not check out $P_TAG"
+[ -d studwork/templates/single-game ] || die "StudWork $P_TAG predates single-game projects (v1.5.0): pick a newer --tag"
+[ -x studwork/tools/new-game ] || die "studwork/tools/new-game is missing at $P_TAG"
+
+echo "== the game ($P_NAME) at the project root"
+cp studwork/templates/single-game/studwork.json studwork.json
+NEW_GAME_ARGS=("$P_NAME")
+if [ -n "$P_MODULES" ]; then NEW_GAME_ARGS+=(--modules "$P_MODULES"); fi
+STUDWORK_PROJECT_ROOT="$TARGET" STUDWORK_NEW_PROJECT=1 studwork/tools/new-game "${NEW_GAME_ARGS[@]}"
+[ -f default.project.json ] && [ -d src ] || die "studwork/tools/new-game did not scaffold the game"
+
+echo "== skeleton (studwork/templates/single-game)"
+MODULES_TEXT="template default (all)"
+if [ -n "$P_MODULES" ]; then MODULES_TEXT="$(echo "$P_MODULES" | sed 's/,/, /g')"; fi
+(cd "$CORE_ROOT" && lune_tool new-project skeleton "$TARGET" studwork/templates/single-game "$P_NAME" "$P_TAG" "$MODULES_TEXT")
+chmod +x tools/* .githooks/pre-commit
+
+if [ "$P_INSTALL" = "1" ]; then
+	echo "== tools/install"
+	tools/install
+else
+	echo "== --no-install: Wally packages copied from $CORE_ROOT/deps"
+	for d in Packages ServerPackages; do
+		[ -d "$CORE_ROOT/deps/$d" ] || die "deps/$d is missing in this StudWork checkout: run tools/install there, or drop --no-install"
+		rm -rf "studwork/deps/$d"
+		cp -R "$CORE_ROOT/deps/$d" "studwork/deps/$d"
+	done
+	tools/install --hooks-only
+fi
+# the type definitions tools/typecheck downloads: reuse this checkout's copy when it has one
+if [ -d "$CORE_ROOT/.cache" ]; then
+	mkdir -p .cache
+	for f in "$CORE_ROOT"/.cache/globalTypes-*.d.luau; do
+		[ -f "$f" ] && cp "$f" .cache/
+	done
+fi
+
+echo "== first commit (through .githooks/pre-commit: lint + tests)"
+git add -A
+git commit -q -m "New StudWork single-game project: $P_NAME (StudWork $P_TAG)" ||
+	die "the first commit failed (see the hook output above)"
+OK=1
+echo "new-project: created $P_PATH ($P_NAME, StudWork $P_TAG). Next: cd $P_PATH && tools/doctor && tools/dev"

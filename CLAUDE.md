@@ -7,8 +7,10 @@ Read `docs/philosophy.md` (why it is opinionated), `docs/framework/` (how to use
 `getting-started.md`) and `docs/decisions.md` (why things are the way they are).
 `docs/framework/module-api.md` is the source of truth for the module API.
 
-Games do **not** live here. They live in a games repo that has this repo as its `roblox-core/`
-git submodule, pinned at a release tag (`docs/framework/games-repo.md`). **Games and game agents
+Games do **not** live here. They live in a single-game project (one repo per game, made by
+`tools/new-project`, with this repo as its `studwork/` git submodule:
+`docs/framework/single-game-project.md`) or in a games repo that has this repo as its `roblox-core/`
+git submodule (`docs/framework/games-repo.md`), pinned at a release tag. **Games and game agents
 never edit this repo**; they file an entry in the games repo's `FRAMEWORK_REQUESTS.md` (or open an issue here), and the
 change is made here.
 
@@ -97,8 +99,11 @@ examples/overrides/ov-a..f  one game per override case, each with src/server/Ove
 examples/modules/           third-party-style modules (session-leaderboard) with their fixture games
 templates/                  new-game/ (tools/new-game), game-design.md, module/, migration/, screen/
                             (tools/make-module, make-migration, make-screen; *.tmpl), games-repo/
-                            (the games-repo skeleton: tools/ wrappers, hook, .gitignore, GAMES.md)
-tools/                      see Commands; tools/lune/ holds the Lune side (Roots.luau: core vs games repo)
+                            (the games-repo skeleton: tools/ wrappers, hook, .gitignore, GAMES.md),
+                            single-game/ (tools/new-project's skeleton: studwork.json marker, tools/
+                            wrappers, hook, gitignore, env.example, README.md.tmpl, CLAUDE.md.tmpl)
+tools/                      see Commands; tools/lune/ holds the Lune side (Roots.luau: core vs games
+                            repo vs single-game project)
 docs/                       README.md (index), philosophy.md, framework/, decisions.md, known-issues.md,
                             manual-qa.md
 .github/                    CI workflow (ci.yml), issue and pull request templates
@@ -198,8 +203,11 @@ tools/install                 # rokit install + wally install (deps/); --hooks-o
 tools/doctor                  # toolchain, Wally packages, hook, .env keys (never values), ports, layout
 tools/lint                    # selene + stylua --check + sync-projects --check + guardrails
 tools/typecheck [game|--all]  # luau-lsp strict (default: sandbox; --all: every example game)
-tools/test [paths]            # Lune specs (*.spec.luau); with no paths also tools/test-games-repo
+tools/test [paths]            # Lune specs (*.spec.luau); with no paths also test-games-repo + test-single-game
 tools/test-games-repo         # throwaway games repo with this core as its roblox-core/ submodule, tools run end to end
+tools/test-single-game        # throwaway single-game project (tools/new-project, studwork/ submodule), end to end
+tools/new-project <path> [--name <id>] [--modules A,B,C] [--url <u>] [--tag vX.Y.Z] [--no-install]
+                              # a new single-game project (repo root = the game, this repo at studwork/)
 tools/build [game|--all]      # rojo build every example game to build/
 tools/test-sim [--pending]    # multi-server simulation incl. the slow soak test
 tools/bench                   # server tick cost at 50 players
@@ -213,10 +221,12 @@ tools/publish <game> --test|--live [--dry-run]   # games repos publish; ask the 
 mkdir -p build && rojo build examples/sandbox/default.project.json -o build/sandbox.rbxl
 ```
 
-Every tool also works from a games repo: its `tools/*` wrappers (`templates/games-repo/`) set
-`STUDWORK_PROJECT_ROOT` and call `roblox-core/tools/*`; `tools/lune/Roots.luau` /
-`tools/_common.sh` hold the two roots (`docs/framework/games-repo.md`). Keep every tool working in
-both modes, with relative paths only.
+Every tool also works from a games repo and from a single-game project: their `tools/*` wrappers
+(`templates/games-repo/`, `templates/single-game/`) set `STUDWORK_PROJECT_ROOT` and call
+`roblox-core/tools/*` / `studwork/tools/*`; `tools/lune/Roots.luau` / `tools/_common.sh` hold the two
+roots and the layout (`core`, `games-repo`, `single-game`: the committed `studwork.json` marker;
+`docs/framework/games-repo.md`, `docs/framework/single-game-project.md`). Keep every tool working in
+all three modes, with relative paths only; in a single-game project they need no game name.
 
 ## Definition of done (framework change)
 
@@ -226,7 +236,7 @@ both modes, with relative paths only.
 - `tools/lint` clean; `tools/typecheck --all` clean.
 - `rojo build` of every `*.project.json` under `examples/` and `templates/` succeeds.
 - `tools/new-game` still produces a working game (in a temporary worktree: lint, typecheck, test,
-  rojo build) and `tools/test-games-repo` passes.
+  rojo build) and `tools/test-games-repo` and `tools/test-single-game` pass.
 - `tools/bench` within budget if it runs per tick or per player.
 - CHANGELOG, docs page, decisions entry. Report: what you built, files touched, test output, open
   questions.

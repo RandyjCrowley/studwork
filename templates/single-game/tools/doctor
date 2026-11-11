@@ -1,0 +1,3 @@
+#!/usr/bin/env bash
+# tools/doctor: studwork/tools/doctor on this project (see tools/_studwork)
+exec "$(dirname "$0")/_studwork" doctor "$@"

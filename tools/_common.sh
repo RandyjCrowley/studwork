@@ -10,6 +10,13 @@
 # when they are the same); core files are reached as "$(core_path <path>)". Both are exported
 # (STUDWORK_PROJECT_ROOT, STUDWORK_CORE_DIR) for the Lune tools (tools/lune/Roots.luau).
 # REPO_ROOT is kept as an alias of PROJECT_ROOT.
+#
+# Three layouts (StudWork v1.5.0, docs/framework/single-game-project.md), exported as
+# STUDWORK_LAYOUT for the Lune tools (tools/lune/Roots.luau decides the same way):
+#   core         CORE_DIR = "."  the framework repo itself
+#   single-game  the project root has the committed marker studwork.json with
+#                {"layout": "single-game"}: the root IS the game; the core is its studwork/ submodule
+#   games-repo   any other project: games/<name>/ folders; the core is its roblox-core/ submodule
 set -euo pipefail
 
 STUDWORK_CALLER_PWD="$PWD"
@@ -42,13 +49,42 @@ if [ -z "$CORE_DIR" ]; then
 fi
 STUDWORK_PROJECT_ROOT="$PROJECT_ROOT"
 STUDWORK_CORE_DIR="$CORE_DIR"
-export STUDWORK_PROJECT_ROOT STUDWORK_CORE_DIR
+# layout_of <project> <core_dir>: core | single-game | games-repo (marker: studwork.json)
+layout_of() {
+	if [ "$2" = "." ]; then
+		echo "core"
+	elif [ -f "$1/studwork.json" ] && grep -q '"layout"[[:space:]]*:[[:space:]]*"single-game"' "$1/studwork.json"; then
+		echo "single-game"
+	else
+		echo "games-repo"
+	fi
+}
+STUDWORK_LAYOUT="$(layout_of "$PROJECT_ROOT" "$CORE_DIR")"
+export STUDWORK_PROJECT_ROOT STUDWORK_CORE_DIR STUDWORK_LAYOUT
 REPO_ROOT="$PROJECT_ROOT"
 cd "$PROJECT_ROOT"
 
-# true when the project is a games repo (the core is a subfolder of it)
+# true when the core is a subfolder of the project: a games repo OR (v1.5.0) a single-game
+# project. Everything that applies to an external core (toolchain links, the git shim, the
+# framework pin) keys on this; use is_single_game to tell the two apart.
 is_games_repo() {
 	[ "$CORE_DIR" != "." ]
+}
+
+# (v1.5.0) true in a single-game project: the project root is the game (studwork.json marker)
+is_single_game() {
+	[ "$STUDWORK_LAYOUT" = "single-game" ]
+}
+
+# (v1.5.0) the root game's name in a single-game project: deploy.json "name" (fallback: the
+# project folder's name). Used for build/<name>.rbxl and publish/deploy-stamp.
+single_game_name() {
+	local n=""
+	if [ -f deploy.json ]; then
+		n="$(sed -n 's/^[[:space:]]*"name"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' deploy.json | head -1)"
+	fi
+	[ -n "$n" ] || n="$(basename "$PROJECT_ROOT")"
+	echo "$n"
 }
 
 # Rokit's shims (~/.rokit/bin) pick tool versions from the rokit.toml found above the working
@@ -128,10 +164,17 @@ lune_tool() {
 
 # game_dir <name|path>: a game folder of the project (games/<g>; in the core repo also
 # examples/<g>, examples/overrides/<g>; or a folder path) with a default.project.json and src/.
-# Prints nothing when there is none.
+# Prints nothing when there is none. In a single-game project (v1.5.0) the game is the root:
+# no name, ".", or its deploy.json name -> ".".
 game_dir() {
 	local g="${1%/}"
 	local d
+	if is_single_game; then
+		if [ -z "$g" ] || [ "$g" = "." ] || [ "$g" = "$(single_game_name)" ]; then
+			if [ -f default.project.json ] && [ -d src ]; then echo "."; fi
+			return 0
+		fi
+	fi
 	[ -n "$g" ] || return 0
 	for d in "$g" "games/$g" "examples/$g" "examples/overrides/$g"; do
 		if [ -f "$d/default.project.json" ] && [ -d "$d/src" ]; then

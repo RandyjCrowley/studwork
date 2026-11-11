@@ -14,6 +14,9 @@
 #      universe-places:write; endpoint and scope checked on create.roblox.com 2026-11-10)
 #   5. stamp (tools/lune/deploy-stamp): deploy.json coreVersion/coreCommit/coreSha/coreTag/coreStamp, GAMES.md
 #      "Core" column, and <target>.published {commit, at, versionNumber}
+# Single-game project (v1.5.0, docs/framework/single-game-project.md): the name is optional
+# (tools/publish --test), the game is the project root, deploy.json is at the root, the clean-tree
+# gate covers the whole project + the studwork/ submodule, and there is no GAMES.md to update.
 # --dry-run does 1-3 and 5 (recording <target>.dryRun {commit, at} instead of .published) and
 # prints the exact request with the key redacted; it never contacts Roblox. A placeholder id or a
 # missing key is only a warning in a dry run. `--live --dry-run` accepts a test dry run of HEAD;
@@ -28,7 +31,14 @@ source "$(dirname "$0")/_common.sh"
 
 KEY_VAR="ROBLOX_OPEN_CLOUD_API_KEY"
 
-usage() { die "usage: tools/publish <name> --test|--live [--dry-run]"; }
+usage() { die "usage: tools/publish <name> --test|--live [--dry-run]   (single-game project: tools/publish --test|--live [--dry-run])"; }
+
+# v1.5.0 single-game project: the root is the game, so the name is optional
+if is_single_game; then
+	case "${1:-}" in
+	"" | --*) set -- "$(single_game_name)" "$@" ;;
+	esac
+fi
 
 NAME="${1:-}"
 TARGET=""
@@ -76,7 +86,9 @@ check() {
 }
 echo "== checks"
 check lint "$CORE_ROOT/tools/lint"
-if is_games_repo; then
+if is_single_game; then
+	check test "$CORE_ROOT/tools/test"
+elif is_games_repo; then
 	check test "$CORE_ROOT/tools/test" "$GAME_DIR"
 else
 	check test "$CORE_ROOT/tools/test" packages "$GAME_DIR" tools
@@ -86,6 +98,7 @@ rm -f "$LOG"
 
 mkdir -p build
 OUT="build/$(basename "$GAME_DIR")-$TARGET.rbxl"
+[ "$GAME_DIR" != "." ] || OUT="build/$NAME-$TARGET.rbxl"
 echo "== rojo build -> $OUT"
 rojo build "$GAME_DIR/default.project.json" -o "$OUT"
 BYTES="$(wc -c <"$OUT" | tr -d ' ')"

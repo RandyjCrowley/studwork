@@ -31,7 +31,8 @@ jobs:
         with:
           token: ${{ github.token }}
 
-      # tools/test runs tools/test-games-repo, which makes commits in a throwaway repo.
+      # tools/test runs tools/test-games-repo and tools/test-single-game, which make commits in
+      # throwaway repos.
       - name: Git identity for test commits
         run: |
           git config --global user.name "CI"
@@ -47,7 +48,10 @@ jobs:
       - name: Type check
         run: tools/typecheck --all
 
-      - name: Tests
+      # Lune specs, then the end-to-end tests of both project layouts: tools/test-games-repo
+      # (games repo, roblox-core/ submodule) and tools/test-single-game (tools/new-project,
+      # studwork/ submodule). Both run inside tools/test with no arguments.
+      - name: Tests (specs + tools/test-games-repo + tools/test-single-game)
         run: tools/test
 
       - name: Multi-server simulation

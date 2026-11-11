@@ -1,7 +1,8 @@
 --!nocheck
 --[[
 	tools/sync-projects [--check]: (re)writes the GENERATED `Modules` entries of every
-	*.project.json under games/, templates/ and examples/ (v1.3.1 R19, module-api.md §1;
+	*.project.json under games/, templates/ and examples/ (and, v1.5.0, the root *.project.json of a
+	single-game project) (v1.3.1 R19, module-api.md §1;
 	logic in SyncProjects.luau, module folders from ModuleDiscovery.luau). --check writes nothing
 	and exits 1 listing every project that drifts (tools/lint runs it).
 ]]
@@ -32,6 +33,14 @@ local function walk(dir: string)
 end
 for _, root in { "games", "templates", "examples" } do
 	walk(root)
+end
+-- (v1.5.0) a single-game project's own Rojo projects sit at its root (default.project.json, ...)
+if require("./Roots").single then
+	for _, entry in fs.readDir(".") do
+		if fs.isFile(entry) and string.match(entry, "%.project%.json$") then
+			table.insert(projects, entry)
+		end
+	end
 end
 table.sort(projects)
 

@@ -2,9 +2,14 @@
 # tools/dev <game> [--print]
 # Serve a game (games/<game>; examples/<game> in the core repo) to Roblox Studio with Rojo on the game's servePort (deploy.json) and print the
 # Studio connect steps. --print only prints the steps and the command (doesn't start Rojo).
+# In a single-game project (v1.5.0) the game is the root: tools/dev [--print].
 source "$(dirname "$0")/_common.sh"
 
-usage() { die "usage: tools/dev <game> [--print]"; }
+usage() { die "usage: tools/dev <game> [--print]   (single-game project: tools/dev [--print])"; }
+# v1.5.0 single-game project: the root is the game, so the name is optional
+if is_single_game && { [ $# -eq 0 ] || [ "${1:-}" = "--print" ]; }; then
+	set -- "$(single_game_name)" "$@"
+fi
 NAME="${1:-}"
 [ -n "$NAME" ] || usage
 PRINT_ONLY=0
@@ -15,6 +20,7 @@ PRINT_ONLY=0
 GAME_DIR="$(game_dir "$NAME")"
 [ -n "$GAME_DIR" ] || die "no such game: $NAME (no games/$NAME/default.project.json)"
 PROJECT="$GAME_DIR/default.project.json"
+[ "$GAME_DIR" != "." ] || PROJECT="default.project.json"
 
 PORT=""
 if [ -f "$GAME_DIR/deploy.json" ]; then

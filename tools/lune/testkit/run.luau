@@ -1,7 +1,8 @@
 --!nocheck
 --[[
 	Test runner: finds every *.spec.luau under packages/, games/, templates/, tools/ and examples/
-	(in a games repo: games/; tools/lune/Roots.luau) or the paths given
+	(in a games repo: games/; in a single-game project, v1.5.0: every top-level folder except
+	studwork/, build/ and hidden ones; tools/lune/Roots.luau) or the paths given
 	and runs it through the harness. Exit code 1 on any failure.
 
 	Usage (from repo root): lune run tools/lune/testkit/run [path ...]
@@ -44,7 +45,19 @@ if Roots.external then
 end
 
 local roots = process.args
-if #roots == 0 then
+if #roots == 0 and Roots.single then
+	-- (v1.5.0) a single-game project: every top-level folder of the project (src/, modules/, ...),
+	-- never the studwork/ submodule, build/ or hidden folders
+	roots = {}
+	SKIP_DIRS.build = true
+	local entries = fs.readDir(".")
+	table.sort(entries)
+	for _, entry in entries do
+		if fs.isDir(entry) and string.sub(entry, 1, 1) ~= "." and not SKIP_DIRS[entry] then
+			table.insert(roots, entry)
+		end
+	end
+elseif #roots == 0 then
 	roots = if Roots.external then { "games" } else { "packages", "games", "templates", "tools", "examples" }
 end
 

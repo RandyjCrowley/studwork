@@ -4,6 +4,18 @@ All generators are Lune scripts behind `tools/*` wrappers; run them from the rep
 self-test that generates into a scratch folder, checks the output and cleans up
 (`tools/test tools/lune`).
 
+## tools/new-project
+
+```
+tools/new-project <path> [--name <gameId>] [--modules A,B,C] [--url <studwork-url>] [--tag vX.Y.Z]
+                  [--no-install] [--author-name <name>] [--author-email <email>]
+```
+
+(v1.5.0) A complete single-game project at `<path>`: git repo, StudWork as the `studwork/`
+submodule at a tag, the game at the root (`tools/new-game`'s template, `$path`s into `studwork/`,
+`docs/design.md`), the skeleton from `templates/single-game/`, `tools/install`, and the first
+commit through the hook. Details: [single-game-project.md](single-game-project.md).
+
 ## tools/new-game
 
 ```
@@ -121,6 +133,7 @@ Everything the generators write comes from `templates/` in this repo:
 | `templates/module/` | `tools/make-module` (`*.tmpl` files: `module.luau`, `server/init.luau`, `client/init.luau`, `tests/Name.spec.luau`, `README.md`, `net.blink`) |
 | `templates/migration/` | `tools/make-migration` (`migration.luau.tmpl`, `Migration.spec.luau.tmpl`) |
 | `templates/screen/` | `tools/make-screen` (`Screen.luau.tmpl`, `Screens.init.luau.tmpl`) |
+| `templates/single-game/` | `tools/new-project` ([single-game-project.md](single-game-project.md)): the `studwork.json` marker, `tools/` wrappers, hook, `gitignore`, `env.example`, `FRAMEWORK_REQUESTS.md`, `README.md.tmpl` and `CLAUDE.md.tmpl` (`{{name}}`, `{{tag}}`, `{{port}}`, `{{modules}}`) |
 | `templates/games-repo/` | copied by hand into a new games repo ([games-repo.md](games-repo.md)): `tools/` wrappers, hook, `.gitignore`, `GAMES.md`, `FRAMEWORK_REQUESTS.md` |
 
 `{{Name}}`-style placeholders are filled by `tools/lune/MakeGen.luau`. The `.tmpl` suffix keeps
@@ -133,3 +146,11 @@ Every generator also runs from a games repo that has this repo as its `roblox-co
 ([games-repo.md](games-repo.md)): `tools/new-game` creates `games/<name>` with `$path`s into
 `roblox-core/`, `tools/make-module --game <game>` maps the new module in that game's project, and
 the templates always come from `roblox-core/templates/`.
+
+## In a single-game project
+
+(v1.5.0, [single-game-project.md](single-game-project.md)) The game is the project root, so no game
+name is needed: `tools/make-module <Name> [--net]` writes `modules/<name-kebab>/` and maps it in the
+root `default.project.json`, `tools/make-screen <Screen>` writes `src/client/Screens/<Screen>.luau`,
+`tools/sync-projects` covers the root `*.project.json` files, and `tools/new-game` refuses (start
+another game with `tools/new-project`). The templates come from `studwork/templates/`.

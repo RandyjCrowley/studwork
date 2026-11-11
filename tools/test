@@ -2,12 +2,17 @@
 # tools/test [path ...]: run every *.spec.luau (pure logic) under Lune.
 # With no args: packages/, templates/, tools/ and examples/ (and games/ if present), then (core repo
 # only) tools/test-games-repo, the end-to-end check of the games-repo mode (v1.4.0). In a games repo
-# (docs/framework/games-repo.md): its games/. Exit 1 on any failure.
+# (docs/framework/games-repo.md): its games/. In a single-game project (v1.5.0): every top-level
+# folder except studwork/ (and build/, hidden folders). With no args the core repo also runs
+# tools/test-single-game after tools/test-games-repo. Exit 1 on any failure.
 source "$(dirname "$0")/_common.sh"
 
 if [ $# -eq 0 ] && ! is_games_repo; then
 	lune_tool testkit/run
 	echo "== tools/test-games-repo"
-	exec "$CORE_ROOT/tools/test-games-repo"
+	"$CORE_ROOT/tools/test-games-repo"
+	# v1.5.0: the single-game project mode end to end (docs/framework/single-game-project.md)
+	echo "== tools/test-single-game"
+	exec "$CORE_ROOT/tools/test-single-game"
 fi
 lune_tool testkit/run "$@"

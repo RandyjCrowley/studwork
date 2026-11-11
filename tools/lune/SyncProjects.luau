@@ -269,8 +269,11 @@ end
 
 function SyncProjects.relative(fromDir: string, path: string): string
 	local depth = 0
-	for _ in string.gmatch(fromDir, "[^/]+") do
-		depth += 1
+	for part in string.gmatch(fromDir, "[^/]+") do
+		-- (v1.5.0) "." is the project root itself (a single-game project's root game)
+		if part ~= "." then
+			depth += 1
+		end
 	end
 	return string.rep("../", depth) .. path
 end

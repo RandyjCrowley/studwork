@@ -45,6 +45,11 @@ local ROOTS = {
 if CORE_DIR ~= "." then
 	table.insert(ROOTS, Loader.core("examples"))
 end
+-- (v1.5.0) a single-game project (tools/_common.sh STUDWORK_LAYOUT): the game is the project root
+if luneRequire("@lune/process").env.STUDWORK_LAYOUT == "single-game" then
+	table.insert(ROOTS, "src")
+	table.insert(ROOTS, "modules")
+end
 
 local kinds: { [string]: "file" | "dir" } = {}
 local listing: { [string]: { string } } = {}

@@ -12,9 +12,15 @@ local process = require("@lune/process")
 
 local MakeGen = require("./MakeGen")
 
-local args = process.args
+local args = table.clone(process.args)
+-- (v1.5.0) single-game project: the root game is the default (tools/make-screen <ScreenName>)
+if require("./Roots").single and #args == 1 then
+	table.insert(args, 1, ".")
+end
 if #args ~= 2 then
-	print("usage: tools/make-screen <game> <ScreenName>")
+	print(
+		"usage: tools/make-screen <game> <ScreenName>   (single-game project: tools/make-screen <ScreenName>)"
+	)
 	process.exit(1)
 end
 local gameDir = require("./Roots").findGame(fs, args[1])
@@ -27,11 +33,11 @@ if written == nil then
 	print("error: " .. tostring(err))
 	process.exit(1)
 end
-pcall(
-	process.exec,
-	"stylua",
-	{ "--config-path", require("./Roots").core("stylua.toml"), gameDir .. "/src/client" }
-)
+pcall(process.exec, "stylua", {
+	"--config-path",
+	require("./Roots").core("stylua.toml"),
+	if gameDir == "." then "src/client" else gameDir .. "/src/client",
+})
 for _, path in written do
 	print("wrote " .. path)
 end

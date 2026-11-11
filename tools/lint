@@ -7,9 +7,35 @@
 # In a games repo (STUDWORK_PROJECT_ROOT set by its tools/ wrappers, docs/framework/games-repo.md)
 # it lints the games repo's games/ with the CORE's selene/stylua configs, and the guardrails add
 # the core-pin check (the roblox-core/ submodule is clean and its HEAD is a tag).
+#
+# In a single-game project (v1.5.0, docs/framework/single-game-project.md) it lints the project's
+# own Luau: every top-level folder except studwork/ (the framework submodule), build/ and hidden
+# folders (.cache/, .git/), with the core's configs; the guardrails check the studwork/ pin.
 source "$(dirname "$0")/_common.sh"
 
-if is_games_repo; then
+if is_single_game; then
+	LINT_DIRS=""
+	for d in */; do
+		d="${d%/}"
+		case "$d" in
+		"$CORE_DIR" | build | Packages | ServerPackages | DevPackages | node_modules) continue ;;
+		esac
+		[ -d "$d" ] || continue
+		LINT_DIRS="$LINT_DIRS $d"
+	done
+	[ -n "$LINT_DIRS" ] || die "no folders to lint in $PROJECT_ROOT"
+	echo "== selene"
+	# selene reads its std from the working directory: run it from the core with absolute paths
+	ABS=""
+	for d in $LINT_DIRS; do ABS="$ABS $PROJECT_ROOT/$d"; done
+	# shellcheck disable=SC2086
+	(cd "$CORE_ROOT" && selene $ABS)
+	echo "== stylua --check"
+	# shellcheck disable=SC2086
+	stylua --config-path "$(core_path stylua.toml)" --check \
+		-g '*.luau' -g '*.lua' -g '!**/server/Net.luau' -g '!**/client/Net.luau' -g '!**/Generated*.luau' \
+		$LINT_DIRS
+elif is_games_repo; then
 	[ -d games ] || die "no games/ folder in $PROJECT_ROOT"
 	echo "== selene"
 	# selene reads its std (testkit.yml, based on roblox) from the working directory: run it from

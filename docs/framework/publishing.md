@@ -1,7 +1,10 @@
 # Publishing a game
 
 How a game in your games repo ([games-repo.md](games-repo.md)) goes from `games/<name>` to a live
-Roblox experience. Everything goes through the games repo's `tools/publish` (a wrapper around
+Roblox experience. In a single-game project ([single-game-project.md](single-game-project.md),
+v1.5.0) the same steps apply without the game name (`tools/publish --test`); `deploy.json` is at the
+project root, there is no `GAMES.md`, and the clean-tree gate covers the whole project and the
+`studwork/` submodule. Everything goes through the games repo's `tools/publish` (a wrapper around
 `roblox-core/tools/publish`, run with the games repo as the project); never publish from Studio
 (Studio publishes skip the checks and the StudWork stamp, and can publish uncommitted code). If AI
 coding agents work in your repo, let them run only `--dry-run` and do real publishes yourself.

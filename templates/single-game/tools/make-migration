@@ -1,0 +1,3 @@
+#!/usr/bin/env bash
+# tools/make-migration: studwork/tools/make-migration on this project (see tools/_studwork)
+exec "$(dirname "$0")/_studwork" make-migration "$@"

@@ -6,6 +6,7 @@
 	  --game <game>  writes games/<game>/modules/<name-kebab>/ and maps it in that game's
 	                 default.project.json (ReplicatedStorage.Modules.<Name>, ServerScriptService.Modules.<Name>)
 	  --dir <path>   writes <path>/ only (a module outside a game, e.g. examples/modules/<name>)
+	  (neither)      (v1.5.0) single-game project: the root game (modules/<name-kebab>/)
 	  --net          also writes net.blink (the module's own messages; then run tools/net)
 	Prints the GameConfig.modules line to add and the test command.
 ]]
@@ -18,6 +19,7 @@ local ModuleDiscovery = require("./ModuleDiscovery")
 local SyncProjects = require("./SyncProjects")
 
 local USAGE = "usage: tools/make-module <Name> (--game <game> | --dir <path>) [--net]"
+	.. "  (single-game project: tools/make-module <Name> [--net])"
 
 local name, game, dir = nil, nil, nil
 local withNet = false
@@ -44,6 +46,11 @@ while i <= #args do
 	end
 	i += 1
 end
+-- (v1.5.0) single-game project: the root game is the default (tools/make-module <Name>)
+local Roots = require("./Roots")
+if Roots.single and game == nil and dir == nil then
+	game = "."
+end
 if name == nil or (game == nil) == (dir == nil) then
 	print(USAGE)
 	process.exit(1)
@@ -52,13 +59,15 @@ end
 local projectPath = nil
 if game then
 	-- games/<game> (or, in the core repo, examples/<game> / examples/overrides/<game>; Roots.luau)
-	local gameDir = require("./Roots").findGame(fs, game)
-	projectPath = (gameDir or ("games/" .. game)) .. "/default.project.json"
+	local gameDir = Roots.findGame(fs, game)
+	projectPath = if gameDir == "."
+		then "default.project.json"
+		else (gameDir or ("games/" .. game)) .. "/default.project.json"
 	if gameDir == nil or not fs.isFile(projectPath) then
 		print("error: no such game: " .. game .. " (" .. projectPath .. ")")
 		process.exit(1)
 	end
-	dir = gameDir .. "/modules/" .. MakeGen.kebab(name)
+	dir = (if gameDir == "." then "" else gameDir .. "/") .. "modules/" .. MakeGen.kebab(name)
 end
 dir = string.gsub(dir, "/+$", "")
 

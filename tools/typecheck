@@ -64,7 +64,16 @@ check_game() {
 }
 
 GAMES=""
-if [ "${1:-}" = "--all" ]; then
+if is_single_game; then
+	# v1.5.0: the project root is the game (no name needed; --all, "." or its name also work)
+	if [ -n "${1:-}" ] && [ "$1" != "--all" ]; then
+		GAMES="$(game_dir "$1")"
+		[ -n "$GAMES" ] || die "no such game: $1 (this single-game project's game is the root: tools/typecheck)"
+	else
+		GAMES="$(game_dir "")"
+		[ -n "$GAMES" ] || die "no default.project.json + src/ at the project root"
+	fi
+elif [ "${1:-}" = "--all" ]; then
 	for parent in games examples examples/overrides; do
 		for d in "$parent"/*; do
 			if [ -f "$d/default.project.json" ] && [ -d "$d/src" ]; then GAMES="$GAMES $d"; fi

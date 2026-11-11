@@ -10,7 +10,8 @@
 	               pinned commit)
 	  coreTag      the tag at that commit (vX.Y.Z) or absent
 	  coreStamp    { how, at (UTC ISO time) }
-	and the game's "Core" cell in GAMES.md ("1.1.0 (abc1234)").
+	and the game's "Core" cell in GAMES.md ("1.1.0 (abc1234)") when the project has one (a
+	single-game project, v1.5.0, has none: deploy.json at its root is the only record).
 	With --target it also records what went to that place (read by the test-before-live gate,
 	tools/lune/PublishGate.luau, and tools/core-status):
 	  <target>.published = { commit, at, versionNumber }   real publish
@@ -23,6 +24,7 @@ local process = require("@lune/process")
 local serde = require("@lune/serde")
 
 local CoreInfo = require("./core-info")
+local DeployStamp = require("./DeployStamp")
 local Roots = require("./Roots")
 
 local name, how = process.args[1], process.args[2] or "manual"
@@ -51,7 +53,8 @@ if name == nil then
 	print("usage: deploy-stamp <name> <how>")
 	process.exit(1)
 end
-local deployPath = (Roots.findGame(fs, name) or ("games/" .. name)) .. "/deploy.json"
+local gameDir = Roots.findGame(fs, name) or ("games/" .. name)
+local deployPath = DeployStamp.deployPath(gameDir)
 if not fs.isFile(deployPath) then
 	print("error: missing " .. deployPath)
 	process.exit(1)
@@ -63,46 +66,24 @@ local sha = CoreInfo.headSha()
 local tag = CoreInfo.tag()
 
 local deploy = serde.decode("json", fs.readFile(deployPath))
-deploy.coreVersion = version
-deploy.coreCommit = commit
--- v1.4.0: the exact core checkout (full sha of the core's HEAD: the games repo's pinned submodule
--- commit) and its tag, when HEAD is exactly a tag
-deploy.coreSha = sha
-deploy.coreTag = tag
-local now = DateTime.now():toIsoDate()
-deploy.coreStamp = { how = how, at = now }
-if opts.target then
-	if type(deploy[opts.target]) ~= "table" then
-		deploy[opts.target] = { universeId = 0, placeId = 0 }
-	end
-	if opts.dryRun then
-		deploy[opts.target].dryRun = { commit = opts.commit, at = now }
-	else
-		deploy[opts.target].published =
-			{ commit = opts.commit, at = now, versionNumber = tonumber(opts.version) }
-	end
-end
+DeployStamp.stamp(
+	deploy,
+	{ version = version, commit = commit, sha = sha, tag = tag },
+	how,
+	DateTime.now():toIsoDate(),
+	opts
+)
 fs.writeFile(deployPath, serde.encode("json", deploy, true) .. "\n")
 
--- GAMES.md: set the "Core" cell of this game's row.
+-- GAMES.md: set the "Core" cell of this game's row (none in a single-game project: skipped)
 local GAMES = "GAMES.md"
-if fs.isFile(GAMES) then
-	local lines = string.split(fs.readFile(GAMES), "\n")
-	local coreCol: number? = nil
-	for i, line in lines do
-		local cells = string.split(line, "|")
-		if coreCol == nil and string.find(line, "| Game |", 1, true) then
-			for c, cell in cells do
-				if string.match(cell, "^%s*Core%s*$") then
-					coreCol = c
-				end
-			end
-		elseif coreCol and string.match(cells[2] or "", "^%s*(.-)%s*$") == name then
-			cells[coreCol] = " " .. version .. " (" .. commit .. ") "
-			lines[i] = table.concat(cells, "|")
-		end
-	end
-	fs.writeFile(GAMES, table.concat(lines, "\n"))
+local games = DeployStamp.gamesMd(
+	if fs.isFile(GAMES) then fs.readFile(GAMES) else nil,
+	name,
+	version .. " (" .. commit .. ")"
+)
+if games ~= nil then
+	fs.writeFile(GAMES, games)
 end
 
 print(

@@ -83,4 +83,60 @@ describe("Roots", function()
 			expect(Roots.findGame(fs, "board")).toBeNil()
 		end
 	)
+
+	-- v1.5.0: the single-game project layout (docs/framework/single-game-project.md)
+	it("decides the layout: core, games repo, or single-game by the studwork.json marker", function()
+		local marker = fakeFs({ "studwork.json", "default.project.json", "src/server/Main.server.luau" })
+		marker.readFile = function(p)
+			assert(p == "studwork.json", "unexpected read " .. p)
+			return '{\n  "layout": "single-game"\n}\n'
+		end
+		local plain = fakeFs({ "games/x/default.project.json", "games/x/src/a.luau" })
+		expect(Roots.layoutOf(".", nil, marker)).toBe("core")
+		expect(Roots.layoutOf(nil, "single-game", marker)).toBe("core")
+		expect(Roots.layoutOf("studwork", nil, marker)).toBe("single-game")
+		expect(Roots.layoutOf("roblox-core", nil, plain)).toBe("games-repo")
+		-- tools/_common.sh's decision (STUDWORK_LAYOUT) wins over the file system
+		expect(Roots.layoutOf("roblox-core", "single-game", plain)).toBe("single-game")
+		expect(Roots.layoutOf("studwork", "games-repo", marker)).toBe("games-repo")
+		expect(Roots.isSingleMarker('{"layout":"single-game"}')).toBe(true)
+		expect(Roots.isSingleMarker('{"layout": "games-repo"}')).toBe(false)
+		expect(Roots.isSingleMarker(nil)).toBe(false)
+		expect(Roots.LAYOUT).toBe("core") -- the spec's own mode
+		expect(Roots.single).toBe(false)
+	end)
+
+	it("in a single-game project the root is the one game", function()
+		local fs = fakeFs({
+			"studwork.json",
+			"deploy.json",
+			"default.project.json",
+			"src/server/Main.server.luau",
+			"modules/my-game/module.luau",
+			"studwork/examples/sandbox/default.project.json",
+			"studwork/examples/sandbox/src/a.luau",
+			"games/stray/default.project.json",
+			"games/stray/src/a.luau",
+		})
+		fs.readFile = function(p)
+			assert(p == "deploy.json", "unexpected read " .. p)
+			return '{\n  "name": "my-game",\n  "servePort": 34872\n}\n'
+		end
+		expect(Roots.parentsFor("single-game")).toEqual({})
+		expect(Roots.parentsFor("games-repo")).toEqual({ "games" })
+		expect(Roots.parentsFor("core")).toEqual({ "games", "examples", "examples/overrides" })
+		expect(Roots.gameDirs(fs, "single-game")).toEqual({ "." })
+		expect(Roots.rootName(fs)).toBe("my-game")
+		expect(Roots.findGame(fs, nil, "single-game")).toBe(".")
+		expect(Roots.findGame(fs, "", "single-game")).toBe(".")
+		expect(Roots.findGame(fs, ".", "single-game")).toBe(".")
+		expect(Roots.findGame(fs, "my-game", "single-game")).toBe(".")
+		expect(Roots.findGame(fs, "stray", "single-game")).toBeNil()
+		expect(Roots.findGame(fs, "sandbox", "single-game")).toBeNil()
+		-- the same tree read as a games repo still finds games/<g> only
+		expect(Roots.gameDirs(fs, "games-repo")).toEqual({ "games/stray" })
+		local empty = fakeFs({ "studwork.json", "README.md" })
+		expect(Roots.gameDirs(empty, "single-game")).toEqual({})
+		expect(Roots.findGame(empty, nil, "single-game")).toBeNil()
+	end)
 end)

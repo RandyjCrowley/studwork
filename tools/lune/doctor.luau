@@ -11,7 +11,8 @@
 	  framework  the core v1.3.0 layout (Layout.luau): packages/framework/{shared,server,client},
 	             StudWork.VERSION, packages/kits/<kit>/<Module>/module.luau (one folder per
 	             module, v1.3.1), no packages/kits/<kit>/{shared,server}, no packages/core (FAIL)
-	  pin        (games repo, v1.4.0) roblox-core/ is a git checkout at a release tag, clean (FAIL)
+	  pin        (games repo, v1.4.0; single-game project, v1.5.0: studwork/) the framework
+	             submodule is a git checkout at a release tag, clean                   (FAIL)
 	  projects   every game's *.project.json and templates/new-game maps Framework,
 	             FrameworkClient and each kit module it lists to that layout (Modules.<M>), no
 	             Kits folder, nothing into packages/core                         (FAIL)
@@ -101,8 +102,14 @@ elseif not fs.isFile(".githooks/pre-commit") and Roots.external then
 	add(
 		"warn",
 		"pre-commit hook",
-		"this games repo has no .githooks/pre-commit",
-		"copy it from roblox-core/templates/games-repo/.githooks, then tools/install --hooks-only"
+		if Roots.single
+			then "this project has no .githooks/pre-commit"
+			else "this games repo has no .githooks/pre-commit",
+		if Roots.single
+			then "copy it from "
+				.. Roots.CORE
+				.. "/templates/single-game/.githooks, then tools/install --hooks-only"
+			else "copy it from roblox-core/templates/games-repo/.githooks, then tools/install --hooks-only"
 	)
 elseif not fs.isFile(".githooks/pre-commit") then
 	add("fail", "pre-commit hook", ".githooks/pre-commit missing", "restore .githooks/ from git")
@@ -165,7 +172,7 @@ end
 -- serve ports
 local entries = Roots.gameDirs(fs)
 for _, entry in entries do
-	local path = entry .. "/deploy.json"
+	local path = if entry == "." then "deploy.json" else entry .. "/deploy.json"
 	if fs.isFile(path) then
 		local ok, deploy = pcall(serde.decode, "json", fs.readFile(path))
 		local port = ok and type(deploy) == "table" and deploy.servePort
@@ -245,7 +252,7 @@ local projects = {}
 for _, dir in entries do
 	for _, file in fs.readDir(dir) do
 		if string.match(file, "%.project%.json$") then
-			table.insert(projects, { dir = dir, file = dir .. "/" .. file })
+			table.insert(projects, { dir = dir, file = if dir == "." then file else dir .. "/" .. file })
 		end
 	end
 end

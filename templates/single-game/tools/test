@@ -1,0 +1,3 @@
+#!/usr/bin/env bash
+# tools/test: studwork/tools/test on this project (see tools/_studwork)
+exec "$(dirname "$0")/_studwork" test "$@"

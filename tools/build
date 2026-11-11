@@ -2,11 +2,17 @@
 # tools/build [game|--all]: rojo build a game's default.project.json to build/<name>.rbxl
 # (StudWork v1.4.0). Default: every game of the project (core repo: examples/sandbox +
 # examples/overrides/*; games repo: games/*). Extra projects next to default.project.json (e.g.
-# foundation-only.project.json) are built too, as build/<name>-<extra>.rbxl.
+# foundation-only.project.json) are built too, as build/<name>-<extra>.rbxl. In a single-game
+# project (v1.5.0) the root game is built to build/<deploy.json name>.rbxl (no argument needed).
 source "$(dirname "$0")/_common.sh"
 
 DIRS=""
-if [ -n "${1:-}" ] && [ "$1" != "--all" ]; then
+if is_single_game; then
+	# v1.5.0: the root is the game; output build/<deploy.json name>.rbxl
+	DIRS="$(game_dir "${1:-}")"
+	[ "${1:-}" != "--all" ] || DIRS="$(game_dir "")"
+	[ -n "$DIRS" ] || die "no such game: ${1:-} (this single-game project's game is the root: tools/build)"
+elif [ -n "${1:-}" ] && [ "$1" != "--all" ]; then
 	DIRS="$(game_dir "$1")"
 	[ -n "$DIRS" ] || die "no such game: $1"
 else
@@ -22,6 +28,7 @@ mkdir -p build
 COUNT=0
 for d in $DIRS; do
 	NAME="$(basename "$d")"
+	[ "$d" != "." ] || NAME="$(single_game_name)"
 	for P in "$d"/*.project.json; do
 		[ -f "$P" ] || continue
 		EXTRA="$(basename "$P" .project.json)"

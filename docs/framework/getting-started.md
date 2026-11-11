@@ -2,8 +2,11 @@
 
 From nothing to a game that boots, then your first module. Every command runs from the repo root.
 
-Run it from the root of **your games repo** ([games-repo.md](games-repo.md)): that is where real
-games live. You can also try it inside a StudWork clone to experiment: `games/` there is git-ignored
+The quickest start is `tools/new-project <path>`: it creates a **single-game project** (one repo
+per game, StudWork at `studwork/`) with everything below already done, and every tool there works
+without a game name ([single-game-project.md](single-game-project.md)). The steps below are for a
+**games repo** (several games in one repo, [games-repo.md](games-repo.md)): run them from its root,
+that is where real games live. You can also try it inside a StudWork clone to experiment: `games/` there is git-ignored
 scratch space (see "Removing a scratch game" at the end), never committed to the framework.
 The checks (`tools/lint`, `tools/typecheck`, `tools/test`) run offline in Lune, without Studio.
 

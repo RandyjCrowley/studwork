@@ -1,0 +1,60 @@
+# {{name}}
+
+A Roblox game built on [StudWork](https://github.com/RandyjCrowley/studwork) {{tag}}, as a
+single-game project: this repository is the game, and StudWork is the git submodule `studwork/`,
+pinned at a release tag.
+
+- Design doc: [docs/design.md](docs/design.md)
+- Modules: {{modules}}
+- Rules for agents and contributors: [CLAUDE.md](CLAUDE.md)
+
+## Set up (fresh clone)
+
+```sh
+git submodule update --init   # fetch studwork/ at the pinned tag
+tools/install                 # toolchain (rokit) + Wally packages into studwork/deps/ + pre-commit hook
+tools/doctor                  # checks the toolchain, packages, hook, framework pin, .env keys
+```
+
+## Everyday commands
+
+```sh
+tools/dev                     # rojo serve on port {{port}} + Studio connect steps
+tools/lint                    # selene + stylua + sync-projects --check + guardrails + framework pin
+tools/typecheck               # luau-lsp strict
+tools/test                    # Lune specs (Boot.spec boots the game in the multi-server sim)
+tools/build                   # rojo build -> build/{{name}}.rbxl
+tools/make-module <Name>      # a new module in modules/<name>/, mapped in default.project.json
+tools/make-screen <Name>      # a React screen in src/client/Screens/
+tools/make-migration <module> # a save migration
+tools/sync-projects           # regenerate kit module entries after changing GameConfig.modules
+tools/net                     # Blink codegen after editing a .blink file
+tools/framework-status        # the pinned StudWork tag vs the version stamped in deploy.json
+```
+
+The pre-commit hook runs `tools/lint` and `tools/test` before every commit.
+
+## Publish
+
+1. Create a test and a live experience on Roblox and an Open Cloud key with only
+   `universe-places:write` for them; put it in the git-ignored `.env`
+   (`cp .env.example .env`).
+2. Put the universe/place ids in `deploy.json` (placeholders are 0; publish refuses them).
+3. `tools/publish --test --dry-run`, then `tools/publish --test`, playtest, then
+   `tools/publish --live` (refused unless the same build went to test first). Commit the stamped
+   `deploy.json`.
+
+Details: `studwork/docs/framework/publishing.md`.
+
+## Bump StudWork
+
+Read `studwork/CHANGELOG.md`, then:
+
+```sh
+git -C studwork fetch --tags && git -C studwork checkout vX.Y.Z
+tools/install && tools/lint && tools/test
+git commit -m "StudWork vX.Y.Z" studwork   # the bump goes in its own commit
+```
+
+Never edit files inside `studwork/`: `tools/lint` refuses local changes there and a submodule that
+is not exactly at a release tag. Requests for the framework go in `FRAMEWORK_REQUESTS.md`.

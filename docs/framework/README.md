@@ -11,6 +11,7 @@ overridable, nothing in core is special, guardrails you can't turn off.
 | [The five override levels](override-levels.md) | Defaults, config, replace a piece, switch a kit off, write a module; one example each |
 | [Module API reference](module-reference.md) | `defineModule`, the server and client parts, every `ctx` field, transactions, purchases, replication, testing |
 | [Generators](generators.md) | `tools/new-game --modules`, `tools/make-module`, `tools/make-migration`, `tools/make-screen`, the `templates/` folder |
+| [Single-game projects](single-game-project.md) | `tools/new-project`: one repo per game, the root is the game, StudWork at `studwork/` (detection, commands, framework pin, bumping, publish, fresh clone) |
 | [Games repo](games-repo.md) | Using StudWork from a separate games repo (`roblox-core/` submodule): layout, wrappers, commands, bumping the framework, publish |
 | [Publishing](publishing.md) | One-time Roblox setup (Group, test/live experiences, Open Cloud key), `tools/publish`, launch checklist |
 | [Kit contract](kit-contract.md) | What each kit module offers other modules: api, txApi, purchase ops, extensions, signals, replicated keys |

@@ -2,11 +2,17 @@
 # tools/net: regenerate Blink networking code from every .blink IDL file
 # (framework + modules: packages/{framework,kits}/**/*.blink; example modules and example games:
 # examples/**; games: games/**/*.blink, including games/*/src/shared/net and game-local modules
-# games/*/modules/**). In a games repo: its games/ only.
+# games/*/modules/**). In a games repo: its games/ only. In a single-game project (v1.5.0): its
+# src/ and modules/.
 # Generated files are committed so builds don't need blink; never edit them by hand.
 source "$(dirname "$0")/_common.sh"
 
-if is_games_repo; then
+if is_single_game; then
+	# v1.5.0: the project's own folders (never the studwork/ submodule)
+	ROOTS=""
+	for d in src modules; do [ -d "$d" ] && ROOTS="$ROOTS $d"; done
+	[ -n "$ROOTS" ] || die "no src/ or modules/ in $PROJECT_ROOT"
+elif is_games_repo; then
 	ROOTS="games"
 else
 	ROOTS="packages/framework packages/kits games examples"

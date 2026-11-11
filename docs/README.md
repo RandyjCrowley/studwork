@@ -22,6 +22,7 @@ offline tests. Start with the philosophy, then follow the framework pages in ord
 | [Generators](framework/generators.md) | `tools/new-game`, `tools/make-module`, `tools/make-migration`, `tools/make-screen`, `templates/` |
 | [Theme guide](framework/theme.md) | Theme tree, presets, rarity look, HUD slots and widgets, screens |
 | [Guardrails](framework/guardrails.md) | What you can't turn off, why, and where enforcement stops |
+| [Single-game projects](framework/single-game-project.md) | `tools/new-project`: one repository per game with StudWork as its `studwork/` submodule |
 | [Games repo](framework/games-repo.md) | Using StudWork as a submodule of your own games repo |
 | [Publishing](framework/publishing.md) | Publishing a game from your games repo to Roblox: Open Cloud key, test and live experiences, launch checklist |
 | [FAQ](framework/faq.md) | Short answers to common questions |

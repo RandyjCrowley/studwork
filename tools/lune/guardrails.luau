@@ -612,6 +612,11 @@ function Guard.generatedFiles(): { [string]: boolean }
 	for _, root in { "packages", "games", "templates", "examples" } do
 		findBlink(root, blinks)
 	end
+	-- (v1.5.0) a single-game project's own folders
+	if require("./Roots").single then
+		findBlink("src", blinks)
+		findBlink("modules", blinks)
+	end
 	for _, b in blinks do
 		for _, f in Guard.blinkOutputs(b, fs.readFile(b)) do
 			set[f] = true
@@ -671,7 +676,22 @@ function Guard.hasSegment(rel: string, segment: string): boolean
 	return false
 end
 
--- Scans a game folder (games/<name> or templates/new-game).
+-- (v1.5.0) A top-level folder of a single-game project that belongs to its root game: not the
+-- framework submodule (studwork/, or whatever Roots.CORE is), build/, hidden folders, Wally output.
+function Guard.isRootGameFolder(entry: string, coreDir: string?): boolean
+	local core = coreDir or require("./Roots").CORE
+	if string.sub(entry, 1, 1) == "." or entry == core or entry == "build" then
+		return false
+	end
+	return not (
+		entry == "Packages"
+		or entry == "ServerPackages"
+		or entry == "DevPackages"
+		or entry == "node_modules"
+	)
+end
+
+-- Scans a game folder (games/<name> or templates/new-game; "." = a single-game project's root).
 function Guard.scanGame(dir: string): { string }
 	local findings = {}
 	local configPaths = { dir .. "/src/shared/Config/init.luau", dir .. "/src/shared/Config.luau" }
@@ -686,11 +706,23 @@ function Guard.scanGame(dir: string): { string }
 		table.insert(findings, `{dir}: [modules] can't read GameConfig.modules from src/shared/Config`)
 	end
 	local files = {}
-	walk(dir, files)
+	if dir == "." then
+		-- (v1.5.0) a single-game project's root game: its own folders only, never the studwork/
+		-- submodule, build/ or hidden folders (paths stay root-relative: src/..., modules/...)
+		for _, entry in fs.readDir(".") do
+			if Guard.isRootGameFolder(entry) and fs.isDir(entry) then
+				walk(entry, files)
+			end
+		end
+	else
+		walk(dir, files)
+	end
 	table.sort(files)
 	for _, path in files do
 		-- extra projects (e.g. examples/sandbox/foundation-only/) carry their own Config.luau
-		local sub = string.match(path, "^" .. dir:gsub("%p", "%%%0") .. "/([^/]+)/")
+		local sub = if dir == "."
+			then string.match(path, "^([^/]+)/")
+			else string.match(path, "^" .. dir:gsub("%p", "%%%0") .. "/([^/]+)/")
 		local mods = modules
 		if sub and sub ~= "src" then
 			local extra = dir .. "/" .. sub .. "/shared/Config.luau"
@@ -698,7 +730,7 @@ function Guard.scanGame(dir: string): { string }
 				mods = Guard.parseModules(fs.readFile(extra))
 			end
 		end
-		local rel = string.sub(path, #dir + 2)
+		local rel = if dir == "." then path else string.sub(path, #dir + 2)
 		local inConfig = string.find(rel, "/shared/Config/", 1, true) ~= nil
 			or string.match(rel, "/shared/Config%.luau$") ~= nil
 		local isServer = Guard.hasSegment(rel, "server")
@@ -758,6 +790,7 @@ Guard.SPECIAL_ROOTS = {
 	"games/*/modules",
 	"examples/*/modules", -- example games (examples/sandbox)
 	"examples/overrides/*/modules",
+	"modules", -- (v1.5.0) a single-game project's own modules (absent elsewhere)
 }
 
 -- Internal names a module may never mention as a child (any path, any receiver).
@@ -1045,6 +1078,8 @@ Guard.THEME_ROOTS = {
 	"examples/*/src/client",
 	"examples/overrides/*/modules/*/client",
 	"examples/overrides/*/src/client",
+	"modules/*/client", -- (v1.5.0) a single-game project (absent elsewhere)
+	"src/client",
 }
 -- Theme and config files may hold literals (the palette, tier colours, sound/asset ids).
 function Guard.isThemeAllowed(path: string): boolean
@@ -1378,11 +1413,21 @@ end
 --             commit may mix them with packages/ (only games/<name>/ counts as game work)
 --   coreDir   a games repo's core submodule folder (e.g. "roblox-core"): it is treated like
 --             packages/ (the submodule pointer or anything under it is a core change)
+--   single    (v1.5.0) a single-game project (coreDir "studwork"): every staged file outside the
+--             core folder is game work (the root is the game), so the pointer must be bumped in
+--             its own commit
+--   initial   (v1.5.0, with single) the commit has no parent yet (tools/new-project's first commit
+--             adds the pin together with the scaffold: nothing is bumped), so the mix is allowed
 function Guard.packagesFindings(
 	branch: string,
 	branchFiles: { string },
 	staged: { string },
-	opts: { coreRepo: boolean?, coreDir: string? }?
+	opts: {
+		coreRepo: boolean?,
+		coreDir: string?,
+		single: boolean?,
+		initial: boolean?,
+	}?
 ): { string }
 	local o = opts or {}
 	local coreDir = o.coreDir
@@ -1405,6 +1450,23 @@ function Guard.packagesFindings(
 		end
 	end
 	local touchesGame, touchesCore = nil, false
+	if o.single and coreDir then
+		local gameFile = nil
+		for _, f in staged do
+			if isCore(f) then
+				touchesCore = true
+			elseif gameFile == nil then
+				gameFile = f
+			end
+		end
+		if gameFile and touchesCore and not o.initial then
+			table.insert(
+				findings,
+				`staged: [packages] one commit edits the game ({gameFile}) and {coreName}: bump the framework submodule in its own commit (games never edit the framework)`
+			)
+		end
+		return findings
+	end
 	for _, f in staged do
 		local game = string.match(f, "^games/([^/]+)/")
 		if game then
@@ -1483,7 +1545,15 @@ function Guard.gitFindings(): { string }
 		end
 	end
 	local staged = lines(git({ "diff", "--cached", "--name-only" }))
-	local opts = if Roots.external then { coreDir = Roots.CORE } else { coreRepo = true }
+	local opts = if Roots.single
+		then {
+			coreDir = Roots.CORE,
+			single = true,
+			-- the first commit has no HEAD yet: it adds the pin, nothing is bumped
+			initial = git({ "rev-parse", "--verify", "-q", "HEAD" }) == nil,
+		}
+		elseif Roots.external then { coreDir = Roots.CORE }
+		else { coreRepo = true }
 	for _, f in Guard.packagesFindings(branch, branchFiles, staged, opts) do
 		table.insert(findings, f)
 	end
@@ -1789,6 +1859,72 @@ local function selfTest(): boolean
 		"packages"
 	)
 	expectCheck("core pin: not initialised", Guard.corePinFindings("roblox-core", nil, nil), "packages")
+	-- v1.5.0 single-game project: the root is the game, the core is the studwork/ submodule
+	local inSingle = { coreDir = "studwork", single = true }
+	expectCheck(
+		"single-game: studwork bump + a game file in one commit",
+		Guard.packagesFindings("main", {}, { "src/server/Main.server.luau", "studwork" }, inSingle),
+		"packages"
+	)
+	expectCheck(
+		"single-game: studwork bump + a root file in one commit",
+		Guard.packagesFindings("main", {}, { "studwork", "deploy.json" }, inSingle),
+		"packages"
+	)
+	expectCheck(
+		"single-game: an edit inside studwork/ + a module file",
+		Guard.packagesFindings(
+			"main",
+			{},
+			{ "modules/x/module.luau", "studwork/packages/ui/B.luau" },
+			inSingle
+		),
+		"packages"
+	)
+	expectCheck(
+		"single-game: game branch moves studwork",
+		Guard.packagesFindings("game/x", { "studwork" }, {}, inSingle),
+		"packages"
+	)
+	expectClean(
+		"single-game: studwork bump alone",
+		Guard.packagesFindings("main", {}, { "studwork" }, inSingle)
+	)
+	expectClean(
+		"single-game: game files alone",
+		Guard.packagesFindings("main", {}, { "src/a.luau", "modules/x/module.luau", "README.md" }, inSingle)
+	)
+	expectClean(
+		"single-game: the first commit adds the pin with the scaffold",
+		Guard.packagesFindings(
+			"main",
+			{},
+			{ ".gitmodules", "studwork", "src/a.luau" },
+			{ coreDir = "studwork", single = true, initial = true }
+		)
+	)
+	expectClean("single-game pin: tag, clean", Guard.corePinFindings("studwork", "v1.5.0", ""))
+	expectCheck(
+		"single-game pin: not a tag",
+		Guard.corePinFindings("studwork", "v1.5.0-1-gabc", ""),
+		"packages"
+	)
+	expectCheck(
+		"single-game pin: local change",
+		Guard.corePinFindings("studwork", "v1.5.0", " M README.md\n"),
+		"packages"
+	)
+	expectCheck("single-game pin: not initialised", Guard.corePinFindings("studwork", nil, nil), "packages")
+	if Guard.isRootGameFolder("studwork", "studwork") or Guard.isRootGameFolder(".cache", "studwork") then
+		table.insert(failures, "single-game: studwork/ and hidden folders are not game folders")
+	end
+	if
+		Guard.isRootGameFolder("build", "studwork")
+		or not Guard.isRootGameFolder("src", "studwork")
+		or not Guard.isRootGameFolder("modules", "studwork")
+	then
+		table.insert(failures, "single-game: build/ is not a game folder; src/ and modules/ are")
+	end
 
 	-- special ("nothing is special", v1.3.0): planted violations and evasions are caught
 	local kitCtx = { path = "packages/kits/economy/server/X.luau", kit = "Economy" }

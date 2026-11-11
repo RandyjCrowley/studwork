@@ -1,0 +1,255 @@
+#!/usr/bin/env bash
+# tools/test-single-game [--keep]: StudWork v1.5.0 end-to-end test of the single-game project mode
+# (docs/framework/single-game-project.md). In $TMPDIR (this repo is never touched):
+#   1. a git snapshot of THIS working tree, committed and tagged v<StudWork.VERSION> in the temp
+#      copy only: the local "fixture remote" StudWork is cloned from
+#   2. tools/new-project <tmp>/proj --url <fixture> --modules Items,Rarity,Inventory,Economy
+#      --no-install (Wally packages copied from this repo's deps/, like tools/test-games-repo)
+# then checks the result (submodule at the tag, $paths into studwork/, no absolute paths in any
+# committed file, repo-local identity, the first commit made through the real hook) and runs the
+# project's own tools/ wrappers with NO game argument: lint, typecheck, test, build
+# (build/<name>.rbxl), make-module, make-screen, sync-projects --check, publish --test --dry-run
+# (stamps coreVersion/coreSha/coreTag + test.dryRun), framework-status, doctor, dev --print,
+# new-game (refused); planted failures (type error, selene undefined global, raw remote, dirty
+# submodule, untagged submodule); real commits through the project's pre-commit hook (normal,
+# partial, a studwork bump mixed with game files refused, the bump alone passes).
+# Exit 1 if any step fails. --keep leaves the temp folder for inspection.
+source "$(dirname "$0")/_common.sh"
+
+is_games_repo && die "run tools/test-single-game in the StudWork repo itself"
+KEEP=0
+[ "${1:-}" = "--keep" ] && KEEP=1
+[ -d "$CORE_ROOT/deps/Packages" ] || die "deps/Packages is missing: run tools/install first"
+
+VERSION="$(sed -n 's/^StudWork\.VERSION = "\(.*\)"$/\1/p' "$CORE_ROOT/packages/framework/shared/init.luau")"
+[ -n "$VERSION" ] || die "could not read StudWork.VERSION"
+TAG="v$VERSION"
+WORK="$(mktemp -d "${TMPDIR:-/tmp}/studwork-single-game.XXXXXX")"
+WORK="$(cd "$WORK" && pwd -P)"
+LOGS="$WORK/logs"
+mkdir -p "$LOGS"
+FAIL=0
+cleanup() {
+	if [ "$KEEP" -eq 1 ] || [ "$FAIL" -ne 0 ]; then
+		echo "kept: $WORK"
+	else
+		rm -rf "$WORK"
+	fi
+}
+trap cleanup EXIT
+
+# git for the fixture only: fixed identity, no hooks, local file transport allowed
+tgit() {
+	git -c user.name="StudWork test" -c user.email="test@studwork.invalid" -c commit.gpgsign=false \
+		-c tag.gpgsign=false -c gc.auto=0 -c maintenance.auto=false -c core.hooksPath=/dev/null -c protocol.file.allow=always "$@"
+}
+# git for commits in the project: through its real hook (core.hooksPath = .githooks)
+hgit() {
+	git -c user.name="StudWork test" -c user.email="test@studwork.invalid" -c commit.gpgsign=false \
+		-c gc.auto=0 -c maintenance.auto=false "$@"
+}
+
+pass() { echo "PASS $1"; }
+fail() {
+	echo "FAIL $1"
+	FAIL=1
+}
+G="$WORK/proj"
+# step <name> <cmd...>: run in the project, log to $LOGS/<name>.log
+step() {
+	local name="$1"
+	shift
+	local log
+	log="$LOGS/$(echo "$name" | tr -c 'A-Za-z0-9_.-' '_').log"
+	if (cd "$G" && "$@") >"$log" 2>&1; then
+		pass "$name | $(tail -1 "$log")"
+	else
+		fail "$name | $(tail -5 "$log" | tr '\n' ' ')"
+	fi
+	return 0
+}
+# expect_fail <name> <pattern> <cmd...>: the command must fail and print <pattern>
+expect_fail() {
+	local name="$1" pattern="$2"
+	shift 2
+	local log
+	log="$LOGS/$(echo "$name" | tr -c 'A-Za-z0-9_.-' '_').log"
+	if (cd "$G" && "$@") >"$log" 2>&1; then
+		fail "$name | expected a failure"
+	elif grep -q -- "$pattern" "$log"; then
+		pass "$name | refused: $(grep -m1 -- "$pattern" "$log" | cut -c1-120)"
+	else
+		fail "$name | failed without '$pattern': $(tail -3 "$log" | tr '\n' ' ')"
+	fi
+}
+check() {
+	# check <name> <condition...>
+	local name="$1"
+	shift
+	if "$@"; then pass "$name"; else fail "$name"; fi
+}
+logof() { echo "$LOGS/$(echo "$1" | tr -c 'A-Za-z0-9_.-' '_').log"; }
+
+echo "== fixture remote: a snapshot of this working tree tagged $TAG, in $WORK"
+rsync -a --exclude /.git --exclude /.cache --exclude /build --exclude /deps/Packages \
+	--exclude /deps/ServerPackages --exclude /deps/DevPackages --exclude /.worktrees --exclude /.env \
+	--exclude /games --exclude /docs/games "$CORE_ROOT/" "$WORK/studwork/"
+(cd "$WORK/studwork" && tgit init -q -b main && tgit add -A && tgit commit -q -m "snapshot" && tgit tag "$TAG") \
+	>"$LOGS/setup.log" 2>&1 || die "could not snapshot the core"
+
+# the identity tools/new-project gives the new repo: this checkout's own repo-local identity (the
+# documented default) when it has one; otherwise (CI) pass one explicitly
+WANT_NAME="$(git -C "$CORE_ROOT" config --local --get user.name 2>/dev/null || true)"
+WANT_EMAIL="$(git -C "$CORE_ROOT" config --local --get user.email 2>/dev/null || true)"
+AUTHOR_ARGS=()
+if [ -z "$WANT_NAME" ] || [ -z "$WANT_EMAIL" ]; then
+	WANT_NAME="StudWork test"
+	WANT_EMAIL="test@studwork.invalid"
+	AUTHOR_ARGS=(--author-name "$WANT_NAME" --author-email "$WANT_EMAIL")
+fi
+
+echo "== tools/new-project $G"
+NP_LOG="$LOGS/new-project.log"
+if (cd "$WORK" && "$CORE_ROOT/tools/new-project" proj --url "$WORK/studwork" \
+	--modules Items,Rarity,Inventory,Economy --no-install ${AUTHOR_ARGS[@]+"${AUTHOR_ARGS[@]}"}) >"$NP_LOG" 2>&1; then
+	pass "new-project | $(tail -1 "$NP_LOG")"
+else
+	fail "new-project | $(tail -8 "$NP_LOG" | tr '\n' ' ')"
+	echo "test-single-game: FAILED (logs: $LOGS)"
+	exit 1
+fi
+
+# argument handling (refusals)
+expect_fail "new-project refuses an existing non-empty folder" "not empty" \
+	"$CORE_ROOT/tools/new-project" "$G" --url "$WORK/studwork" --no-install
+expect_fail "new-project refuses a missing tag" "does not exist" \
+	env STUDWORK_NEW_PROJECT_KEEP= "$CORE_ROOT/tools/new-project" "$WORK/notag" --url "$WORK/studwork" --tag v0.0.1 --no-install
+check "new-project: a refused run leaves nothing behind" test ! -e "$WORK/notag"
+
+# the project as created
+check "studwork/ is a submodule" grep -q 'path = studwork' "$G/.gitmodules"
+check "submodule at $TAG" test "$(git -C "$G/studwork" describe --tags --exact-match HEAD 2>/dev/null)" = "$TAG"
+check "marker studwork.json (layout single-game)" grep -q '"layout": "single-game"' "$G/studwork.json"
+check "default.project.json maps studwork/packages/framework/shared" \
+	grep -q '"studwork/packages/framework/shared"' "$G/default.project.json"
+check "default.project.json maps studwork/deps/Packages" grep -q '"studwork/deps/Packages"' "$G/default.project.json"
+check "kit modules generated into studwork/" \
+	grep -q '"studwork/packages/kits/economy/Economy/module.luau"' "$G/default.project.json"
+check "no \$path leaves the project (../)" sh -c "! grep -q '\"\\.\\./' '$G/default.project.json'"
+check "the game module at modules/proj/" test -f "$G/modules/proj/module.luau"
+check "docs/design.md" test -f "$G/docs/design.md"
+check "README.md names the game" grep -q '^# proj' "$G/README.md"
+check "CLAUDE.md for game agents" grep -q 'Never edit `studwork/`' "$G/CLAUDE.md"
+for w in dev lint typecheck test build publish install doctor framework-status net sync-projects make-module make-screen make-migration _studwork; do
+	check "wrapper tools/$w" test -x "$G/tools/$w"
+done
+check "hook enabled (core.hooksPath = .githooks)" test "$(git -C "$G" config core.hooksPath)" = ".githooks"
+check "repo-local user.name = $WANT_NAME" test "$(git -C "$G" config --local --get user.name)" = "$WANT_NAME"
+check "repo-local user.email = $WANT_EMAIL" test "$(git -C "$G" config --local --get user.email)" = "$WANT_EMAIL"
+check "first commit exists" sh -c "git -C '$G' rev-parse -q --verify HEAD >/dev/null"
+check "first commit authored by the repo-local identity" \
+	test "$(git -C "$G" log -1 --format='%an <%ae>')" = "$WANT_NAME <$WANT_EMAIL>"
+check "first commit went through the hook" grep -q "pre-commit: tests  ... ok" "$NP_LOG"
+check "working tree clean after the first commit" test -z "$(git -C "$G" status --porcelain)"
+# no absolute paths in committed files (.gitmodules holds the --url as given: here a local path)
+ABS_HITS="$(cd "$G" && git ls-files | grep -v '^\.gitmodules$' | grep -v '^studwork$' |
+	while IFS= read -r f; do grep -l -e "$WORK" -e "$HOME" -e "$CORE_ROOT" "$f" 2>/dev/null; done || true)"
+check "no absolute paths in committed files${ABS_HITS:+ ($ABS_HITS)}" test -z "$ABS_HITS"
+
+# the project's own tools, no game argument
+step lint tools/lint
+step typecheck tools/typecheck
+step test tools/test
+check "test: the game's specs ran (Boot.spec)" grep -q "src/server/Boot.spec.luau" "$(logof test)"
+check "test: nothing from studwork/" sh -c "! grep -q 'studwork/' '$(logof test)'"
+step build tools/build
+check "build: build/proj.rbxl" test -s "$G/build/proj.rbxl"
+check "build: no build/..rbxl" test ! -e "$G/build/..rbxl"
+step make-module tools/make-module Quests
+check "make-module: modules/quests/" test -f "$G/modules/quests/module.luau"
+check "make-module: mapped in default.project.json" grep -q '"modules/quests/module.luau"' "$G/default.project.json"
+step make-screen tools/make-screen Shop
+check "make-screen: src/client/Screens/Shop.luau" test -f "$G/src/client/Screens/Shop.luau"
+step sync-projects-check tools/sync-projects --check
+step lint-after-generators tools/lint
+step test-after-generators tools/test
+expect_fail "new-game refuses in a single-game project" "single-game project" tools/new-game other
+(cd "$G" && hgit add -A && hgit commit -q -m "Quests module, Shop screen") >"$LOGS/commit-generators.log" 2>&1 \
+	&& pass "hook: commit of the generated module + screen" \
+	|| fail "hook: commit of the generated module + screen | $(tail -5 "$LOGS/commit-generators.log" | tr '\n' ' ')"
+
+step publish-dry-run tools/publish --test --dry-run
+CORE_SHA="$(git -C "$G/studwork" rev-parse HEAD)"
+HEAD_SHA="$(git -C "$G" rev-parse HEAD)"
+check "publish: coreVersion $VERSION" grep -q "\"coreVersion\": \"$VERSION\"" "$G/deploy.json"
+check "publish: coreSha = the submodule commit" grep -q "\"coreSha\": \"$CORE_SHA\"" "$G/deploy.json"
+check "publish: coreTag $TAG" grep -q "\"coreTag\": \"$TAG\"" "$G/deploy.json"
+check "publish: test.dryRun = the project HEAD" grep -q "\"commit\": \"$HEAD_SHA\"" "$G/deploy.json"
+check "publish: build/proj-test.rbxl" test -s "$G/build/proj-test.rbxl"
+check "publish: no GAMES.md created" test ! -e "$G/GAMES.md"
+step framework-status tools/framework-status
+check "framework-status: the pinned tag" grep -q "studwork/ at $TAG" "$(logof framework-status)"
+check "framework-status: shows StudWork $VERSION" grep -q "StudWork $VERSION" "$(logof framework-status)"
+check "framework-status: the root game row" grep -q "^proj (root) " "$(logof framework-status)"
+step doctor tools/doctor
+check "doctor: framework pin ok" grep -q "framework pin .*$TAG, clean" "$(logof doctor)"
+step dev-print tools/dev --print
+check "dev: serves the root project" grep -q "rojo serve default.project.json --port" "$(logof dev-print)"
+(cd "$G" && hgit add -A && hgit commit -q -m "stamp: test dry run") >"$LOGS/commit-stamp.log" 2>&1 \
+	&& pass "hook: commit of the stamped deploy.json" \
+	|| fail "hook: commit of the stamped deploy.json | $(tail -5 "$LOGS/commit-stamp.log" | tr '\n' ' ')"
+
+# the checks really look at the game's files (each planted problem is caught, then reverted)
+MAIN="$G/src/server/Main.server.luau"
+cp "$MAIN" "$LOGS/Main.server.luau.bak"
+echo 'local _typed: number = "not a number"' >>"$MAIN"
+expect_fail "typecheck catches a type error in the game" "problem(s)" tools/typecheck
+cp "$LOGS/Main.server.luau.bak" "$MAIN"
+echo 'notDefinedAnywhere()' >>"$MAIN"
+expect_fail "lint (selene) catches an undefined global in the game" "undefined_variable" tools/lint
+cp "$LOGS/Main.server.luau.bak" "$MAIN"
+printf 'local _remote = Instance.new("RemoteEvent")\nreturn nil\n' >"$G/modules/proj/Planted.luau"
+expect_fail "lint (guardrails) catches a raw remote in the game module" "\[remotes\]" tools/lint
+rm -f "$G/modules/proj/Planted.luau"
+
+# the framework pin: the project never edits studwork/, and it must sit at a tag
+echo "local edit" >>"$G/studwork/README.md"
+expect_fail "lint refuses a dirty submodule" "local change in the framework submodule" tools/lint
+git -C "$G/studwork" checkout -q -- README.md
+(cd "$G/studwork" && tgit commit -q --allow-empty -m "untagged") >>"$LOGS/setup.log" 2>&1
+expect_fail "lint refuses an untagged submodule" "not at a release tag" tools/lint
+git -C "$G/studwork" checkout -q "$TAG"
+step lint-again tools/lint
+
+# real commits through the project's pre-commit hook (git's hook environment: GIT_INDEX_FILE etc.)
+NOTES="$G/docs/notes.md"
+echo "notes" >"$NOTES"
+git -C "$G" add docs/notes.md
+BEFORE="$(git -C "$G" rev-parse HEAD)"
+step "hook: a normal commit passes" hgit commit -q -m "notes"
+check "hook: the normal commit landed" test "$(git -C "$G" rev-parse HEAD)" != "$BEFORE"
+echo "more notes" >>"$NOTES"
+BEFORE="$(git -C "$G" rev-parse HEAD)"
+step "hook: a partial commit (git commit <path>) passes" hgit commit -q -m "more notes" docs/notes.md
+check "hook: the partial commit landed" test "$(git -C "$G" rev-parse HEAD)" != "$BEFORE"
+# a newer framework release (tagged in the throwaway submodule only) bumped together with game work
+(cd "$G/studwork" && tgit commit -q --allow-empty -m "next release" && tgit tag v99.0.0) >>"$LOGS/setup.log" 2>&1
+echo "bump" >>"$NOTES"
+BEFORE="$(git -C "$G" rev-parse HEAD)"
+git -C "$G" add studwork docs/notes.md
+expect_fail "hook: refuses a studwork bump mixed with game files" "one commit edits the game" \
+	hgit commit -q -m "mixed"
+git -C "$G" reset -q
+expect_fail "hook: refuses the same mix as a partial commit" "one commit edits the game" \
+	hgit commit -q -m "mixed partial" studwork docs/notes.md
+check "hook: nothing committed by the refused commits" test "$(git -C "$G" rev-parse HEAD)" = "$BEFORE"
+step "hook: the studwork bump alone passes" hgit commit -q -m "StudWork v99.0.0" studwork
+check "hook: the bump landed" test "$(git -C "$G" rev-parse HEAD)" != "$BEFORE"
+git -C "$G" checkout -q -- docs/notes.md
+
+if [ "$FAIL" -eq 0 ]; then
+	echo "test-single-game: all passed (StudWork $VERSION as studwork/ at $TAG)"
+else
+	echo "test-single-game: FAILED (logs: $LOGS; rerun with --keep to inspect)"
+	exit 1
+fi

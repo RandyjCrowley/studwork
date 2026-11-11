@@ -265,6 +265,49 @@ Not used:
 - **The games-repo test builds a real submodule** from a snapshot of the working tree, so the pin
   check, stamping and the `protocol.file.allow=always` flow are exercised for real.
 
+## Single-game projects (v1.5.0)
+
+- **One repo per game is the default way to start** (`tools/new-project`): the root is the game,
+  StudWork is the `studwork/` submodule pinned at a tag. The games repo stays supported for people
+  who want several games under one pin. Everything is additive: core and games-repo behaviour is
+  unchanged.
+- **The layout is a committed marker file, `studwork.json` with `{"layout": "single-game"}`.**
+  Rejected: guessing from folder names (a `studwork/` folder or a root `default.project.json` can
+  appear in other layouts, and the answer would change while `tools/new-project` is half done), and
+  a field in `deploy.json` (that file is the game's publish record and is rewritten by every
+  publish; the layout is a property of the repo, read before any game is found). A separate file is
+  visible to a fresh clone, CI and the hook, is trivial to read from bash (`grep`) and Lune, and has
+  room for later settings. `tools/_common.sh` decides once and exports `STUDWORK_LAYOUT`;
+  `Roots.luau` reads it and falls back to the same file check, so both sides agree.
+- **`is_games_repo` keeps meaning "the core is a subfolder"** (true in both external layouts), so
+  the toolchain links, the git shim and the framework pin apply to single-game projects without new
+  code; `is_single_game` / `Roots.single` select the few differences (no game name, root paths).
+- **The game's modules stay in `modules/<name>/`**, not a single `module/` folder: module discovery,
+  `tools/make-module`, `tools/sync-projects`, the guardrails (`special`, `theme`) and the new-game
+  template all use `modules/*`, and a game can have more than one module. One convention across the
+  three layouts means the same template and generators.
+- **The new repo's identity defaults to the running checkout's repo-local identity**
+  (`git config --local user.name/user.email`), overridable with `--author-name/--author-email` or
+  `STUDWORK_AUTHOR_NAME/STUDWORK_AUTHOR_EMAIL`; with none, git's global identity applies. Nothing
+  personal is hard-coded in the generic tool, and the maintainer's checkout (whose repo-local
+  identity is the public noreply identity) produces that identity by default.
+- **The first commit goes through the real pre-commit hook.** It necessarily adds the `studwork`
+  pointer together with the scaffold, which the staged check would refuse; in a single-game project
+  that check is skipped only when the repo has no `HEAD` yet (nothing can be bumped in a root
+  commit). Every later commit that stages the pointer with any other file is refused. Rejected:
+  committing before enabling the hook (the scaffold would never be checked by the hook) and
+  splitting the root commit (a pin-only commit fails lint: there is no game yet).
+- **`--no-install` copies Wally packages from the running checkout** so the hook's tests can run in
+  the first commit without network access (`tools/test-single-game` uses it); the default runs
+  `tools/install`.
+- **The template privacy spec lists no real names.** `NewProject.spec.luau` checks the
+  files of `templates/single-game/` (rendered) for generic machine paths (`/Users/`, `/home/`, `.local`) only; names a
+  maintainer must never ship (own projects, hosts, people) come from the env var
+  `STUDWORK_PRIVATE_NAMES` (comma-separated) or the git-ignored `.private-names` file, and that part
+  is skipped when neither is set. A list of private names in the repo would itself be the leak.
+- **`tools/test-single-game` excludes `.gitmodules` from the no-absolute-paths check**: it records
+  the `--url` the user chose (the public URL by default; the test passes a local fixture path).
+
 ## Publishing
 
 - **`tools/publish` requires a test publish of the same build inputs before live.** "Same" means

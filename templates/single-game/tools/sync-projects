@@ -1,0 +1,3 @@
+#!/usr/bin/env bash
+# tools/sync-projects: studwork/tools/sync-projects on this project (see tools/_studwork)
+exec "$(dirname "$0")/_studwork" sync-projects "$@"

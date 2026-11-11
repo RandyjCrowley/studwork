@@ -94,6 +94,13 @@ do
 		table.insert(INDEX_ROOTS, root)
 	end
 end
+-- (v1.5.0) a single-game project: the game is the project root (its own folders, never the
+-- studwork/ submodule beyond the core folders above)
+if Roots.single then
+	for _, root in { "src", "modules" } do
+		table.insert(INDEX_ROOTS, root)
+	end
+end
 local SKIP = { [".git"] = true, node_modules = true }
 
 local function indexTree(dir: string)

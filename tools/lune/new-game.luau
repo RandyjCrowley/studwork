@@ -65,8 +65,23 @@ if opts.modules then
 	chosenModules = order
 end
 
-local target = opts.into .. "/" .. name
-if fs.isDir(target) then
+-- (v1.5.0) single-game project (tools/new-project; Roots.single): the game is the project root
+local atRoot = Roots.single
+local target = if atRoot then "." else opts.into .. "/" .. name
+-- a path inside the new game (no "./" prefix at the root)
+local function at(rel: string): string
+	return if target == "." then rel else target .. "/" .. rel
+end
+if atRoot then
+	if opts.into ~= "games" then
+		print("error: --into does not apply in a single-game project (the game is the project root)")
+		process.exit(1)
+	end
+	if fs.isFile("default.project.json") or fs.isDir("src") or fs.isDir("modules/" .. name) then
+		print("error: the project root already has a game (default.project.json / src/)")
+		process.exit(1)
+	end
+elseif fs.isDir(target) then
 	print("error: " .. target .. " already exists")
 	process.exit(1)
 end
@@ -105,7 +120,7 @@ local function copyDir(src: string, dst: string)
 		end
 	end
 end
-if not fs.isDir(opts.into) then
+if not atRoot and not fs.isDir(opts.into) then
 	fs.writeDir(opts.into)
 end
 copyDir(TEMPLATE, target)
@@ -126,7 +141,13 @@ local function luauFiles(dir: string, out: { string })
 	end
 end
 local files: { string } = {}
-luauFiles(target, files)
+if atRoot then
+	-- never the studwork/ submodule: only what the template copied
+	luauFiles("src", files)
+	luauFiles("modules", files)
+else
+	luauFiles(target, files)
+end
 table.sort(files)
 for _, path in files do
 	local source = fs.readFile(path)
@@ -134,7 +155,9 @@ for _, path in files do
 		local out, markerError = NewGame.applyMarkers(source, chosenSet)
 		if out == nil then
 			print("error: " .. tostring(markerError) .. " (" .. path .. ")")
-			fs.removeDir(target)
+			if not atRoot then
+				fs.removeDir(target)
+			end
 			process.exit(1)
 		end
 		fs.writeFile(path, NewGame.pruneKitLocals(out :: string))
@@ -144,8 +167,8 @@ end
 -- the game's own module: modules/sandbox -> modules/<name>, "Sandbox" -> "<Name>"
 local moduleName = NewGame.moduleName(name)
 local TEMPLATE_MODULE = "Sandbox"
-local moduleDir = target .. "/modules/" .. name
-fs.move(target .. "/modules/sandbox", moduleDir)
+local moduleDir = at("modules/") .. name
+fs.move(at("modules/sandbox"), moduleDir)
 local modulePath = moduleDir .. "/module.luau"
 local moduleSource = fs.readFile(modulePath)
 local renamedModule, renames =
@@ -156,7 +179,7 @@ if renames ~= 2 then
 end
 
 -- project file
-local projectPath = target .. "/default.project.json"
+local projectPath = at("default.project.json")
 -- order-preserving JSON (tools/sync-projects), so the project keeps the template's layout and its
 -- generated kit module entries (v1.3.1 R19); only the game module's entries change
 local project = SyncProjects.decode(fs.readFile(projectPath))
@@ -205,10 +228,10 @@ local synced = SyncProjects.sync(
 fs.writeFile(projectPath, synced)
 
 -- deploy.json
-fs.writeFile(target .. "/deploy.json", serde.encode("json", NewGame.deployJson(name, port), true) .. "\n")
+fs.writeFile(at("deploy.json"), serde.encode("json", NewGame.deployJson(name, port), true) .. "\n")
 
 -- gameId in the config
-local configPath = target .. "/src/shared/Config/init.luau"
+local configPath = at("src/shared/Config/init.luau")
 local config = fs.readFile(configPath)
 local replaced, count = string.gsub(config, 'gameId = "[^"]*"', 'gameId = "' .. name .. '"', 1)
 if count ~= 1 then
@@ -233,7 +256,7 @@ fs.writeFile(configPath, replaced)
 fs.writeFile(modulePath, renamedModule)
 
 -- the game's specs: its own module name, its project path, its module list
-local specPath = target .. "/src/shared/Config.spec.luau"
+local specPath = at("src/shared/Config.spec.luau")
 if fs.isFile(specPath) then
 	local spec = string.gsub(
 		fs.readFile(specPath),
@@ -242,10 +265,10 @@ if fs.isFile(specPath) then
 	)
 	fs.writeFile(specPath, spec)
 end
-local bootPath = target .. "/src/server/Boot.spec.luau"
+local bootPath = at("src/server/Boot.spec.luau")
 if fs.isFile(bootPath) then
 	local boot = fs.readFile(bootPath)
-	boot = string.gsub(boot, "templates/new%-game/default%.project%.json", target .. "/default.project.json")
+	boot = string.gsub(boot, "templates/new%-game/default%.project%.json", at("default.project.json"))
 	boot = string.gsub(boot, 'describe%("templates/new%-game boot"', 'describe("' .. name .. ' boot"')
 	boot = string.gsub(boot, "the template's real Config", name .. "'s real Config")
 	boot = string.gsub(boot, '"' .. TEMPLATE_MODULE .. '", %-%-', '"' .. moduleName .. '", --')
@@ -266,17 +289,19 @@ if fs.isFile(bootPath) then
 	fs.writeFile(bootPath, boot)
 end
 
--- README
-fs.writeFile(target .. "/README.md", NewGame.readme(name, port, opts.designDoc, chosenModules))
+-- README (a single-game project's README comes from templates/single-game, tools/new-project)
+if not atRoot then
+	fs.writeFile(at("README.md"), NewGame.readme(name, port, opts.designDoc, chosenModules))
+end
 
--- design doc
-local docPath = "docs/games/" .. name .. ".md"
+-- design doc (single-game project: docs/design.md)
+local docPath = if atRoot then "docs/design.md" else "docs/games/" .. name .. ".md"
 local designTemplate = Roots.core("templates/game-design.md")
 if opts.designDoc and not fs.isFile(docPath) and fs.isFile(designTemplate) then
 	if not fs.isDir("docs") then
 		fs.writeDir("docs")
 	end
-	if not fs.isDir("docs/games") then
+	if not atRoot and not fs.isDir("docs/games") then
 		fs.writeDir("docs/games")
 	end
 	local doc = string.gsub(fs.readFile(designTemplate), "{{name}}", name)
@@ -308,8 +333,15 @@ print(
 )
 
 -- Format what the markers left (stylua is part of the toolchain; skipped if it isn't installed).
-local okFormat, formatResult =
-	pcall(process.exec, "stylua", { "--config-path", Roots.core("stylua.toml"), target })
+local formatArgs = { "--config-path", Roots.core("stylua.toml") }
+if atRoot then
+	-- never the studwork/ submodule: only the game's own folders
+	table.insert(formatArgs, "src")
+	table.insert(formatArgs, "modules")
+else
+	table.insert(formatArgs, target)
+end
+local okFormat, formatResult = pcall(process.exec, "stylua", formatArgs)
 if not okFormat or not formatResult.ok then
 	print("note: stylua did not run on " .. target .. "; run `stylua " .. target .. "` before tools/lint")
 end
