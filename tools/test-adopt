@@ -305,12 +305,13 @@ check "build: a place file in build/" sh -c "ls '$G'/build/*.rbxl >/dev/null 2>&
 step test tools/test
 check "test: the game module's spec ran" grep -q "modules/legacy-example-a/module.spec.luau" "$(logof test)"
 step typecheck tools/typecheck
-# LEAD: switch this on after merging D (transitional guardrails, adopting.md §5): tools/lint passes
-# with only legacy warnings. On this branch the legacy list isn't read yet, so lint fails on the
-# old code (and on the staged studwork/ + .gitmodules mix, see REPORT_B "cross-agent notes").
-#   step lint tools/lint
-#   check "lint: only legacy warnings" grep -q "warning: \[legacy\]" "$(logof lint)"
-(cd "$G" && tools/lint) >"$(logof lint-informational)" 2>&1 || true
+# tools/lint passes with only legacy warnings (the transitional guardrails, adopting.md §5)
+step lint tools/lint
+check "lint: only legacy warnings" grep -q "warning: \[legacy\]" "$(logof lint)"
+# ... and with everything staged: the commit that ADDS the studwork/ pin may carry init's files
+# (guardrails packages check, v1.6.0), exactly like a new project's first commit
+(cd "$G" && tgit add -A) >>"$LOGS/setup.log" 2>&1
+step "lint (init staged)" tools/lint
 
 # repeatable: a second run and a dry run change nothing
 BEFORE="$(snapshot "$G")"

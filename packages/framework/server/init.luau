@@ -581,6 +581,9 @@ function Server.start(gameConfig: any, serverConfig: any?, opts: any?): any
 			guid = platform.guid,
 			-- (added in v1.6.0, adopting.md §4)
 			legacy = rt.legacy,
+			phase = function(): string
+				return rt.phase
+			end,
 			hasLegacyImport = function(): boolean
 				return #rt.data.legacyImports() > 0
 			end,

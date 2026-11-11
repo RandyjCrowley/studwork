@@ -722,6 +722,9 @@ export type ReplicatedState = {
 	-- Server-computed odds of every player-facing rarity table (Rarity.getOddsDetail). Show these;
 	-- never recompute odds on the client.
 	odds: { [string]: OddsDetail }?,
+	-- (added in v1.6.0, adopting.md §6.2) per-item odds disclosed by ctx.compliance.discloseItem
+	-- (Rarity.discloseItem): { [sourceId]: { [itemKey]: OddsDetail } }; at most 64 per player.
+	itemOdds: { [string]: { [string]: OddsDetail } }?,
 	-- v1.2 (N1): the local player's mailbox (Mail.pending), oldest first. nil/empty = no items.
 	mailbox: { MailboxEntry }?,
 }

@@ -132,7 +132,8 @@ and how to check it. The order is fixed; steps with nothing to do are left out:
 Re-runs the audit and fails (exit 1) while any `critical` risk remains, while a `notExtracted`
 script (left in the place file) uses DataStores, `ProcessReceipt` or product prompts, while any
 `onLegacyProduct` call is left (§4.3), or while `studwork-legacy.json` has an entry listing the
-`purchases` check. It prints what's left, one line each. It's the last automatic step of the plan.
+`purchases` check. It prints what's left, one line each, and writes no file (so `tools/publish`
+can run it on a clean tree). It's the last automatic step of the plan.
 
 ### `tools/adopt --from-place <file> [--out <dir>]`
 
@@ -148,14 +149,17 @@ only**, so the map, models and UI stay in the place:
 - **Names are untrusted input.** An instance name becomes a file name only after sanitizing:
   path separators, `.` / `..`, control characters, characters invalid on Windows or macOS and
   reserved names (`CON`, `NUL`, ...) are escaped, and the real name is kept in a `.meta.json`
-  (`"properties": { "Name": "…" }`). Collisions are detected case-insensitively (macOS) and get a
+  (`"properties": { "Name": "…" }`). Rojo 7.7 doesn't apply a meta `Name` (it syncs the file
+  name), so every renamed instance is also printed and listed in the manifest's `renamed` map:
+  code that finds it by its old name must be updated. Collisions are detected case-insensitively (macOS) and get a
   `~2` suffix; every one is reported.
 - **Every write is contained:** each target is checked to be inside `--out` after resolving
   symlinks, or the run stops before writing anything.
 - **No silent overwrite:** the run writes `.studwork-from-place.json`, a manifest of every file it
   generated with its content hash. A later run overwrites a file only if it's in the manifest with
-  an unchanged hash; any other existing file stops the run. A fresh `--out` must be empty or not
-  exist.
+  an unchanged hash; any other existing file stops the run. A fresh `--out` may hold only the
+  place file itself, dotfiles and earlier `studwork-adopt-report.*` (the reports are rewritten
+  every run and aren't in the manifest).
 - Scripts inside `Workspace`, `StarterGui`, tools and models are **not** moved (their parent is
   part of the map or UI); the report lists them under `notExtracted` with their findings, and
   `--verify` refuses to pass while one of them still uses DataStores or purchases.
@@ -248,7 +252,9 @@ ctx.data.importLegacy({
 	source = { kind = "datastore", name = "PlayerData", key = "Player_{userId}" },
 	-- or a map of named sources: source = { main = {…}, stats = {…} } -> `old` is { main = …, stats = … }
 	import = function(tx, old, info)      -- first import: non-yielding; same rules as ctx.tx
-		ctx.depsTx[Economy].grant(tx, old.coins or 0, "legacy_import")
+		if (old.coins or 0) > 0 then -- a 0 grant is a refusal, and a refusal fails the import
+			ctx.depsTx[Economy].grant(tx, old.coins, "legacy_import")
+		end
 		for _, id in old.inventory or {} do
 			ctx.depsTx[Inventory].add(tx, id, { source = "legacy_import" })
 		end
@@ -346,7 +352,9 @@ An import must never write the marker after dropping something. Inside an import
 - **A refused txApi call raises.** The framework wraps every `ctx.depsTx[...]` function while an
   import transaction runs: a first return value of `nil` or `false` raises
   `legacy import: <Module>.<fn> refused (<value>)`, so the import fails closed instead of
-  committing a partial save.
+  committing a partial save. A grant of 0 is a refusal too (`Economy.grant` returns false for it):
+  guard amounts (`if (old.coins or 0) > 0`), and don't call query-style txApi functions that
+  answer `false` inside an import.
 - **Caps don't apply to imported data:** `ctx.data.isImport(tx) -> boolean` (added) lets a kit tell
   an import transaction apart. Inventory skips its cap check in an import (an old player with more
   items than the cap keeps all of them; they just can't add more until under the cap), so a legit

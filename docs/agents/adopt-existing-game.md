@@ -235,7 +235,9 @@ ctx.data.importLegacy({
 	version = 1,
 	source = { kind = "datastore", name = "PlayerData", key = "Player_{userId}" },
 	import = function(tx, old, info)
-		ctx.depsTx[Economy].grant(tx, old.coins or 0, "legacy_import")
+		if (old.coins or 0) > 0 then -- a 0 grant is a refusal, and a refusal fails the import
+			ctx.depsTx[Economy].grant(tx, old.coins, "legacy_import")
+		end
 		ctx.depsTx[Economy].grant(tx, old.gems or 0, "legacy_import", "Gems")
 		for _, id in old.pets or {} do
 			ctx.depsTx[Inventory].add(tx, id, { source = "legacy_import" })
@@ -268,7 +270,9 @@ Old code: `DataStore2.Combine("DATA", "coins", "inventory")`, then `DataStore2("
 ```lua
 source = { kind = "datastore2", name = "DATA", combined = { "coins", "inventory" } },
 import = function(tx, old, info)
-	ctx.depsTx[Economy].grant(tx, old.coins or 0, "legacy_import")
+	if (old.coins or 0) > 0 then -- a 0 grant is a refusal, and a refusal fails the import
+		ctx.depsTx[Economy].grant(tx, old.coins, "legacy_import")
+	end
 	for _, id in old.inventory or {} do
 		ctx.depsTx[Inventory].add(tx, id, { source = "legacy_import" })
 	end
@@ -294,28 +298,42 @@ almost nothing, and one with more items than the Inventory cap if the game has i
 
 ```json
 {
+  "description": "a mid-game player",
   "old": { "coins": 1500, "gems": 20, "pets": ["cat", "dog"], "settings": { "music": false },
-           "lastJoin": 1700000000, "purchases": ["p-1", "p-2"] },
+           "lastJoin": 1700000000, "purchases": { "p-1": 1700000000, "p-2": 1700000100 } },
   "expect": { "coins": "economy.currency.Coins", "gems": "economy.currency.Gems",
-              "pets": "inventory", "settings": "<gameId>.settings" },
-  "dropped": { "lastJoin": "StudWork tracks join times itself", "purchases": "receipt history (_framework.legacyPurchases)" },
-  "sold": ["gems"],
-  "changed": { "coins": 1700, "gems": 20, "pets": ["cat", "dog", "owl"] },
-  "afterMerge": { "coins": "economy.currency.Coins" }
+              "pets": { "items": "inventory.inventory" }, "settings": "<gameId>.settings",
+              "purchases": "_framework.legacyPurchases" },
+  "dropped": { "lastJoin": "StudWork tracks join times itself" },
+  "sold": { "gems": "currency" },
+  "changed": { "coins": 1700, "gems": 20, "pets": ["cat", "dog", "owl"], "settings": { "music": false },
+               "lastJoin": 1700000500, "purchases": { "p-1": 1700000000, "p-2": 1700000100 } },
+  "afterMerge": { "economy.currency.Coins": 1700 },
+  "overCap": { "path": "pets", "count": 60 }
 }
 ```
 
-- `old`: the old save as stored (for a map of sources: `{ "main": {...}, "stats": {...} }`).
-- `expect`: old field -> where it lands in the StudWork save. `dropped`: old field -> reason.
-  Every leaf of `old` must be in one of them.
-- `sold`: fields a product sold (from the report).
-- `changed` / `afterMerge`: only if the module has a `merge` (see below).
+The exact format is the header of `studwork/tools/lune/MigrationCheck.luau` (read it once):
+
+- `old`: the old save value as the old game stored it in the import's source (ProfileService /
+  ProfileStore: the profile's `Data`; DataStore2 combined: the combined table; a map of sources:
+  `{ "main": {...}, "stats": {...} }`). The runner stores it in the source's real format for you.
+- `expect`: old path -> StudWork save path (`<dataKey>.<field>...`, dots; list indexes are
+  numbers). A string target must equal the old value; `{ "items": "<path>" }` means the old value
+  is a list (or map) of item ids and the inventory at that path holds exactly those ids.
+  `dropped`: old path -> reason. Every leaf of `old` must be covered by one of them (an entry
+  covers everything under its path).
+- `sold`: old path -> `"currency"` or `"items"`: fields a product sold (from the audit report's
+  `purchases.products[].sold`). A sold currency must map to a `compliance.paidCurrencies` currency.
+- `changed` / `afterMerge`: only if the module has a `merge`: the old save as an old server changed
+  it later, and the StudWork values expected after the merge (`{ "<save path>": value }`).
+- `overCap`: grows that list to `count` entries, to prove items over the Inventory cap all arrive.
 
 ### Run it until green
 
 ```sh
 tools/test-migration                # every module with tests/legacy/*.json
-tools/test-migration <gameId>       # just the game module
+tools/test-migration <module>       # just one module's fixtures (in a single-game project)
 ```
 
 It checks, per fixture: nothing lost field by field, importing twice changes nothing, a failed
@@ -327,8 +345,10 @@ fixture's `expect` path) and re-run until it exits 0.
 
 Without `merge`, a player whose old save changes after their import (the user rolled back to the
 old game) is refused until a merge ships. Add a `merge` when the user tells you a rollback is
-possible, or when you bump `version`. It must be idempotent: compute from `old` and `info.previous`
-(e.g. grant only the difference since the previous import), never "add again".
+possible, or when you bump `version`. It must be idempotent: compute from `old` and the CURRENT StudWork values, never "add
+again". The marker doesn't keep the old values, so a typical merge raises a balance to the old
+one only when the old one is higher (grant `old.coins - have` when positive) and adds only the
+item ids the StudWork inventory doesn't have yet.
 
 **Check:** `tools/test-migration` exits 0; `tools/lint` and `tools/test` pass.
 

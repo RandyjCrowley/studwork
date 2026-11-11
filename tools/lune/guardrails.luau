@@ -1564,6 +1564,16 @@ function Guard.gitFindings(): { string }
 		local refs = git({ "for-each-ref", "--count=1", "--format=%(refname)", "refs/" })
 		initial = refs == nil or string.gsub(refs, "%s+", "") == ""
 	end
+	-- (v1.6.0) an adopted project's commit that ADDS the pin: the project has history (the old
+	-- game), the studwork/ submodule isn't in HEAD yet and is staged now (tools/adopt --init's
+	-- files land with it). Nothing is bumped, so the mix is allowed, exactly like a new project's
+	-- first commit. Every later pointer change still needs its own commit.
+	if Roots.single and not initial and git({ "rev-parse", "--verify", "-q", "HEAD" }) ~= nil then
+		local inHead = git({ "ls-tree", "HEAD", "--", Roots.CORE }) or ""
+		if string.gsub(inHead, "%s+", "") == "" and table.find(staged, Roots.CORE) ~= nil then
+			initial = true
+		end
+	end
 	local opts = if Roots.single
 		then {
 			coreDir = Roots.CORE,

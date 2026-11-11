@@ -668,7 +668,7 @@ function Shop.new(opts: any): any
 						2
 					)
 				end
-				if claimed then
+				if claimed or (opts.phase ~= nil and opts.phase() ~= "init") then
 					error("ctx.shop.onLegacyProduct: register it in init", 2)
 				end
 				local err = register(
@@ -687,7 +687,7 @@ function Shop.new(opts: any): any
 			end,
 			-- v1.6.0 (adopting.md §4.2): the old game's purchase history store, once per game, in init
 			legacyReceipts = function(spec: any)
-				if claimed then
+				if claimed or (opts.phase ~= nil and opts.phase() ~= "init") then
 					error("ctx.shop.legacyReceipts: register it in init", 2)
 				end
 				if legacyStore ~= nil then

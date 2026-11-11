@@ -292,6 +292,31 @@ describe("LegacyShop: boot errors and validation", function()
 		expect(claimedFn).toBeNil()
 	end)
 
+	it("legacyReceipts / onLegacyProduct from start (not init) -> boot error", function()
+		for _, which in { "legacyReceipts", "onLegacyProduct" } do
+			local _, err = Harness.boot({
+				modules = { Store },
+				products = PRODUCTS,
+				legacy = Harness.legacyStore(),
+				servers = {
+					Store = {
+						init = function() end,
+						start = function(ctx)
+							if which == "legacyReceipts" then
+								ctx.shop.legacyReceipts({ name = HISTORY, key = "{userId}_{purchaseId}" })
+							else
+								ctx.shop.onLegacyProduct("OldPack", function()
+									return "PurchaseGranted"
+								end, { writesLegacyData = false })
+							end
+						end,
+					},
+				},
+			})
+			expect(tostring(err)).toContain(`ctx.shop.{which}: register it in init`)
+		end
+	end)
+
 	it("writesLegacyData = false + an import boots", function()
 		local s = Shop.new({
 			data = {},

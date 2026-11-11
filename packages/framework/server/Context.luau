@@ -16,7 +16,7 @@
 	  policy      Policy.api             paidRandomRestricted / isKnown (read-only)
 	  analytics   Analytics.api          funnel / economy / custom
 	  events      Events.forModule       schedule / trigger / isActive / onEnded
-	  shop        Shop.forModule         onProduct / onPassOwned / ownsPass
+	  shop        Shop.forModule         onProduct / onPassOwned / ownsPass / onLegacyProduct / legacyReceipts (v1.6.0)
 ]]
 
 local Shared = require(script.Parent.Shared)
