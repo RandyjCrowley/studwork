@@ -69,9 +69,10 @@ keepInventory, keepDisplayed?, resetCurrencies?, maxRebirths? }` (required when 
 listed). `cost = floor(baseCost * costGrowth ^ rebirths)`; multiplier = `1 + rebirths *
 multiplierPerRebirth`; `resetCurrencies` defaults to `{ primary }`.
 
-The inventory rule is a documented default: with `keepInventory = false`, a copy is kept when its
-item has `keepOnRebirth = true`, or when `keepOnRebirth` is nil and the copy was bought with Robux
-(`paid:`); copies from coin rolls (`paidcur:`) and everything else are wiped. It is applied through
+The inventory rule is a documented default: Robux-bought copies (`paid:`) are always kept (no config
+and no `keepOnRebirth = false` can wipe them); copies from coin rolls (`paidcur:`) and everything else
+are wiped unless the item has `keepOnRebirth = true` (or `inventory.paidCurrency` / `inventory.earned`
+is `"keep"`). It is applied through
 `ctx.depsTx[Inventory]` (optional Inventory), contract.
 
 - **API:** `canRebirth(player)`, `rebirth(player) -> boolean`, `cost(player)`, `multiplier(player)`.
