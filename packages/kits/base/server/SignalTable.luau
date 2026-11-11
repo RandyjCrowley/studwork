@@ -4,8 +4,7 @@
 	module's api (Extensions.wrapApi), so the signals table must exist, by identity, before init;
 	the signals themselves are created in init with ctx.signals.new and assigned into it.
 	`SignalTable.watch(t, fn(name, signal))` calls fn for every signal already in the table and
-	every one assigned later (the kit's compat adapter uses it to mirror signals for v1.2 code;
-	Phase 2 can drop watch with the adapters).
+	every one assigned later.
 ]]
 
 local SignalTable = {}

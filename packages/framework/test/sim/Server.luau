@@ -1,22 +1,22 @@
 --!nocheck
 --[[
-	One simulated Roblox server, booted through StudWork.start (core-v1.3.0 step 4b-IIa): the REAL
-	framework server runtime (packages/framework/server: Data + Store.profileStore, Net, Shop,
-	Policy, Compliance, Replication, ...) with the REAL vendored ProfileStore 1.0.3 against the
-	World's mock DataStore/MessagingService, and the REAL kit modules: their defineModule wrappers
-	and the unchanged v1.2 services behind the compat bridge (packages/kits/compat/Bridge.luau).
+	One simulated Roblox server, booted through StudWork.start: the REAL framework server runtime
+	(packages/framework/server: Data + Store.profileStore, Net, Shop, Policy, Compliance,
+	Replication, ...) with the REAL vendored ProfileStore 1.0.3 against the World's mock
+	DataStore/MessagingService, and the REAL kit modules (packages/kits/*/{shared,server}).
+	Reached by specs as StudWork.test.sim (module-api.md §15) or this folder's Fixtures.
 
 	What is real vs modelled (see also README.md in this folder):
 	  real      packages/framework/{shared,server}, packages/kits/*/{shared,server} (every module
-	            in the config's `modules`), packages/kits/compat, packages/core/shared (Types,
-	            Validate, HandlerList, ConfigValidate), ProfileStore.luau.
+	            in the config's `modules`), ProfileStore.luau.
 	  modelled  Roblox engine services (Players, RunService, DataStoreService, MessagingService,
 	            HttpService, MarketplaceService), the framework's engine adapter (a sim Platform:
 	            fake Blink events, policy answers from world.restricted, recorded analytics and
-	            replication). A module that is not in `modules` is not running (the v1.2 sim
-	            booted fakes of Policy/Plot/Upgrades/Rebirth; v1.3 boots exactly what is listed).
-	The fixtures stay v1.2-shaped (Fixtures.config): V12Config.fromV12 turns them into a v1.3
-	GameConfig + the game's own module (data = the v1.2 game table).
+	            replication). A module that is not in `modules` is not running.
+	The fixture config (Fixtures.config) is a v1.3 GameConfig whose `modules` are kit module
+	NAMES (resolved to this server's refs), plus `data` = the fixture game's own module data
+	(SimGame, data.key = gameId). Config and item namespaces of modules that are not enabled are
+	dropped, so one fixture serves every module subset.
 
 	API used by specs:
 	  server:join(userId, opts?) -> player     PlayerAdded (opts.referredBy, opts.name)
@@ -25,14 +25,21 @@
 	  server:purchase(receipt) -> handle        MarketplaceService.ProcessReceipt in a thread
 	  server:shutdown(opts?) -> handle          BindToClose (players kicked first by default)
 	  server:crash()                            the process dies: no saves, no BindToClose
-	  server:remote(name, player, ...)          a client -> server framework event: its handler
-	                                            (the v1.2 service's), like v1.2's sim (no Net limiter)
-	  server.services.<Name>                    the v1.2 services as ctx.services saw them (Data =
-	                                            the compat flat Data, Shop = v1.2 Shop over the
-	                                            framework Shop)
-	  server.signals.<Name>                     the v1.2 signals (with .history)
+	  server:remote(name, player, ...)          a client -> server framework event (its handler)
+	  server:use(ref | name) -> api             the module's API on this server (StudWork.use)
+	  server:ref(name) -> ModuleRef             this server's ref (e.g. for a PurchaseTx's tx.use)
+	  server:section(player, key) -> view       a loaded player's section (frozen read view)
+	  server:sections(player) -> { [key]: view } every section of a loaded player + _framework
+	  server:update(player, fn(sections, tx))   one framework tx; sections[key] is the working copy
+	                                            -> committed (false when not loaded / session lost)
+	  server:save(player) -> boolean            Data.saveAsync (yields: call inside server:spawn)
+	  server:onProduct(product, fn(tx))         a product handler of the fixture game module (the
+	                                            framework PurchaseTx; tx.use(Ref) = purchase ops)
+	  server:heard(name) -> signal              every firing since boot, with .history / :count():
+	                                            "<Module>.<Signal>" (ctx.signals.new) or
+	                                            "framework.<Signal>"; framework.PlayerLoaded is
+	                                            recorded as (player, sections at load)
 	  server.runtime                            the framework server runtime
-	  server:data(player)                       Data.get(player)
 ]]
 
 local Loader = require(script.Parent.Loader)
@@ -183,9 +190,7 @@ function Server._buildEngine(self)
 		ReplicatedStorage = Loader.folder({
 			-- wally packages the kit services require (Plot: Trove)
 			Packages = Loader.folder({ Trove = "deps/Packages/_Index/sleitnick_trove@1.8.0/trove" }),
-			Core = "packages/core/shared",
 			Framework = "packages/framework/shared",
-			CompatShared = "packages/kits/compat/shared",
 			Kits = Loader.folder({
 				Collection = "packages/kits/collection/shared",
 				Economy = "packages/kits/economy/shared",
@@ -196,7 +201,6 @@ function Server._buildEngine(self)
 		}),
 		ServerStorage = Loader.folder({ ServerPackages = "deps/ServerPackages" }),
 		ServerScriptService = Loader.folder({
-			Compat = "packages/kits/compat",
 			Framework = "packages/framework/server",
 			Kits = Loader.folder({
 				Collection = "packages/kits/collection/server",
@@ -581,12 +585,59 @@ function Server._platform(self): any
 	}
 end
 
+local function copy(value: any): any
+	if type(value) ~= "table" then
+		return value
+	end
+	local out = {}
+	for k, v in value do
+		out[k] = copy(v)
+	end
+	return out
+end
+
+-- The fixture GameConfig (v1.3 shape, module NAMES) -> (GameConfig with refs, game data).
+function Server._fixtureConfig(self): (any, any)
+	local fixture = self.config
+	local enabled: { [string]: boolean } = {}
+	local refs = {}
+	for _, name in self.modules do
+		enabled[name] = true
+		assert(KIT_OF[name], "sim: unknown kit module " .. tostring(name))
+		table.insert(refs, self.require(`packages/kits/{KIT_OF[name]}/shared/{name}.luau`))
+	end
+	local config = {}
+	for owner, c in fixture.config or {} do
+		if enabled[owner] then
+			config[owner] = copy(c)
+		end
+	end
+	local items = {}
+	for i, item in fixture.items or {} do
+		local out = copy(item)
+		if not enabled.Economy then
+			out.economy = nil
+		end
+		items[i] = out
+	end
+	local gameConfig = {
+		gameId = fixture.gameId,
+		modules = refs,
+		config = config,
+		items = items,
+		products = copy(fixture.products),
+		events = copy(fixture.events),
+		compliance = copy(fixture.compliance),
+		analytics = copy(fixture.analytics),
+	}
+	local data = fixture.data or {}
+	return gameConfig, { default = copy(data.default or {}), version = data.version or 1 }, refs
+end
+
 function Server._boot(self, opts: any)
 	local server = self
 	local StudWork = self.require("packages/framework/shared")
-	local V12Config = self.require("packages/kits/compat/shared/V12Config.luau")
 	local FrameworkServer = self.require("packages/framework/server")
-	local Bridge = self.require("packages/kits/compat/Bridge.luau")
 
 	local gameConfig, gameModule, serverConfig
 	local projectModules: any = nil
@@ -604,32 +655,22 @@ function Server._boot(self, opts: any)
 		self.modules = gameConfig.modules
 		self.config = { gameId = gameConfig.gameId, modules = gameConfig.modules }
 	else
-		local v12 = table.clone(self.config)
-		v12.modules = self.modules
-		local gameData
-		gameConfig, gameData = V12Config.fromV12(v12, function(name: string)
-			return self.require(`packages/kits/{KIT_OF[name]}/shared/{name}.luau`)
-		end)
+		local gameData, refs
+		gameConfig, gameData, refs = self:_fixtureConfig()
+		-- the fixture game's own module: its data is the fixture `data`; every kit module is an
+		-- optional dependency, so its product handlers (server:onProduct) can tx.use any of them
 		gameModule = StudWork.defineModule({
 			name = "SimGame",
 			version = "1.0.0",
 			framework = "^1.3.0",
-			data = { key = gameConfig.gameId, version = gameData.version, default = gameData.defaults },
+			optional = refs,
+			data = { key = gameConfig.gameId, version = gameData.version, default = gameData.default },
 		})
 		serverConfig = opts.serverConfig or {}
 	end
 
-	local signals = setmetatable({}, {
-		__index = function(t, key)
-			local s = server:_signal(key)
-			rawset(t, key, s)
-			return s
-		end,
-	})
-	self.signals = signals
-
 	local function loadServer(ref: any): any
-		-- opts.serverParts[name]: a test's REAL server part for a kit module (Phase 1 adapters)
+		-- opts.serverParts[name]: a test's own server part for a kit module (a test double)
 		local injected = opts.serverParts and opts.serverParts[ref.name]
 		if injected ~= nil then
 			return injected
@@ -664,23 +705,8 @@ function Server._boot(self, opts: any)
 					server.globals.print(msg)
 				end
 			end,
-			compat = {
-				signals = function()
-					return signals
-				end,
-				-- opts.compatAdapters[Kit]: overrides packages/kits/compat/adapters/<Kit>.luau
-				adapters = opts.compatAdapters,
-			},
 		})
-		local hasKits = false
-		for _ in self.modules do
-			hasKits = true
-		end
-		if hasKits then
-			self.services = Bridge.compatServices(self.runtime)
-		else
-			self.services = {}
-		end
+		self:_listen()
 		-- world.restricted changes reach this server's Policy (it caches the answer per session)
 		table.insert(self.world.restrictedListeners, function(userId: number, value: any)
 			local player = self.Players:GetPlayerByUserId(userId)
@@ -692,6 +718,109 @@ function Server._boot(self, opts: any)
 	end)
 	self.scheduler:_runDeferred()
 	assert(booted, "sim: StudWork boot yielded or errored: " .. table.concat(self.world:errors(), "\n"))
+end
+
+-- Records every module signal (api.signals) and framework signal from boot on (server:heard).
+function Server._listen(self)
+	local server = self
+	local rt = self.runtime
+	self._heard = {}
+	local function sink(name: string): any
+		local s = self._heard[name]
+		if s == nil then
+			s = self:_signal(name)
+			self._heard[name] = s
+		end
+		return s
+	end
+	for name, signal in rt.frameworkSignals do
+		sink("framework." .. name)
+		signal:Connect(function(player: any, ...: any)
+			if name == "PlayerLoaded" then
+				sink("framework.PlayerLoaded"):Fire(player, server:sections(player))
+			else
+				sink("framework." .. name):Fire(player, ...)
+			end
+		end)
+	end
+	for _, ref in rt.order do
+		for signalName, signal in rt.moduleSignals(ref) do
+			local key = ref.name .. "." .. signalName
+			sink(key)
+			signal:Connect(function(...: any)
+				sink(key):Fire(...)
+			end)
+		end
+	end
+end
+
+function Server.heard(self, name: string): any
+	local s = self._heard[name]
+	assert(s, `sim: no signal '{name}' on this server (use "<Module>.<Signal>" or "framework.<Signal>")`)
+	return s
+end
+
+local function refOf(self: any, refOrName: any): any
+	local name = if type(refOrName) == "table" then refOrName.name else refOrName
+	local ref = self.runtime.byName(name)
+	assert(ref, "sim: no module " .. tostring(name) .. " on this server")
+	return ref
+end
+
+-- This server's ModuleRef of a module (refs are per server: each server loads its own copy).
+function Server.ref(self, name: string): any
+	return refOf(self, name)
+end
+
+function Server.use(self, refOrName: any): any
+	return self.runtime.use(refOf(self, refOrName))
+end
+
+-- Section keys of this server's save: _framework + every enabled module's data.key.
+function Server.sectionKeys(self): { string }
+	local keys = { "_framework" }
+	for _, ref in self.runtime.order do
+		if ref.data ~= nil then
+			table.insert(keys, ref.data.key)
+		end
+	end
+	return keys
+end
+
+function Server.section(self, player: any, key: string): any
+	return self.runtime.data.view(player, key)
+end
+
+function Server.sections(self, player: any): { [string]: any }
+	local out = {}
+	for _, key in self:sectionKeys() do
+		out[key] = self.runtime.data.view(player, key)
+	end
+	return out
+end
+
+function Server.update(self, player: any, fn: (any, any) -> ()): boolean
+	local data = self.runtime.data
+	local committed = data.runTx(player, function(tx)
+		fn(
+			setmetatable({}, {
+				__index = function(_, key: string): any
+					return data.section(tx, key)
+				end,
+			}),
+			tx
+		)
+	end)
+	return committed == true
+end
+
+function Server.save(self, player: any): boolean
+	return self.runtime.data.saveAsync(player)
+end
+
+function Server.onProduct(self, product: any, fn: (any) -> ())
+	local owner = if self.runtime.gameModule then self.runtime.gameModule.name else "SimGame"
+	self.runtime.shop.forModule(owner).onProduct(product, fn)
 end
 
 --------------------------------------------------------------------------------
@@ -755,10 +884,6 @@ function Server.leave(self, player: any)
 	if index then
 		table.remove(self.players, index)
 	end
-end
-
-function Server.data(self, player: any)
-	return self.services.Data.get(player)
 end
 
 function Server.isLoaded(self, player: any): boolean

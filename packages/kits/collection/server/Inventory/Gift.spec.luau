@@ -1,7 +1,7 @@
 local Gift = require(script.Parent.Gift)
 local Delivery = require(script.Parent.Parent.Parent.Parent.social.server.Mail.Delivery)
 local Outbox = require(script.Parent.Parent.Parent.Parent.social.server.Mail.Outbox)
-local Transaction = require(script.Parent.Parent.Parent.Parent.Parent.core.server.Data.Transaction)
+local Transaction = require(script.Parent.Parent.Parent.Parent.Parent.framework.test.fixtures.V12Transaction)
 
 local function deepCopy(v: any): any
 	if type(v) ~= "table" then

@@ -11,6 +11,9 @@
 	                                                   { loaded, framework, modules }) plus the
 	                                                   framework client UI (Hud, Feedback, Input)
 	  StudWork.hook()                                  a helper list for offering extensions (§8)
+	  StudWork.test                                    the public test harness (§15; Lune only:
+	                                                   harness / boot / memoryStore / player /
+	                                                   sim.*, packages/framework/test/Public.luau)
 
 	StudWork.start finds the side's runtime by itself on Roblox (ServerScriptService.Framework on
 	the server, ReplicatedStorage.FrameworkClient on the client), so a game's scripts are one line:
@@ -46,6 +49,53 @@ StudWork.defineModule = DefineModule.defineModule
 StudWork.isModuleRef = DefineModule.isModuleRef
 -- Declared for the type checker only: the key is never set, so __index serves it (client only).
 StudWork.Client = (nil :: any) :: any
+
+-- §15 StudWork.test: the Lune test harness (packages/framework/test/Public.luau), served by the
+-- test kit as ServerScriptService.FrameworkTest and never part of a game build. Plain forwarders
+-- (not a metamethod) so the harness loads on first use, outside any metamethod.
+local function testKit(): any
+	local ok, holder = pcall(function(): any
+		return game:GetService("ServerScriptService"):FindFirstChild("FrameworkTest")
+	end)
+	if not ok or holder == nil then
+		error("[StudWork] StudWork.test is the Lune test harness (tools/test); it is not in a game build", 3)
+	end
+	return (require :: any)(holder:WaitForChild("Public"))
+end
+local function forward(path: { string }): (...any) -> ...any
+	return function(...: any): ...any
+		local node = testKit()
+		for _, key in path do
+			node = node[key]
+		end
+		return node(...)
+	end
+end
+local SIM_FUNCTIONS = {
+	"world",
+	"server",
+	"gameServer",
+	"bootGame",
+	"saved",
+	"section",
+	"lockHolder",
+	"writerViolations",
+	"sameValue",
+	"receipt",
+	"buyItem",
+	"key",
+}
+local sim: { [string]: any } = {}
+for _, name in SIM_FUNCTIONS do
+	sim[name] = forward({ "sim", name })
+end
+StudWork.test = table.freeze({
+	harness = forward({ "harness" }),
+	boot = forward({ "boot" }),
+	memoryStore = forward({ "memoryStore" }),
+	player = forward({ "player" }),
+	sim = table.freeze(sim),
+}) :: any
 
 -- On Roblox, requiring the side's runtime installs its starter (server/Boot.luau, client/Boot.luau).
 local function installSideRuntime()

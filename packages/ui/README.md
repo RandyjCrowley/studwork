@@ -77,13 +77,13 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local React = require(ReplicatedStorage.Packages.React)
 local ReactRoblox = require(ReplicatedStorage.Packages.ReactRoblox)
 local ReactCharm = require(ReplicatedStorage.Packages.ReactCharm)
-local Core = require(ReplicatedStorage.Core)
+local StudWork = require(ReplicatedStorage.Framework)
 local Config = require(ReplicatedStorage.Game.Config)
 local UI = require(ReplicatedStorage.UI)
 local e = React.createElement
 
 local function ChestScreen(props: { open: boolean, onClose: () -> (), odds: { [string]: number } })
-	local state = ReactCharm.useAtom(Core.Client.state)
+	local state = ReactCharm.useAtom(StudWork.Client.state)
 	return e(UI.Modal, { open = props.open, title = "Chest", onClose = props.onClose }, {
 		Odds = e(UI.OddsTable, {
 			detail = state.odds and state.odds.Chest, -- server-computed, never client-side

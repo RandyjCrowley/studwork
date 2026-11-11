@@ -1,5 +1,5 @@
 local Outbox = require(script.Parent.Outbox)
-local Transaction = require(script.Parent.Parent.Parent.Parent.Parent.core.server.Data.Transaction)
+local Transaction = require(script.Parent.Parent.Parent.Parent.Parent.framework.test.fixtures.V12Transaction)
 
 local function encode(v)
 	-- tiny JSON-size stand-in: good enough for MailValidate's size check

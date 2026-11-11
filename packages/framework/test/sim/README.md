@@ -12,7 +12,7 @@ multi-player behaviour can be tested offline.
 | `World.luau` | shared cloud: mock DataStoreService (latency, ack latency, `failNext`/`failFor`, JSON-like deep copies, write log), MessagingService bus, friend graph, Policy answers, game passes |
 | `Server.luau` | one server: fake engine services + `game` (JobId, BindToClose), loads real core modules with its own module cache, boots them (init all, start all), players join/leave/kick, `purchase`, `remote`, `shutdown`, `crash` |
 | `Loader.luau` | loads source files with a per-server env (`luau.load`); reads every source once at load |
-| `Fixtures.luau` | test GameConfig, `stored()`, `lockHolder()`, `writerViolations()` ("never two writers"), `grants()` |
+| `Fixtures.luau` | test GameConfig (v1.3 shape, module names), `saved()` / `section()` (the stored sectioned save), `lockHolder()`, `writerViolations()` ("never two writers"), `grants()`, `buyItem()` (a real purchase: `paid:<product>` copies) |
 | `*.spec.luau` | scenarios, run by `tools/test` (whole sim suite ~0.6 s) |
 | `*.slow.luau` | soak test, run by `tools/test-sim` |
 | `*.pending.luau` | written against unmerged contract work; `tools/test-sim --pending` |
@@ -43,13 +43,14 @@ delivery delays beyond `messagingLatency`.
 ## Writing a scenario
 
 ```lua
-local F = require(script.Parent.Fixtures)
-local world = F.world({ config = { balance = { offline = { autoPay = false } } } })
-local a = F.server(world)               -- boots real core
+local F = require(script.Parent.Fixtures) -- or StudWork.test.sim from any spec
+local world = F.world({ config = { config = { Offline = { offline = { autoPay = false } } } } })
+local a = F.server(world)               -- boots the real framework + kit modules
 local p = a:join(1)
 world:advanceUntil(function() return a:isLoaded(p) end, 30)
-a.services.Economy.grant(p, 10, "test") -- call services directly (non-yielding)
-local h = a:spawn(a.services.Data.saveAsync, p) -- yielding calls run in a server thread
+a:use("Economy").grant(p, 10, "test")   -- module APIs (non-yielding)
+expect(a:section(p, "economy").currency.Coins).toBe(10)
+local h = a:spawn(a.save, a, p)         -- yielding calls run in a server thread
 world:advanceUntil(function() return h.done end, 40)
 a:leave(p)
 expect(#world:errors()).toBe(0)

@@ -23,7 +23,7 @@ end
 describe("two-player gifting in one server (Inventory.transfer)", function()
 	it("moves the exact instance and ownership, and both saves agree after leaving", function()
 		local world, s, a, b = setup(21, 22)
-		local Inventory = s.services.Inventory
+		local Inventory = s:use("Inventory")
 		local item = Inventory.add(a, "gem", { source = "drop", meta = { note = "hi" } })
 		local ok, why = Inventory.transfer(a, b, item.uid, "gift")
 		expect(ok).toBe(true)
@@ -34,8 +34,8 @@ describe("two-player gifting in one server (Inventory.transfer)", function()
 		expect(got.meta.note).toBe("hi")
 		expect(got.source).toBe("drop")
 		-- signals fired once each
-		expect(s.signals.ItemRemoved:count()).toBe(1)
-		expect(s.signals.ItemAdded:count()).toBe(2) -- the add + the transfer
+		expect(s:heard("Inventory.ItemRemoved"):count()).toBe(1)
+		expect(s:heard("Inventory.ItemAdded"):count()).toBe(2) -- the add + the transfer
 		-- a second transfer of the same uid fails: it is no longer owned
 		local again, reason = Inventory.transfer(a, b, item.uid, "gift")
 		expect(again).toBe(false)
@@ -46,15 +46,16 @@ describe("two-player gifting in one server (Inventory.transfer)", function()
 		world:advanceUntil(function()
 			return F.lockHolder(world, 21) == nil and F.lockHolder(world, 22) == nil
 		end, 30)
-		expect(F.stored(world, 21).inventory[item.uid]).toBeNil()
-		expect(F.stored(world, 22).inventory[item.uid].itemId).toBe("gem")
+		expect(F.section(world, 21, "inventory").inventory[item.uid]).toBeNil()
+		expect(F.section(world, 22, "inventory").inventory[item.uid].itemId).toBe("gem")
 		expect(#world:errors()).toBe(0)
 	end)
 
 	it("refuses paid-source copies when either side is policy-restricted, allows otherwise", function()
 		local world, s, a, b = setup(23, 24)
-		local Inventory = s.services.Inventory
-		local paid = Inventory.add(a, "egg", { source = "paid:Egg" })
+		local Inventory = s:use("Inventory")
+		local paid = F.buyItem(world, s, a, "Egg", "egg") -- a real purchase: source "paid:Egg"
+		expect(paid.source).toBe("paid:Egg")
 		world.restricted[24] = true
 		local ok, why = Inventory.transfer(a, b, paid.uid, "gift")
 		expect(ok).toBe(false)
@@ -78,7 +79,7 @@ describe("two-player gifting in one server (Inventory.transfer)", function()
 
 	it("refuses when the receiver's inventory is full (cap 3) and keeps the item", function()
 		local _, s, a, b = setup(25, 26)
-		local Inventory = s.services.Inventory
+		local Inventory = s:use("Inventory")
 		for _ = 1, 3 do
 			expect(Inventory.add(b, "dust", { source = "drop" })).never.toBeNil()
 		end
@@ -92,7 +93,7 @@ describe("two-player gifting in one server (Inventory.transfer)", function()
 
 	it("refuses gifts to self and to a player that already left", function()
 		local world, s, a, b = setup(27, 28)
-		local Inventory = s.services.Inventory
+		local Inventory = s:use("Inventory")
 		local item = Inventory.add(a, "gem", { source = "drop" })
 		local ok, why = Inventory.transfer(a, a, item.uid, "gift")
 		expect(ok).toBe(false)
@@ -107,7 +108,7 @@ describe("two-player gifting in one server (Inventory.transfer)", function()
 
 	it("RequestGift remote: validates arguments and applies the per-sender cooldown", function()
 		local world, s, a, b = setup(29, 30)
-		local Inventory = s.services.Inventory
+		local Inventory = s:use("Inventory")
 		local one = Inventory.add(a, "rock", { source = "drop" })
 		local two = Inventory.add(a, "dust", { source = "drop" })
 

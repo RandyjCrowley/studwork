@@ -1,9 +1,8 @@
 --[[
-	core-v1.3.0 Phase 1 prep: every entry of (internal build report, not public) is
-	offered by the BRIDGED kit modules (packages/kits/compat/Bridge.luau), through the framework's
-	normal surfaces (api / txApi / extensions / api.signals, Extensions.wrap*). Real kit wrappers,
-	real v1.2 services, real framework: the _sandbox game (all eleven modules) and the sim fixture
-	game (a free currency, Mail).
+	core-v1.3.0 Phase 1: every entry of (internal build report, not public) is
+	offered by the kit modules through the framework's normal surfaces (api / txApi / extensions /
+	api.signals, Extensions.wrap*). Real kit modules, real framework: the _sandbox game (all eleven
+	modules) and the sim fixture game (a free currency, Mail).
 ]]
 
 local F = require(script.Parent.Fixtures)

@@ -34,7 +34,7 @@ local Packages = ReplicatedStorage:WaitForChild("Packages")
 local React = require(Packages:WaitForChild("React"))
 local ReactCharm = require(Packages:WaitForChild("ReactCharm"))
 local ReactRoblox = require(Packages:WaitForChild("ReactRoblox"))
-local Types = require(ReplicatedStorage:WaitForChild("Core"):WaitForChild("Types"))
+local Types = require(ReplicatedStorage:WaitForChild("Framework"):WaitForChild("Types"))
 local UI = require(ReplicatedStorage:WaitForChild("UI"))
 
 local Actions = require(script.Parent.Actions)

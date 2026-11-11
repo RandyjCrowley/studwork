@@ -1,6 +1,6 @@
 --[[
 	Leave -> rejoin with saved data intact (known-issues "Not verified live": leave/rejoin).
-	Real Core.Data + real ProfileStore 1.0.3 on the mock DataStore; see sim/README.md.
+	Real framework Data + real ProfileStore 1.0.3 on the mock DataStore; see sim/README.md.
 ]]
 
 local F = require(script.Parent.Fixtures)
@@ -19,16 +19,16 @@ end
 
 -- Coins, one item and a game-table value: three different sections.
 local function play(server, player)
-	expect(server.services.Economy.grant(player, 120, "test")).toBe(true)
-	local item = server.services.Inventory.add(player, "dust", { source = "drop" })
+	expect(server:use("Economy").grant(player, 120, "test")).toBe(true)
+	local item = server:use("Inventory").add(player, "dust", { source = "drop" })
 	expect(item).never.toBeNil()
-	expect(server.services.Data.updateGame(player, function(g)
-		g.touches = 7
+	expect(server:update(player, function(d)
+		d.sim.touches = 7 -- the fixture game module's own section (data.key = gameId)
 	end)).toBe(true)
 	return item
 end
 
-local CONFIG = { data = { defaults = { touches = 0 }, version = 1 } }
+local CONFIG = { data = { default = { touches = 0 }, version = 1 } }
 
 describe("leave -> rejoin", function()
 	it("same server: everything saved on leave is loaded again (sessions = 2)", function()
@@ -36,24 +36,24 @@ describe("leave -> rejoin", function()
 		local a = F.server(world)
 		local p = a:join(1)
 		expect(loaded(world, a, p)).toBe(true)
-		expect(a:data(p).stats.sessions).toBe(1)
+		expect(a:section(p, "_framework").stats.sessions).toBe(1)
 		local item = play(a, p)
 		a:leave(p)
 		expect(released(world, 1)).toBe(true)
 
-		local stored = F.stored(world, 1)
-		expect(stored.currency.Coins).toBe(120)
-		expect(stored.inventory[item.uid].itemId).toBe("dust")
-		expect(stored.game.sim.touches).toBe(7)
+		local stored = F.saved(world, 1)
+		expect(stored.economy.currency.Coins).toBe(120)
+		expect(stored.inventory.inventory[item.uid].itemId).toBe("dust")
+		expect(stored.sim.touches).toBe(7)
 
 		world:advance(90)
 		local p2 = a:join(1)
 		expect(loaded(world, a, p2)).toBe(true)
-		local d = a:data(p2)
-		expect(d.currency.Coins).toBe(120)
-		expect(d.inventory[item.uid].itemId).toBe("dust")
-		expect(d.game.sim.touches).toBe(7)
-		expect(d.stats.sessions).toBe(2)
+		local d = a:sections(p2)
+		expect(d.economy.currency.Coins).toBe(120)
+		expect(d.inventory.inventory[item.uid].itemId).toBe("dust")
+		expect(d.sim.touches).toBe(7)
+		expect(d._framework.stats.sessions).toBe(2)
 		expect(#world:errors()).toBe(0)
 		expect(#F.writerViolations(world, 1)).toBe(0)
 	end)
@@ -83,14 +83,14 @@ describe("leave -> rejoin", function()
 			end
 		end
 		expect(sawLock).toBe(true)
-		local d = b:data(q)
-		expect(d.currency.Coins).toBe(120)
-		expect(d.inventory[item.uid].itemId).toBe("dust")
-		expect(d.game.sim.touches).toBe(7)
-		expect(d.stats.sessions).toBe(2)
+		local d = b:sections(q)
+		expect(d.economy.currency.Coins).toBe(120)
+		expect(d.inventory.inventory[item.uid].itemId).toBe("dust")
+		expect(d.sim.touches).toBe(7)
+		expect(d._framework.stats.sessions).toBe(2)
 		-- B never loaded default data, not even transiently.
-		for _, args in b.signals.DataLoaded.history do
-			expect(args[2].currency.Coins).toBe(120)
+		for _, args in b:heard("framework.PlayerLoaded").history do
+			expect(args[2].economy.currency.Coins).toBe(120)
 		end
 		expect(F.lockHolder(world, 2)).toBe(b.jobId)
 		expect(#world:errors()).toBe(0)
@@ -106,11 +106,11 @@ describe("leave -> rejoin", function()
 		play(a, p)
 		world:advance(5)
 		-- an unsaved change right before the player shows up in server B
-		a.services.Economy.grant(p, 5, "test")
+		a:use("Economy").grant(p, 5, "test")
 
 		local q = b:join(3)
 		expect(loaded(world, b, q, 90)).toBe(true)
-		expect(b:data(q).currency.Coins).toBe(125)
+		expect(b:section(q, "economy").currency.Coins).toBe(125)
 		expect(p.Parent).toBeNil() -- A kicked its copy of the player
 		local kicked = false
 		for _, k in a.kicks do
@@ -133,7 +133,7 @@ describe("leave -> rejoin", function()
 		local leftAt = world:now()
 		a:leave(p)
 		expect(released(world, 4)).toBe(true)
-		local stored = F.stored(world, 4)
+		local stored = F.section(world, 4, "_framework")
 		expect(stored.lastSeen).toBeGreaterThanOrEqual(leftAt)
 		expect(stored.lastSeen).toBeLessThanOrEqual(leftAt + 1)
 	end)

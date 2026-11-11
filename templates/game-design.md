@@ -32,7 +32,7 @@ The 3-second moment players will record:
 First-minute bounce, D1/D7, co-play rate, spend days, funnel steps (`analytics.funnel`):
 
 ## Core requests
-Anything core is missing goes to `CORE_REQUESTS.md`, not into `packages/core`.
+Anything core is missing goes to `CORE_REQUESTS.md`, not into `packages/`.
 
 ## Scores (1–5; weighted = Hook + 2×Ret + Co-op + Build + Fresh)
 | Hook | Ret | Co-op | Build | Fresh | Weighted |

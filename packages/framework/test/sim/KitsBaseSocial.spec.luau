@@ -34,7 +34,7 @@ end
 
 describe("Mail (real module): R6 live admin console for failed mail", function()
 	it("lists dead letters and re-delivers them for ServerConfig.Mail.admins only", function()
-		local world = F.world({ config = { mail = { maxAttempts = 1 } } })
+		local world = F.world({ config = { config = { Mail = { mail = { maxAttempts = 1 } } } } })
 		local server = F.server(world, { serverConfig = { Mail = { admins = { 401 } } } })
 		local admin, sender, receiver = server:join(401), server:join(402), server:join(403)
 		assert(
@@ -108,7 +108,7 @@ describe("Streak (real module): reward in the same tx through the optional Econo
 		local world = F.world({
 			config = {
 				modules = { "Items", "Inventory", "Economy", "Streak", "Mail" },
-				balance = { streak = { graceHours = 6, rewards = { { day = 1, amount = 40 } } } },
+				config = { Streak = { streak = { graceHours = 6, rewards = { { day = 1, amount = 40 } } } } },
 			},
 		})
 		local server = F.server(world)
@@ -117,8 +117,8 @@ describe("Streak (real module): reward in the same tx through the optional Econo
 		world:advance(1)
 		expect(api(server, "Streak").get(p).day).toBe(1)
 		expect(api(server, "Economy").balance(p)).toBe(40)
-		-- the save keeps the v1.2 shape
-		expect(server:data(p).streak.day).toBe(1)
+		-- the section keeps the v1.2 field name (streak = { streak = {...} })
+		expect(server:section(p, "streak").streak.day).toBe(1)
 		expect(#world:errors()).toBe(0)
 	end)
 end)

@@ -576,22 +576,4 @@ Mail.extensions = {
 	end,
 }
 
--- v1.2 surface for the compat adapter only (packages/kits/compat/adapters/Social.luau; Phase 2
--- deletes it): bridged Inventory still calls send / onReceive with "core_" kinds and sendInto
--- with a v1.2 tx { player, data (flat view), after }.
-Mail._compat = table.freeze({
-	send = function(userId: number, kind: string, payload: { [string]: any }, key: string?): boolean
-		return sendNow(userId, kind, payload, key)
-	end,
-	onReceive = onReceiveRaw,
-	sendInto = function(tx12: any, toUserId: number, kind: string, payload: any, key: string): boolean
-		local data = tx12.data
-		if type(data.mail) ~= "table" then
-			data.mail = { seen = {}, attempts = {}, dead = {} }
-		end
-		return writeOutbox(data.mail, tx12.after, tx12.player, toUserId, kind, payload, key)
-	end,
-	sweep = sweep,
-})
-
 return Mail

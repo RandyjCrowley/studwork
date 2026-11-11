@@ -25,8 +25,8 @@
 	Each field keeps its v1.2 name inside its section (economy = { currency, multipliers }, ...).
 	Split sections are stored at section version 0 with no recorded owner, so the owning module's
 	migration 001 receives the v1.2 shape and the first module to claim the key becomes its owner.
-	V12_MAP is also the flat-view map of the compat bridge (packages/kits/compat/V12Data.luau);
-	it is the single place to change a key if a Phase 1 kit settles on a different data.key.
+	This split is the v1.2 -> v1.3 save MIGRATION (live v1.2 saves keep loading through it; the
+	full round trip is packages/framework/test/MigrationV12.spec.luau).
 ]]
 
 local Shared = require(script.Parent.Shared)

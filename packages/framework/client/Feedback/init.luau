@@ -27,9 +27,8 @@ local SoundService = game:GetService("SoundService")
 local TweenService = game:GetService("TweenService")
 local Workspace = game:GetService("Workspace")
 
-local Core = ReplicatedStorage:WaitForChild("Core")
-local HandlerList = require(Core:WaitForChild("HandlerList"))
-local Types = require(Core:WaitForChild("Types"))
+local HandlerList = require(script.Parent.HandlerList)
+local Types = require(ReplicatedStorage:WaitForChild("Framework"):WaitForChild("Types"))
 
 local ClientTheme = require(script.Parent.Theme)
 

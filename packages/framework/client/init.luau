@@ -8,8 +8,7 @@
 	  Hud, Feedback, Input, onFeedbackEvent, onMailbox   the client UI on theme tokens + HUD slots
 	  Hud.addWidget(id, spec | false)   the one call a module or game uses to contribute (or
 	                     remove) a HUD widget (= UI.registerWidget; Phase 2)
-	The UI reads the replicated state as sent (State.raw through Hud/Slices); the compat FlatState
-	view is no longer installed (Phase 2).
+	The UI reads the replicated state as sent (State.raw through Hud/Slices).
 
 	v1.2 path (kept until step 4b-IIb converts the scaffolds): the Core facade requires this file
 	on the client and calls Client.start(core, config, serverConfig, moduleOrder).
@@ -20,7 +19,7 @@
 
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local Charm = require(ReplicatedStorage:WaitForChild("Packages"):WaitForChild("Charm")) :: any
-local Types = require(ReplicatedStorage:WaitForChild("Core"):WaitForChild("Types"))
+local Types = require(ReplicatedStorage:WaitForChild("Framework"):WaitForChild("Types"))
 
 local Actions = require(script.Actions)
 local Boot = require(script.Boot)
@@ -114,24 +113,29 @@ Client.studWork = table.freeze({
 	onMailbox = onMailbox,
 })
 
-local function compat(name: string): any
-	local folder = ReplicatedStorage:FindFirstChild("CompatShared")
-	local m = folder and folder:FindFirstChild(name)
-	return if m and m:IsA("ModuleScript") then (require :: any)(m) else nil
-end
-
--- Step 4 of the client boot: the framework client UI on the v1.2 config view. The state is the
--- replicated state as sent (no flat compat view since Phase 2: Hud and onMailbox read it raw).
+-- Step 4 of the client boot: the framework client UI. The state is the replicated state as sent
+-- (Hud and onMailbox read it raw). The UI's config carries what it reads: GameConfig.client.palette
+-- overrides and the primary currency (config.Economy.primaryCurrency, default "Coins").
 local function startUi(info: any): any
-	local V12Config = compat("V12Config")
-	local view = if V12Config
-		then V12Config.view(info.gameConfig, info.configs, info.gameModule)
-		else { gameId = info.gameConfig.gameId, balance = { primaryCurrency = "Coins" }, modules = {} }
 	local names: { string } = {}
 	for _, ref in info.order do
 		table.insert(names, ref.name)
 	end
-	Client.start((nil :: any) :: Types.CoreAPI, view, {}, names)
+	local configs = info.configs or {}
+	local economy = configs.Economy
+	local client = info.gameConfig.client
+	local view = {
+		gameId = info.gameConfig.gameId,
+		modules = names,
+		palette = if type(client) == "table" then client.palette else nil,
+		balance = {
+			primaryCurrency = if type(economy) == "table"
+					and type(economy.primaryCurrency) == "string"
+				then economy.primaryCurrency
+				else "Coins",
+		},
+	}
+	Client.start((nil :: any) :: Types.CoreAPI, view :: any, {}, names)
 	return Client.studWork
 end
 

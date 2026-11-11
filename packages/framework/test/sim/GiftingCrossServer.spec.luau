@@ -1,6 +1,6 @@
 --[[
-	Cross-server gifting through Core.Mail against the real v1.2 code (Inventory.sendGift,
-	Mail.pending/claim, Mail.sendInto outbox). Written by agent C against the contract while
+	Cross-server gifting through the real Mail module (Inventory.sendGift, Mail.pending/claim,
+	the sender's outbox). Written by agent C against the contract while
 	agent A built it; enabled by the lead after merging A (it was gifting_crossserver.pending.luau).
 ]]
 
@@ -25,7 +25,7 @@ end
 
 -- sendGift that refuses to be quiet about the v1.2 stubs.
 local function gift(s, from, toUserId: number, uid: string)
-	local ok, result, why = pcall(s.services.Inventory.sendGift, from, toUserId, uid, "gift")
+	local ok, result, why = pcall(s:use("Inventory").sendGift, from, toUserId, uid, "gift")
 	if not ok then
 		error("PENDING: Inventory.sendGift raised (" .. tostring(result) .. "). Merge agent A first.", 2)
 	end
@@ -50,25 +50,25 @@ describe("cross-server gifting through Mail (PENDING agent A)", function()
 			local world = F.world()
 			local a = F.server(world)
 			local sender = joinLoaded(world, a, 81)
-			local item =
-				a.services.Inventory.add(sender, "gem", { source = "drop", meta = { note = "for you" } })
+			local item = a:use("Inventory")
+				.add(sender, "gem", { source = "drop", meta = { note = "for you" } })
 			local ok, why = gift(a, sender, 82, item.uid)
 			expect(ok).toBe(true)
 			expect(why).toBeNil()
-			expect(a.services.Inventory.get(sender, item.uid)).toBeNil()
+			expect(a:use("Inventory").get(sender, item.uid)).toBeNil()
 			world:advance(10)
 			a:leave(sender)
 			expect(released(world, 81)).toBe(true)
-			expect(hasUid(F.stored(world, 81), item.uid)).toBe(false)
-			local outbox = F.stored(world, 81).mail.outbox
+			expect(hasUid(F.section(world, 81, "inventory"), item.uid)).toBe(false)
+			local outbox = F.section(world, 81, "mail").mail.outbox
 			expect(outbox == nil or next(outbox) == nil).toBe(true) -- sent, nothing left to retry
 
 			local b = F.server(world)
 			local receiver = joinLoaded(world, b, 82)
 			expect(world:advanceUntil(function()
-				return b.services.Inventory.get(receiver, item.uid) ~= nil
+				return b:use("Inventory").get(receiver, item.uid) ~= nil
 			end, 30)).toBe(true)
-			local got = b.services.Inventory.get(receiver, item.uid)
+			local got = b:use("Inventory").get(receiver, item.uid)
 			expect(got.itemId).toBe("gem")
 			expect(got.source).toBe("drop")
 			expect(got.meta.note).toBe("for you")
@@ -81,18 +81,18 @@ describe("cross-server gifting through Mail (PENDING agent A)", function()
 		local a, b = F.server(world), F.server(world)
 		local sender = joinLoaded(world, a, 83)
 		local receiver = joinLoaded(world, b, 84)
-		local item = a.services.Inventory.add(sender, "rock", { source = "drop" })
+		local item = a:use("Inventory").add(sender, "rock", { source = "drop" })
 		expect((gift(a, sender, 84, item.uid))).toBe(true)
 		expect(world:advanceUntil(function()
-			return b.services.Inventory.get(receiver, item.uid) ~= nil
+			return b:use("Inventory").get(receiver, item.uid) ~= nil
 		end, 400, 0.25)).toBe(true)
-		expect(a.services.Inventory.get(sender, item.uid)).toBeNil()
+		expect(a:use("Inventory").get(sender, item.uid)).toBeNil()
 	end)
 
 	it("receiver's inventory full -> mailbox -> claim after freeing a slot", function()
 		local world = F.world()
 		local a, b = F.server(world), F.server(world)
-		local Inventory, Mail = b.services.Inventory, b.services.Mail
+		local Inventory, Mail = b:use("Inventory"), b:use("Mail")
 		-- fill the receiver to the cap (3) in an earlier session, so the gift finds it full on
 		-- the next load (queued messages are delivered right after load)
 		local first = joinLoaded(world, b, 86)
@@ -103,7 +103,7 @@ describe("cross-server gifting through Mail (PENDING agent A)", function()
 		expect(released(world, 86)).toBe(true)
 
 		local sender = joinLoaded(world, a, 85)
-		local item = a.services.Inventory.add(sender, "gem", { source = "drop" })
+		local item = a:use("Inventory").add(sender, "gem", { source = "drop" })
 		expect((gift(a, sender, 86, item.uid))).toBe(true)
 		world:advance(5)
 
@@ -113,7 +113,7 @@ describe("cross-server gifting through Mail (PENDING agent A)", function()
 		end, 400, 0.25)).toBe(true)
 		local entry = Mail.pending(receiver)[1]
 		expect(entry.kind).toBe("core_gift")
-		expect(hasUid(b:data(receiver), item.uid)).toBe(false)
+		expect(hasUid(b:section(receiver, "inventory"), item.uid)).toBe(false)
 
 		local stillFull, reason = Mail.claim(receiver, entry.id)
 		expect(stillFull).toBe(false)
@@ -133,7 +133,7 @@ describe("cross-server gifting through Mail (PENDING agent A)", function()
 		-- the claimed entry is gone from the SAVED mailbox too (PlayerData.mail.box)
 		b:leave(receiver)
 		expect(released(world, 86)).toBe(true)
-		expect(next(F.stored(world, 86).mail.box or {})).toBeNil()
+		expect(next(F.section(world, 86, "mail").mail.box or {})).toBeNil()
 	end)
 
 	it("the sender's server crashes right after the gift: the outbox is resent once on rejoin", function()
@@ -141,9 +141,9 @@ describe("cross-server gifting through Mail (PENDING agent A)", function()
 		world.latency = 2
 		local a = F.server(world)
 		local sender = joinLoaded(world, a, 87)
-		local item = a.services.Inventory.add(sender, "gem", { source = "drop" })
+		local item = a:use("Inventory").add(sender, "gem", { source = "drop" })
 		local h = a:spawn(function()
-			return a.services.Data.saveAsync(sender)
+			return a:save(sender)
 		end)
 		world:advanceUntil(function()
 			return h.done
@@ -161,12 +161,12 @@ describe("cross-server gifting through Mail (PENDING agent A)", function()
 		local c = F.server(world)
 		local receiver = joinLoaded(world, c, 88)
 		world:advance(400, 0.25)
-		for _, inst in c.services.Inventory.list(receiver) do
+		for _, inst in c:use("Inventory").list(receiver) do
 			if inst.uid == item.uid then
 				receiverOk += 1
 			end
 		end
-		local senderHas = b.services.Inventory.get(again, item.uid) ~= nil
+		local senderHas = b:use("Inventory").get(again, item.uid) ~= nil
 		-- exactly one copy in the world
 		expect(receiverOk + (if senderHas then 1 else 0)).toBe(1)
 	end)
@@ -175,18 +175,19 @@ describe("cross-server gifting through Mail (PENDING agent A)", function()
 		local world = F.world()
 		local a = F.server(world)
 		local sender = joinLoaded(world, a, 89)
-		local paid = a.services.Inventory.add(sender, "egg", { source = "paid:Egg" })
-		local ok, why = a.services.Inventory.sendGift(sender, 90, paid.uid, "gift")
+		local paid = F.buyItem(world, a, sender, "Egg", "egg") -- a real purchase: source "paid:Egg"
+		expect(paid.source).toBe("paid:Egg")
+		local ok, why = a:use("Inventory").sendGift(sender, 90, paid.uid, "gift")
 		expect(ok).toBe(false)
 		expect(why).toBe("restricted_source")
-		local free = a.services.Inventory.add(sender, "rock", { source = "drop" })
-		ok, why = a.services.Inventory.sendGift(sender, 89, free.uid, "gift")
+		local free = a:use("Inventory").add(sender, "rock", { source = "drop" })
+		ok, why = a:use("Inventory").sendGift(sender, 89, free.uid, "gift")
 		expect(why).toBe("same_player")
-		ok, why = a.services.Inventory.sendGift(sender, -5, free.uid, "gift")
+		ok, why = a:use("Inventory").sendGift(sender, -5, free.uid, "gift")
 		expect(why).toBe("bad_target")
-		ok, why = a.services.Inventory.sendGift(sender, 90, "no-such-uid", "gift")
+		ok, why = a:use("Inventory").sendGift(sender, 90, "no-such-uid", "gift")
 		expect(why).toBe("not_owned")
-		expect(a.services.Inventory.get(sender, free.uid)).never.toBeNil()
-		expect(a.services.Inventory.get(sender, paid.uid)).never.toBeNil()
+		expect(a:use("Inventory").get(sender, free.uid)).never.toBeNil()
+		expect(a:use("Inventory").get(sender, paid.uid)).never.toBeNil()
 	end)
 end)

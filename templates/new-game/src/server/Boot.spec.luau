@@ -1,8 +1,8 @@
 -- Boot test (core-v1.3.0 step 4b-IIb): the template's real Config, game module and ServerConfig
--- boot through the StudWork server start (framework + kit wrappers + compat bridge) in the
+-- boot through the StudWork server start (framework + real kit modules) in the
 -- multi-server sim, with exactly the expected modules and no errors; a player loads and leaves.
--- the sim lives outside the Rojo tree (Lune only), so the require is untyped
-local F = (require :: any)("packages/framework/test/sim/Fixtures.luau")
+local StudWork = require(game:GetService("ReplicatedStorage"):WaitForChild("Framework"))
+local F = StudWork.test.sim -- the multi-server sim (module-api.md §19.5)
 
 local EXPECTED = {
 	"Items",

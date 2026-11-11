@@ -382,15 +382,14 @@ the Phase 0 way (`ReplicatedStorage.Kits.<Kit>`, `ServerScriptService.Kits.<Kit>
 
 ## Testing
 
-Modules ship Lune specs that run without Studio, through the framework harness
-(`packages/framework/test/harness.luau`; module-api.md §15 calls it `StudWork.test.harness`, not yet
-exposed on the facade):
+Modules ship Lune specs that run without Studio, through `StudWork.test` (module-api.md §15;
+Lune only, never in a game build):
 
 ```lua
-local Harness = require("packages/framework/test/harness.luau")
-local h = Harness.new({
-	modules = { Economy, Quests },               -- refs
-	servers = { Quests = QuestsServer },         -- server parts by name
+local StudWork = require(game:GetService("ReplicatedStorage"):WaitForChild("Framework"))
+local h = StudWork.test.harness({
+	modules = { Economy, Quests },               -- refs; kit modules run their real server parts
+	servers = { Quests = QuestsServer },         -- inject server parts by name (wins over the kit's)
 	config = { Quests = { dailyCount = 5 } },
 	items = { ... }, products = { ... },
 })
@@ -400,13 +399,18 @@ h:action(p, Quests, "claim", "q1")                -- through the action routing
 h:rejoin(p, { secondsAway = 3600 })               -- save -> release -> load -> migrate
 h:fire(p, "StateInit"); h:state(p)                -- the replicated state that player was sent
 h:receipt({ ... })                                -- MarketplaceService.ProcessReceipt
-h:saved(p)                                        -- what is in the mock store
+h:purchase(p, "CoinPack", { retries = 2 })        -- a receipt, re-delivered while NotProcessedYet
+h:saved(p)                                        -- what is in the mock store (sectioned save)
 expect(h:use(Quests).doneCount(p)).toBe(1)
--- Harness.boot(opts) -> (h?, err?) returns a boot error instead of raising
+-- StudWork.test.boot(opts) -> (h?, err?) returns a boot error instead of raising
+-- StudWork.test.memoryStore(): one store several harnesses share; store.failNext(n) injects failures
 ```
 
-Run them with `tools/test <folder>`. To boot a whole game with the real kit modules, each
-generated game has `src/server/Boot.spec.luau` (the multi-server sim, `packages/framework/test/sim`).
+Run them with `tools/test <folder>`. Several servers, real ProfileStore session locks, crashes,
+latency and DataStore failures: `StudWork.test.sim` (`sim.world()`, `sim.server(world)`,
+`server:use(Ref)`, `server:section(p, key)`, `sim.saved(world, userId)`; see
+`packages/framework/test/sim/README.md`). Each generated game has `src/server/Boot.spec.luau`, which
+boots the whole game with the real kit modules in the sim.
 
 ## Errors you will see
 

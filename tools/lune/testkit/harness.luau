@@ -210,11 +210,11 @@ makeNode = function(path: string)
 end
 
 -- Fake `game` exposing only the Rojo mapping of core (see games/_sandbox/default.project.json):
---   ReplicatedStorage.Core -> packages/core/shared, .FrameworkClient -> packages/framework/client,
---   .UI -> packages/ui, .Packages -> Packages, .Framework -> packages/framework/shared,
---   .CompatShared -> packages/kits/compat/shared (COMPAT, deleted in Phase 2),
---   .Kits.<Kit> -> packages/kits/<kit>/shared; ServerScriptService.CoreServer -> packages/core/server,
---   .Framework -> packages/framework/server, .Kits.<Kit> -> packages/kits/<kit>/server.
+--   ReplicatedStorage.FrameworkClient -> packages/framework/client, .UI -> packages/ui,
+--   .Packages -> Packages, .Framework -> packages/framework/shared,
+--   .Kits.<Kit> -> packages/kits/<kit>/shared; ServerScriptService.Framework ->
+--   packages/framework/server, .FrameworkTest -> packages/framework/test (StudWork.test),
+--   .Kits.<Kit> -> packages/kits/<kit>/server.
 -- Any other service errors, so a spec cannot silently depend on the engine.
 local folderNode
 function folderNode(children: { [string]: any })
@@ -253,12 +253,10 @@ end
 
 local BASE_CHILDREN: { [string]: { [string]: any } } = {
 	ReplicatedStorage = {
-		Core = "packages/core/shared",
 		FrameworkClient = "packages/framework/client",
 		UI = "packages/ui",
 		Packages = "deps/Packages",
 		Framework = "packages/framework/shared",
-		CompatShared = "packages/kits/compat/shared",
 		Kits = {
 			Collection = "packages/kits/collection/shared",
 			Economy = "packages/kits/economy/shared",
@@ -268,8 +266,6 @@ local BASE_CHILDREN: { [string]: { [string]: any } } = {
 		},
 	},
 	ServerScriptService = {
-		CoreServer = "packages/core/server",
-		Compat = "packages/kits/compat",
 		Framework = "packages/framework/server",
 		FrameworkTest = "packages/framework/test", -- the StudWork module harness (specs only)
 		Kits = {
@@ -415,7 +411,7 @@ end
 
 requireNode = function(target: any)
 	if type(target) == "string" then
-		-- allow plain path requires from tests: require("packages/core/shared/Types")
+		-- allow plain path requires from tests: require("packages/framework/shared/Types")
 		target = makeNode(target)
 	end
 	local path = target.__path

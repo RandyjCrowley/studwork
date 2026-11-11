@@ -12,7 +12,7 @@
 	Checks (each finding: path:line: [check] message):
 	  modules   game code uses a core module that is not in its GameConfig.modules:
 	            Core.<Module>.x, Core.Client.Actions.<action> of that module, or Core internals
-	            (CoreServer / CoreClient / FrameworkClient / Compat) required directly.
+	            (CoreServer / CoreClient / FrameworkClient) required directly.
 	  packages  game work edits packages/: on a branch named game/*, any change under packages/
 	            since the merge-base with main; on any branch, staged changes that mix packages/
 	            with games/<name>/ (other than _sandbox). GUARD_ALLOW_CORE=1 skips it (core owner).
@@ -26,7 +26,18 @@
 	            MarketplaceService.ProcessReceipt or use Prompt*PurchaseFinished, and only framework
 	            Data (and its shared store) may touch DataStoreService / ProfileStore / MemoryStoreService. Checked in game code AND in
 	            packages/ (every file outside PURCHASES_ALLOWED: framework Shop/Data/Store/Platform,
-	            and the v1.2 leftovers still live until Phase 2, listed below with a reason).
+	            listed below with a reason).
+	  special   (core-v1.3.0 Phase 2, "nothing is special") a kit (packages/kits/**), an example
+	            (examples/**) or a game module (games/*/modules/**) reaches framework internals:
+	            anything under ReplicatedStorage.Framework / FrameworkClient / FrameworkTest other
+	            than the public StudWork facade (require(...Framework) itself) and UI, the server
+	            runtime (ServerScriptService.Framework), RuntimeSlot / CompatDoor by name, or
+	            another kit's server internals (ServerScriptService.Kits.<Other>). Catches alias
+	            variables, WaitForChild / FindFirstChild chains, literal string concatenation,
+	            dynamic child names on those chains and script.Parent climbing into the framework.
+	  theme     (D's R4) a hex colour literal ("#RRGGBB"), a Color3.fromRGB literal or an asset id
+	            ("rbxassetid://123") in UI or kit/example/game-module client code outside a theme or
+	            config file (THEME_ALLOWED): colours and assets come from the theme.
 	A line ending in `-- guard: allow <check>` (e.g. `-- guard: allow numbers`) is skipped for
 	that check; use it rarely and say why on the line above.
 ]]
@@ -35,7 +46,7 @@ local fs = require("@lune/fs")
 local process = require("@lune/process")
 
 -- the kit module manifest, read from the kit module definitions (packages/kits/*/shared;
--- core-v1.3.0 step 4b-IIb, was packages/core/shared/Modules.luau)
+-- core-v1.3.0 step 4b-IIb, was the v1.2 module manifest)
 local Modules = require("./KitModules").load(fs)
 
 local Guard = {}
@@ -48,7 +59,6 @@ Guard.PURCHASES_ALLOWED = {
 	"packages/framework/server/Data.luau",
 	"packages/framework/server/SharedStore.luau", -- ctx.data.shared: the framework-owned shared DataStore
 	"packages/framework/test/", -- fakes
-	"packages/core/", -- v1.2 Core facade + its tests (no game boots it since step 4b-IIb); Phase 2 deletes it
 }
 
 local function purchasesViolation(code: string): string?
@@ -272,13 +282,12 @@ function Guard.scanSource(source: string, ctx): { string }
 				string.find(code, "CoreServer")
 				or string.find(code, "CoreClient")
 				or string.find(code, "FrameworkClient")
-				or string.find(code, 'Child%(%s*"Compat"')
 			)
 		then
 			add(
 				lineNo,
 				"modules",
-				"game code must use the Core facade, not CoreServer/CoreClient/FrameworkClient/Compat internals"
+				"game code must use the StudWork facade, not CoreServer/CoreClient/FrameworkClient internals"
 			)
 		end
 		if
@@ -455,6 +464,369 @@ function Guard.scanPackages(root: string): { string }
 	return findings
 end
 
+--------------------------------------------------------------------------------
+-- special: "nothing is special" (core-v1.3.0 Phase 2). Kits, examples and game modules use only
+-- the public StudWork facade, UI and module refs, like a third-party module would.
+--------------------------------------------------------------------------------
+
+-- Folders the check covers (relative to the repo root); specs and tests/ folders are skipped
+-- (tests may use StudWork.test and the harness).
+Guard.SPECIAL_ROOTS = { "packages/kits", "examples", "games/*/modules" }
+
+-- Internal names a module may never mention as a child (any path, any receiver).
+local INTERNAL_NAMES = { "RuntimeSlot", "CompatDoor", "FrameworkClient", "FrameworkTest" }
+
+local KIT_FOLDERS = {
+	collection = "Collection",
+	economy = "Economy",
+	base = "Base",
+	social = "Social",
+	engagement = "Engagement",
+}
+
+-- "a" .. "b" -> "ab" (repeatedly), so a name split into literals is still seen whole.
+local function foldConcat(code: string): string
+	local prev = nil
+	while prev ~= code do
+		prev = code
+		code = string.gsub(code, '"([^"]*)"%s*%.%.%s*"([^"]*)"', '"%1%2"')
+		code = string.gsub(code, "'([^']*)'%s*%.%.%s*'([^']*)'", "'%1%2'")
+	end
+	return code
+end
+
+local function escape(name: string): string
+	return (string.gsub(name, "%p", "%%%0"))
+end
+
+-- Child access right after position `i` of `code`: :WaitForChild("x") / :FindFirstChild("x") /
+-- .x / ["x"]. Returns (kind, name?) or nil. kind "dynamic" = a non-literal child name.
+local function childAfter(code: string, i: number): (string?, string?)
+	local rest = string.sub(code, i)
+	local lit = string.match(rest, "^%s*:%s*Wait%a*Child%s*%(%s*[\"']([^\"']*)[\"']")
+		or string.match(rest, "^%s*:%s*Find%a*Child%a*%s*%(%s*[\"']([^\"']*)[\"']")
+		or string.match(rest, "^%s*%[%s*[\"']([^\"']*)[\"']%s*%]")
+	if lit then
+		return "child", lit
+	end
+	if
+		string.match(rest, "^%s*:%s*Wait%a*Child%s*%(") or string.match(rest, "^%s*:%s*Find%a*Child%a*%s*%(")
+	then
+		return "dynamic", nil
+	end
+	if string.match(rest, "^%s*%[") then
+		return "dynamic", nil
+	end
+	local dot = string.match(rest, "^%.([%a_][%w_]*)")
+	if dot then
+		return "child", dot
+	end
+	return nil, nil
+end
+
+-- Positions just after every reference to a child named `name` (`:WaitForChild("name")`,
+-- `:FindFirstChild("name")`, `.name`, `["name"]`) in code.
+local function childRefs(code: string, name: string): { number }
+	local out = {}
+	local e = escape(name)
+	for _, pattern in
+		{
+			":%s*Wait%a*Child%s*%(%s*[\"']" .. e .. "[\"']%s*%)()",
+			":%s*Find%a*Child%a*%s*%(%s*[\"']" .. e .. "[\"']%s*%)()",
+			"%[%s*[\"']" .. e .. "[\"']%s*%]()",
+			"%." .. e .. "()%f[^%w_]",
+		}
+	do
+		for pos in string.gmatch(code, pattern) do
+			table.insert(out, pos)
+		end
+	end
+	return out
+end
+
+-- Scans one module file. ctx = { path, kit? (own kit folder name, e.g. "Economy") }.
+function Guard.scanSpecial(source: string, ctx: any): { string }
+	local findings = {}
+	local function add(lineNo: number, message: string)
+		table.insert(findings, `{ctx.path}:{lineNo}: [special] {message}`)
+	end
+	-- aliases: variables holding ServerScriptService, ReplicatedStorage.Framework (unrequired),
+	-- ServerScriptService.Kits, or another alias
+	local sss = { ServerScriptService = true }
+	local fw = {}
+	local kits = {}
+	local lineNo = 0
+	local inBlock = false
+	for raw in string.gmatch(source .. "\n", "([^\n]*)\n") do
+		lineNo += 1
+		local text = raw
+		if inBlock then
+			local close = string.find(text, "]]", 1, true)
+			if close == nil then
+				continue
+			end
+			inBlock = false
+			text = string.sub(text, close + 2)
+		end
+		local open = string.find(text, "--[[", 1, true) or string.find(text, "--[=[", 1, true)
+		if open then
+			local close = string.find(text, "]]", open + 4, true)
+			if close == nil then
+				inBlock = true
+				text = string.sub(text, 1, open - 1)
+			else
+				text = string.sub(text, 1, open - 1) .. string.sub(text, close + 2)
+			end
+		end
+		if allowed(raw, "special") then
+			continue
+		end
+		local code = foldConcat(stripComment(text))
+		local flagged: string? = nil
+		local function flag(message: string)
+			flagged = flagged or message
+		end
+
+		-- 1. internal names anywhere (as a child or a string)
+		for _, name in INTERNAL_NAMES do
+			if string.find(code, "[\"']" .. name .. "[\"']") or #childRefs(code, name) > 0 then
+				flag(`{name} is a framework internal: use the StudWork facade (StudWork.use / ctx)`)
+			end
+		end
+
+		-- track aliases assigned on this line: local X = <expr>
+		local lhs, rhs = string.match(code, "^%s*local%s+([%a_][%w_]*)%s*[:=][^=]*=%s*(.+)$")
+		if lhs == nil then
+			lhs, rhs = string.match(code, "^%s*local%s+([%a_][%w_]*)%s*=%s*(.+)$")
+		end
+		if lhs == nil then
+			lhs, rhs = string.match(code, "^%s*([%a_][%w_]*)%s*=%s*(.+)$")
+		end
+
+		-- 2. receivers: ServerScriptService (GetService or alias) and Framework (unrequired)
+		local function isSSS(expr: string): boolean
+			if string.find(expr, "GetService%s*%(%s*[\"']ServerScriptService[\"']%s*%)") then
+				return true
+			end
+			for name in sss do
+				if string.find(expr, "%f[%w_]" .. escape(name) .. "%f[^%w_]") then
+					return true
+				end
+			end
+			return false
+		end
+		-- ServerScriptService.Framework / ServerScriptService.Kits.<other kit>
+		if isSSS(code) then
+			for _, pos in childRefs(code, "Framework") do
+				local _ = pos
+				flag("ServerScriptService.Framework is the framework's server runtime (internal)")
+			end
+			for _, pos in childRefs(code, "Kits") do
+				local kind, name = childAfter(code, pos)
+				if kind == "dynamic" then
+					flag("dynamic child name under ServerScriptService.Kits: name the kit literally")
+				elseif kind == "child" and name ~= ctx.kit then
+					flag(
+						`ServerScriptService.Kits.{name}: another kit's server internals (use its module ref)`
+					)
+				elseif kind == nil and ctx.kit == nil then
+					flag("ServerScriptService.Kits: kit server internals (use module refs)")
+				end
+			end
+			-- a dynamic child of ServerScriptService itself (evasion of the names above)
+			local receivers = { "GetService%s*%(%s*[\"']ServerScriptService[\"']%s*%)()" }
+			for name in sss do
+				table.insert(receivers, "%f[%w_]" .. escape(name) .. "()%f[^%w_]")
+			end
+			for _, pattern in receivers do
+				for pos in string.gmatch(code, pattern) do
+					if childAfter(code, pos) == "dynamic" then
+						flag("dynamic child name under ServerScriptService: name the child literally")
+					end
+				end
+			end
+		end
+		-- Framework chains: a child of ReplicatedStorage.Framework other than the facade itself
+		for _, pos in childRefs(code, "Framework") do
+			local kind, name = childAfter(code, pos)
+			if kind ~= nil then
+				flag(
+					`Framework.{name or "<dynamic>"} is a framework internal: require the StudWork facade only`
+				)
+			end
+		end
+		-- aliases of Framework / SSS / Kits used with a child
+		for name in fw do
+			for pos in string.gmatch(code, "%f[%w_]" .. escape(name) .. "()%f[^%w_]") do
+				local kind, child = childAfter(code, pos)
+				if kind ~= nil then
+					flag(`{name} (= Framework) .{child or "<dynamic>"}: framework internal`)
+				end
+			end
+		end
+		for name in kits do
+			for pos in string.gmatch(code, "%f[%w_]" .. escape(name) .. "()%f[^%w_]") do
+				local kind, child = childAfter(code, pos)
+				if kind == "dynamic" or (kind == "child" and child ~= ctx.kit) then
+					flag(
+						`{name} (= ServerScriptService.Kits) .{child or "<dynamic>"}: another kit's server internals`
+					)
+				end
+			end
+		end
+		-- 3. script.Parent climbing into the framework (or out of the kit to packages/)
+		if
+			string.find(code, "script%.Parent[%w_%.:%(%)\"']-[%.\"'][Ff]ramework")
+			or string.find(code, "FindFirstAncestor%s*%(")
+		then
+			flag("script.Parent / FindFirstAncestor climbing into the framework: require the StudWork facade")
+		end
+
+		-- remember aliases defined on this line (after the checks: `local F = RS.Framework` is fine
+		-- on its own; using F's children is not)
+		if lhs and rhs and not string.find(rhs, "^%s*require") then
+			if isSSS(rhs) and not string.find(rhs, "Child") and not string.find(rhs, "%.[%a_]") then
+				sss[lhs] = true
+			end
+			local fwPositions = childRefs(rhs, "Framework")
+			if #fwPositions > 0 then
+				fw[lhs] = true
+			end
+			for name in fw do
+				if rhs == name or string.match(rhs, "^" .. escape(name) .. "%s*$") then
+					fw[lhs] = true
+				end
+			end
+			if #childRefs(rhs, "Kits") > 0 and isSSS(rhs) then
+				kits[lhs] = true
+			end
+			for name in sss do
+				if string.match(rhs, "^" .. escape(name) .. "%s*$") then
+					sss[lhs] = true
+				end
+			end
+		end
+
+		if flagged then
+			add(lineNo, flagged :: string)
+		end
+	end
+	return findings
+end
+
+-- theme (D's R4): literal colours / asset ids in UI and client code outside theme/config files.
+Guard.THEME_ROOTS = {
+	"packages/ui",
+	"packages/kits/*/client",
+	"examples/modules/*/client",
+	"games/*/modules/*/client",
+	"games/*/src/client",
+}
+-- Theme and config files may hold literals (the palette, tier colours, sound/asset ids).
+function Guard.isThemeAllowed(path: string): boolean
+	local base = string.match(path, "([^/]+)$") or path
+	return string.find(base, "Theme", 1, true) ~= nil
+		or string.find(base, "Palette", 1, true) ~= nil
+		or string.find(path, "/Config/", 1, true) ~= nil
+		or string.match(base, "^Config%.luau$") ~= nil
+end
+
+function Guard.scanTheme(source: string, ctx: any): { string }
+	local findings = {}
+	local lineNo = 0
+	for raw in string.gmatch(source .. "\n", "([^\n]*)\n") do
+		lineNo += 1
+		if allowed(raw, "theme") then
+			continue
+		end
+		local code = stripComment(raw)
+		local why = nil
+		if
+			string.find(code, "[\"'`]#%x%x%x%x%x%x%x?%x?[\"'`]") or string.find(code, "[\"'`]#%x%x%x[\"'`]")
+		then
+			why = "hex colour literal: use a theme colour token (ThemeTokens / StudWork theme)"
+		elseif string.find(code, "fromHex%s*%(%s*[\"']") then
+			why = "Color3.fromHex literal: use a theme colour token"
+		elseif string.find(code, "fromRGB%s*%(%s*%d") then
+			why = "Color3.fromRGB literal: use a theme colour token"
+		elseif string.find(code, "rbxassetid://%d") or string.find(code, "rbxasset://") then
+			why = "asset id literal: put it in the theme (or a config file) and read it from there"
+		end
+		if why then
+			table.insert(findings, `{ctx.path}:{lineNo}: [theme] {why}`)
+		end
+	end
+	return findings
+end
+
+-- Expands "a/*/b" against the file system (one * per segment).
+local function expand(pattern: string): { string }
+	local parts = string.split(pattern, "/")
+	local out = { "" }
+	for _, part in parts do
+		local nextOut = {}
+		for _, base in out do
+			local prefix = if base == "" then "" else base .. "/"
+			if part == "*" then
+				if base ~= "" and fs.isDir(base) then
+					for _, entry in fs.readDir(base) do
+						if fs.isDir(prefix .. entry) then
+							table.insert(nextOut, prefix .. entry)
+						end
+					end
+				end
+			else
+				table.insert(nextOut, prefix .. part)
+			end
+		end
+		out = nextOut
+	end
+	local dirs = {}
+	for _, d in out do
+		if fs.isDir(d) then
+			table.insert(dirs, d)
+		end
+	end
+	table.sort(dirs)
+	return dirs
+end
+
+local function moduleFiles(roots: { string }): { string }
+	local files = {}
+	for _, pattern in roots do
+		for _, dir in expand(pattern) do
+			local found = {}
+			walk(dir, found)
+			for _, f in found do
+				if not string.find(f, "/tests/", 1, true) and not string.find(f, "Generated", 1, true) then
+					table.insert(files, f)
+				end
+			end
+		end
+	end
+	table.sort(files)
+	return files
+end
+
+function Guard.scanSpecialAll(): { string }
+	local findings = {}
+	for _, path in moduleFiles(Guard.SPECIAL_ROOTS) do
+		local kitFolder = string.match(path, "^packages/kits/([^/]+)/")
+		local ctx = { path = path, kit = if kitFolder then KIT_FOLDERS[kitFolder] else nil }
+		for _, f in Guard.scanSpecial(fs.readFile(path), ctx) do
+			table.insert(findings, f)
+		end
+	end
+	for _, path in moduleFiles(Guard.THEME_ROOTS) do
+		if not Guard.isThemeAllowed(path) then
+			for _, f in Guard.scanTheme(fs.readFile(path), { path = path }) do
+				table.insert(findings, f)
+			end
+		end
+	end
+	return findings
+end
+
 local function git(args: { string }): string?
 	local ok, result = pcall(process.exec, "git", args)
 	if not ok or not result.ok then
@@ -573,11 +945,6 @@ local function selfTest(): boolean
 		"modules"
 	)
 	expectCheck(
-		"compat",
-		Guard.scanSource('require(SSS:WaitForChild("Compat"):WaitForChild("Tx"))', server),
-		"modules"
-	)
-	expectCheck(
 		"ProcessReceipt",
 		Guard.scanSource("MarketplaceService.ProcessReceipt = function(r) return 1 end", server),
 		"purchases"
@@ -683,14 +1050,109 @@ local function selfTest(): boolean
 		Guard.packagesFindings("main", {}, { "games/example-shop/src/x.luau", "packages/ui/Button.luau" }),
 		"packages"
 	)
-	expectClean("core branch", Guard.packagesFindings("core/v12-a", { "packages/core/x.luau" }, {}))
-	expectCheck("gamez branch", Guard.packagesFindings("gamez/x", { "packages/core/y.luau" }, {}), "packages")
+	expectClean("core branch", Guard.packagesFindings("core/v12-a", { "packages/framework/x.luau" }, {}))
+	expectCheck(
+		"gamez branch",
+		Guard.packagesFindings("gamez/x", { "packages/framework/y.luau" }, {}),
+		"packages"
+	)
 	expectCheck(
 		"templates + core",
 		Guard.packagesFindings("main", {}, { "templates/a", "packages/b" }),
 		"packages"
 	)
 	expectClean("sandbox + core", Guard.packagesFindings("main", {}, { "games/_sandbox/x", "packages/y" }))
+
+	-- special ("nothing is special", Phase 2): planted violations and evasions are caught
+	local kitCtx = { path = "packages/kits/economy/server/X.luau", kit = "Economy" }
+	local exCtx = { path = "examples/modules/x/server/init.luau" }
+	local specialCases = {
+		{ "facade child", 'local S = require(RS:WaitForChild("Framework"):WaitForChild("RuntimeSlot"))' },
+		{ "facade child dot", "local R = require(ReplicatedStorage.Framework.Resolve)" },
+		{ "alias", 'local F = RS:WaitForChild("Framework")\nlocal Sig = require(F:WaitForChild("Signal"))' },
+		{ "alias of alias", "local F = RS.Framework\nlocal G = F\nlocal R = require(G.Resolve)" },
+		{
+			"server runtime chain",
+			'local D = require(game:GetService("ServerScriptService"):WaitForChild("Framework"):WaitForChild("Data"))',
+		},
+		{
+			"SSS alias",
+			'local SSS = game:GetService("ServerScriptService")\nlocal St = require(SSS.Framework.Store)',
+		},
+		{
+			"concat",
+			'local S = require(RS:WaitForChild("Frame" .. "work"):WaitForChild("Runtime" .. "Slot"))',
+		},
+		{ "concat name only", 'local x = RS:FindFirstChild("Compat" .. "Door")' },
+		{ "FindFirstChild", 'local T = require(RS:FindFirstChild("Framework"):FindFirstChild("Theme"))' },
+		{ "dynamic child", "local name = pick()\nlocal M = require(RS.Framework[name])" },
+		{
+			"dynamic SSS child",
+			'local SSS = game:GetService("ServerScriptService")\nlocal M = SSS:WaitForChild(name)',
+		},
+		{ "script.Parent climb", "local D = require(script.Parent.Parent.Parent.framework.server.Data)" },
+		{ "FindFirstAncestor", 'local F = script:FindFirstAncestor("Framework")' },
+		{ "FrameworkClient", 'local N = require(RS:WaitForChild("FrameworkClient"):WaitForChild("Net"))' },
+		{ "CompatDoor", 'local C = require(SSS:WaitForChild("CompatDoor"))' },
+		{
+			"other kit internals",
+			'local SSS = game:GetService("ServerScriptService")\nlocal I = require(SSS:WaitForChild("Kits"):WaitForChild("Collection"):WaitForChild("Inventory"))',
+		},
+		{
+			"other kit alias",
+			'local SSS = game:GetService("ServerScriptService")\nlocal K = SSS:WaitForChild("Kits")\nlocal M = require(K.Social.Mail)',
+		},
+	}
+	for _, case in specialCases do
+		expectCheck("special " .. case[1], Guard.scanSpecial(case[2], kitCtx), "special")
+	end
+	expectCheck(
+		"special example kit internals",
+		Guard.scanSpecial('local x = game:GetService("ServerScriptService").Kits.Economy', exCtx),
+		"special"
+	)
+	for _, clean in
+		{
+			{ "facade", 'local StudWork = require(ReplicatedStorage:WaitForChild("Framework"))' },
+			{ "facade dot", "local StudWork = require(ReplicatedStorage.Framework)" },
+			{ "UI", 'local Button = require(ReplicatedStorage:WaitForChild("UI"):WaitForChild("Button"))' },
+			{ "kit refs", 'local Economy = require(Kits:WaitForChild("Economy"):WaitForChild("Economy"))' },
+			{
+				"own kit server",
+				'local SSS = game:GetService("ServerScriptService")\nlocal M = SSS:WaitForChild("Kits"):WaitForChild("Economy")',
+			},
+			{ "comment", "-- ServerScriptService.Framework.Data is internal" },
+			{ "own children", "local Rules = require(script.Parent.Rules)" },
+		}
+	do
+		expectClean("special clean " .. clean[1], Guard.scanSpecial(clean[2], kitCtx))
+	end
+	expectClean(
+		"special allowed",
+		Guard.scanSpecial("local S = require(RS.Framework.Resolve) -- guard: allow special", kitCtx)
+	)
+	-- theme (D's R4)
+	local ui = { path = "packages/ui/Badge.luau" }
+	expectCheck(
+		"theme hex",
+		Guard.scanTheme('frame.BackgroundColor3 = Color3.fromHex("#FF3B30")', ui),
+		"theme"
+	)
+	expectCheck("theme hex string", Guard.scanTheme('local accent = "#FFD23F"', ui), "theme")
+	expectCheck("theme rgb", Guard.scanTheme("label.TextColor3 = Color3.fromRGB(255, 0, 0)", ui), "theme")
+	expectCheck("theme asset", Guard.scanTheme('img.Image = "rbxassetid://1234567"', ui), "theme")
+	expectClean("theme token", Guard.scanTheme('frame.BackgroundColor3 = Theme.color("accent")', ui))
+	expectClean("theme comment", Guard.scanTheme('-- e.g. "#FF3B30"', ui))
+	expectClean("theme allowed", Guard.scanTheme('local x = "#FFFFFF" -- guard: allow theme', ui))
+	if
+		not Guard.isThemeAllowed("packages/ui/Theme.luau")
+		or not Guard.isThemeAllowed("packages/ui/ThemeTokens.luau")
+	then
+		table.insert(failures, "theme allow-list: theme files must be allowed")
+	end
+	if Guard.isThemeAllowed("packages/ui/Button.luau") then
+		table.insert(failures, "theme allow-list: Button.luau must not be allowed")
+	end
 
 	if #failures > 0 then
 		print("guardrails self-test FAILED:")
@@ -731,6 +1193,9 @@ for _, dir in dirs do
 end
 if runGit then
 	for _, f in Guard.scanPackages("packages") do
+		table.insert(findings, f)
+	end
+	for _, f in Guard.scanSpecialAll() do
 		table.insert(findings, f)
 	end
 end

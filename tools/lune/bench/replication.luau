@@ -33,8 +33,9 @@ local process = require("@lune/process")
 
 local Harness = require("../testkit/harness")
 local Snapshot = Harness.require("packages/framework/server/Replication/Snapshot.luau")
-local SectionCache = Harness.require("packages/kits/compat/SectionCache.luau")
-local Transaction = Harness.require("packages/core/server/Data/Transaction.luau")
+local SectionCache = Harness.require("tools/lune/bench/SectionCache.luau") -- v1.1 parity cache
+local Data = Harness.require("packages/framework/server/Data.luau")
+local Store = Harness.require("packages/framework/server/Store.luau")
 
 local PLAYERS = 50
 local ITEMS = 100
@@ -197,23 +198,61 @@ end
 variants.AFTER = cached(false)
 variants["AFTER-STUB"] = cached(true)
 
--- MERGED (added by the lead after merging A + D): the tick goes through the REAL Data.update
--- transaction (Data/Transaction.luau: copy-on-read proxy, deep-equal check, per-section
--- versions) and Replication reads the real Transaction.version. Measures both halves together.
-local txStates: { [any]: any } = {}
+-- MERGED (core-v1.3.0 Phase 2: ported from the deleted v1.2 Data/Transaction.luau to the
+-- framework): the tick goes through the REAL framework Data.runTx (per-section working copies,
+-- deep-equal check, per-section versions) on a v1.2 save the framework split into sections on
+-- load, and the replicated snapshot is built from Data.view (the frozen per-section copy the
+-- framework caches per section version). Measures both halves together.
+local SECTION_KEYS =
+	{ "economy", "inventory", "plot", "upgrades", "rebirth", "streak", "rarity", "mail", "sandbox" }
+local function benchModules(): { any }
+	local defaults = {
+		economy = { currency = {}, multipliers = {} },
+		inventory = { inventory = {} },
+		plot = { displayed = {} },
+		upgrades = { upgrades = {} },
+		rebirth = { rebirths = 0 },
+		streak = { streak = {} },
+		rarity = { pity = {} },
+		mail = { mail = {} },
+		sandbox = {},
+	}
+	local out = {}
+	for _, key in SECTION_KEYS do
+		table.insert(
+			out,
+			{ name = "Bench_" .. key, data = { key = key, version = 1, default = defaults[key] } }
+		)
+	end
+	return out
+end
+local runtimes: { [any]: any } = {}
 variants.MERGED = function(players)
-	local last, caches = {}, {}
+	local store = Store.memory()
+	local data = Data.new({
+		store = store,
+		modules = benchModules(),
+		gameId = "sandbox",
+		now = function()
+			return 1700000000
+		end,
+		log = function() end,
+	})
+	local last = {}
 	local shared = { activeEvents = Snapshot.copy(SHARED.activeEvents) }
 	for i, p in players do
-		caches[i] = SectionCache.new()
-		txStates[p] = Transaction.newState()
+		local player = { UserId = i, Name = "Bench" .. i }
+		store.save(i, p.data) -- a v1.2 flat save: split into sections on load
+		assert(data.load(player), "bench: framework Data.load failed")
+		runtimes[p] = { data = data, player = player }
 	end
 	local function sync(i, p)
-		local state = txStates[p]
-		local dataCopy = caches[i]:build(p.data, function(s)
-			return Transaction.version(state, s)
-		end)
-		local new = Snapshot.build(p.data, EXTRA, shared, { dataCopy = dataCopy, sanitized = true })
+		local rt = runtimes[p]
+		local new = { data = {}, extra = EXTRA, shared = shared }
+		for _, key in SECTION_KEYS do
+			new.data[key] = rt.data.view(rt.player, key)
+		end
+		new.data._framework = rt.data.view(rt.player, "_framework")
 		local d = diff(last[i], new)
 		last[i] = new
 		return d, new
@@ -222,9 +261,10 @@ variants.MERGED = function(players)
 end
 local tickFns = {
 	MERGED = function(p: FakePlayer, tick: number)
-		Transaction.run(txStates[p], p.data, function(d)
-			d.currency.Coins += 10 + tick
-			d.stats.totalEarned += 10 + tick
+		local rt = runtimes[p]
+		rt.data.runTx(rt.player, function(tx)
+			rt.data.section(tx, "economy").currency.Coins += 10 + tick
+			rt.data.section(tx, "_framework").stats.totalEarned += 10 + tick
 		end)
 	end,
 }

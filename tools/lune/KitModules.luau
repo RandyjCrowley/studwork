@@ -2,7 +2,7 @@
 --[[
 	tools/lune/KitModules: the kit module manifest for tools (core-v1.3.0 step 4b-IIb), read from
 	the kit module DEFINITIONS (packages/kits/<kit>/shared/<Module>.luau, defineModule) instead of
-	the v1.2 packages/core/shared/Modules.luau. Pure helpers (no requires); the file reading is in
+	the deleted v1.2 module manifest. Pure helpers (no requires); the file reading is in
 	KitModules.load(fs).
 
 	KitModules.parse(files)  files = { [path] = source } -> manifest

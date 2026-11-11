@@ -22,11 +22,11 @@ end
 
 -- First session: own one gem, then leave. Returns the world, a fresh server and the user id.
 local function firstSession(offline: any?, userId: number)
-	local world = F.world({ config = { balance = { offline = offline } } })
+	local world = F.world({ config = { config = { Offline = { offline = offline } } } })
 	local a = F.server(world)
 	local p = a:join(userId)
 	assert(loaded(world, a, p), "first load")
-	assert(a.services.Inventory.add(p, "gem", { source = "drop" }), "gem")
+	assert(a:use("Inventory").add(p, "gem", { source = "drop" }), "gem")
 	world:advance(2)
 	a:leave(p)
 	assert(released(world, userId), "release")
@@ -37,7 +37,7 @@ end
 local function rejoin(world, server, userId: number, away: number)
 	world:advance(away, 1) -- big frames: nothing runs while the player is away
 	local returns = {}
-	local connection = server.services.Offline.onReturn(function(player, seconds)
+	local connection = server:use("Offline").onReturn(function(player, seconds)
 		table.insert(returns, { player = player, seconds = seconds })
 	end)
 	local p = server:join(userId)
@@ -99,7 +99,7 @@ describe("offline payout on return", function()
 		local world = firstSession(nil, 16)
 		local b = F.server(world)
 		local firstTime = {}
-		b.services.Offline.onReturn(function(player)
+		b:use("Offline").onReturn(function(player)
 			table.insert(firstTime, player.UserId)
 		end)
 		local newcomer = b:join(99)

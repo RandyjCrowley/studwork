@@ -1,10 +1,12 @@
 --!strict
 --[[
-	Core public interface. FROZEN at tag core-contract-v1.2 (previously core-contract-v1.1, v0).
+	The v1.2 Core public types (FROZEN at tag core-contract-v1.2), still used by the framework
+	client UI (Hud, Feedback, Input, State). Moved from the deleted v1.2 shared folder in
+	core-v1.3.0 Phase 2; the v1.3 module API is docs/framework/module-api.md.
 
 	ADDITIVE ONLY: new fields/functions/types may be added; nothing is ever renamed or removed.
 	Deprecate instead (keep it working, mark it `-- @deprecated <why, replacement>`).
-	Every change is recorded in packages/core/CHANGELOG.md. The one-off non-additive changes
+	Every change is recorded in packages/framework/CHANGELOG.md. The one-off non-additive changes
 	made before any game existed are listed there under "Breaking (pre-games)" (core-v1.1.0).
 
 	This module is pure (no Roblox globals at load time) so Lune tests and luau-lsp can read it.
@@ -299,7 +301,7 @@ export type PaletteOverrides = { [string]: string } -- palette key -> hex
 
 -- Optional core modules a game switches on in GameConfig.modules. The foundation (Data, Net,
 -- Shop, Analytics, Policy, Events, Console, Replication; client UI kit, Feedback, Input, Hud) is
--- always on. Dependencies: packages/core/shared/Modules.luau. Core.start errors on an unknown
+-- always on. Dependencies: each module's definition (dependsOn). Core.start errors on an unknown
 -- name or a missing dependency; calling a module that is not enabled errors with
 -- "<Name> is not enabled in GameConfig.modules".
 export type ModuleName =

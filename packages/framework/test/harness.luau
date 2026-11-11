@@ -356,6 +356,60 @@ function Harness.use(self: any, ref: any): any
 	return self.runtime.use(ref)
 end
 
+-- A developer-product purchase by `p` (module-api.md §15): builds the receipt for `product` (a
+-- GameConfig.products.devProducts name or a product id) and hands it to ProcessReceipt. Roblox
+-- re-delivers a receipt answered NotProcessedYet; `retries` is how many re-deliveries to try.
+-- opts.redeliver: also re-deliver after PurchaseGranted (duplicate delivery). opts.purchaseId fixes
+-- the PurchaseId (the same id across harnesses = the same purchase). -> (last decision, every one)
+function Harness.purchase(self: any, p: any, product: string | number, opts: any?): (string, { string })
+	local o = opts or {}
+	local id: any = product
+	if type(product) == "string" then
+		local products = self.gameConfig.products
+		id = products and products.devProducts and products.devProducts[product]
+	end
+	assert(type(id) == "number", `h:purchase: unknown product {tostring(product)}`)
+	self.purchaseSeq = (self.purchaseSeq or 0) + 1
+	local receipt = {
+		PlayerId = p.UserId,
+		PurchaseId = o.purchaseId or `harness-{self.purchaseSeq}`,
+		ProductId = id,
+		CurrencySpent = o.price or 0,
+		PlaceIdWherePurchased = 1,
+	}
+	local decisions = {}
+	for _ = 1, 1 + (o.retries or 0) do
+		local decision = self:receipt(receipt)
+		table.insert(decisions, decision)
+		if decision ~= "NotProcessedYet" and not o.redeliver then
+			break
+		end
+	end
+	return decisions[#decisions], decisions
+end
+
+-- An in-memory store several harnesses can share (one "DataStore" seen by every server), with
+-- failure injection: store.failNext(n) makes the next n load/save calls raise.
+function Harness.memoryStore(): any
+	local s = Server.memoryStore()
+	local fails = 0
+	local function failing(fn: any): any
+		return function(...: any): ...any
+			if fails > 0 then
+				fails -= 1
+				error("injected store failure", 0)
+			end
+			return fn(...)
+		end
+	end
+	s.load = failing(s.load)
+	s.save = failing(s.save)
+	function s.failNext(n: number)
+		fails += n
+	end
+	return s
+end
+
 function Harness.saved(self: any, p: any): any
 	return self.store.load(p.UserId)
 end

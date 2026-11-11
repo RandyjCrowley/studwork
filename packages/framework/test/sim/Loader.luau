@@ -19,9 +19,6 @@ local luau = luneRequire("@lune/luau")
 local Loader = {}
 
 local ROOTS = {
-	"packages/core/shared",
-	"packages/core/server",
-	"packages/kits/compat",
 	"packages/framework/server",
 	"packages/framework/shared",
 	"packages/kits/collection/shared",
@@ -162,7 +159,7 @@ end
 
 Loader.node = makeNode
 
--- "games/x/../../packages/core/shared" -> "packages/core/shared"
+-- "games/x/../../packages/framework/shared" -> "packages/framework/shared"
 function Loader.normalize(path: string): string
 	local out: { string } = {}
 	for part in string.gmatch(path, "[^/]+") do
@@ -182,7 +179,7 @@ function Loader.readProject(projectPath: string): any
 	return { dir = dirname(projectPath), tree = serde.decode("json", fs.readFile(projectPath)).tree }
 end
 
--- A folder whose children are named nodes (ReplicatedStorage.Core, ServerStorage.ServerPackages).
+-- A folder whose children are named nodes (ReplicatedStorage.Kits, ServerStorage.ServerPackages).
 function Loader.folder(children: { [string]: any })
 	local function find(_, childName)
 		local child = children[childName]

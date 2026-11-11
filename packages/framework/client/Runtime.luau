@@ -101,6 +101,11 @@ end
 function Runtime.buildActions(ref: any, part: any, assertUsable: () -> ()): any
 	local out: { [string]: any } = {}
 	local net = if type(part) == "table" then part.net else nil
+	if net == "framework" then
+		-- a kit action fired on the framework's own Blink file (shared/net/framework.blink): the
+		-- kit names it instead of requiring the framework client's internals ("nothing is special")
+		net = (require :: any)(script.Parent.Net.Generated)
+	end
 	local declared = if type(part) == "table" then part.actions else nil
 	if declared ~= nil and type(declared) ~= "table" then
 		error(`{ref.name}: client part 'actions' must be a table`, 0)

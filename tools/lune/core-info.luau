@@ -5,9 +5,8 @@
 	coreVersion = the framework version, `StudWork.VERSION = "x.y.z"` in
 	              packages/framework/shared/init.luau (what the built place reports at runtime;
 	              core-v1.3.0 step 4b-IIb, was the v1.2 Core.version).
-	coreCommit  = the last commit that touched packages/framework, kits, ui or core (short hash),
-	              with "-dirty" appended when those folders have uncommitted changes. packages/core
-	              stays in the list until Phase 2 deletes it (the kits still read its shared files).
+	coreCommit  = the last commit that touched packages/framework, kits or ui (short hash), with
+	              "-dirty" appended when those folders have uncommitted changes.
 ]]
 
 local fs = require("@lune/fs")
@@ -15,7 +14,7 @@ local process = require("@lune/process")
 
 local CoreInfo = {}
 
-CoreInfo.CORE_PATHS = { "packages/framework", "packages/kits", "packages/ui", "packages/core" }
+CoreInfo.CORE_PATHS = { "packages/framework", "packages/kits", "packages/ui" }
 CoreInfo.VERSION_FILE = "packages/framework/shared/init.luau"
 
 local function git(args: { string }): (boolean, string)

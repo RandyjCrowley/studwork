@@ -5,7 +5,7 @@
 	when available, so one failing handler never blocks the others).
 ]]
 
-local Types = require(script.Parent.Types)
+local Types = require(game:GetService("ReplicatedStorage"):WaitForChild("Framework"):WaitForChild("Types"))
 
 export type HandlerList = {
 	add: (self: HandlerList, fn: (...any) -> ()) -> Types.Connection,
