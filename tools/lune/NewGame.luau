@@ -440,7 +440,7 @@ function NewGame.moduleName(gameId: string): string
 end
 
 NewGame.PLACEHOLDER_NOTE = "PLACEHOLDER ids (0): create the test and live experiences, paste their "
-	.. "universe/place ids here (docs/publishing.md). tools/publish refuses 0 ids."
+	.. "universe/place ids here (docs/framework/publishing.md). tools/publish refuses 0 ids."
 
 function NewGame.deployJson(name: string, port: number): { [string]: any }
 	return {
@@ -471,7 +471,10 @@ function NewGame.readme(name: string, port: number, designDoc: boolean, modules:
 			else "template default (all)"}`
 	)
 	table.insert(out, `- Dev: \`tools/dev {name}\` (rojo serve on port {port})`)
-	table.insert(out, `- Publish: \`tools/publish {name} --test\`, then \`--live\` (docs/publishing.md)`)
+	table.insert(
+		out,
+		`- Publish: \`tools/publish {name} --test\`, then \`--live\` (docs/framework/publishing.md)`
+	)
 	table.insert(out, "- deploy.json ids are placeholders (0) until the experiences exist on Roblox.")
 	table.insert(out, "")
 	return table.concat(out, "\n")

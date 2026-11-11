@@ -3,7 +3,7 @@
 Why StudWork looks the way it does. Organised by topic; each entry gives the decision and the reason,
 and rejected alternatives where they matter. Open problems are in [known-issues.md](known-issues.md).
 
-**History.** These decisions were made between v1.0.0 and v1.4.1. StudWork started inside a private
+**History.** These decisions were made between v1.0.0 and v1.4.1. StudWork started inside a
 monorepo next to the games built on it; it became its own repository before v1.4.0 and public in
 v1.4.1. Superseded decisions are not kept here; the current behaviour is.
 

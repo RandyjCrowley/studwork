@@ -61,7 +61,7 @@ simulation, generators, publishing). Why it is built this way: [docs/philosophy.
 
 4. Press **Play**. Edit code in your editor; Rojo syncs on save.
 
-To build a place file instead: `rojo build examples/sandbox/default.project.json -o build/sandbox.rbxl`.
+To build a place file instead: `tools/build sandbox` (writes `build/sandbox.rbxl`).
 More examples: `examples/overrides/ov-a` … `ov-f` (one override case each) and
 `examples/modules/session-leaderboard` (a third-party-style module).
 

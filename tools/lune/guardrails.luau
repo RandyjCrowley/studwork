@@ -18,7 +18,7 @@
 	  packages  game work edits packages/: on a branch named game/*, any change under packages/
 	            since the merge-base with main; on any branch, staged changes that mix packages/
 	            with games/<name>/ (or templates/, outside the core repo). GUARD_ALLOW_CORE=1 skips
-	            it (core owner, core repo only). In a games repo (v1.4.0) the core submodule
+	            it (maintainers, core repo only). In a games repo (v1.4.0) the core submodule
 	            (roblox-core/) counts as packages/, and the core pin is checked: the submodule is a
 	            git checkout, its HEAD is exactly a release tag, and it has no local changes.
 	  numbers   best-effort heuristic: a balance-looking number literal in game code outside
@@ -47,7 +47,7 @@
 	            net.blink declares, a v1.2 kit request event, or Kits / ModuleServers /
 	            ModuleClients / kitLoadServer; on the comment-stripped and the normalised text.
 	            No allow-list (the v1.3.1 transitional list is gone).
-	  theme     (D's R4) a hex colour literal ("#RRGGBB"), a Color3.fromRGB literal or an asset id
+	  theme     a hex colour literal ("#RRGGBB"), a Color3.fromRGB literal or an asset id
 	            ("rbxassetid://123") in UI or kit/example/game-module client code outside a theme or
 	            config file (THEME_ALLOWED): colours and assets come from the theme.
 	A line ending in `-- guard: allow <check>` (e.g. `-- guard: allow numbers`) is skipped for
@@ -1034,7 +1034,7 @@ function Guard.scanSpecial(source: string, ctx: any): { string }
 	return findings
 end
 
--- theme (D's R4): literal colours / asset ids in UI and client code outside theme/config files.
+-- theme: literal colours / asset ids in UI and client code outside theme/config files.
 Guard.THEME_ROOTS = {
 	"packages/ui",
 	"packages/kits/*/client",
@@ -1464,7 +1464,7 @@ function Guard.gitFindings(): { string }
 		end
 	end
 	local branch = (git({ "rev-parse", "--abbrev-ref", "HEAD" }) or ""):gsub("%s+$", "")
-	-- the core owner's bypass works only on core branches and main (review R9), never in a games repo
+	-- the maintainer bypass works only on core branches and main (review R9), never in a games repo
 	if
 		not Roots.external
 		and process.env.GUARD_ALLOW_CORE == "1"
@@ -1997,7 +1997,7 @@ local function selfTest(): boolean
 		table.insert(failures, "blinkEvents: commented-out event read")
 	end
 
-	-- theme (D's R4)
+	-- theme
 	local ui = { path = "packages/ui/Badge.luau" }
 	expectCheck(
 		"theme hex",

@@ -2,7 +2,7 @@
 # tools/publish <name> --test|--live [--dry-run]
 #
 # Publishes a game (games/<name>) to its test or live place with Open Cloud (the games repo's
-# docs/publishing.md; StudWork v1.4.0 games repos: docs/framework/games-repo.md). The project root
+# docs/framework/publishing.md; StudWork v1.4.0 games repos: docs/framework/games-repo.md). The project root
 # is $STUDWORK_PROJECT_ROOT (default: this repo); deploy.json and .env are the project's.
 #   1. gate (tools/lune/PublishGate.luau): ids not placeholders, clean game/core tree, key set,
 #      and --live only for a commit that went to --test first (deploy.json test.published)

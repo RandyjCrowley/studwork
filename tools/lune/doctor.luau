@@ -156,7 +156,7 @@ if fs.isFile(".env.example") then
 				"warn",
 				".env " .. k.key,
 				"missing" .. (if envText == nil then " (no .env file)" else ""),
-				"only needed to publish: cp .env.example .env and fill it in (docs/publishing.md)"
+				"only needed to publish: cp .env.example .env and fill it in (docs/framework/publishing.md)"
 			)
 		end
 	end

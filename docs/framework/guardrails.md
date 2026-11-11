@@ -136,6 +136,10 @@ The lint self-test plants each case; `-- guard: allow special` on a framework li
 | `purchases` | `ProcessReceipt =`, `Prompt*PurchaseFinished`, `DataStoreService`/`ProfileStore` |
 | `packages` | game branches editing `packages/`; in a games repo also the framework pin: `roblox-core/` initialised, exactly at a release tag, no local changes, and its pointer never staged together with game edits ([games-repo.md](games-repo.md)) |
 
+In this repo (not in a games repo), a maintainer committing a deliberate framework change on `main`
+or a `core/*` branch can skip the `packages` check with `GUARD_ALLOW_CORE=1 tools/lint` (and the same
+variable for the pre-commit hook). It has no effect on other branches or inside a games repo.
+
 Every `.luau` / `.lua` file Rojo would sync is scanned, whatever its name or folder; the only
 exclusions are the Blink output files the `.blink` files declare and the Wally folders
 (`deps/Packages`, `deps/ServerPackages`), by exact path. The `remotes` and `purchases` checks read a

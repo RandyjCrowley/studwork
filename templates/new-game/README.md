@@ -34,4 +34,4 @@ v1.3.0, booted with `StudWork.start`): touch the glowing block -> get an item ->
 - Game code: the game's own module, `modules/<gameId>` (`module.luau` definition + `server/`),
   renamed by `tools/new-game`; `src/server/Main.server.luau` only builds the world and starts StudWork
 - Boot test: `src/server/Boot.spec.luau` (`tools/test games/<name>`)
-- Dev: `tools/dev <name>`; publish: `tools/publish <name> --test|--live` (docs/publishing.md)
+- Dev: `tools/dev <name>`; publish: `tools/publish <name> --test|--live` (docs/framework/publishing.md)

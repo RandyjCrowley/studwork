@@ -1,6 +1,10 @@
 # Getting started
 
 From nothing to a game that boots, then your first module. Every command runs from the repo root.
+
+Run it from the root of **your games repo** ([games-repo.md](games-repo.md)): that is where real
+games live. You can also try it inside a StudWork clone to experiment: `games/` there is git-ignored
+scratch space (see "Removing a scratch game" at the end), never committed to the framework.
 The checks (`tools/lint`, `tools/typecheck`, `tools/test`) run offline in Lune, without Studio.
 
 ## 0. Once per machine

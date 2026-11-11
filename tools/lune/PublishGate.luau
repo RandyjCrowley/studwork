@@ -114,7 +114,7 @@ function PublishGate.decide(input: Input): Decision
 	if #placeholders > 0 then
 		local msg = string.format(
 			"deploy.json %s.%s is a placeholder (0 or not a positive integer): create the %s "
-				.. "experience and paste its ids (docs/publishing.md)",
+				.. "experience and paste its ids (docs/framework/publishing.md)",
 			target,
 			table.concat(placeholders, "/"),
 			target
@@ -141,7 +141,7 @@ function PublishGate.decide(input: Input): Decision
 
 	-- 3. key
 	if not input.keyPresent then
-		local msg = "ROBLOX_OPEN_CLOUD_API_KEY is not set (env var or .env, see docs/publishing.md)"
+		local msg = "ROBLOX_OPEN_CLOUD_API_KEY is not set (env var or .env, see docs/framework/publishing.md)"
 		table.insert(if real then errors else warnings, msg)
 	end
 

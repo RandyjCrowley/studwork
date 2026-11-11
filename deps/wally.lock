@@ -3,11 +3,6 @@
 registry = "test"
 
 [[package]]
-name = "randyjcrowley/studwork-deps"
-version = "0.1.0"
-dependencies = [["Charm", "littensy/charm@0.11.1"], ["CharmSync", "littensy/charm-sync@0.4.1"], ["Promise", "evaera/promise@4.0.0"], ["React", "jsdotlua/react@17.2.1"], ["ReactCharm", "littensy/react-charm@0.4.1"], ["ReactRoblox", "jsdotlua/react-roblox@17.2.1"], ["Signal", "sleitnick/signal@2.0.3"], ["Trove", "sleitnick/trove@1.8.0"], ["ProfileStore", "lm-loleris/profilestore@1.0.3"]]
-
-[[package]]
 name = "evaera/promise"
 version = "4.0.0"
 dependencies = []
@@ -116,6 +111,11 @@ dependencies = [["Charm", "littensy/charm@0.11.1"], ["React", "jsdotlua/react@17
 name = "lm-loleris/profilestore"
 version = "1.0.3"
 dependencies = []
+
+[[package]]
+name = "randyjcrowley/studwork-deps"
+version = "0.1.0"
+dependencies = [["Charm", "littensy/charm@0.11.1"], ["CharmSync", "littensy/charm-sync@0.4.1"], ["Promise", "evaera/promise@4.0.0"], ["React", "jsdotlua/react@17.2.1"], ["ReactCharm", "littensy/react-charm@0.4.1"], ["ReactRoblox", "jsdotlua/react-roblox@17.2.1"], ["Signal", "sleitnick/signal@2.0.3"], ["Trove", "sleitnick/trove@1.8.0"], ["ProfileStore", "lm-loleris/profilestore@1.0.3"]]
 
 [[package]]
 name = "sleitnick/signal"

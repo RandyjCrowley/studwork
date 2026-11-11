@@ -12,6 +12,7 @@ overridable, nothing in core is special, guardrails you can't turn off.
 | [Module API reference](module-reference.md) | `defineModule`, the server and client parts, every `ctx` field, transactions, purchases, replication, testing |
 | [Generators](generators.md) | `tools/new-game --modules`, `tools/make-module`, `tools/make-migration`, `tools/make-screen`, the `templates/` folder |
 | [Games repo](games-repo.md) | Using StudWork from a separate games repo (`roblox-core/` submodule): layout, wrappers, commands, bumping the framework, publish |
+| [Publishing](publishing.md) | One-time Roblox setup (Group, test/live experiences, Open Cloud key), `tools/publish`, launch checklist |
 | [Kit contract](kit-contract.md) | What each kit module offers other modules: api, txApi, purchase ops, extensions, signals, replicated keys |
 | Kits: [Collection](kits/collection.md), [Economy](kits/economy.md), [Base](kits/base.md), [Social](kits/social.md), [Engagement](kits/engagement.md) | Config keys with defaults, API, extensions, signals, replicated state, save data |
 | [Theme guide](theme.md) | The theme tree, presets, rarity look, HUD slots and widgets, screens |

@@ -210,7 +210,7 @@ tools/make-module <Name> --game <g>|--dir <path> / tools/make-screen <g> <Name> 
 tools/dev <game>              # rojo serve on the game's port + Studio connect steps
 tools/core-status             # every game's framework stamp vs this core
 tools/publish <game> --test|--live [--dry-run]   # games repos publish; ask the user first
-rojo build examples/sandbox/default.project.json -o build/sandbox.rbxl
+mkdir -p build && rojo build examples/sandbox/default.project.json -o build/sandbox.rbxl
 ```
 
 Every tool also works from a games repo: its `tools/*` wrappers (`templates/games-repo/`) set

@@ -39,7 +39,7 @@ Studio steps:
   2. Install the Rojo plugin once if needed (Studio > Plugins; version 7.7.x to match rokit.toml rojo).
   3. Plugins > Rojo > set the port to $PORT (address localhost) > Connect.
   4. Press Play to test. Edit code here; Rojo syncs on save. Ctrl+C here stops serving.
-  Don't publish from Studio: use tools/publish $NAME --test (docs/publishing.md).
+  Don't publish from Studio: use tools/publish $NAME --test (docs/framework/publishing.md).
 STEPS
 
 if lsof -nP -iTCP:"$PORT" -sTCP:LISTEN >/dev/null 2>&1; then

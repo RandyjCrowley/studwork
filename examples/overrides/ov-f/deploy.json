@@ -1,5 +1,5 @@
 {
-  "idsNote": "PLACEHOLDER ids (0): create the test and live experiences, paste their universe/place ids here (docs/publishing.md). tools/publish refuses 0 ids.",
+  "idsNote": "PLACEHOLDER ids (0): create the test and live experiences, paste their universe/place ids here (docs/framework/publishing.md). tools/publish refuses 0 ids.",
   "live": {
     "placeId": 0,
     "universeId": 0

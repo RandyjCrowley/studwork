@@ -33,3 +33,7 @@ REPORT_*.md
 
 # Local git worktrees
 /.worktrees/
+
+# Scratch games made with tools/new-game while trying StudWork out (real games live in a games repo)
+/games/
+/docs/games/

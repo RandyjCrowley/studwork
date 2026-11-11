@@ -140,7 +140,7 @@ Open Cloud upload, stamp), with the games repo as the project:
   `--live`) are the game folder and the `roblox-core` submodule;
 - `GAMES.md`'s "Core" column is updated.
 
-Always `--dry-run` first; a real publish uploads to Roblox, so check the target ids before you run it.
+Always `--dry-run` first; a real publish uploads to Roblox, so check the target ids before you run it. The one-time Roblox setup and the launch checklist: [publishing.md](publishing.md).
 
 ## Testing the mechanism
 
