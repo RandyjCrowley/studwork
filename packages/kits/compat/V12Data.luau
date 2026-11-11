@@ -136,10 +136,13 @@ function V12Data.new(opts: any): any
 		})
 	end
 
-	-- Flat view over an OPEN framework tx (working copies, copied on first access).
+	-- Flat view over an OPEN framework tx (working copies, copied on first access). The view
+	-- remembers its tx (txOf) so a hook the bridge hands a flat view to (Rebirth reset steps,
+	-- PHASE1-CONTRACT Rebirth.extensions.resetStep) can get the framework tx back.
+	local viewTx: { [any]: any } = setmetatable({}, { __mode = "k" }) :: any
 	local function txView(tx: any): any
 		local gameTable: any = nil
-		return setmetatable({}, {
+		local view = setmetatable({}, {
 			__index = function(_, field: any): any
 				if field == "schemaVersion" then
 					return 1
@@ -178,8 +181,15 @@ function V12Data.new(opts: any): any
 				section[field] = value
 			end,
 		})
+		viewTx[view] = tx
+		return view
 	end
 	D.txView = txView
+
+	-- The framework tx under a flat view made by txView (nil for a live view or anything else).
+	function D.txOf(view: any): any
+		return viewTx[view]
+	end
 
 	function D.get(player: any): any
 		if not data.isLoaded(player) then

@@ -42,12 +42,29 @@
 	and the coin-priced RequestRoll, which uses compliance.spendForRoll (spend + roll in ONE tx).
 	Economy registers the spender of every GameConfig.compliance.paidCurrencies currency.
 	Mail's v1.2 cross-server store becomes framework Data messages (owner "Mail").
+
+	PHASE 1 CONTRACT ((internal build report, not public)): a bridged module also
+	offers every NEW entry of the pinned cross-kit contract, through the framework's normal
+	surfaces (Loader SURFACES; Extensions.wrap*):
+	  api         Items.mutation(id) / mutations(), Plot.displayed(player); signals add
+	              Plot.DisplayCleared(player, slotId) (fed by the v1.2 ItemUndisplayed)
+	  txApi       Rarity.roll, Inventory.add/remove/list/count, Economy.grant/spend, Mail.send
+	  extensions  Inventory.onItemRemoved, Rebirth.resetStep, Mail.registerKind
+	(contractApi / contractTxApi / contractExtensions below; bridged semantics as in the contract).
+
+	ADAPTERS (Phase 1): when a kit's module is REAL (its ModuleServers.loadServer returns a real
+	server part, not Bridge.serverPart), the still-bridged v1.2 services and the sim's
+	compatServices(rt) reach it as `services.<Module>` = packages/kits/compat/adapters/<Kit>.luau
+	called as adapter(name, rt, api, txApi, extensions) -> the v1.2-shaped service table (or nil).
+	A missing v1.2 entry errors naming the adapter file. rt.compat.adapters[<Kit>] overrides the
+	file (tests).
 ]]
 
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local ServerScriptService = game:GetService("ServerScriptService")
 
 local CompatDoor = (require :: any)(ServerScriptService:WaitForChild("Framework"):WaitForChild("CompatDoor"))
+local HttpService = game:GetService("HttpService")
 local Tx = require(script.Parent.Tx)
 local V12Config = require(script.Parent.shared.V12Config)
 local V12Data = require(script.Parent.V12Data)
@@ -83,12 +100,27 @@ Bridge.API = table.freeze({
 Bridge.SIGNALS = table.freeze({
 	Economy = { "CurrencyChanged" },
 	Inventory = { "ItemAdded", "ItemRemoved" },
-	Plot = { "ItemDisplayed", "ItemUndisplayed", "PlotAssigned", "PlotReleased" },
+	Plot = { "ItemDisplayed", "ItemUndisplayed", "DisplayCleared", "PlotAssigned", "PlotReleased" },
 	Rebirth = { "Rebirthed" },
 	Upgrades = { "UpgradePurchased" },
 	Streak = { "StreakAdvanced" },
 	Friends = { "CoPlay" },
 })
+
+-- The kit of each v1.2 service (adapters/<Kit>.luau).
+Bridge.KIT_OF = table.freeze({
+	Items = "Collection",
+	Inventory = "Collection",
+	Rarity = "Collection",
+	Economy = "Economy",
+	Upgrades = "Economy",
+	Rebirth = "Economy",
+	Offline = "Economy",
+	Plot = "Base",
+	Friends = "Social",
+	Mail = "Social",
+	Streak = "Engagement",
+} :: { [string]: string })
 
 -- v1.2 ReplicatedState extra keys -> the module whose ctx.replicate carries them.
 Bridge.REPLICATED_OWNER = table.freeze({
@@ -117,6 +149,9 @@ type State = {
 	pendingRoll: any,
 	spendReason: string?,
 	warned: { [string]: boolean },
+	removedHooks: { (any, any, any) -> () },
+	removedInTx: { [any]: boolean },
+	adapted: { [string]: any },
 }
 
 local states: { [any]: State } = setmetatable({}, { __mode = "k" }) :: any
@@ -149,12 +184,25 @@ local function stateFor(rt: any): State
 			pendingRoll = nil,
 			spendReason = nil,
 			warned = {},
+			removedHooks = {},
+			removedInTx = setmetatable({}, { __mode = "k" }) :: any,
+			adapted = {},
 		}
+		if signals.DisplayCleared == nil then
+			-- PHASE1-CONTRACT Plot.signals.DisplayCleared is not in the v1.2 signal set
+			local Signal = (require :: any)(ReplicatedStorage:WaitForChild("Packages"):WaitForChild("Signal"))
+			signals.DisplayCleared = Signal.new()
+		end
 		st = created
 		states[rt] = created
 	end
 	return st :: State
 end
+
+local moduleEnabled: (st: State, name: string) -> boolean
+local adapted: (st: State, name: string) -> any
+local v12Service: (st: State, name: string) -> any
+local runRemovedHooks: (st: State, player: any, instance: any) -> ()
 
 local function warnOnce(st: State, key: string, msg: string)
 	if not st.warned[key] then
@@ -195,6 +243,83 @@ local function productTag(tx: any): string
 		return tx.receipt
 	end)
 	return if okR and type(receipt) == "table" then tostring(receipt.ProductId) else "unknown"
+end
+
+--------------------------------------------------------------------------------
+-- Adapters: a REAL kit module seen through the v1.2 surface (PHASE1-CONTRACT)
+--------------------------------------------------------------------------------
+
+local function refNamed(rt: any, name: string): any
+	for _, ref in rt.order or {} do
+		if ref.name == name then
+			return ref
+		end
+	end
+	return nil
+end
+
+-- Bridged here, or real and enabled in this game.
+function moduleEnabled(st: State, name: string): boolean
+	return st.enabled[name] == true or (Bridge.API[name] ~= nil and refNamed(st.rt, name) ~= nil)
+end
+
+local function adapterFn(st: State, kit: string): any
+	local compat = st.rt.compat
+	local injected = if type(compat) == "table" and type(compat.adapters) == "table"
+		then compat.adapters[kit]
+		else nil
+	if injected ~= nil then
+		return injected
+	end
+	return (require :: any)(script.Parent:WaitForChild("adapters"):WaitForChild(kit))
+end
+
+-- services.<name> for a real (not bridged) module: its kit adapter's v1.2-shaped table behind a
+-- proxy that names the adapter file on a missing entry. nil when the module isn't in the game.
+function adapted(st: State, name: string): any
+	if st.services[name] ~= nil then
+		return nil
+	end
+	if st.adapted[name] ~= nil then
+		return st.adapted[name]
+	end
+	local rt = st.rt
+	local ref = refNamed(rt, name)
+	if ref == nil then
+		return nil
+	end
+	local kit = Bridge.KIT_OF[name]
+	local service = adapterFn(st, kit)(name, rt, rt.apis[ref], rt.txApis[ref], rt.exts[ref])
+	local file = `packages/kits/compat/adapters/{kit}.luau`
+	if service ~= nil and type(service) ~= "table" then
+		error(`[Compat] {file} returned a {type(service)} for {name}; expected a table or nil`, 0)
+	end
+	local inner: any = service or {}
+	local proxy = setmetatable({}, {
+		__index = function(_, key: any): any
+			local value = inner[key]
+			if value == nil then
+				error(
+					`[Compat] {name} is a real module: its v1.2 '{tostring(key)}' isn't provided by {file}`,
+					2
+				)
+			end
+			return value
+		end,
+		__newindex = function(_, key: any, value: any)
+			inner[key] = value
+		end,
+		__tostring = function()
+			return "AdaptedModule(" .. name .. ")"
+		end,
+	})
+	st.adapted[name] = proxy
+	return proxy
+end
+
+-- The v1.2 service bridged siblings reach as services.<name>: the bridged one, else the adapter.
+function v12Service(st: State, name: string): any
+	return st.services[name] or adapted(st, name) or disabledProxy(name)
 end
 
 --------------------------------------------------------------------------------
@@ -307,10 +432,10 @@ local function requestRoll(st: State): (any, any) -> ()
 			rt.net.feedback(player, "toast", "Not available in your region")
 			return
 		end
-		if not st.enabled.Economy or not st.enabled.Inventory then
+		if not moduleEnabled(st, "Economy") or not moduleEnabled(st, "Inventory") then
 			return
 		end
-		local Inventory = st.services.Inventory
+		local Inventory = v12Service(st, "Inventory")
 		if not rt.data.isLoaded(player) or Inventory.count(player) >= Inventory.cap(player) then
 			return -- checked before spending, so a full inventory never costs currency
 		end
@@ -343,7 +468,7 @@ local function requestRoll(st: State): (any, any) -> ()
 			return
 		end
 		-- a free (not Robux-buyable) currency: v1.2 spend, roll, refund on failure
-		local Economy = st.services.Economy
+		local Economy = v12Service(st, "Economy")
 		local reason = "roll:" .. tableId
 		if not Economy.spend(player, cost.amount, reason, cost.currency) then
 			return
@@ -601,7 +726,7 @@ local function buildV12(st: State, firstCtx: any)
 		Analytics = rt.analytics.api,
 	}
 	for name in Bridge.API do
-		services[name] = st.services[name] or disabledProxy(name)
+		services[name] = st.services[name] or adapted(st, name) or disabledProxy(name)
 	end
 
 	local function route(key: string): any
@@ -669,7 +794,7 @@ local function buildV12(st: State, firstCtx: any)
 		serverConfig = if type(rt.serverConfig) == "table" then rt.serverConfig else {},
 		modules = view.modules,
 		isEnabled = function(name: string): boolean
-			return st.enabled[name] == true or FOUNDATION[name] == true
+			return moduleEnabled(st, name) or FOUNDATION[name] == true
 		end,
 	}
 
@@ -702,6 +827,14 @@ local function initModule(st: State, name: string, ctx: any)
 		end
 	elseif name == "Mail" then
 		wireMail(st)
+	elseif name == "Inventory" then
+		st.signals.ItemRemoved:Connect(function(player: any, instance: any)
+			runRemovedHooks(st, player, instance)
+		end)
+	elseif name == "Plot" then
+		st.signals.ItemUndisplayed:Connect(function(player: any, _uid: any, slotId: any)
+			st.signals.DisplayCleared:Fire(player, slotId)
+		end)
 	end
 	st.current = name
 	service.init(st.v12)
@@ -718,6 +851,238 @@ local function startModule(st: State, name: string)
 	st.current = name
 	st.services[name].start()
 	st.current = nil
+end
+
+--------------------------------------------------------------------------------
+-- PHASE1-CONTRACT surfaces of a bridged module
+--------------------------------------------------------------------------------
+
+local function frozenCopy(value: any): any
+	if type(value) ~= "table" then
+		return value
+	end
+	local out = {}
+	for k, v in value do
+		out[k] = frozenCopy(v)
+	end
+	return table.freeze(out)
+end
+
+-- A MutationDef as the contract pins it: the v1.2 def plus the Economy namespace
+-- (economy.incomeMultiplier = the v1.2 multiplier) when the def doesn't carry one already.
+local function mutationDef(m: any): any
+	local out = table.clone(m)
+	if type(out.economy) ~= "table" and type(out.multiplier) == "number" then
+		out.economy = { incomeMultiplier = out.multiplier }
+	end
+	return frozenCopy(out)
+end
+
+local function mutationList(st: State): { any }
+	local list = {}
+	local raw = st.config and st.config.balance.mutations
+	for _, m in if type(raw) == "table" then raw else {} do
+		if type(m) == "table" and type(m.id) == "string" then
+			table.insert(list, mutationDef(m))
+		end
+	end
+	return list
+end
+
+-- Inventory.extensions.onItemRemoved hooks (bridged semantics): run in a fresh tx right after a
+-- v1.2 removal (remove, transfer, gift) commits. A removal through txApi.remove ran them inside
+-- its own tx already (removedInTx), so the signal skips it.
+function runRemovedHooks(st: State, player: any, instance: any)
+	if st.removedInTx[instance] then
+		st.removedInTx[instance] = nil
+		return
+	end
+	if #st.removedHooks == 0 or not st.rt.data.isLoaded(player) then
+		return
+	end
+	local view = frozenCopy(instance)
+	local ok, err = pcall(st.rt.data.runTx, player, function(tx: any)
+		for _, hook in table.clone(st.removedHooks) do
+			hook(tx, player, view)
+		end
+	end)
+	if not ok then
+		st.rt.logSink("warn", `[Compat.Inventory] onItemRemoved hook failed (rolled back): {tostring(err)}`)
+	end
+end
+
+local function contractApi(st: State, name: string, api: { [string]: any })
+	if name == "Items" then
+		api.mutation = function(id: any): any
+			for _, m in mutationList(st) do
+				if m.id == id then
+					return m
+				end
+			end
+			return nil
+		end
+		api.mutations = function(): { any }
+			return mutationList(st)
+		end
+	elseif name == "Plot" then
+		api.displayed = function(player: any): { [string]: string }
+			local data = st.data and st.data.get(player)
+			local displayed = if data then data.displayed else nil
+			return frozenCopy(if type(displayed) == "table" then displayed else {})
+		end
+	end
+end
+
+local HOLD = table.freeze({}) -- Mail claimFn returned false: abort its tx
+
+local function contractTxApi(st: State, name: string, service: any): any
+	if name == "Rarity" then
+		return {
+			roll = function(tx: any, tableId: string, luck: number?): (any, any)
+				return rollInTx(st, tx, tableId, luck, nil)
+			end,
+		}
+	elseif name == "Inventory" then
+		return {
+			add = function(tx: any, itemId: string, opts: any?): any
+				return service.addInto(tx12(st, tx), itemId, opts)
+			end,
+			remove = function(tx: any, uid: string, _reason: string?): boolean
+				local flat = st.data.txView(tx)
+				local instance = if type(uid) == "string" then flat.inventory[uid] else nil
+				if instance == nil then
+					return false
+				end
+				flat.inventory[uid] = nil
+				local player = tx.player
+				local view = frozenCopy(instance)
+				for _, hook in table.clone(st.removedHooks) do
+					hook(tx, player, view)
+				end
+				st.removedInTx[instance] = true
+				tx.after(function()
+					st.signals.ItemRemoved:Fire(player, instance)
+				end)
+				return true
+			end,
+			list = function(tx: any): { any }
+				local list = {}
+				for _, instance in st.data.txView(tx).inventory do
+					table.insert(list, frozenCopy(instance))
+				end
+				return list
+			end,
+			count = function(tx: any): number
+				local n = 0
+				for _ in st.data.txView(tx).inventory do
+					n += 1
+				end
+				return n
+			end,
+		}
+	elseif name == "Economy" then
+		local RateMath = kitChild("Economy", "Economy", "RateMath")
+		return {
+			grant = function(tx: any, amount: number, reason: string, currency: string?): boolean
+				return service.grantInto(tx12(st, tx), amount, reason, currency)
+			end,
+			-- v1.2 Economy.spend inside the caller's tx (same checks, signal + analytics after commit)
+			spend = function(tx: any, amount: number, reason: string, currency: string?): boolean
+				local balance = st.config.balance
+				local id = if currency == nil then balance.primaryCurrency else currency
+				if st.ctxs.Economy.compliance.isPaidCurrency(id) then
+					error("spend a paid currency only through compliance.spendForRoll", 2)
+				end
+				if not RateMath.isPositiveAmount(amount) or type(reason) ~= "string" then
+					return false
+				end
+				local flat = st.data.txView(tx)
+				if
+					not RateMath.isKnownCurrency(
+						id,
+						balance.primaryCurrency,
+						balance.startingCurrency,
+						flat.currency
+					)
+				then
+					return false
+				end
+				local applied, newBalance = RateMath.applySpend(flat.currency, id, amount)
+				if not applied then
+					return false
+				end
+				local player = tx.player
+				tx.after(function()
+					st.signals.CurrencyChanged:Fire(player, id, newBalance, -amount, reason)
+					local kind, sku = RateMath.splitReason(reason)
+					pcall(st.rt.analytics.api.economy, player, "Sink", id, amount, kind, sku)
+				end)
+				return true
+			end,
+		}
+	elseif name == "Mail" then
+		return {
+			send = function(tx: any, toUserId: number, kind: string, payload: any, key: string?): boolean
+				local k = if key == nil then HttpService:GenerateGUID(false) else key
+				return service.sendInto(tx12(st, tx), toUserId, kind, payload, k)
+			end,
+		}
+	end
+	return nil
+end
+
+local function contractExtensions(st: State, name: string, service: any): any
+	if name == "Inventory" then
+		return {
+			onItemRemoved = function(fn: (any, any, any) -> ())
+				assert(type(fn) == "function", "Inventory.onItemRemoved(fn): fn must be a function")
+				table.insert(st.removedHooks, fn)
+			end,
+		}
+	elseif name == "Rebirth" then
+		return {
+			-- runs inside the v1.2 rebirth Data.update; the hook gets that update's framework tx
+			resetStep = function(id: string, fn: (any, any) -> ())
+				assert(type(fn) == "function", "Rebirth.resetStep(id, fn): fn must be a function")
+				service.addResetStep(id, function(data: any, player: any)
+					local tx = st.data.txOf(data)
+					assert(tx ~= nil, "[Compat.Rebirth] reset step ran outside a framework tx")
+					fn(tx, player)
+				end)
+			end,
+		}
+	elseif name == "Mail" then
+		return {
+			-- bridged: a v1.2 onReceive handler that runs claimFn in its own ctx.tx; false holds
+			-- the message (and discards the tx), an error retries / dead-letters (v1.2 Delivery)
+			registerKind = function(kind: string, claimFn: (any, any, any, any) -> boolean?)
+				assert(
+					type(claimFn) == "function",
+					"Mail.registerKind(kind, claimFn): claimFn must be a function"
+				)
+				service.onReceive(kind, function(player: any, payload: any, info: any): boolean?
+					local held = false
+					local ok, committed = pcall(st.rt.data.runTx, player, function(tx: any)
+						if claimFn(tx, player, payload, info) == false then
+							held = true
+							error(HOLD, 0)
+						end
+					end)
+					if held then
+						return false
+					end
+					if not ok then
+						error(committed, 0)
+					end
+					if committed ~= true then
+						error(`[Compat.Mail] {kind}: claim tx did not commit (player not loaded)`, 0)
+					end
+					return true
+				end)
+			end,
+		}
+	end
+	return nil
 end
 
 local function buildApi(st: State, name: string, service: any): any
@@ -747,6 +1112,7 @@ local function buildApi(st: State, name: string, service: any): any
 		end
 		api.signals = signals
 	end
+	contractApi(st, name, api)
 	return api
 end
 
@@ -803,6 +1169,14 @@ function Bridge.serverPart(name: string, loadService: () -> any): any
 	if ops then
 		part.purchaseOps = ops
 	end
+	local txApi = contractTxApi(st, name, service)
+	if txApi then
+		part.txApi = txApi
+	end
+	local extensions = contractExtensions(st, name, service)
+	if extensions then
+		part.extensions = extensions
+	end
 	return part
 end
 
@@ -823,12 +1197,12 @@ local function v12Shop(st: State): any
 			policyKnown = ptx.policyKnown,
 			paidRandomRestricted = ptx.paidRandomRestricted,
 			grant = function(amount: number, currency: string?): boolean
-				return st.services.Economy.grantInto(t, amount, "product:" .. productTag(ptx), currency)
+				return v12Service(st, "Economy").grantInto(t, amount, "product:" .. productTag(ptx), currency)
 			end,
 			addItem = function(itemId: string, opts: any?): any
 				local o: { [string]: any } = if type(opts) == "table" then table.clone(opts) else {}
 				o.source = "paid:" .. productTag(ptx)
-				return st.services.Inventory.addInto(t, itemId, o)
+				return v12Service(st, "Inventory").addInto(t, itemId, o)
 			end,
 			roll = function(tableId: string, luck: number?): (any, any)
 				return rollInTx(
@@ -858,7 +1232,15 @@ end
 -- framework). Test-only (packages/framework/test/sim).
 function Bridge.compatServices(rt: any): any
 	local st = states[rt]
-	assert(st ~= nil and st.v12 ~= nil, "[Compat] no v1.2 services booted on this runtime")
+	if st == nil or st.v12 == nil then
+		-- every kit module is real: only their adapters (no v1.2 Data / Shop to offer)
+		local only = stateFor(rt)
+		local out: { [string]: any } = { Policy = rt.policy.api, Analytics = rt.analytics.api }
+		for name in Bridge.API do
+			out[name] = adapted(only, name)
+		end
+		return out, only.signals
+	end
 	local out = table.clone(st.v12.services)
 	out.Shop = v12Shop(st)
 	return out, st.signals
