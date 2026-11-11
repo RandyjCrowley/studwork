@@ -156,7 +156,7 @@ describe("Economy kit on the StudWork harness (no bridge)", function()
 		expect(economy.balance(p)).toBe(12) -- 4/s on the shared ticker
 	end)
 
-	-- core-v1.3.1 R19: the client actions are the modules' own `actions` (own net.blink), not
+	-- v1.3.1 R19: the client actions are the modules' own `actions` (own net.blink), not
 	-- framework events; h:action takes the live Net path (loaded check, rate limit, pcall).
 	it("client actions: Upgrades.upgrade and Rebirth.rebirth, validated and rate-limited", function()
 		local h = boot()

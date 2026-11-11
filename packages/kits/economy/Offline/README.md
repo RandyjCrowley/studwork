@@ -1,6 +1,6 @@
 # Offline (economy kit)
 
-Layout (core-v1.3.1, one folder per module, module-api.md §1): `module.luau` (definition), `server/` (server part; the code files named below live there). Rojo: `ReplicatedStorage.Modules.Offline` (module, client, shared), `ServerScriptService.Modules.Offline` (server).
+Layout (v1.3.1, one folder per module, module-api.md §1): `module.luau` (definition), `server/` (server part; the code files named below live there). Rojo: `ReplicatedStorage.Modules.Offline` (module, client, shared), `ServerScriptService.Modules.Offline` (server).
 
 A real StudWork module (v1.3.0), no save section. Definition:
 `module.luau`. Pure math: `OfflineMath.luau` (+ spec).

@@ -1,6 +1,6 @@
 local ActionGate = require(script.Parent.ActionGate)
 
--- core-v1.3.1 (R19): the kit-owned actions' not-enabled check moved with the actions to the kits'
+-- v1.3.1 (R19): the kit-owned actions' not-enabled check moved with the actions to the kits'
 -- client parts (packages/kits/KitClients.spec.luau asserts the same message for every one).
 describe("Client.ActionGate", function()
 	it("errors before Core.start", function()

@@ -1,7 +1,7 @@
 --!strict
 --[[
 	tools/lune/KitModules: the kit module manifest for tools (v1.3.0), read from
-	the kit module DEFINITIONS (core-v1.3.1 R19, one folder per module:
+	the kit module DEFINITIONS (v1.3.1 R19, one folder per module:
 	packages/kits/<kit>/<Module>/module.luau, defineModule) instead of the deleted v1.2 module
 	manifest. Pure helpers; the file reading is in KitModules.load(fs) (module folders found by
 	tools/lune/ModuleDiscovery.luau, the same discovery as the testkit, the sim and sync-projects).

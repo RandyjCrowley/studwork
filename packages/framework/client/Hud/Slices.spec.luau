@@ -1,6 +1,6 @@
 local Slices = require(script.Parent.Slices)
 
--- core-v1.3.1 (R19): the kit-specific readers (currency, rate, mailbox, odds, inventory, plot name)
+-- v1.3.1 (R19): the kit-specific readers (currency, rate, mailbox, odds, inventory, plot name)
 -- moved with their assertions to the kits' client/State.spec.luau; these are the generic readers
 -- they replaced, on the same pinned keys.
 local modular = {

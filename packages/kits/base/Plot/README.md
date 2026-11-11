@@ -1,6 +1,6 @@
-# Plot (base kit, core-v1.3.0 module)
+# Plot (base kit, v1.3.0 module)
 
-Layout (core-v1.3.1, one folder per module, module-api.md §1): `module.luau` (definition), `server/` (server part; the code files named below live there), `client/` (client part). Rojo: `ReplicatedStorage.Modules.Plot` (module, client, shared), `ServerScriptService.Modules.Plot` (server).
+Layout (v1.3.1, one folder per module, module-api.md §1): `module.luau` (definition), `server/` (server part; the code files named below live there), `client/` (client part). Rojo: `ReplicatedStorage.Modules.Plot` (module, client, shared), `ServerScriptService.Modules.Plot` (server).
 
 Assigns each player a plot, shows their displayed items on it, frees it when they leave.
 Definition `module.luau` (depends on Inventory; optional Items, Rarity, Rebirth).
@@ -62,7 +62,7 @@ attributes `ItemUid`, `ItemId`, `Rarity`, `DisplaySlotId`. All parts are anchore
   `ItemRemoved` always clears the item's slot.
 - **owner(plot)**: the Player who owns the plot, or nil. Use it in touch/prompt handlers:
   `if Core.Plot.owner(plotModel) ~= player then return end`.
-- **Actions** (core-v1.3.1, Plot's own `net.blink`, `RemoteScope = "STUDWORK_PLOT"`):
+- **Actions** (v1.3.1, Plot's own `net.blink`, `RemoteScope = "STUDWORK_PLOT"`):
   `display(uid, slotId?)` (event `Display`, `(Id, Id?)`) and `clearDisplay(uid)` (event
   `ClearDisplay`, `Id`), each 8/s burst 16, replacing the framework's `RequestDisplay` /
   `RequestClearDisplay`. Client: `StudWork.use(Plot).actions.display(uid)`. The handlers check that

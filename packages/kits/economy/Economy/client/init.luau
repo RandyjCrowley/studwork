@@ -1,11 +1,11 @@
 --!strict
 --[[
-	Economy client part (module-api.md §9, §13; core-v1.3.1 R19: one folder per module, found by
+	Economy client part (module-api.md §9, §13; v1.3.1 R19: one folder per module, found by
 	the client runtime as ReplicatedStorage.Modules.Economy.client).
 
 	The HUD currency widget "Economy.currency" (topCenter, order 1: the primary currency
 	config.Economy.primaryCurrency, default "Coins", + its rate unless HudOptions.showRate == false).
-	It moved here from the framework HUD in core-v1.3.1 under the same id, registered with
+	It moved here from the framework HUD in v1.3.1 under the same id, registered with
 	UI.registerWidget at start (the HUD re-renders on late registration), so
 	GameConfig.client.hud.widgets["Economy.currency"] = false / a replacement spec / a bare
 	component and a whole-HUD layout keep working. A removal registered before start

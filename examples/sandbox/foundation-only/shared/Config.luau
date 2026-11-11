@@ -1,6 +1,6 @@
 --!strict
 --[[
-	Foundation-only test config (core-v1.3.0 shape): no kit modules, no items. Proves StudWork
+	Foundation-only test config (v1.3.0 shape): no kit modules, no items. Proves StudWork
 	boots with just the framework (Data, Policy, Analytics, Events, Shop, Net, Replication,
 	Compliance, Console) plus the game's own module (foundation-only/modules/foundationonly), and
 	that a module that isn't enabled errors with a clear message.

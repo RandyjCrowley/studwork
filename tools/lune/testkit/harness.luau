@@ -273,7 +273,7 @@ function folderNode(children: { [string]: any })
 end
 
 -- Every shipped module folder (packages/kits/*/*/module.luau, examples/modules/*/module.luau),
--- mapped like Rojo (core-v1.3.1 R19, module-api.md §1): ReplicatedStorage.Modules.<Name>.{module,
+-- mapped like Rojo (v1.3.1 R19, module-api.md §1): ReplicatedStorage.Modules.<Name>.{module,
 -- client, shared} and ServerScriptService.Modules.<Name> (the server part). Discovery is shared
 -- with the sim and tools/sync-projects (tools/lune/ModuleDiscovery.luau).
 local ModuleDiscovery = require("../ModuleDiscovery")

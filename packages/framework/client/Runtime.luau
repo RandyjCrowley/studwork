@@ -36,13 +36,13 @@ local Resolve = (require :: any)(Shared:WaitForChild("Resolve"))
 
 local Runtime = {}
 
-Runtime.VERSION = "1.4.0"
+Runtime.VERSION = "1.4.1"
 
 local function pascal(name: string): string
 	return string.upper(string.sub(name, 1, 1)) .. string.sub(name, 2)
 end
 
--- The live client part lookup (module-api.md §19.9, added in core-v1.3.1: R19, one folder per
+-- The live client part lookup (module-api.md §19.9, added in v1.3.1: R19, one folder per
 -- module): the game module's ReplicatedStorage.GameModule.client, else
 -- ReplicatedStorage.Modules[ref.client].client. A part without a `net` field gets that instance's
 -- `Net` ModuleScript child (the module's generated Blink client module, from its net.blink) as

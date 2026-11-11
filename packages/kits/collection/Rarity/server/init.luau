@@ -401,7 +401,7 @@ function Rarity.new(): any
 		end
 	end
 
-	-- Client action `roll(tableId)` (own net.blink event Roll; core-v1.3.1 R19, was the framework
+	-- Client action `roll(tableId)` (own net.blink event Roll; v1.3.1 R19, was the framework
 	-- event RequestRoll). Same rate limit as before (4/s, burst 8).
 	part.actions = {
 		roll = { limit = { rate = 4, burst = 8 }, handler = requestRoll },

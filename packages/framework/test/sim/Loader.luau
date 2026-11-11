@@ -33,7 +33,7 @@ end
 local ROOTS = {
 	Loader.core("packages/framework/server"),
 	Loader.core("packages/framework/shared"),
-	Loader.core("packages/kits"), -- every module folder (packages/kits/<kit>/<Module>, core-v1.3.1 R19)
+	Loader.core("packages/kits"), -- every module folder (packages/kits/<kit>/<Module>, v1.3.1 R19)
 	Loader.core("deps/ServerPackages"),
 	Loader.core("deps/Packages/_Index/sleitnick_trove@1.8.0/trove"),
 	-- game projects (Fixtures.gameServer boots a real game's Config through its Rojo project)

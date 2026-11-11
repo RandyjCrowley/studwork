@@ -118,7 +118,7 @@ describe("StreakMath.rewardFor", function()
 	end)
 end)
 
-describe("StreakMath time zone (core-v1.3.0)", function()
+describe("StreakMath time zone (v1.3.0)", function()
 	local DAY = 86400
 	it("offset 0 / nil / invalid is UTC (the v1.2 days)", function()
 		local t = 100 * DAY + 3600

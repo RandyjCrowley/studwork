@@ -1,5 +1,5 @@
 --[[
-	Leave -> rejoin with saved data intact (known-issues "Not verified live": leave/rejoin).
+	Leave -> rejoin with saved data intact (docs/manual-qa.md, not verified live: "Not verified live": leave/rejoin).
 	Real framework Data + real ProfileStore 1.0.3 on the mock DataStore; see sim/README.md.
 ]]
 

@@ -1,8 +1,8 @@
 # Rarity (collection kit)
 
-Layout (core-v1.3.1, one folder per module, module-api.md §1): `module.luau` (definition), `server/` (server part; the code files named below live there), `client/` (client part), `shared/` (both sides). Rojo: `ReplicatedStorage.Modules.Rarity` (module, client, shared), `ServerScriptService.Modules.Rarity` (server).
+Layout (v1.3.1, one folder per module, module-api.md §1): `module.luau` (definition), `server/` (server part; the code files named below live there), `client/` (client part), `shared/` (both sides). Rojo: `ReplicatedStorage.Modules.Rarity` (module, client, shared), `ServerScriptService.Modules.Rarity` (server).
 
-Real StudWork module (core-v1.3.0). Definition: `module.luau`; server part:
+Real StudWork module (v1.3.0). Definition: `module.luau`; server part:
 `init.luau` (full API in its header). Pure math: `RollMath.luau` (tests seeded with
 `SeededRng.luau`), `LuckRule`, `LuckRegistry`, `OddsSync`. Tiers: `shared/Tiers.luau`.
 
@@ -32,4 +32,4 @@ Real StudWork module (core-v1.3.0). Definition: `module.luau`; server part:
 | `roll(tableId)` | event `Roll`, `Data: Id` (generated `server/Net.luau`, `client/Net.luau`) | 4/s, burst 8 |
 
 Client: `StudWork.use(Rarity).actions.roll(tableId)`. Tests: `h:action(p, Rarity, "roll", ...)`.
-core-v1.3.1 (R19): replaces the framework Blink event `RequestRoll`.
+v1.3.1 (R19): replaces the framework Blink event `RequestRoll`.

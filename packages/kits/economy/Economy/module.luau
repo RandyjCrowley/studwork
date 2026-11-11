@@ -13,7 +13,7 @@
 	  currencies           further currencies Economy OWNS besides primaryCurrency default none
 	Paid (Robux-buyable) currencies are framework config: GameConfig.compliance.paidCurrencies.
 	Economy registers the compliance spender (ctx.compliance.registerCurrencySpender) only for the
-	paid currencies it owns: primaryCurrency and `currencies` (core-v1.3.1, R20). Any other paid
+	paid currencies it owns: primaryCurrency and `currencies` (v1.3.1, R20). Any other paid
 	currency needs its own owner module, or boot fails (module-api §19.10). Granting/holding any
 	currency id is unchanged.
 	data: section `economy` = { currency = { [id]: number }, multipliers = { [id]: { mult,

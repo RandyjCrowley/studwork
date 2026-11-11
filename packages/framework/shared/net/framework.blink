@@ -1,6 +1,6 @@
 -- StudWork framework network contract (Blink IDL, compiled with `tools/net` -> blink 0.18.9).
 -- Only the framework's OWN messages live here: state sync, feedback, live events, admin triggers
--- and UI funnel steps. core-v1.3.1 (R19): no module has events here; every module (kits included)
+-- and UI funnel steps. v1.3.1 (R19): no module has events here; every module (kits included)
 -- declares its actions/events in its own <Module>/net.blink with its own RemoteScope
 -- (module-api.md §1, §9, §19.9). The `special` guardrail fails on any kit name in this file.
 -- Every client -> server event is a REQUEST: the server validates type, range and ownership
@@ -51,7 +51,7 @@ event StateSync {
     Data: unknown
 }
 
--- Cosmetic feedback: number pops, tier reveals, toasts. Tier: a theme tier id (core-v1.3.1:
+-- Cosmetic feedback: number pops, tier reveals, toasts. Tier: a theme tier id (v1.3.1:
 -- was `Rarity`; the framework wire names no kit).
 struct FeedbackMessage {
     Kind: string(1..32),

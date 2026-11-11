@@ -1,6 +1,6 @@
 --!strict
 --[[
-	The sandbox GameConfig (core-v1.3.0 shape, module-api.md §3, §11). The server and client
+	The sandbox GameConfig (v1.3.0 shape, module-api.md §3, §11). The server and client
 	scripts both pass it to StudWork.start. Sandbox loop: touch the glowing block -> get an item
 	-> it goes on your plot -> it earns.
 

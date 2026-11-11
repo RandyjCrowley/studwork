@@ -270,7 +270,7 @@ function Harness.boot(opts: Options): (any, string?)
 end
 
 -- A real client subscribes (StateInit) right after joining and is sent its state (odds included)
--- before it can buy anything, so the harness does the same for a loaded player (core-v1.3.0
+-- before it can buy anything, so the harness does the same for a loaded player (v1.3.0
 -- v1.3.0: a paid roll needs the odds disclosed to the client).
 -- spec.sync = false skips it (a test of the not-yet-subscribed window).
 local function syncJoin(self: any, p: any, sync: boolean?)

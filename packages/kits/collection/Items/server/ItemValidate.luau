@@ -6,9 +6,9 @@
 	validateBatch(defs, isTaken, rank?) -> (ok, err?)
 		Checks every def in `defs` and rejects ids that are taken (isTaken(id) == true) or repeated
 		inside the batch. Nothing is registered by this module (there is no item registration
-		after boot in core-v1.3.0).
+		after boot in v1.3.0).
 
-	core-v1.3.0: the base ItemDef is { id, name, rarity, model, icon, tags, source, keepOnRebirth }
+	v1.3.0: the base ItemDef is { id, name, rarity, model, icon, tags, source, keepOnRebirth }
 	(module-api.md §12); income is Economy's namespaced field (item.economy.incomePerSec). Items runs
 	these checks at boot on GameConfig.items, on top of the framework's base-field schema.
 

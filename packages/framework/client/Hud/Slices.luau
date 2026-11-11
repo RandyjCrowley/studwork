@@ -3,7 +3,7 @@
 	Pure readers of the replicated state for the HUD, on the per-module client slices
 	(module-api.md §10): state.modules.<Name>.data / .extra.<key>. A v1.2-shaped state (no
 	`modules`: a scaffold still on the v1.2 Core facade) is read from its flat fields.
-	core-v1.3.1 (R19): the framework names no module here; each kit's client part reads its own
+	v1.3.1 (R19): the framework names no module here; each kit's client part reads its own
 	slice (e.g. the economy module's currency widget).
 ]]
 

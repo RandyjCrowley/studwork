@@ -1,6 +1,6 @@
 --!nocheck
 --[[
-	core-v1.3.1 R20 (module-api.md §19.10): boot fails closed when a currency listed in
+	v1.3.1 R20 (module-api.md §19.10): boot fails closed when a currency listed in
 	GameConfig.compliance.paidCurrencies has no spender registered through
 	ctx.compliance.registerCurrencySpender once every module has run init and start.
 	Driven through the public testkit (StudWork.test.boot / StudWork.test.harness).
@@ -65,7 +65,7 @@ describe("R20: every paid currency has a registered spender at boot", function()
 	end)
 
 	it("Economy enabled with a paid currency it owns boots (Economy registers its spender)", function()
-		-- core-v1.3.1: Economy owns primaryCurrency + config.Economy.currencies only
+		-- v1.3.1: Economy owns primaryCurrency + config.Economy.currencies only
 		local h, err = StudWork.test.boot({
 			modules = { Economy },
 			config = { Economy = { currencies = { "Gems" } } },

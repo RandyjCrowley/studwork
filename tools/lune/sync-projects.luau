@@ -1,7 +1,7 @@
 --!nocheck
 --[[
 	tools/sync-projects [--check]: (re)writes the GENERATED `Modules` entries of every
-	*.project.json under games/, templates/ and examples/ (core-v1.3.1 R19, module-api.md §1;
+	*.project.json under games/, templates/ and examples/ (v1.3.1 R19, module-api.md §1;
 	logic in SyncProjects.luau, module folders from ModuleDiscovery.luau). --check writes nothing
 	and exits 1 listing every project that drifts (tools/lint runs it).
 ]]

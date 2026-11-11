@@ -1,5 +1,5 @@
 -- Upgrades module (economy kit) client -> server messages (Blink IDL, compiled with `tools/net`).
--- core-v1.3.1 R19: the module's own net.blink (module-api.md §1, §9); the event backs the server
+-- v1.3.1 R19: the module's own net.blink (module-api.md §1, §9); the event backs the server
 -- part's action of the same (PascalCase) name. Was the framework.blink event RequestUpgrade.
 -- The server part still validates the request (Blink checks wire types only).
 

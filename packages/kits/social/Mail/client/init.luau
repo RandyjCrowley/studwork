@@ -1,8 +1,8 @@
 --!strict
 --[[
-	Mail client part (module-api.md §9, §13; core-v1.3.1 R19: one folder per module, found by the
+	Mail client part (module-api.md §9, §13; v1.3.1 R19: one folder per module, found by the
 	client runtime as ReplicatedStorage.Modules.Mail.client). Moved here from the framework client
-	in core-v1.3.1:
+	in v1.3.1:
 	  - the HUD mailbox badge "Social.mailbox" (topCenter, order 3, shown while messages wait):
 	    "Mailbox (N)"; tapping calls HudOptions.onMailbox, or opens the "Mailbox" screen (UI.open)
 	    whose claim button fires the claimMail action. Registered with UI.registerWidget at start
@@ -14,7 +14,7 @@
 	  - StudWork.use(Mail).actions.claimMail(messageId)
 	  - StudWork.use(Mail).read.<reader>(StudWork.Client.state())   pure readers (client/State.luau)
 	claimMail fires this module's own Blink event ClaimMail (net.blink -> client/Net.luau, bound by
-	the client runtime as the part's `net`; core-v1.3.1 R19, was the framework's RequestMailClaim).
+	the client runtime as the part's `net`; v1.3.1 R19, was the framework's RequestMailClaim).
 ]]
 
 local ReplicatedStorage = game:GetService("ReplicatedStorage")

@@ -72,7 +72,7 @@ of the receipt's commit. This uses the frozen API unchanged (`tx.after(fn)`); on
 
 Items exist only through `GameConfig.items`. There is no register function anywhere; a register-style call
 errors "items must be declared in GameConfig.items; registering items after start is not supported in
-core-v1.3.0" (CHANGELOG, Breaking). Tested in `packages/framework/test/Items.spec.luau`.
+v1.3.0" (CHANGELOG, Breaking). Tested in `packages/framework/test/Items.spec.luau`.
 
 Config: `products.devProducts`, `products.passes` (name -> id; 0 = not created yet: never owned, receipts can't
 match, warned once).

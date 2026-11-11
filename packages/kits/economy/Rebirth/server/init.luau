@@ -12,7 +12,7 @@
 	  section through its own ctx.section(tx)). Upgrades resets its levels this way, Plot its
 	  displayed slots.
 	Client action: rebirth(), limit 0.5/s burst 2 (own Blink event `Rebirth` in Rebirth/net.blink,
-	  core-v1.3.1).
+	  v1.3.1).
 
 	rebirth(): ONE ctx.tx:
 	  1. re-checks maxRebirths and the balance (Economy.txApi.balance);
@@ -246,7 +246,7 @@ function Rebirth.new(): any
 		table.insert(resetSteps, { id = id, fn = fn })
 	end
 
-	-- Client action (core-v1.3.1 R19): wire event `Rebirth` in ./net.blink (generated server/Net.luau,
+	-- Client action (v1.3.1 R19): wire event `Rebirth` in ./net.blink (generated server/Net.luau,
 	-- bound by the loader). Limit moved unchanged from the framework's Net.LIMITS.RequestRebirth.
 	local actions = {
 		rebirth = {

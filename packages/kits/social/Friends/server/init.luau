@@ -1,6 +1,6 @@
 --!strict
 --[[
-	Friends: the social kit's server module (core-v1.3.0 module API). README.md has the details.
+	Friends: the social kit's server module (v1.3.0 module API). README.md has the details.
 
 	Detects Roblox friends playing in the same server:
 	  - when a player's data loads (for them and for everyone already here) and every

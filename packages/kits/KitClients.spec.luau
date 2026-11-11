@@ -1,5 +1,5 @@
 --!nocheck
--- core-v1.3.1 (R19): the kit client actions moved from the framework client (ActionGate.CLIENT_ACTIONS,
+-- v1.3.1 (R19): the kit client actions moved from the framework client (ActionGate.CLIENT_ACTIONS,
 -- Client.Actions.<kit action>) to each kit module's own client part
 -- (packages/kits/<kit>/<Module>/client/init.luau, ReplicatedStorage.Modules.<Module>.client).
 -- The not-enabled assertion of the old ActionGate.spec moved here, for every one of those actions.

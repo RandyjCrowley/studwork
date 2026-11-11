@@ -1,6 +1,6 @@
 --!nocheck
 --[[
-	Mail's client action claimMail (core-v1.3.1 R19: the module's own net.blink event ClaimMail,
+	Mail's client action claimMail (v1.3.1 R19: the module's own net.blink event ClaimMail,
 	replacing the framework's RequestMailClaim). The REAL Mail module in the multi-server sim
 	(Mail needs HttpService/MessagingService, which the plain harness doesn't fake), driven
 	through the runtime's action path (`server.runtime.action`, what h:action calls; Lune has no

@@ -32,7 +32,7 @@ local Off = StudWork.defineModule({ name = "OffT", version = "1.0.0", framework 
 local function start(opts: any): (any, { any })
 	Boot.attach(nil)
 	local log = {}
-	-- core-v1.3.1 R19: the module's own Blink event (Upgrades/net.blink `Upgrade`), `upgrade = true` looks it up
+	-- v1.3.1 R19: the module's own Blink event (Upgrades/net.blink `Upgrade`), `upgrade = true` looks it up
 	local net = { Upgrade = fakeEvent(log, "Upgrade") }
 	local parts = opts.parts or {
 		UpgradesT = { net = net, actions = { upgrade = true } },

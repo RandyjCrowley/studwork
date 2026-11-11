@@ -13,7 +13,7 @@
 	                                    in the Config `modules = { ... }` block. Lines are either
 	                                    v1.2 names (`"Items", -- ...`) or module refs
 	                                    (`require(Modules:WaitForChild("Items"):WaitForChild("module")),`;
-	                                    core-v1.3.1 R19); added ref lines use the local
+	                                    v1.3.1 R19); added ref lines use the local
 	                                    `modulesVar` (default "Modules" = ReplicatedStorage.Modules)
 	trimDependsOn(src, list)        -> (src?, error?)    the game module's `dependsOn = { ... }`:
 	                                    drops the refs of modules not in `list` (adds none)

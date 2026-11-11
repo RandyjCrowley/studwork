@@ -1,6 +1,6 @@
 --!nocheck
 --[[
-	tools/lune/guardrails.luau: checks that keep game agents inside the rules (core-v1.2).
+	tools/lune/guardrails.luau: checks that keep game agents inside the rules (v1.2).
 	Run by tools/lint.
 
 	Usage (repo root):
@@ -37,16 +37,16 @@
 	            anything under ReplicatedStorage.Framework / FrameworkClient / FrameworkTest other
 	            than the public StudWork facade (require(...Framework) itself) and UI, the server
 	            runtime (ServerScriptService.Framework), RuntimeSlot / CompatDoor by name, or
-	            another module's server part (ServerScriptService.Modules.<Other>, core-v1.3.1; the
+	            another module's server part (ServerScriptService.Modules.<Other>, v1.3.1; the
 	            pre-v1.3.1 ServerScriptService.Kits.<Other> too). Catches alias variables,
 	            WaitForChild / FindFirstChild chains, literal string concatenation, dynamic child
 	            names on those chains and script.Parent climbing into the framework.
-	            Framework half (core-v1.3.1 R19): framework code (packages/framework/{shared,
+	            Framework half (v1.3.1 R19): framework code (packages/framework/{shared,
 	            server,client}, not test/, specs or Blink outputs) and framework.blink may not name
 	            a kit module (whole word, from packages/kits/*/*/module.luau), an event a kit's
 	            net.blink declares, a v1.2 kit request event, or Kits / ModuleServers /
 	            ModuleClients / kitLoadServer; on the comment-stripped and the normalised text.
-	            No allow-list (the core-v1.3.1 transitional list is gone).
+	            No allow-list (the v1.3.1 transitional list is gone).
 	  theme     (D's R4) a hex colour literal ("#RRGGBB"), a Color3.fromRGB literal or an asset id
 	            ("rbxassetid://123") in UI or kit/example/game-module client code outside a theme or
 	            config file (THEME_ALLOWED): colours and assets come from the theme.
@@ -58,7 +58,7 @@ local fs = require("@lune/fs")
 local process = require("@lune/process")
 
 -- the kit module manifest, read from the kit module definitions (packages/kits/<kit>/<Module>/
--- module.luau since core-v1.3.1; v1.3.0, was the v1.2 module manifest)
+-- module.luau since v1.3.1; v1.3.0, was the v1.2 module manifest)
 local Modules = require("./KitModules").load(fs)
 
 local Guard = {}
@@ -79,7 +79,7 @@ for _, name in Modules.ORDER do
 end
 
 -- Extracts the module names from a Config init.luau source: module refs
--- (`modules = { require(Modules:WaitForChild("Items"):WaitForChild("module")), ... }`, core-v1.3.1;
+-- (`modules = { require(Modules:WaitForChild("Items"):WaitForChild("module")), ... }`, v1.3.1;
 -- the v1.3.0 `require(Collection:WaitForChild("Items"))` form) or v1.2 names
 -- (`modules = { "A", "B" }`). Comments inside the block are ignored.
 function Guard.parseModules(source: string): { [string]: boolean }?
@@ -90,7 +90,7 @@ function Guard.parseModules(source: string): { [string]: boolean }?
 	local set = {}
 	for line in string.gmatch(body, "[^\n]+") do
 		local code = string.gsub(line, "%-%-.*$", "")
-		-- core-v1.3.1 refs: require(Modules:WaitForChild("Items"):WaitForChild("module"))
+		-- v1.3.1 refs: require(Modules:WaitForChild("Items"):WaitForChild("module"))
 		local ref = string.match(code, 'WaitForChild%("([%w_]+)"%):WaitForChild%("module"%)%)')
 			or string.match(code, 'WaitForChild%("([%w_]+)"%)%)')
 		if ref then
@@ -468,7 +468,7 @@ function Guard.scanSource(source: string, ctx): { string }
 				for ref in string.gmatch(code, 'require%([%w_]+:WaitForChild%("([%w_]+)"%)%)') do
 					table.insert(refs, ref)
 				end
-				-- core-v1.3.1: require(Modules:WaitForChild("Rebirth"):WaitForChild("module"))
+				-- v1.3.1: require(Modules:WaitForChild("Rebirth"):WaitForChild("module"))
 				for ref in string.gmatch(code, 'WaitForChild%("([%w_]+)"%)%s*:%s*WaitForChild%("module"%)') do
 					table.insert(refs, ref)
 				end
@@ -926,7 +926,7 @@ function Guard.scanSpecial(source: string, ctx: any): { string }
 					flag("ServerScriptService.Kits: kit server internals (use module refs)")
 				end
 			end
-			-- core-v1.3.1 (R19): ServerScriptService.Modules.<Other> is another module's server part
+			-- v1.3.1 (R19): ServerScriptService.Modules.<Other> is another module's server part
 			for _, pos in childRefs(code, "Modules") do
 				local kind, name = childAfter(code, pos)
 				if kind == "dynamic" then
@@ -1161,7 +1161,7 @@ function Guard.scanSpecialAll(): { string }
 end
 
 --------------------------------------------------------------------------------
--- special, framework half (core-v1.3.1 R19, "nothing is special, for real"): the framework knows no
+-- special, framework half (v1.3.1 R19, "nothing is special, for real"): the framework knows no
 -- kit. Framework code (packages/framework/{shared,server,client}/**, not test/, not specs, not the
 -- generated Blink outputs) and the framework's own Blink file may not name a kit module (a whole
 -- word, case-sensitive: every `name = "..."` of packages/kits/*/*/module.luau), an event a kit
@@ -1868,7 +1868,7 @@ local function selfTest(): boolean
 		"special allowed",
 		Guard.scanSpecial("local S = require(RS.Framework.Resolve) -- guard: allow special", kitCtx)
 	)
-	-- special, SSS.Modules (core-v1.3.1 R19): another module's server part is internal
+	-- special, SSS.Modules (v1.3.1 R19): another module's server part is internal
 	local modCtx =
 		{ path = "packages/kits/economy/Upgrades/server/init.luau", kit = "Economy", module = "Upgrades" }
 	for _, case in
@@ -1916,7 +1916,7 @@ local function selfTest(): boolean
 		"modules"
 	)
 
-	-- special, framework half (core-v1.3.1 R19): planted kit names in framework code are caught
+	-- special, framework half (v1.3.1 R19): planted kit names in framework code are caught
 	local fwNames = Guard.frameworkSpecialNames({ "Mail", "Economy" }, { "SendGift" })
 	local fwCtx = { path = "packages/framework/server/X.luau", names = fwNames }
 	for _, case in

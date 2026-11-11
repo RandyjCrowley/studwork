@@ -1,6 +1,6 @@
 --!strict
 --[[
-	Rarity client state readers (pure; core-v1.3.1 R19: moved from the framework HUD's Slices, which
+	Rarity client state readers (pure; v1.3.1 R19: moved from the framework HUD's Slices, which
 	now names no module). Read this module's per-module client slice of the replicated state
 	(module-api.md §10: state.modules.Rarity.data / .extra), or a v1.2 flat state's fields.
 	State.odds(state) -> { [tableId]: odds }   extra.odds ({} when absent)

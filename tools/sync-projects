@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # tools/sync-projects [--check]: (re)generate the ReplicatedStorage.Modules / ServerScriptService.Modules
 # entries of every *.project.json under games/, templates/, examples/ from the module folders
-# (packages/kits/<kit>/<Module>/, examples/modules/<x>/; core-v1.3.1 one folder per module).
+# (packages/kits/<kit>/<Module>/, examples/modules/<x>/; v1.3.1 one folder per module).
 # The project's own Modules entries (its game module) are kept. --check: exit 1 on drift (lint).
 source "$(dirname "$0")/_common.sh"
 

@@ -7,7 +7,7 @@
 	`itemFields.item` (e.g. Economy: item.economy.incomePerSec). An item table carrying a namespace
 	that no ENABLED module declared is a boot error naming the field.
 
-	Breaking (core-v1.3.0, CHANGELOG): items exist ONLY through GameConfig.items, validated once at
+	Breaking (v1.3.0, CHANGELOG): items exist ONLY through GameConfig.items, validated once at
 	boot. There is no register function anywhere; `ItemFields.catalog` returns a frozen list whose
 	register-/add-style lookups raise NO_LATE_ITEMS_ERROR instead of silently returning nil.
 ]]
@@ -20,7 +20,7 @@ local ItemFields = {}
 
 ItemFields.BASE = DefineModule.BASE_ITEM_FIELDS
 ItemFields.NO_LATE_ITEMS_ERROR =
-	"items must be declared in GameConfig.items; registering items after start is not supported in core-v1.3.0"
+	"items must be declared in GameConfig.items; registering items after start is not supported in v1.3.0"
 
 export type Namespaces = { [string]: { owner: string, schema: any } }
 

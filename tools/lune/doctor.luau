@@ -10,7 +10,7 @@
 	  ports      each game's servePort: free or in use (lsof)                    (WARN)
 	  framework  the core v1.3.0 layout (Layout.luau): packages/framework/{shared,server,client},
 	             StudWork.VERSION, packages/kits/<kit>/<Module>/module.luau (one folder per
-	             module, core-v1.3.1), no packages/kits/<kit>/{shared,server}, no packages/core (FAIL)
+	             module, v1.3.1), no packages/kits/<kit>/{shared,server}, no packages/core (FAIL)
 	  pin        (games repo, v1.4.0) roblox-core/ is a git checkout at a release tag, clean (FAIL)
 	  projects   every game's *.project.json and templates/new-game maps Framework,
 	             FrameworkClient and each kit module it lists to that layout (Modules.<M>), no

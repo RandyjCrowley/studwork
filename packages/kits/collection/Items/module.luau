@@ -6,7 +6,7 @@
 	The item catalog: GameConfig.items, validated once at boot (base ItemDef fields
 	{ id, name, rarity, model, icon, tags, source, keepOnRebirth } plus every enabled module's
 	namespaced itemFields, e.g. Economy's item.economy.incomePerSec). There is no registration
-	after boot (core-v1.3.0 Breaking). Items also serves the MUTATION defs (api.mutation /
+	after boot (v1.3.0 Breaking). Items also serves the MUTATION defs (api.mutation /
 	mutations); their config lives in config.Rarity.mutations (Rarity hands it over at init), and
 	mutation effects are namespaced fields added by other kits (mutation.economy.incomeMultiplier).
 

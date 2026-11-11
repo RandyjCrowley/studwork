@@ -24,7 +24,7 @@
 	replay(player, id) (dead letter -> mailbox, console tool). deps.onBoxChanged(player, held) runs
 	after every committed box change. Tuning comes from deps.config() (config.Mail.mail).
 
-	core-v1.3.0 (R1 / R7):
+	v1.3.0 (R1 / R7):
 	  - a TRACKED message (raw.t == true: a gift kind sent through the escrow, Escrow.luau) first
 	    asks deps.take(player, msg) who owns it (may yield): "returned" = the sender took it back
 	    after returnAfter -> recorded as seen and consumed WITHOUT running the handlers; "error"

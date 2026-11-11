@@ -1,6 +1,6 @@
 --!strict
 --[[
-	Streak: the engagement kit's server module (core-v1.3.0 module API). See README.md.
+	Streak: the engagement kit's server module (v1.3.0 module API). See README.md.
 
 	Daily login streak, see StreakMath.luau for the exact rules: same day -> nothing; next day ->
 	+1; one missed day is forgiven when the player returns within config.streak.graceHours after

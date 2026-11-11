@@ -64,7 +64,7 @@ function World.new(opts: { dt: number?, verbose: boolean?, epoch: number? }?)
 		friends = {}, -- userId -> { [userId]: true }
 		friendLatency = 0.05,
 		friendFailures = 0, -- next N IsFriendsWithAsync calls error
-		-- userId -> true (PolicyService paid random items restricted). Reactive (core-v1.3.0):
+		-- userId -> true (PolicyService paid random items restricted). Reactive (v1.3.0):
 		-- the framework Policy caches the PolicyService answer per session, so a change here is
 		-- pushed to every server's Policy (restrictedListeners), like v1.2's live-read fake.
 		restricted = nil :: any,

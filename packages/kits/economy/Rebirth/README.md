@@ -1,6 +1,6 @@
 # Rebirth (economy kit)
 
-Layout (core-v1.3.1, one folder per module, module-api.md §1): `module.luau` (definition), `server/` (server part; the code files named below live there), `client/` (client part). Rojo: `ReplicatedStorage.Modules.Rebirth` (module, client, shared), `ServerScriptService.Modules.Rebirth` (server).
+Layout (v1.3.1, one folder per module, module-api.md §1): `module.luau` (definition), `server/` (server part; the code files named below live there), `client/` (client part). Rojo: `ReplicatedStorage.Modules.Rebirth` (module, client, shared), `ServerScriptService.Modules.Rebirth` (server).
 
 A real StudWork module (v1.3.0). Definition: `module.luau`. Pure math:
 `RebirthMath.luau`; the inventory rules: `Rebirth.keeps` (`RebirthRules.spec.luau`).
@@ -18,7 +18,7 @@ Section `rebirth` = `{ rebirths }` (replicated).
 ## API
 `canRebirth`, `rebirth(player) -> boolean`, `cost`, `multiplier`, `signals.Rebirthed(player, n)`.
 Client action `rebirth()`: wire event `Rebirth` (no data) in this module's `net.blink` (RemoteScope
-`STUDWORK_REBIRTH`), limit 0.5/s burst 2 (core-v1.3.1; was the framework event `RequestRebirth`).
+`STUDWORK_REBIRTH`), limit 0.5/s burst 2 (v1.3.1; was the framework event `RequestRebirth`).
 `extensions.resetStep(id, fn(tx, player))`: runs inside the rebirth transaction, in registration
 order, before `rebirths` is incremented. Each step writes its own section (`ctx.section(tx)`).
 Upgrades and Plot reset themselves this way.

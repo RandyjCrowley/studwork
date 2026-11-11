@@ -1,5 +1,5 @@
 --[[
-	Offline payout on return (known-issues: "the offline payout" after leave -> rejoin).
+	Offline payout on return (docs/manual-qa.md, not verified live: "the offline payout" after leave -> rejoin).
 	Real Data + Offline + Economy + Items on the mock DataStore. The rate comes from owned items
 	(income.source = "owned"): one "gem" = 10 coins/s.
 ]]

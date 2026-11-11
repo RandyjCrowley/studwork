@@ -1,5 +1,5 @@
 --!nocheck
--- Items and namespaced item fields (§12), and the core-v1.3.0 "no item registration" rule.
+-- Items and namespaced item fields (§12), and the v1.3.0 "no item registration" rule.
 local StudWork = require(script.Parent.Parent.shared)
 local Harness = require(script.Parent.harness)
 local ItemFields = require(script.Parent.Parent.shared.ItemFields)
@@ -61,7 +61,7 @@ describe("item fields", function()
 	end)
 end)
 
-describe("no item registration in core-v1.3.0", function()
+describe("no item registration in v1.3.0", function()
 	local function walk(value, path, seen, hits)
 		if type(value) ~= "table" or seen[value] then
 			return
@@ -118,7 +118,7 @@ describe("no item registration in core-v1.3.0", function()
 			} },
 		})
 		local msg =
-			"items must be declared in GameConfig.items; registering items after start is not supported in core-v1.3.0"
+			"items must be declared in GameConfig.items; registering items after start is not supported in v1.3.0"
 		expect(function()
 			c.gameConfig.items.register({ id = "late", name = "Late" })
 		end).toThrow(msg)

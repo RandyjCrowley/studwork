@@ -23,7 +23,7 @@
 	framework internals with no ModuleRef and no facade; they are reachable only through the
 	scoped ctx a module receives. StudWork.Data and friends error with that explanation.
 
-	There is no item registration anywhere (CHANGELOG core-v1.3.0, Breaking): any register-/add-
+	There is no item registration anywhere (CHANGELOG v1.3.0, Breaking): any register-/add-
 	style key on this facade errors with ItemFields.NO_LATE_ITEMS_ERROR.
 ]]
 
@@ -33,7 +33,7 @@ local Resolve = require(script.Resolve)
 
 local StudWork = {}
 
-StudWork.VERSION = "1.4.0"
+StudWork.VERSION = "1.4.1"
 
 export type ModuleRef<API = any, TxAPI = any, ClientAPI = any> = any
 

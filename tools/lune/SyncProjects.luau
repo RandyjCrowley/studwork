@@ -1,6 +1,6 @@
 --!nocheck
 --[[
-	tools/lune/SyncProjects: pure core of tools/sync-projects (core-v1.3.1, R19: one folder per
+	tools/lune/SyncProjects: pure core of tools/sync-projects (v1.3.1, R19: one folder per
 	module, module-api.md §1). Every *.project.json under games/, templates/ and examples/ maps
 	each shipped module folder the same way:
 	  module.luau -> ReplicatedStorage.Modules.<Name>.module

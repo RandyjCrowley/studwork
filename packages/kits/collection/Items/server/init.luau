@@ -14,7 +14,7 @@
 	extensions
 	  mutations(list)                Rarity (same kit) hands over config.Rarity.mutations in its
 	                                 init; once per runtime. Kit-internal plumbing.
-	Removed (core-v1.3.0 Breaking): incomeOf (income is Economy's: item.economy.incomePerSec x
+	Removed (v1.3.0 Breaking): incomeOf (income is Economy's: item.economy.incomePerSec x
 	mutation.economy.incomeMultiplier), register, onRegistered.
 	Boot checks (beyond the framework's base-field schema): ItemValidate per def (id/name length,
 	tags shape); rarity strings are checked by Rarity against the active tier list.
@@ -24,7 +24,7 @@ local ItemValidate = require(script.ItemValidate)
 local Util = require(script.Util)
 
 local NO_LATE_ITEMS_ERROR =
-	"items must be declared in GameConfig.items; registering items after start is not supported in core-v1.3.0"
+	"items must be declared in GameConfig.items; registering items after start is not supported in v1.3.0"
 
 local Items = {}
 

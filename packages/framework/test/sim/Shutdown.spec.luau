@@ -1,5 +1,5 @@
 --[[
-	Server shutdown (BindToClose) while saves are in flight (known-issues: "receipts across a
+	Server shutdown (BindToClose) while saves are in flight (docs/manual-qa.md, not verified live: "receipts across a
 	real server crash"). Real Data + ProfileStore (its BindToClose ends every session and waits
 	for the writes) + Shop (ProcessReceipt -> Receipt.process -> Data.saveAsync) on the mock
 	DataStore with 2-4 s write latency.

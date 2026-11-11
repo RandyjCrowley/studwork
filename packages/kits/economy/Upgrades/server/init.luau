@@ -10,7 +10,7 @@
 	                                          "cannot_afford"
 	  signals.UpgradePurchased(player, upgradeId, level)
 	Client action: upgrade(upgradeId), limit 6/s burst 12 (own Blink event `Upgrade` in
-	  Upgrades/net.blink, core-v1.3.1; StudWork.use(Upgrades).actions.upgrade(id) on the client).
+	  Upgrades/net.blink, v1.3.1; StudWork.use(Upgrades).actions.upgrade(id) on the client).
 
 	- cost(level) = floor(baseCost * costGrowth ^ level); nil when maxed or unknown.
 	- purchase is ONE transaction: re-reads the level, pays through Economy.txApi.spend, or
@@ -141,7 +141,7 @@ function Upgrades.new(): any
 		return true, nil
 	end
 
-	-- Client action (core-v1.3.1 R19): wire event `Upgrade` in ./net.blink (generated server/Net.luau,
+	-- Client action (v1.3.1 R19): wire event `Upgrade` in ./net.blink (generated server/Net.luau,
 	-- bound by the loader). Limit moved unchanged from the framework's Net.LIMITS.RequestUpgrade.
 	local actions = {
 		upgrade = {

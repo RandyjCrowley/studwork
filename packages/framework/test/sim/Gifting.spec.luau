@@ -1,5 +1,5 @@
 --[[
-	Two-player gifting in one server (known-issues: "Gifting between two players").
+	Two-player gifting in one server (docs/manual-qa.md, not verified live: "Gifting between two players").
 	Real Data + Inventory (transfer and the `gift` action handler) + Items; Policy is a
 	fake driven by world.restricted (PolicyService "paid random items restricted").
 ]]

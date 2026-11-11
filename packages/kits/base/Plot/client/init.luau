@@ -1,6 +1,6 @@
 --!strict
 --[[
-	Plot client part (module-api.md §9; core-v1.3.1 R19: one folder per module, found by the client
+	Plot client part (module-api.md §9; v1.3.1 R19: one folder per module, found by the client
 	runtime as ReplicatedStorage.Modules.Plot.client). Client actions:
 	  StudWork.use(Plot).actions.display(uid, slotId?)   fires Plot's own Blink event Display
 	  StudWork.use(Plot).actions.clearDisplay(uid)       fires Plot's own Blink event ClearDisplay

@@ -1,4 +1,4 @@
--- core-v1.3.1 (R19): moved from packages/framework/client/Hud/{Slices,Visibility}.spec.luau with
+-- v1.3.1 (R19): moved from packages/framework/client/Hud/{Slices,Visibility}.spec.luau with
 -- the readers (assertions unchanged).
 local State = require(script.Parent.State)
 

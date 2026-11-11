@@ -1,6 +1,6 @@
 --!nocheck
 --[[
-	core-v1.3.1 R22: Store.saveNow replaces root._framework (copy-on-write, to stamp
+	v1.3.1 R22: Store.saveNow replaces root._framework (copy-on-write, to stamp
 	_framework.stats._saveSeq). Data must bump the `_framework` section version so a cached
 	`_framework` read view (Data.view; replication diffs on section versions) is never one change
 	behind. The fake store below does exactly what Store.profileStore.saveNow does to the root,

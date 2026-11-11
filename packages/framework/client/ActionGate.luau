@@ -1,7 +1,7 @@
 --!strict
 --[[
 	Start gate for StudWork.Client's framework actions (pure): every action errors before
-	StudWork.start. core-v1.3.1 (R19): the framework knows no module's actions any more (the v1.2
+	StudWork.start. v1.3.1 (R19): the framework knows no module's actions any more (the v1.2
 	action -> kit module table is gone); a module's client actions are
 	StudWork.use(<ModuleRef>).actions.<name>, whose not-enabled error is the client runtime's
 	erroring proxy (Resolve.notEnabledMessage).

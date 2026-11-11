@@ -7,7 +7,7 @@
 	ADDITIVE ONLY: new fields/functions/types may be added; nothing is ever renamed or removed.
 	Deprecate instead (keep it working, mark it `-- @deprecated <why, replacement>`).
 	Every change is recorded in packages/framework/CHANGELOG.md. The one-off non-additive changes
-	made before any game existed are listed there under "Breaking (pre-games)" (core-v1.1.0).
+	made before any game existed are listed there under "Breaking (pre-games)" (v1.1.0).
 
 	This module is pure (no Roblox globals at load time) so Lune tests and luau-lsp can read it.
 	Colours are hex strings ("#RRGGBB"); convert with Color3.fromHex at runtime (see Palette.luau).
@@ -304,7 +304,7 @@ export type PaletteOverrides = { [string]: string } -- palette key -> hex
 -- always on. Dependencies: each module's definition (dependsOn). Core.start errors on an unknown
 -- name or a missing dependency; calling a module that is not enabled errors with
 -- "<Name> is not enabled in GameConfig.modules".
-export type ModuleName = string -- core-v1.3.1 (R19): any module's name (was the 11 kit names)
+export type ModuleName = string -- v1.3.1 (R19): any module's name (was the 11 kit names)
 
 -- Server-only settings, passed as the second argument of Core.start on the server. Keep this
 -- module under ServerScriptService/ServerStorage so clients never receive it.
@@ -691,7 +691,7 @@ export type InputAPI = {
 
 -- Thin client -> server requests. The server validates everything; these never assume success.
 export type ActionsAPI = {
-	-- core-v1.3.1 (R19): the framework's own client actions only. A module's actions are
+	-- v1.3.1 (R19): the framework's own client actions only. A module's actions are
 	-- StudWork.use(<ModuleRef>).actions.<name> (module-api.md §9).
 	triggerEvent: (eventId: string) -> (), -- admin only (server checks GameConfig.admins)
 	funnel: (step: string) -> (), -- only AnalyticsConfig.clientSteps are accepted
@@ -720,7 +720,7 @@ export type ClientAPI = {
 	Actions: ActionsAPI,
 	Hud: HudAPI,
 	onFeedbackEvent: (handler: (kind: string, text: string, rarity: RarityTier?) -> ()) -> Connection,
-	-- core-v1.3.1 (R19): onMailbox moved to the mail module's client API
+	-- v1.3.1 (R19): onMailbox moved to the mail module's client API
 	-- (StudWork.use(<mail module ref>).onMailbox).
 }
 
@@ -738,7 +738,7 @@ export type CoreAPI = {
 	config: () -> GameConfig,
 	isEnabled: (moduleName: ModuleName) -> boolean, -- true for listed modules (valid after start)
 	Signals: CoreSignals,
-	-- server only (indexing these on the client errors). core-v1.3.1 (R19): the kit module
+	-- server only (indexing these on the client errors). v1.3.1 (R19): the kit module
 	-- namespaces of the v1.2 facade are gone; a module's API is StudWork.use(<ModuleRef>).
 	Events: EventsAPI,
 	Shop: ShopAPI,

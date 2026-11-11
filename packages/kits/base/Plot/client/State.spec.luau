@@ -1,4 +1,4 @@
--- core-v1.3.1 (R19): moved from packages/framework/client/Hud/Slices.spec.luau with the reader
+-- v1.3.1 (R19): moved from packages/framework/client/Hud/Slices.spec.luau with the reader
 -- (assertion unchanged).
 local State = require(script.Parent.State)
 

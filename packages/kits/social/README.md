@@ -1,6 +1,6 @@
 # social kit
 
-Built-in StudWork modules, one folder per module (core-v1.3.1, R19; module-api.md §1). Each
+Built-in StudWork modules, one folder per module (v1.3.1, R19; module-api.md §1). Each
 folder is `<Module>/module.luau` (the definition), `server/` (server part), and optionally
 `client/`, `shared/` and `net.blink`. Rojo maps every module folder the same way
 (`tools/sync-projects` writes the entries of every project):

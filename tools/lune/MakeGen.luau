@@ -15,7 +15,7 @@
 	      client names), server/init.luau (init/start/api through ctx only), client/init.luau,
 	      tests/<Name>.spec.luau (a passing harness test), README.md; opts.net (--net): net.blink,
 	      the module's own messages (RemoteScope "STUDWORK_<NAME>", ServerOutput server/Net.luau,
-	      ClientOutput client/Net.luau: the core-v1.3.1 convention). No migrations/ folder yet:
+	      ClientOutput client/Net.luau: the v1.3.1 convention). No migrations/ folder yet:
 	      tools/make-migration creates it with the first migration (an empty or README-only folder
 	      would be read as migrations)
 	  writeModule(fs, name, dir, opts?) -> (files?, error?) refuses an existing folder
@@ -125,7 +125,7 @@ end
 -- CLIENT_TEMPLATE: templates/module/client/init.luau.tmpl
 
 -- net.blink (tools/make-module --net): this module's own client <-> server messages (module-api.md
--- §1, §9; core-v1.3.1 R19 convention). tools/net compiles it into server/Net.luau and
+-- §1, §9; v1.3.1 R19 convention). tools/net compiles it into server/Net.luau and
 -- client/Net.luau; the framework binds each as the part's `net` (module-api.md §19.9), so a server
 -- action `{{camel}}Ping = { handler = ... }` / client `actions = { "ping" }` fires the event.
 -- NET_TEMPLATE: templates/module/net.blink.tmpl

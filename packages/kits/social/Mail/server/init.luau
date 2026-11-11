@@ -1,6 +1,6 @@
 --!strict
 --[[
-	Mail: the social kit's server module (core-v1.3.0 module API). See README.md.
+	Mail: the social kit's server module (v1.3.0 module API). See README.md.
 	The logic lives in pure modules: Delivery.luau (at-least-once delivery, idempotency, the
 	mailbox), Outbox.luau (the crash-safe outbox), Escrow.luau (R1 gift cap + return to sender),
 	MailValidate.luau. This file wires them to ctx: ctx.data (section "mail", field `mail`, the
@@ -506,7 +506,7 @@ end
 -- Surfaces
 --------------------------------------------------------------------------------
 
--- Client action (module-api.md §9; core-v1.3.1 R19): claimMail(messageId), wire = this module's
+-- Client action (module-api.md §9; v1.3.1 R19): claimMail(messageId), wire = this module's
 -- net.blink event ClaimMail (was the framework's RequestMailClaim). Rate limit 2/s burst 5 (moved
 -- from the framework's Net.LIMITS). The handler re-checks the id: h:action can pass anything.
 Mail.actions = {

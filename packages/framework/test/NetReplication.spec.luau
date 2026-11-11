@@ -25,7 +25,7 @@ local Wallet = mod("Wallet", {
 local Other = mod("Other", { data = { key = "other", version = 1, default = { n = 0 } } })
 
 describe("ctx.net (Net)", function()
-	-- core-v1.3.1 R19: Upgrades' `upgrade` action is the module's own Blink event (fake wire here,
+	-- v1.3.1 R19: Upgrades' `upgrade` action is the module's own Blink event (fake wire here,
 	-- same limit 6/12 the framework's RequestUpgrade had); the Net pipeline exercised is the same.
 	it("routes a module action's client event to its one owner, rate-limited, pcall'd", function()
 		local got = {}
@@ -63,7 +63,7 @@ describe("ctx.net (Net)", function()
 	end)
 
 	it("a second owner of the same framework event is a boot error naming both", function()
-		-- core-v1.3.1 (R19): framework.blink has no module events left (every framework client event
+		-- v1.3.1 (R19): framework.blink has no module events left (every framework client event
 		-- is owned by a framework service at boot), so the two-module case is driven on a bare Net:
 		-- the same net.claim that ctx.net.handle calls, the same error text.
 		local Net = require(script.Parent.Parent.server.Net)
@@ -108,7 +108,7 @@ describe("ctx.net (Net)", function()
 
 	it("drops requests from players who left or aren't loaded; queues before boot finishes", function()
 		local got = {}
-		-- core-v1.3.1 R19: Rebirth's `rebirth` action on its own (fake) Blink event, limit 0.5/2
+		-- v1.3.1 R19: Rebirth's `rebirth` action on its own (fake) Blink event, limit 0.5/2
 		local ev = Harness.fakeEvent("Rebirth", {})
 		local h = Harness.new({
 			modules = { Wallet },

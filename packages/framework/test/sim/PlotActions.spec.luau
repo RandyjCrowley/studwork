@@ -1,5 +1,5 @@
 --[[
-	core-v1.3.1 (R19): Plot's client actions `display` / `clearDisplay` are module actions (§9) on
+	v1.3.1 (R19): Plot's client actions `display` / `clearDisplay` are module actions (§9) on
 	Plot's own net.blink (Display / ClearDisplay), replacing the framework's RequestDisplay /
 	RequestClearDisplay handlers. Real Plot server part, real framework (_sandbox game, all eleven
 	modules); driven like the wire would: runtime.action (left / not loaded / rate limit / pcall).

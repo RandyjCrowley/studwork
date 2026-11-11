@@ -1,5 +1,5 @@
 --!nocheck
--- core-v1.3.1 (R19, module-api.md §19.9): the live module lookups on both sides.
+-- v1.3.1 (R19, module-api.md §19.9): the live module lookups on both sides.
 --   server  Loader.defaultLoadServer: ServerScriptService.Modules[ref.server] only, new() for a part
 --           factory (fresh per call), the `Net` child bound as `net`
 --   client  Runtime.defaultLoadClient: ReplicatedStorage.Modules[ref.client].client (or
@@ -70,7 +70,7 @@ describe("client part lookup (Runtime.defaultLoadClient)", function()
 	end)
 
 	it("resolves the real kit client parts from ReplicatedStorage.Modules", function()
-		-- core-v1.3.1 R19: Upgrades now has a generated client/Net.luau, which the live lookup binds and
+		-- v1.3.1 R19: Upgrades now has a generated client/Net.luau, which the live lookup binds and
 		-- Lune can't run (no Blink wire); Economy's client part (no net.blink) exercises the same lookup.
 		-- Upgrades' declared `upgrade` action is pinned by packages/kits/KitClients.spec.luau.
 		local part = Runtime.defaultLoadClient(ref("Economy"), false)

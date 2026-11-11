@@ -471,7 +471,7 @@ function Inventory.new(): any
 		end,
 	}
 
-	-- Client action `gift(toUserId, uid)` (own net.blink event Gift; core-v1.3.1 R19, was the framework
+	-- Client action `gift(toUserId, uid)` (own net.blink event Gift; v1.3.1 R19, was the framework
 	-- event RequestGift). Same rate limit as before (1/s, burst 3).
 	local function requestGift(player: any, toUserId: any, uid: any)
 		if not InventoryRules.validGiftTarget(player.UserId, toUserId) or not Util.isId(uid) then

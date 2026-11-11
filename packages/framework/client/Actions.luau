@@ -2,7 +2,7 @@
 --[[
 	Core.Client.Actions: thin client -> server requests.
 	Never assume success: the server validates and the result arrives through Core.Client.state.
-	Every action errors before Core.start. core-v1.3.1 (R19): only the framework's own actions
+	Every action errors before Core.start. v1.3.1 (R19): only the framework's own actions
 	(triggerEvent, funnel); a module's actions are StudWork.use(<ModuleRef>).actions.<name>.
 ]]
 

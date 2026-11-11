@@ -1,6 +1,6 @@
 # Upgrades (economy kit)
 
-Layout (core-v1.3.1, one folder per module, module-api.md §1): `module.luau` (definition), `server/` (server part; the code files named below live there), `client/` (client part). Rojo: `ReplicatedStorage.Modules.Upgrades` (module, client, shared), `ServerScriptService.Modules.Upgrades` (server).
+Layout (v1.3.1, one folder per module, module-api.md §1): `module.luau` (definition), `server/` (server part; the code files named below live there), `client/` (client part). Rojo: `ReplicatedStorage.Modules.Upgrades` (module, client, shared), `ServerScriptService.Modules.Upgrades` (server).
 
 A real StudWork module (v1.3.0). Definition: `module.luau`. Pure math:
 `UpgradeMath.luau` (+ spec).
@@ -17,7 +17,7 @@ Section `upgrades` = `{ upgrades = { [id]: level } }` (replicated).
 maxed/unknown), `purchase(player, id) -> (ok, reason?)` (`unknown_upgrade`, `not_loaded`, `maxed`,
 `cannot_afford`), `signals.UpgradePurchased(player, id, level)`. Client action `upgrade(id)`: wire event `Upgrade`
 (`Data: Id` = `string(1..64)`) in this module's `net.blink` (RemoteScope `STUDWORK_UPGRADES`), limit
-6/s burst 12; unknown ids are dropped (core-v1.3.1; was the framework event `RequestUpgrade`).
+6/s burst 12; unknown ids are dropped (v1.3.1; was the framework event `RequestUpgrade`).
 
 ## Behaviour
 - `purchase` is one transaction: the level is re-read, the cost is paid with `Economy.txApi.spend`

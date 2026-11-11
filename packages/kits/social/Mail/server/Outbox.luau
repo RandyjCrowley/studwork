@@ -19,7 +19,7 @@
 	dedupes (mail.seen / mail.box), so the copy is never delivered twice.
 	One flush runs per player at a time; a flush requested meanwhile runs right after it.
 
-	core-v1.3.0 (R1): deps.prepare(player, entry) (optional, may yield) runs right before each
+	v1.3.0 (R1): deps.prepare(player, entry) (optional, may yield) runs right before each
 	send: "send" -> send it; "done" -> the entry was settled another way (e.g. refused by the
 	recipient's gift cap and handed back to the sender's mailbox, Mail/init.luau) and is skipped;
 	"retry" -> keep it and retry the flush after backoff.

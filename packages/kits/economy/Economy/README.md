@@ -1,6 +1,6 @@
 # Economy (economy kit)
 
-Layout (core-v1.3.1, one folder per module, module-api.md §1): `module.luau` (definition), `server/` (server part; the code files named below live there), `client/` (client part). Rojo: `ReplicatedStorage.Modules.Economy` (module, client, shared), `ServerScriptService.Modules.Economy` (server).
+Layout (v1.3.1, one folder per module, module-api.md §1): `module.luau` (definition), `server/` (server part; the code files named below live there), `client/` (client part). Rojo: `ReplicatedStorage.Modules.Economy` (module, client, shared), `ServerScriptService.Modules.Economy` (server).
 
 A real StudWork module (v1.3.0). Definition: `module.luau`. Server part:
 `init.luau` (`Economy.new()`, one per runtime). Pure math: `RateMath.luau` (+ spec).

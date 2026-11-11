@@ -1,6 +1,6 @@
-# Streak (engagement kit, core-v1.3.0 module)
+# Streak (engagement kit, v1.3.0 module)
 
-Layout (core-v1.3.1, one folder per module, module-api.md §1): `module.luau` (definition), `server/` (server part; the code files named below live there). Rojo: `ReplicatedStorage.Modules.Streak` (module, client, shared), `ServerScriptService.Modules.Streak` (server).
+Layout (v1.3.1, one folder per module, module-api.md §1): `module.luau` (definition), `server/` (server part; the code files named below live there). Rojo: `ReplicatedStorage.Modules.Streak` (module, client, shared), `ServerScriptService.Modules.Streak` (server).
 
 Definition: `module.luau` (optional dependency: Economy). Server part: `server/init.luau`.
 

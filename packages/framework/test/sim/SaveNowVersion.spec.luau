@@ -1,5 +1,5 @@
 --[[
-	core-v1.3.1 R22: Data.saveAsync -> Store.saveNow replaces root._framework (copy-on-write, to
+	v1.3.1 R22: Data.saveAsync -> Store.saveNow replaces root._framework (copy-on-write, to
 	stamp _framework.stats._saveSeq). It must bump the `_framework` section version so a cached
 	`_framework` read view (Data.view, the incremental replication diff) is current right after
 	the save. Real Data + real Store.profileStore + real ProfileStore on the sim's mock DataStore.

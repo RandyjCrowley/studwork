@@ -173,7 +173,7 @@ describe("NewGame.deployJson / readme", function()
 	end)
 end)
 
--- core-v1.3.1 (R19): module refs are ReplicatedStorage.Modules.<Name>.module
+-- v1.3.1 (R19): module refs are ReplicatedStorage.Modules.<Name>.module
 local TEMPLATE_V13 = [[
 local Modules = ReplicatedStorage:WaitForChild("Modules")
 local Unused = ReplicatedStorage:WaitForChild("Modules")

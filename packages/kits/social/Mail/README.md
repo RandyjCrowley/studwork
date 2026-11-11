@@ -1,6 +1,6 @@
-# Mail (social kit, core-v1.3.0 module)
+# Mail (social kit, v1.3.0 module)
 
-Layout (core-v1.3.1, one folder per module, module-api.md §1): `module.luau` (definition), `server/` (server part; the code files named below live there), `client/` (client part). Rojo: `ReplicatedStorage.Modules.Mail` (module, client, shared), `ServerScriptService.Modules.Mail` (server).
+Layout (v1.3.1, one folder per module, module-api.md §1): `module.luau` (definition), `server/` (server part; the code files named below live there), `client/` (client part). Rojo: `ReplicatedStorage.Modules.Mail` (module, client, shared), `ServerScriptService.Modules.Mail` (server).
 
 Definition: `module.luau`. Logic: `Delivery.luau` (delivery + mailbox), `Outbox.luau`
 (the crash-safe outbox), `Escrow.luau` + `Gifts.luau` (R1 gift cap and return to sender),
@@ -77,7 +77,7 @@ retried with backoff, dead-lettered after `maxAttempts` errors.
   (a handler threw: warned, stays in the box, attempts counted but a held message is **never**
   dead-lettered). Success = one update removes `box[id]` and writes `seen[id]`. Client:
   `StudWork.use(Mail).actions.claimMail(id)` -> the module's own Blink event `ClaimMail`
-  (`Mail/net.blink`, RemoteScope `STUDWORK_MAIL`, `Data: Id` = `string(1..64)`; core-v1.3.1, was
+  (`Mail/net.blink`, RemoteScope `STUDWORK_MAIL`, `Data: Id` = `string(1..64)`; v1.3.1, was
   the framework's `RequestMailClaim`). Server action `claimMail`, limit 2/s burst 5; the handler
   re-validates the id (`MailValidate.key`) and toasts on `still_held` / `error`.
 - ctx-only `Mail.sendInto(tx, toUserId, kind, payload, key) -> boolean` — the outbox (below).

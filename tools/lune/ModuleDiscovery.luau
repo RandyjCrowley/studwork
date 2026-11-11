@@ -1,7 +1,7 @@
 --!nocheck
 --[[
 	tools/lune/ModuleDiscovery: the ONE place that finds the repo's shipped modules and maps them the
-	way Rojo does (core-v1.3.1, R19: one folder per module, module-api.md §1). Used by the Lune
+	way Rojo does (v1.3.1, R19: one folder per module, module-api.md §1). Used by the Lune
 	testkit's fake `game` (tools/lune/testkit/harness.luau), the multi-server sim
 	(packages/framework/test/sim/Server.luau), tools/sync-projects (the generated `Modules` entries
 	of every *.project.json), tools/lune/KitModules and the guardrails.

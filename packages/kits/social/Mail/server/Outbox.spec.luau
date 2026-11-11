@@ -278,7 +278,7 @@ describe("Mail.Outbox", function()
 	end)
 end)
 
-describe("Outbox prepare / savedEntries (core-v1.3.0, R1 / R3)", function()
+describe("Outbox prepare / savedEntries (v1.3.0, R1 / R3)", function()
 	local function make(verdicts: { [string]: string })
 		local w: any = { sent = {}, removed = {}, timers = {}, active = true }
 		w.box = {

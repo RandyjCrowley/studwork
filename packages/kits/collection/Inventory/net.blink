@@ -1,5 +1,5 @@
 -- Inventory module network contract (Blink IDL, compiled with `tools/net`; module-api.md §1, §9).
--- core-v1.3.1 (R19): moved out of framework.blink (was RequestGift). Backs the server part's
+-- v1.3.1 (R19): moved out of framework.blink (was RequestGift). Backs the server part's
 -- `actions.gift` (rate 1/s, burst 3); the client part fires it via StudWork.use(Inventory).actions.gift.
 -- Blink checks the wire types on receive; the handler still checks target, ownership and cooldown.
 

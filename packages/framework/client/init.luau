@@ -6,7 +6,7 @@
 	its actions, §9) and this framework client UI, exposed as StudWork.Client:
 	  state()            the replicated state, as sent (§10: { loaded, framework, modules })
 	  Hud, Feedback, Input, onFeedbackEvent   the client UI on theme tokens + HUD slots
-	                     (core-v1.3.1: onMailbox moved to the mail module's client API)
+	                     (v1.3.1: onMailbox moved to the mail module's client API)
 	  Hud.addWidget(id, spec | false)   the one call a module or game uses to contribute (or
 	                     remove) a HUD widget (= UI.registerWidget; v1.3.0)
 	The UI reads the replicated state as sent (State.raw through Hud/Slices).
@@ -76,7 +76,7 @@ Client.studWork = table.freeze({
 
 -- Step 4 of the client boot: the framework client UI. The state is the replicated state as sent
 -- (the HUD reads it raw). The UI's config carries what it reads: GameConfig.client.palette
--- overrides. core-v1.3.1 (R19): no module's config is read here (the currency widget, with its
+-- overrides. v1.3.1 (R19): no module's config is read here (the currency widget, with its
 -- primary currency, is the economy module's client part).
 local function startUi(info: any): any
 	local names: { string } = {}

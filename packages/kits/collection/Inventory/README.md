@@ -1,8 +1,8 @@
 # Inventory (collection kit)
 
-Layout (core-v1.3.1, one folder per module, module-api.md §1): `module.luau` (definition), `server/` (server part; the code files named below live there), `client/` (client part). Rojo: `ReplicatedStorage.Modules.Inventory` (module, client, shared), `ServerScriptService.Modules.Inventory` (server).
+Layout (v1.3.1, one folder per module, module-api.md §1): `module.luau` (definition), `server/` (server part; the code files named below live there), `client/` (client part). Rojo: `ReplicatedStorage.Modules.Inventory` (module, client, shared), `ServerScriptService.Modules.Inventory` (server).
 
-Real StudWork module (core-v1.3.0). Definition: `module.luau` (config, save
+Real StudWork module (v1.3.0). Definition: `module.luau` (config, save
 section, migration, sanitize); server part: `server/init.luau` (full API in its header). Pure rules in
 `InventoryRules.luau`, pure gifting steps in `Gift.luau` (incl. the never-duplicated/never-lost
 property test in `Gift.spec.luau`). Integration tests: `../tests/Collection.spec.luau`.
@@ -27,4 +27,4 @@ property test in `Gift.spec.luau`). Integration tests: `../tests/Collection.spec
 | `gift(toUserId, uid)` | event `Gift`, `Data: (f64, Id)` (generated `server/Net.luau`, `client/Net.luau`) | 1/s, burst 3 |
 
 Client: `StudWork.use(Inventory).actions.gift(toUserId, uid)`. Tests: `h:action(p, Inventory, "gift", ...)`.
-core-v1.3.1 (R19): replaces the framework Blink event `RequestGift`.
+v1.3.1 (R19): replaces the framework Blink event `RequestGift`.

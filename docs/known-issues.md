@@ -1,8 +1,8 @@
 # Known issues
 
 Open problems in StudWork that are known, understood and not yet fixed. Each entry says where the
-problem is, what fails, and what to do until it is fixed. Fixed issues are not listed here; see
-`CHANGELOG.md` for those.
+problem is, what fails, and what to do until it is fixed. Fixed issues are listed only by id
+at the end ("Fixed ids"); `CHANGELOG.md` has the details.
 
 **Ids.** `R<n>` ids come from the framework's code reviews and keep their original numbers, so gaps
 in the sequence are issues that have since been fixed. `V<n>` ids are issues that only show up when
@@ -166,3 +166,33 @@ hook environment broke the check's `git -C` calls).
 Some behaviour needs a person in Studio: Local Server with one and two clients, Device Emulator
 presets, listening to the sounds, and the real DataStore on a published test place.
 `docs/manual-qa.md` has the checklist; the automated cover is in `packages/framework/test/sim/`.
+
+## Fixed ids (index)
+
+Code comments, `CHANGELOG.md` and `docs/decisions.md` still cite some ids of issues that are fixed.
+`N<n>` ids come from the v1.1.0 review, `R<n>` from later reviews.
+
+| Id | Fixed in | What it was |
+|---|---|---|
+| N1 | v1.2.0 | A Mail handler that couldn't accept a message dead-lettered it; now it waits in the mailbox |
+| N2 | v1.1.0 | A failed `PolicyService` lookup stayed unknown; now it is retried |
+| N3 | v1.2.0 | Items registered later weren't added to odds already disclosed to clients |
+| N4 | v1.2.0 | A paid roll could use luck the client hadn't been shown odds for |
+| N5 | v1.1.0 | Copies rolled with a paid currency weren't tagged (`paidcur:`) and could be traded |
+| N6 | v1.2.0 | Legacy mail messages without an id could be delivered twice |
+| N7 | v1.1.0 | A boot that failed part-way left the framework half-usable |
+| N8 | v1.2.0 / v1.3.0 | Read APIs returned live save tables that callers could mutate (now frozen views) |
+| N9 | v1.2.0 | Receipts dropped when a player left were not reported |
+| N10 | v1.1.0 | Mail tried to deliver to players who had already left |
+| R1 | v1.3.0 | Gifts to a player who never returns could overflow ProfileStore's message queue (now capped per recipient, returned after 14 days) |
+| R2 | v1.2.0 | A same-server gift bypassed the crash-safe outbox |
+| R4, R5 | v1.2.0 | Paid-currency tables and table-wide luck could reach paid rolls without disclosure |
+| R6, R7 | v1.3.0 | Dead letters couldn't be replayed on live servers; duplicate detection had a short window |
+| R8, R13, R14 | v1.2.0 / v1.3.0 | Guardrail evasions (aliases, string tricks, neutral folders) |
+| R10 | v1.3.0 | The rest of N8: frozen read views everywhere, not only in Studio |
+| R15 | v1.2.0 | The mail payload hash wasn't real FNV-1a |
+| R16 | v1.3.0 | A generator bug in `tools/new-game` |
+| R19 | v1.3.1 | The framework still knew kit names and kit actions; now each kit is one folder with its own `net.blink` |
+| R20 | v1.3.1 | A paid currency with no registered spender wasn't caught; now a boot error |
+| R22 | v1.3.1 | `saveNow` didn't bump the `_framework` section version |
+| V1 | v1.4.1 | The games-repo pre-commit hook failed the pin check on every commit |

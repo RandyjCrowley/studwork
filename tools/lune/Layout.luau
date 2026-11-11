@@ -3,7 +3,7 @@
 	tools/lune/Layout: pure checks of the core v1.3.0 repo layout, shared by tools/doctor and
 	tools/core-status (zero requires; callers read the files). Specs: Layout.spec.luau.
 
-	The layout (v1.3.0; kits one folder per module since core-v1.3.1, R19):
+	The layout (v1.3.0; kits one folder per module since v1.3.1, R19):
 	  packages/framework/{shared,server,client}   the StudWork runtime (StudWork.VERSION in
 	                                              shared/init.luau)
 	  packages/kits/<kit>/<Module>/module.luau    the built-in kits' modules (collection, economy,

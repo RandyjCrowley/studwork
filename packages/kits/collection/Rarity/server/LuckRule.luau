@@ -1,6 +1,6 @@
 --!strict
 --[[
-	Pure paid-roll luck rule (CLAUDE.md hard rule 11, core-v1.2 N4). Zero requires.
+	Pure paid-roll luck rule (CLAUDE.md hard rule 11, v1.2 N4). Zero requires.
 
 	check(input) -> (ok, reason?). Checked in this order:
 		1. not paid                      -> ok (free rolls may use any luck)

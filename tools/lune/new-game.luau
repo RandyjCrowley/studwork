@@ -158,7 +158,7 @@ end
 -- project file
 local projectPath = target .. "/default.project.json"
 -- order-preserving JSON (tools/sync-projects), so the project keeps the template's layout and its
--- generated kit module entries (core-v1.3.1 R19); only the game module's entries change
+-- generated kit module entries (v1.3.1 R19); only the game module's entries change
 local project = SyncProjects.decode(fs.readFile(projectPath))
 project.vals.name = name
 project.vals.servePort = port

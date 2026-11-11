@@ -1,5 +1,5 @@
 --!nocheck
--- tools/sync-projects (SyncProjects.luau, core-v1.3.1 R19): the generated Modules entries.
+-- tools/sync-projects (SyncProjects.luau, v1.3.1 R19): the generated Modules entries.
 local SyncProjects = require("tools/lune/SyncProjects.luau")
 
 local ENTRIES = {

@@ -1,6 +1,6 @@
 --!strict
 --[[
-	Plot: the base kit's server module (core-v1.3.0 module API). README.md has the full
+	Plot: the base kit's server module (v1.3.0 module API). README.md has the full
 	attribute contract.
 
 	Plot models are supplied by the game:
@@ -894,7 +894,7 @@ Plot.api = {
 }
 
 --------------------------------------------------------------------------------
--- actions (module-api.md §9; core-v1.3.1 R19: the module's own net.blink, events Display and
+-- actions (module-api.md §9; v1.3.1 R19: the module's own net.blink, events Display and
 -- ClearDisplay, replace the framework's RequestDisplay / RequestClearDisplay; same limits)
 --------------------------------------------------------------------------------
 

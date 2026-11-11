@@ -1,5 +1,5 @@
 --[[
-	Co-play with mocked friends (known-issues: "real friend co-play multiplier").
+	Co-play with mocked friends (docs/manual-qa.md, not verified live: "real friend co-play multiplier").
 	Real Friends + Economy + Data; IsFriendsWithAsync answers come from world.friends (with
 	latency and injectable failures). config.Friends.friends.coPlayMultiplier = 1.5 in the fixture.
 ]]

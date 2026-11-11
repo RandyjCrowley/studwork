@@ -303,7 +303,7 @@ function Data.new(opts: any): any
 						beforeSave(loadedRecord)
 					end
 				end,
-				-- R22 (core-v1.3.1): the store replaced root._framework (saveNow's _saveSeq stamp)
+				-- R22 (v1.3.1): the store replaced root._framework (saveNow's _saveSeq stamp)
 				frameworkReplaced = function()
 					if records[player] == loadedRecord then
 						loadedRecord.versions._framework = nextVersion()
@@ -382,7 +382,7 @@ function Data.new(opts: any): any
 		if store.saveNow then
 			local fw = record.root._framework
 			local ok, saved = pcall(store.saveNow, userIdOf(player), record.root)
-			-- R22 (core-v1.3.1): a store that replaced _framework without the frameworkReplaced
+			-- R22 (v1.3.1): a store that replaced _framework without the frameworkReplaced
 			-- hook still leaves no stale _framework view / replication behind
 			if records[player] == record and record.root._framework ~= fw then
 				record.versions._framework = nextVersion()

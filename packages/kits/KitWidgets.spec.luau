@@ -1,5 +1,5 @@
 --!nocheck
--- core-v1.3.1 (R19): the default HUD widgets "Economy.currency" and "Social.mailbox" moved from the
+-- v1.3.1 (R19): the default HUD widgets "Economy.currency" and "Social.mailbox" moved from the
 -- framework HUD into the Economy and Mail client parts, registered with UI.registerWidget under
 -- the same ids at start (the framework HUD re-renders on UI.onWidgetsChanged, so a registration
 -- after the HUD mounted shows up). UI's init needs React (not loadable under Lune), so this checks

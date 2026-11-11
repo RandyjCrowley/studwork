@@ -1,5 +1,5 @@
 --[[
-	Session locks across servers (known-issues: "Real DataStore behaviour ... ProfileStore runs in
+	Session locks across servers (docs/manual-qa.md, not verified live: "Real DataStore behaviour ... ProfileStore runs in
 	Mock mode"). Real Data + real ProfileStore 1.0.3 in LIVE mode (not its Mock) on the shared
 	mock DataStore + MessagingService. ProfileStore rules exercised: a waiting server asks the
 	holder to release (MessagingService), steals after SESSION_STEAL (40 s) when the holder does

@@ -1,6 +1,6 @@
 local Visibility = require(script.Parent.Visibility)
 
--- core-v1.3.1 (R19): the currency / rate / mailbox visibility moved with their assertions to the
+-- v1.3.1 (R19): the currency / rate / mailbox visibility moved with their assertions to the
 -- economy and mail modules' client/State.spec.luau (each module gates its own widget).
 local function enabled(list)
 	return function(name)

@@ -22,7 +22,7 @@ local Loader = {}
 -- net (v1.3.0): the module's own generated Blink server module; its events back `actions`
 local SURFACES = { "api", "txApi", "extensions", "purchaseOps", "actions", "net" }
 
--- The live lookup (module-api.md §19.9, added in core-v1.3.1: R19, one folder per module):
+-- The live lookup (module-api.md §19.9, added in v1.3.1: R19, one folder per module):
 -- ServerScriptService.Modules[ref.server], a direct child and nothing else (Rojo maps every
 -- module folder's server/ there). Then:
 --   * a required table with a `new` function and no `init`/`start` is a part FACTORY: new() builds

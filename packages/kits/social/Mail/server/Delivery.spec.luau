@@ -600,7 +600,7 @@ describe("Mail.Delivery mailbox (N1)", function()
 	end)
 end)
 
-describe("Delivery seen retention (R7, core-v1.3.0)", function()
+describe("Delivery seen retention (R7, v1.3.0)", function()
 	it("covers ProfileStore's whole queue: MAX_SEEN >= 2x QUEUE_LIMIT", function()
 		expect(Delivery.QUEUE_LIMIT).toBe(1000)
 		expect(Delivery.MAX_SEEN >= 2 * Delivery.QUEUE_LIMIT).toBe(true)

@@ -1,7 +1,7 @@
 --!strict
 --[[
 	Framework internal: installs the CLIENT runtime into the StudWork facade (the client twin of
-	server/Boot.luau; decisions.md, v1.3.0, decision 3). Required only by the
+	server/Boot.luau; decisions.md, "Modules and kits"). Required only by the
 	framework client's own init.luau / Runtime.luau, never by StudWork, kits or game code.
 ]]
 

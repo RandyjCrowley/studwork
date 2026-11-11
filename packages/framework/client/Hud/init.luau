@@ -24,7 +24,7 @@
 	built-in kits' currency counter (topCenter 1) and mailbox badge (topCenter 3); widgets
 	registered after the HUD mounted render at once (UI.onWidgetsChanged).
 	Widget props: { state (raw replicated state), opts (Types.HudOptions), primary (deprecated,
-	always "Coins" since core-v1.3.1), layoutOrder }.
+	always "Coins" since v1.3.1), layoutOrder }.
 	Toasts (Feedback "toast" events) render under the top-centre slot in every layout.
 	State: the per-module client slices of the raw replicated state (Hud/Slices), not the compat
 	FlatState. The default layout is pixel-identical to the v1.2 HUD.
@@ -104,7 +104,7 @@ local function NextGoalWidget(props: WidgetProps)
 	})
 end
 
--- core-v1.3.1 (R19): the module widgets ("Economy.currency", "Social.mailbox") are registered
+-- v1.3.1 (R19): the module widgets ("Economy.currency", "Social.mailbox") are registered
 -- by the economy and mail modules' client parts (UI.registerWidget, same ids), so
 -- client.hud.widgets[id] = false and a custom layout treat them exactly like before.
 Hud.DEFAULT_WIDGETS = table.freeze({
@@ -215,7 +215,7 @@ local function HudApp(props: AppProps)
 		local offWidgets = UI.onWidgetsChanged(bump)
 		local offTheme = UI.Theme.subscribe(bump)
 		-- a widget registered between the first render and this subscription (a module client
-		-- part starting late, core-v1.3.1) still shows: re-read the registry once
+		-- part starting late, v1.3.1) still shows: re-read the registry once
 		bump()
 		return function()
 			offWidgets()
@@ -283,7 +283,7 @@ function Hud.mount(opts: Types.HudOptions?)
 	if cfg.mode == "off" then
 		return
 	end
-	-- deprecated widget prop (core-v1.3.1): the framework reads no module's config any more
+	-- deprecated widget prop (v1.3.1): the framework reads no module's config any more
 	local primary = "Coins"
 
 	local screen = Instance.new("ScreenGui")

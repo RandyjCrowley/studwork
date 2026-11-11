@@ -31,7 +31,7 @@
 	runtime replacement check can't be built: ProcessReceipt is a write-only callback (reading it
 	errors "you can only set the callback value, get is not available", and it fires no Changed
 	signal; verified in Studio). Shop does NOT re-assign periodically, because a blind re-assert
-	would be exactly the silent fight the design rejects. See decisions.md (v1.3.0).
+	would be exactly the silent fight the design rejects. See decisions.md, "Purchases and receipts".
 
 	Gamepasses: ownsPass(player, pass) cached per player per pass (UserOwnsGamePassAsync once, with
 	retries; failures not cached); PromptGamePassPurchaseFinished(true) marks it owned;

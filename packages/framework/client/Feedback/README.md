@@ -19,6 +19,6 @@ Server messages: `item` -> pop + flash + rarity sound + shake when Legendary+; `
 Pure modules + specs: `Pool`, `PitchRamp`, `Shake`, `PopAnim`.
 
 
-core-v1.3.0: colours, fonts, stroke, rarity look and sound ids come from the merged theme
+v1.3.0: colours, fonts, stroke, rarity look and sound ids come from the merged theme
 (`client/Theme.luau` -> `Framework/shared/Theme`), not `Core.Palette` / `Core.Sounds` /
 `Core.RarityTiers`.

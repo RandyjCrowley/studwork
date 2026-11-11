@@ -7,7 +7,7 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html). Within a 
 module API (`docs/framework/module-api.md`, `packages/framework/shared/Types.luau`) only grows:
 nothing is renamed or removed, and deprecated calls keep working.
 
-Identifiers like `R19` or `V1` refer to entries in [docs/known-issues.md](docs/known-issues.md).
+Identifiers like `R19` or `V1` are issue ids: open ones are listed in [docs/known-issues.md](docs/known-issues.md), fixed ones in its "Fixed ids" index.
 
 ## [Unreleased]
 
