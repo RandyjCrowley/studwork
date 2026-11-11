@@ -11,6 +11,8 @@
 # In a single-game project (v1.5.0, docs/framework/single-game-project.md) it lints the project's
 # own Luau: every top-level folder except studwork/ (the framework submodule), build/ and hidden
 # folders (.cache/, .git/), with the core's configs; the guardrails check the studwork/ pin.
+# (v1.6.0) In an adopted project, files listed in studwork-legacy.json skip selene and stylua (one
+# `warning: [legacy] <path>: selene/stylua skipped` line each); the guardrails still apply the list.
 source "$(dirname "$0")/_common.sh"
 
 if is_single_game; then
@@ -30,15 +32,60 @@ if is_single_game; then
 		fi
 	done
 	[ "${#LINT_PATHS[@]}" -gt 0 ] || die "nothing to lint in $PROJECT_ROOT"
+	# (v1.6.0) an adopted project: the files listed in studwork-legacy.json (old code: _G, not
+	# StyLua-formatted) skip selene and stylua; the guardrails step below still applies the list
+	# (a broken list fails there). --legacy-files prints "<path>\t<reason>" per valid entry.
+	LEGACY_PATHS=()
+	LEGACY_REASONS=()
+	if [ -f studwork-legacy.json ]; then
+		LEGACY_OUT="$(lune_tool guardrails --legacy-files)" || die "guardrails --legacy-files failed"
+		while IFS= read -r line; do
+			[ -n "$line" ] || continue
+			LEGACY_PATHS+=("${line%%$'\t'*}")
+			LEGACY_REASONS+=("${line#*$'\t'}")
+		done <<<"$LEGACY_OUT"
+	fi
+	SELENE_ARGS=()
+	STYLUA_ARGS=()
+	if [ "${#LEGACY_PATHS[@]}" -gt 0 ]; then
+		i=0
+		while [ "$i" -lt "${#LEGACY_PATHS[@]}" ]; do
+			echo "warning: [legacy] ${LEGACY_PATHS[$i]}: selene/stylua skipped (legacy: ${LEGACY_REASONS[$i]})"
+			i=$((i + 1))
+		done
+		# every Luau file under the lint paths except the listed ones (and, for stylua, the
+		# generated files selene.toml / the stylua globs below exclude when they walk folders themselves)
+		while IFS= read -r -d '' f; do
+			f="${f#./}"
+			skip=0
+			for l in "${LEGACY_PATHS[@]}"; do
+				if [ "$f" = "$l" ]; then
+					skip=1
+					break
+				fi
+			done
+			[ "$skip" -eq 0 ] || continue
+			case "/$f" in
+			*/server/Net.luau | */client/Net.luau | */Generated*.luau | *.d.luau) continue ;;
+			esac
+			SELENE_ARGS+=("$PROJECT_ROOT/$f")
+			STYLUA_ARGS+=("$f")
+		done < <(find "${LINT_PATHS[@]}" -type f \( -name '*.luau' -o -name '*.lua' \) -print0)
+	else
+		for d in "${LINT_PATHS[@]}"; do SELENE_ARGS+=("$PROJECT_ROOT/$d"); done
+		STYLUA_ARGS=("${LINT_PATHS[@]}")
+	fi
 	echo "== selene"
 	# selene reads its std from the working directory: run it from the core with absolute paths
-	ABS_PATHS=()
-	for d in "${LINT_PATHS[@]}"; do ABS_PATHS+=("$PROJECT_ROOT/$d"); done
-	(cd "$CORE_ROOT" && selene "${ABS_PATHS[@]}")
+	if [ "${#SELENE_ARGS[@]}" -gt 0 ]; then
+		(cd "$CORE_ROOT" && selene "${SELENE_ARGS[@]}")
+	fi
 	echo "== stylua --check"
-	stylua --config-path "$(core_path stylua.toml)" --check \
-		-g '*.luau' -g '*.lua' -g '!**/server/Net.luau' -g '!**/client/Net.luau' -g '!**/Generated*.luau' \
-		"${LINT_PATHS[@]}"
+	if [ "${#STYLUA_ARGS[@]}" -gt 0 ]; then
+		stylua --config-path "$(core_path stylua.toml)" --check \
+			-g '*.luau' -g '*.lua' -g '!**/server/Net.luau' -g '!**/client/Net.luau' -g '!**/Generated*.luau' \
+			"${STYLUA_ARGS[@]}"
+	fi
 elif is_games_repo; then
 	[ -d games ] || die "no games/ folder in $PROJECT_ROOT"
 	echo "== selene"

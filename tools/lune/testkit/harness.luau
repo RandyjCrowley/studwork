@@ -331,22 +331,35 @@ local function projectChildren(dir: string, node: any): { [string]: any }
 	return out
 end
 
-function Harness.mapGame(specPath: string?)
-	local gameDir = nil
-	if specPath then
-		local dir = dirname(normalize(specPath))
-		while dir ~= "." and dir ~= "" do
-			if isFile(dir .. "/default.project.json") then
-				gameDir = dir
-				break
-			end
-			local up = dirname(dir)
-			if up == dir then
-				break
-			end
-			dir = up
-		end
+-- The game folder whose default.project.json maps a spec: the closest folder above the spec that
+-- has one, else (v1.6.0) the project root "." when ./default.project.json exists (a single-game
+-- project's root IS the game; the core repo and a games repo have no root project file, so nothing
+-- changes there). `has(path)` tells whether a file exists. nil = no project file (base mapping).
+function Harness.findGameDir(specPath: string?, has: (string) -> boolean): string?
+	if specPath == nil then
+		return nil
 	end
+	local dir = dirname(normalize(specPath))
+	while dir ~= "." and dir ~= "" do
+		if has(dir .. "/default.project.json") then
+			return dir
+		end
+		local up = dirname(dir)
+		if up == dir then
+			break
+		end
+		dir = up
+	end
+	if string.sub(specPath, 1, 1) ~= "/" and has("default.project.json") then
+		return "."
+	end
+	return nil
+end
+
+function Harness.mapGame(specPath: string?)
+	local gameDir = Harness.findGameDir(specPath, function(path: string): boolean
+		return isFile(path) or (path == "default.project.json" and fs.isFile(path))
+	end)
 	local projectPath = if gameDir then gameDir .. "/default.project.json" else nil
 	if projectPath == nil or not fs.isFile(projectPath) then
 		fakeServices = servicesFrom(BASE_CHILDREN)

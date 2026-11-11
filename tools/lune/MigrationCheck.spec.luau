@@ -39,7 +39,7 @@ describe("MigrationCheck: fixture schema", function()
 		local errs = MigrationCheck.validate({
 			expect = { a = 5 },
 			dropped = { b = "" },
-			sold = { c = "gems" },
+			sold = { c = "" }, -- (v1.6.0 r2: any non-empty kind is valid; an empty one is not)
 			afterMerge = {},
 			overCap = { path = "x" },
 		})
@@ -189,4 +189,87 @@ describe("tools/test-migration end to end (example game)", function()
 		expect(r.code).toBe(1)
 		expect(r.stderr).toContain("no legacy fixtures found")
 	end)
+end)
+
+-- (v1.6.0 dogfood round 2) old item lists of { id, uid } tables, receipts compared as id sets,
+-- check 4 with no source left, any sold kind
+describe("MigrationCheck: round-2 fixture shapes", function()
+	local SAVED2 = {
+		inventory = { inventory = { u1 = { itemId = "gem" }, u2 = { itemId = "pebble" } } },
+		_framework = { legacyPurchases = { ["r-1"] = 1700000000, ["r-2"] = 1700000000 } },
+	}
+
+	it("items: entries may be tables with id (as well as itemId) or plain strings", function()
+		for _, pets in
+			{
+				{ { id = "pebble", uid = "old-1" }, { id = "gem", uid = "old-2" } },
+				{ { itemId = "pebble" }, "gem" },
+			}
+		do
+			local f = { expect = { pets = { items = "inventory.inventory" } } }
+			expect(MigrationCheck.compare({ pets = pets }, SAVED2, f)).toEqual({})
+		end
+		local f = { expect = { pets = { items = "inventory.inventory" } } }
+		local errs = MigrationCheck.compare({ pets = { { id = "gem" } } }, SAVED2, f)
+		expect(#errs).toBe(1)
+		expect(errs[1]).toContain("items differ")
+	end)
+
+	it("_framework.legacyPurchases compares the set of receipt ids, whatever the old values", function()
+		local f = { expect = { p = "_framework.legacyPurchases" } }
+		expect(MigrationCheck.compare({ p = { ["r-1"] = true, ["r-2"] = true } }, SAVED2, f)).toEqual({})
+		expect(MigrationCheck.compare({ p = { ["r-1"] = 5, ["r-2"] = 6 } }, SAVED2, f)).toEqual({})
+		expect(MigrationCheck.compare({ p = { "r-1", "r-2" } }, SAVED2, f)).toEqual({})
+		local errs = MigrationCheck.compare({ p = { ["r-1"] = true } }, SAVED2, f)
+		expect(#errs).toBe(1)
+		expect(errs[1]).toContain("receipt ids differ")
+		-- any other string target still compares values
+		local errs2 = MigrationCheck.compare(
+			{ p = { ["r-1"] = true } },
+			SAVED2,
+			{ expect = { p = "_framework.x" } }
+		)
+		expect(#errs2).toBe(1)
+	end)
+
+	it("sold: any non-empty string is valid; only currency/items are checked, the rest noted", function()
+		local f = {
+			old = { coins = 1, rebirths = 2 },
+			expect = { coins = "economy.currency.Coins", rebirths = "game.rebirths" },
+			sold = { coins = "currency", rebirths = "stat" },
+		}
+		expect(MigrationCheck.validate(f)).toEqual({})
+		expect(MigrationCheck.checkSold(f, { "Coins" }, "free")).toEqual({})
+		local notes = MigrationCheck.soldUnchecked(f)
+		expect(#notes).toBe(1)
+		expect(notes[1]).toContain("sold 'rebirths' (stat): not checked")
+		f.sold.rebirths = ""
+		expect(#MigrationCheck.validate(f)).toBe(1)
+		f.sold.rebirths = 3
+		expect(#MigrationCheck.validate(f)).toBe(1)
+	end)
+
+	it("check 4: a map of sources with none left seeds nothing", function()
+		local src = {
+			main = { kind = "datastore", name = "M", key = "{userId}" },
+			backup = { kind = "datastore", name = "B", key = "{userId}" },
+		}
+		expect(MigrationCheck.seedsNothing(src, {})).toBe(true)
+		expect(MigrationCheck.seedsNothing(src, { main = { a = 1 } })).toBe(false)
+		expect(MigrationCheck.seedsNothing({ kind = "datastore", name = "M", key = "k" }, {})).toBe(false)
+	end)
+
+	it(
+		"end to end: two stores (map of sources), one missing, pets as tables, receipts as true, a sold stat",
+		function()
+			local r = process.exec("lune", {
+				"run",
+				"tools/lune/test-migration",
+				"tools/lune/testdata/migration/legacy-split",
+			})
+			expect(r.stdout).toContain("9 checks passed, 0 failed")
+			expect(r.stdout).toContain("sold 'main.rebirths' (stat): not checked")
+			expect(r.code).toBe(0)
+		end
+	)
 end)

@@ -198,9 +198,33 @@ for _, fixture in plan.fixtures or {} do
 			end)
 			for i, key in keys do
 				local id = uid + 100 + i
-				seed(store, spec, id, MigrationCheck.withoutField(f.old, key), world:now() - OLD_AGE)
+				local partial = MigrationCheck.withoutField(f.old, key)
+				seed(store, spec, id, partial, world:now() - OLD_AGE)
 				local p, loaded, kick = join(world, server, id)
-				if loaded then
+				if MigrationCheck.seedsNothing(spec.source, partial) then
+					-- no source left at all: the "nothing found" outcome (a found = false marker)
+					if not loaded then
+						table.insert(
+							errs,
+							`without '{tostring(key)}' (no old save left): expected a fresh start, got kick '{tostring(
+								kick
+							)}'`
+						)
+						server:leave(p)
+					else
+						leave(world, server, p)
+						local s = saved(world, server, id)
+						local m = s and s._framework.imports and s._framework.imports[spec.id]
+						if not (m and m.found == false) then
+							table.insert(
+								errs,
+								`without '{tostring(key)}' (no old save left): expected a found = false marker, got {MigrationCheck.show(
+									m
+								)}`
+							)
+						end
+					end
+				elseif loaded then
 					leave(world, server, p)
 					local s = saved(world, server, id)
 					local m = s and s._framework.imports and s._framework.imports[spec.id]
@@ -281,6 +305,9 @@ for _, fixture in plan.fixtures or {} do
 				local _world, server = boot()
 				local spec = importOf(server, fixture, fixture.module)
 				local paid = server.runtime.compliance.forModule(spec.owner).paidCurrencies()
+				for _, note in MigrationCheck.soldUnchecked(f) do
+					print("        note: " .. note)
+				end
 				fail(MigrationCheck.checkSold(f, paid, spec.itemTag), "sold fields")
 			end)
 		end
