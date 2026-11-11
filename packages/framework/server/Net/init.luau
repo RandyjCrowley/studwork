@@ -40,13 +40,6 @@ local Net = {}
 -- Anti-spam rails (tokens/s, burst) per player per event, not balance numbers.
 Net.LIMITS = table.freeze({
 	StateInit = { rate = 0.2, burst = 2 },
-	RequestDisplay = { rate = 8, burst = 16 },
-	RequestClearDisplay = { rate = 8, burst = 16 },
-	RequestRebirth = { rate = 0.5, burst = 2 },
-	RequestUpgrade = { rate = 6, burst = 12 },
-	RequestRoll = { rate = 4, burst = 8 },
-	RequestGift = { rate = 1, burst = 3 },
-	RequestMailClaim = { rate = 2, burst = 5 },
 	AdminTriggerEvent = { rate = 1, burst = 3 },
 	ClientFunnel = { rate = 2, burst = 10 },
 })
@@ -54,13 +47,6 @@ Net.LIMITS = table.freeze({
 -- Client -> server events of framework.blink, in a stable order.
 Net.CLIENT_EVENTS = table.freeze({
 	"StateInit",
-	"RequestDisplay",
-	"RequestClearDisplay",
-	"RequestRebirth",
-	"RequestUpgrade",
-	"RequestRoll",
-	"RequestGift",
-	"RequestMailClaim",
 	"AdminTriggerEvent",
 	"ClientFunnel",
 })

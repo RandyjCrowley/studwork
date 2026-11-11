@@ -1,13 +1,11 @@
--- Core network contract (Blink IDL, compiled with `tools/net` -> blink 0.18.9).
--- FROZEN at core-contract-v1.2 (first frozen at core-contract-v0): additive only (new
--- events/fields with optional types). v1.2 adds RequestMailClaim. v1.1 added no events: rarity odds (Rarity.getOddsDetail)
--- travel in ReplicatedState.odds over StateSync, and M2's per-section deltas reuse StateSync's
--- `unknown` payload. Events of a module that is not enabled have no handler: Net drops them.
+-- StudWork framework network contract (Blink IDL, compiled with `tools/net` -> blink 0.18.9).
+-- Only the framework's OWN messages live here: state sync, feedback, live events, admin triggers
+-- and UI funnel steps. core-v1.3.1 (R19): no module has events here; every module (kits included)
+-- declares its actions/events in its own <Module>/net.blink with its own RemoteScope
+-- (module-api.md §1, §9, §19.9). The `special` guardrail fails on any kit name in this file.
 -- Every client -> server event is a REQUEST: the server validates type, range and ownership
--- and rate-limits it in core/server/Net before any service sees it. Blink checks the wire
--- types/ranges below on receive; services still check ownership and game rules.
--- Games define their own remotes in games/<name>/src/shared/net/game.blink with their own
--- RemoteScope so they never collide with core.
+-- and rate-limits it in packages/framework/server/Net before any handler sees it. Blink checks
+-- the wire types/ranges below on receive; handlers still check ownership and rules.
 
 option RemoteScope = "STUDWORK"
 option Casing = Pascal
@@ -24,61 +22,6 @@ event StateInit {
     From: Client,
     Type: Reliable,
     Call: SingleAsync
-}
-
--- Put an owned item on the plot. (uid, slotId?)
-event RequestDisplay {
-    From: Client,
-    Type: Reliable,
-    Call: SingleAsync,
-    Data: (Id, Id?)
-}
-
--- Remove an item from the plot. (uid)
-event RequestClearDisplay {
-    From: Client,
-    Type: Reliable,
-    Call: SingleAsync,
-    Data: Id
-}
-
-event RequestRebirth {
-    From: Client,
-    Type: Reliable,
-    Call: SingleAsync
-}
-
--- Buy one level of an upgrade. (upgradeId)
-event RequestUpgrade {
-    From: Client,
-    Type: Reliable,
-    Call: SingleAsync,
-    Data: Id
-}
-
--- Roll a rarity table that has an in-game currency cost. (tableId)
--- Robux rolls never use this: they go through a developer product + Shop.onProduct.
-event RequestRoll {
-    From: Client,
-    Type: Reliable,
-    Call: SingleAsync,
-    Data: Id
-}
-
--- Gift an owned item to another player in the server. (toUserId, uid)
-event RequestGift {
-    From: Client,
-    Type: Reliable,
-    Call: SingleAsync,
-    Data: (f64, Id)
-}
-
--- Claim a held mailbox message (Core.Mail.claim). (messageId) -- v1.2
-event RequestMailClaim {
-    From: Client,
-    Type: Reliable,
-    Call: SingleAsync,
-    Data: Id
 }
 
 -- Admin-only: trigger a configured event now. Server checks ServerConfig.admins (Core.start's

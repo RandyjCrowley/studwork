@@ -4,13 +4,29 @@ Core's public interface (v1.2: `Types.luau`, now `packages/framework/shared/Type
 `docs/framework/module-api.md`) only gains things: no renames, no removals; old calls are marked deprecated instead.
 Every change is recorded here, newest first.
 
-## core-v1.3.1 (unreleased)
+## core-v1.3.1 (2026-11-11) — R19 for real, R20, R22
 
-### Phase 1 (R19 framework half): one folder per module
+Closes the core-v1.3.0 gaps R19 (nothing is special), R20 (paid currencies enforced) and R22
+(`saveNow` and the `_framework` version). R21, R23, R24 stay open (`docs/known-issues.md`).
+Build reports: `(internal build report, not public)`.
 
-#### Breaking (v1.3.1)
+### Breaking (v1.3.1)
 
-R19 ("nothing is special, for real") forces these; nothing else changes shape.
+R19 ("nothing is special, for real") forces these; nothing else changes shape. The public module
+API (`defineModule`, `ctx`, `StudWork.use`, actions, `StudWork.test`) only gained things.
+
+- **Kit request events left `framework.blink`.** `RequestDisplay`, `RequestClearDisplay`,
+  `RequestRebirth`, `RequestUpgrade`, `RequestRoll`, `RequestGift`, `RequestMailClaim` (and their
+  `Net.LIMITS` / `Net.CLIENT_EVENTS` entries) are gone. Each kit module now has its own `net.blink`
+  (RemoteScope `STUDWORK_<MODULE>`) backing module actions with the same names, wire types and rate
+  limits: Plot `display` (`Display`, 8/16) and `clearDisplay` (`ClearDisplay`, 8/16), Upgrades
+  `upgrade` (`Upgrade`, 6/12), Rebirth `rebirth` (`Rebirth`, 0.5/2), Rarity `roll` (`Roll`, 4/8),
+  Inventory `gift` (`Gift`, 1/3), Mail `claimMail` (`ClaimMail`, 2/5). Clients call
+  `StudWork.use(<Ref>).actions.<name>(...)`; tests call `h:action(p, <Ref>, "<name>", ...)`.
+  `ctx.net.handle` now only knows the framework's own client events.
+- **`Runtime.buildActions` no longer accepts `net = "framework"`** (a client part fires its own `Net`).
+- **R20: boot fails** if a currency in `compliance.paidCurrencies` has no registered spender
+  (module-api.md §19.10). Every shipped game, fixture and the template already registered one.
 
 - **Kit Rojo paths.** Kits moved to one folder per module (`packages/kits/<kit>/<Module>/`:
   `module.luau`, `server/`, optional `client/`, `shared/`, `net.blink`). `ReplicatedStorage.Kits`
@@ -43,15 +59,18 @@ R19 ("nothing is special, for real") forces these; nothing else changes shape.
 - **`Types`:** `ModuleName` is `string`; the kit namespaces of the dead v1.2 `CoreAPI` facade type
   (`Items`, `Rarity`, ..., `Mail`) are removed.
 
-#### Added
+### Added
 
 - **module-api.md §19.9**: the live part lookups. Server: `ServerScriptService.Modules[ref.server]`;
   a part factory (`new`, no `init`/`start`) is built fresh per runtime; a `Net` child (generated
   from `net.blink`) is bound as the part's `net`. Client: `ReplicatedStorage.Modules[ref.client].client`
   with the same `Net` default. `Loader.defaultLoadServer(ref)` / `Runtime.defaultLoadClient(ref)`.
 - **Kit client parts** (`<Module>/client/init.luau`) for Plot, Upgrades, Rebirth, Rarity, Inventory,
-  Mail (actions) and Economy (currency widget). Transitional: they fire the framework Blink file's
-  request events (`net = "framework"`) until Phase 2 gives each kit its own `net.blink`.
+  Mail (actions) and Economy (currency widget).
+- **Kit `net.blink` files**: `base/Plot`, `economy/Upgrades`, `economy/Rebirth`,
+  `collection/Rarity`, `collection/Inventory`, `social/Mail` (+ generated `server/Net.luau`,
+  `client/Net.luau`; lint excludes module Blink outputs).
+- **module-api.md §19.10** (R20): the paid-currency spender boot rule.
 - **`tools/sync-projects [--check]`**: generates every project's kit (and example) module entries;
   `tools/lint` fails on drift. **`tools/lune/ModuleDiscovery.luau`**: the one module discovery used by
   the Lune testkit, the sim, sync-projects, KitModules and the guardrails.
@@ -59,9 +78,17 @@ R19 ("nothing is special, for real") forces these; nothing else changes shape.
   (`RemoteScope = "STUDWORK_<NAME>"`, outputs `server/Net.luau` / `client/Net.luau`).
 - **`special` guardrail, framework half**: framework code and `framework.blink` may not name a kit
   module (names read from the kits), a kit's Blink event, a v1.2 kit request event, or the
-  pre-v1.3.1 loader names; the only allow-list is `TRANSITIONAL_V131` (Phase 3 deletes it). The
-  kit/example half also flags `ServerScriptService.Modules.<Other>`.
+  pre-v1.3.1 loader names (or the old `net = "framework"` marker); no allow-list. The kit/example
+  half also flags `ServerScriptService.Modules.<Other>`.
 - **Doctor / core-status** check the per-module kit layout and that projects have no `Kits` folder.
+
+### Fixed
+
+- **R22:** `Store.saveNow` (through a `frameworkReplaced` hook) and `Data.saveAsync` bump the
+  `_framework` section version when a save replaces it, so `_framework` views and replication are
+  current right after `saveAsync` (`SaveNowVersion.spec`).
+- `tools/lune/KitModules.luau` read only the map form of client `actions`; the list form
+  (`actions = { "roll" }`) is recognised too.
 
 ## core-v1.3.0 (2026-11-10) — StudWork framework restructure
 

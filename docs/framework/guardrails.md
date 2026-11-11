@@ -121,9 +121,10 @@ and fails on:
 It reads both each comment-stripped line (so `return Mail` and `"Ma" .. "il"` are seen) and the
 normalised file (whitespace removed, concatenations folded, `x["Mail"]` read as `x.Mail`), so a
 string literal, a field, an index or a split name all count; a mention in a comment does not.
-The only allow-list is `TRANSITIONAL_V131` in `tools/lune/guardrails.luau`: the seven kit request
-events still in `framework.blink` / `Net.LIMITS` and the `net = "framework"` client marker, until
-each kit ships its own `net.blink` (core-v1.3.1 Phase 2); Phase 3 deletes it.
+There is no allow-list: every kit ships its own `net.blink` (core-v1.3.1), so `framework.blink` and
+`Net.LIMITS` hold only the framework's own events (`StateInit`, `AdminTriggerEvent`, `ClientFunnel`,
+`StateSync`, `Feedback`, `EventState`), and the old `net = "framework"` client marker is flagged too.
+The lint self-test plants each case; `-- guard: allow special` on a framework line is refused review.
 
 ## Game-code guardrails (lint)
 

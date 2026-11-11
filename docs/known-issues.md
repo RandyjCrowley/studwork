@@ -1,5 +1,7 @@
 # Known issues
 
+core-v1.3.1: R19, R20 and R22 are closed (see their entries below); R21, R23 and R24 stay open.
+
 Open findings after `core-v1.2.0`. The v1.1.0 review findings N1–N10 are fixed (N8 and N9 within
 the limits listed under Low). The v1.2.0 review (`(internal build report, not public)`) found
 0 Critical, 2 High, 7 Medium and 8 Low. Fixed before the tag: R2, R4, R5, R8, R15, most of R9 and
@@ -94,18 +96,20 @@ listening to the sounds, and the real DataStore on a published test place. The a
 
 From the final review (`(internal build report, not public)`); both Highs and the in-scope
 Mediums/Lows were fixed before the tag (`P2F-REPORT.md`).
-- **R19 (Medium, final review 5).** Built-in kits still use framework-owned Blink events
-  (`RequestUpgrade`, `RequestRoll`, ... in `framework.blink`), hard-coded client action names and the kit
-  loader fallbacks (`kitLoadServer`, `ModuleClients`). A third-party module can declare its own actions
-  (§9), but per-module `net.blink` files and the §1 one-folder-per-module Rojo mapping are follow-up work.
-- **R20 (Medium, final review 7, partly closed).** Compliance marks a transaction paid when a paid
-  currency is spent through `spendForRoll`/`spendPaid` or a registered currency spender. A module that
-  debits a paid currency straight from its own section, bypassing both, can still roll for free in the
-  same tx. Guided, not enforced: documented in `docs/framework/guardrails.md`.
+- **R19 (Medium, final review 5). Fixed in core-v1.3.1.** Each kit module is one folder (§1 mapping,
+  `ServerScriptService.Modules.<Name>` / `ReplicatedStorage.Modules.<Name>`) with its own `net.blink`
+  and module actions; `framework.blink` holds only framework events; `kitLoadServer`, `ModuleServers`,
+  `ModuleClients`, the kit-named client actions and the kit HUD defaults are gone from the framework.
+  The `special` guardrail fails on any kit name in framework code or `framework.blink` (no allow-list).
+- **R20 (Medium, final review 7). Enforced in core-v1.3.1** (module-api §19.10): boot fails if a currency
+  in `compliance.paidCurrencies` has no registered spender, so every paid currency has an owner whose
+  spends Compliance sees. Residual (Low, guided): the owning module itself could still debit its paid
+  currency straight from its own section, bypassing its own spender, and then roll in the same tx;
+  Economy never does (`guardrails.md`, "Paid-random compliance").
 - **R21 (Low).** `_framework.purchases` keeps the last 200 receipts (as v1.2); a lost receipt older than
   that could be granted twice. Moving receipts into their own section is a contract change, left for later.
-- **R22 (Low).** `Data.saveNow` doesn't bump the `_framework` section version (replication of `_framework`
-  facts can lag one change).
+- **R22 (Low). Fixed in core-v1.3.1:** `Store.saveNow` / `Data.saveAsync` bump the `_framework` section
+  version when the save replaces it (`SaveNowVersion.spec`).
 - **R23 (Low, perf).** A module that writes `_framework` every tick costs ~1.6-1.9 ms/tick at 50 players
   (it re-walks the receipts). Rule: per-tick stats live in a module's own section. The real kits do this
   (0.60-0.65 ms/tick vs v1.2 0.64).
@@ -113,5 +117,3 @@ Mediums/Lows were fixed before the tag (`P2F-REPORT.md`).
   top-centre HUD in a small viewport.
 - **R3 (rest).** Unsent gift outboxes are retried on leave and at the sender's next login, not from any
   server (that would need the sender's session).
-- **CLAUDE.md** still describes the v1.2 layout and the gift workaround: the update is waiting for the
-  user's approval (protected file).

@@ -63,18 +63,36 @@ describe("ctx.net (Net)", function()
 	end)
 
 	it("a second owner of the same framework event is a boot error naming both", function()
-		local function claimer()
-			return {
-				init = function(ctx)
-					ctx.net.handle("RequestRoll", function() end)
-				end,
-			}
-		end
-		local _, err =
-			Harness.boot({ modules = { Wallet, Other }, servers = { Wallet = claimer(), Other = claimer() } })
-		expect(err).toContain(
-			"framework event 'RequestRoll' already has a handler (owned by Wallet); Other can't claim it too"
+		-- core-v1.3.1 (R19): framework.blink has no module events left (every framework client event
+		-- is owned by a framework service at boot), so the two-module case is driven on a bare Net:
+		-- the same net.claim that ctx.net.handle calls, the same error text.
+		local Net = require(script.Parent.Parent.server.Net)
+		local net = Net.new({
+			events = nil,
+			isPlayer = function()
+				return true
+			end,
+			isLoaded = function()
+				return true
+			end,
+			clock = os.clock,
+			spawn = function() end,
+			log = function() end,
+		})
+		net.forModule("Wallet").handle("ClientFunnel", function() end)
+		local ok, err = pcall(function()
+			net.forModule("Other").handle("ClientFunnel", function() end)
+		end)
+		expect(ok).toBe(false)
+		expect(tostring(err)).toContain(
+			"framework event 'ClientFunnel' already has a handler (owned by Wallet); Other can't claim it too"
 		)
+		-- and a module event name that is not in framework.blink is refused, naming the real list
+		local ok2, err3 = pcall(function()
+			net.forModule("Wallet").handle("RequestRoll", function() end)
+		end)
+		expect(ok2).toBe(false)
+		expect(tostring(err3)).toContain("unknown framework client event 'RequestRoll'")
 		local _, err2 = Harness.boot({
 			modules = { Wallet },
 			servers = {

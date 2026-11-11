@@ -538,3 +538,46 @@ lead re-running lint, typecheck (6 games), tests (582), test-sim (51) and 8 rojo
   are boot errors, UI text fits any theme font. Open items are R19–R24 in `known-issues.md`.
 - **Studio playtest** of final main: every MCP-drivable v1.2 row passes; overrides (b), (c), (d) and the
   five scaffolds pass (`PLAYTEST.md`). Benchmark: 0.60–0.65 ms/tick with real kits vs v1.2 0.64 (`BENCHMARK.md`).
+
+## core-v1.3.1 (R19 for real, R20, R22)
+
+- **Kits are one folder per module** (`packages/kits/<kit>/<Module>/`: `module.luau`, `server/`,
+  optional `client/`, `shared/`, `net.blink`), mapped by §1 to `ReplicatedStorage.Modules.<Name>` and
+  `ServerScriptService.Modules.<Name>`. Moved with `git mv` so history follows. Why: module-api §1
+  always said so; the per-kit `shared`/`server` folders plus `ModuleServers`/`ModuleClients` were the
+  last kit-only path through the framework.
+- **The project entries are generated** (`tools/sync-projects`, `--check` in lint): 11 kit modules x 2
+  entries x every project is too much to keep by hand. Example modules are generated only into projects
+  inside their own folder (games don't ship them).
+- **One discovery** (`tools/lune/ModuleDiscovery.luau`) serves the Lune testkit, the sim,
+  `StudWork.test`, sync-projects, KitModules and the guardrails, so the test tree is the Rojo tree.
+  `Loader.defaultLoadServer` / `Runtime.defaultLoadClient` are exported (additive) so tests run the live
+  lookup. Lune and the sim never bind a module's generated `Net` (`bindNet = false`): Blink output needs
+  the engine; actions are driven with `h:action`, which takes the same Net path minus the wire.
+- **Part factories:** a server part that returns `{ new }` (no `init`/`start`) is built fresh per
+  runtime (§19.9), so two runtimes in one process never share module state. Kits that already returned
+  a plain part keep doing so.
+- **Shared helpers:** `Tiers` is owned by Rarity (`Rarity/shared`, replicated, pure; Items' validator
+  reads it there without depending on Rarity being enabled). The collection `Util` is duplicated into
+  Items/Rarity/Inventory: reaching another module's server folder would be another module's internals.
+- **HUD defaults moved into the kits** (Economy currency widget, Mail badge/screen hook), same widget ids,
+  so game overrides keep working. The framework HUD only knows slots and the game's next-goal widget.
+- **`Feedback.Rarity` -> `Feedback.Tier`** on the framework wire: "Rarity" is a kit module name; a tier
+  is the theme's concept.
+- **`FrameworkSection.V12_MAP` stays in the framework.** It maps v1.2 flat-save fields to section keys
+  (lowercase data, no kit code runs, no kit name as an identifier) for saves made before v1.3; moving it
+  into each kit would need every kit loaded to migrate any save. The `special` scan doesn't flag it.
+- **Kit event names = PascalCase action names** (`roll` -> `Roll`), RemoteScope `STUDWORK_<MODULE>`, so
+  the action binds by convention and no two modules share a remote.
+- **The `special` framework scan derives its names** from every kit `module.luau` and kit `net.blink`, so
+  a new kit is covered without editing the guardrail. It ran with one transitional allow-list
+  (`TRANSITIONAL_V131`) while kits migrated; Phase 3 deleted it.
+- **R20 is checked after every module's `start`** (a spender may be registered in `start`), before the
+  framework releases queued requests and claims receipts; it fails boot closed like every boot error.
+  What stays guided: the owning module debiting its own section directly (known-issues R20 residual).
+- **R22:** `Store.saveNow` signals `frameworkReplaced`; `Data.saveAsync` also bumps after `saveNow` if
+  `_framework` changed, for stores without the hook.
+- **Team:** Phase 1 one builder (layout, loaders, test infra, tools, games: too coupled to split),
+  Phase 2 four builders in parallel, one per kit (D also R20/R22), Phase 3 the lead removed the
+  transitional pieces. Every builder left work uncommitted; the lead re-ran the gate and committed.
+

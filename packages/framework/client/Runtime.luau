@@ -36,7 +36,7 @@ local Resolve = (require :: any)(Shared:WaitForChild("Resolve"))
 
 local Runtime = {}
 
-Runtime.VERSION = "1.3.0"
+Runtime.VERSION = "1.3.1"
 
 local function pascal(name: string): string
 	return string.upper(string.sub(name, 1, 1)) .. string.sub(name, 2)
@@ -106,11 +106,6 @@ end
 function Runtime.buildActions(ref: any, part: any, assertUsable: () -> ()): any
 	local out: { [string]: any } = {}
 	local net = if type(part) == "table" then part.net else nil
-	if net == "framework" then
-		-- a kit action fired on the framework's own Blink file (shared/net/framework.blink): the
-		-- kit names it instead of requiring the framework client's internals ("nothing is special")
-		net = (require :: any)(script.Parent.Net.Generated)
-	end
 	local declared = if type(part) == "table" then part.actions else nil
 	if declared ~= nil and type(declared) ~= "table" then
 		error(`{ref.name}: client part 'actions' must be a table`, 0)

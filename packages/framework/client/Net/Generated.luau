@@ -160,11 +160,11 @@ local Queue: any = {
 
 local SerdesEvent = "?"
 local SerdesThread: thread?
-Queue.Reliable[10] = table.create(256)
-Events.Reliable[11] = {}
-Queue.Reliable[11] = table.create(256)
-Events.Reliable[12] = {}
-Queue.Reliable[12] = table.create(256)
+Queue.Reliable[3] = table.create(256)
+Events.Reliable[4] = {}
+Queue.Reliable[4] = table.create(256)
+Events.Reliable[5] = {}
+Queue.Reliable[5] = table.create(256)
 export type Id = string
 export type FeedbackMessage = { Kind: string, Text: string, Tier: string?, Position: Vector3? }
 function SerdesFunctions.WriteEVENT_StateInit(Value: nil): ()
@@ -173,86 +173,10 @@ function SerdesFunctions.WriteEVENT_StateInit(Value: nil): ()
 	buffer.writeu8(SendBuffer, BLOCK_START + 0, 0)
 end
 
-function SerdesFunctions.WriteEVENT_RequestDisplay(Value1: string, Value2: string?): ()
-	-- Allocate BLOCK: 3 bytes
-	local BLOCK_START = Allocate(3)
-	buffer.writeu8(SendBuffer, BLOCK_START + 0, 1)
-	local Length = #Value1
-	buffer.writeu8(SendBuffer, BLOCK_START + 1, Length)
-	Allocate(Length)
-	buffer.writestring(SendBuffer, SendOffset, Value1, Length)
-	buffer.writeu8(SendBuffer, BLOCK_START + 2, Value2 ~= nil and 1 or 0)
-	if Value2 ~= nil then
-		-- Allocate BLOCK: 1 bytes
-		local BLOCK_START = Allocate(1)
-		local Length = #Value2
-		buffer.writeu8(SendBuffer, BLOCK_START + 0, Length)
-		Allocate(Length)
-		buffer.writestring(SendBuffer, SendOffset, Value2, Length)
-	end
-end
-
-function SerdesFunctions.WriteEVENT_RequestClearDisplay(Value: string): ()
-	-- Allocate BLOCK: 2 bytes
-	local BLOCK_START = Allocate(2)
-	buffer.writeu8(SendBuffer, BLOCK_START + 0, 2)
-	local Length = #Value
-	buffer.writeu8(SendBuffer, BLOCK_START + 1, Length)
-	Allocate(Length)
-	buffer.writestring(SendBuffer, SendOffset, Value, Length)
-end
-
-function SerdesFunctions.WriteEVENT_RequestRebirth(Value: nil): ()
-	-- Allocate BLOCK: 1 bytes
-	local BLOCK_START = Allocate(1)
-	buffer.writeu8(SendBuffer, BLOCK_START + 0, 3)
-end
-
-function SerdesFunctions.WriteEVENT_RequestUpgrade(Value: string): ()
-	-- Allocate BLOCK: 2 bytes
-	local BLOCK_START = Allocate(2)
-	buffer.writeu8(SendBuffer, BLOCK_START + 0, 4)
-	local Length = #Value
-	buffer.writeu8(SendBuffer, BLOCK_START + 1, Length)
-	Allocate(Length)
-	buffer.writestring(SendBuffer, SendOffset, Value, Length)
-end
-
-function SerdesFunctions.WriteEVENT_RequestRoll(Value: string): ()
-	-- Allocate BLOCK: 2 bytes
-	local BLOCK_START = Allocate(2)
-	buffer.writeu8(SendBuffer, BLOCK_START + 0, 5)
-	local Length = #Value
-	buffer.writeu8(SendBuffer, BLOCK_START + 1, Length)
-	Allocate(Length)
-	buffer.writestring(SendBuffer, SendOffset, Value, Length)
-end
-
-function SerdesFunctions.WriteEVENT_RequestGift(Value1: number, Value2: string): ()
-	-- Allocate BLOCK: 10 bytes
-	local BLOCK_START = Allocate(10)
-	buffer.writeu8(SendBuffer, BLOCK_START + 0, 6)
-	buffer.writef64(SendBuffer, BLOCK_START + 1, Value1)
-	local Length = #Value2
-	buffer.writeu8(SendBuffer, BLOCK_START + 9, Length)
-	Allocate(Length)
-	buffer.writestring(SendBuffer, SendOffset, Value2, Length)
-end
-
-function SerdesFunctions.WriteEVENT_RequestMailClaim(Value: string): ()
-	-- Allocate BLOCK: 2 bytes
-	local BLOCK_START = Allocate(2)
-	buffer.writeu8(SendBuffer, BLOCK_START + 0, 7)
-	local Length = #Value
-	buffer.writeu8(SendBuffer, BLOCK_START + 1, Length)
-	Allocate(Length)
-	buffer.writestring(SendBuffer, SendOffset, Value, Length)
-end
-
 function SerdesFunctions.WriteEVENT_AdminTriggerEvent(Value: string): ()
 	-- Allocate BLOCK: 2 bytes
 	local BLOCK_START = Allocate(2)
-	buffer.writeu8(SendBuffer, BLOCK_START + 0, 8)
+	buffer.writeu8(SendBuffer, BLOCK_START + 0, 1)
 	local Length = #Value
 	buffer.writeu8(SendBuffer, BLOCK_START + 1, Length)
 	Allocate(Length)
@@ -262,7 +186,7 @@ end
 function SerdesFunctions.WriteEVENT_ClientFunnel(Value: string): ()
 	-- Allocate BLOCK: 2 bytes
 	local BLOCK_START = Allocate(2)
-	buffer.writeu8(SendBuffer, BLOCK_START + 0, 9)
+	buffer.writeu8(SendBuffer, BLOCK_START + 0, 2)
 	local Length = #Value
 	buffer.writeu8(SendBuffer, BLOCK_START + 1, Length)
 	Allocate(Length)
@@ -323,27 +247,6 @@ if not RunService:IsRunning() then
 	StateInit = {
 		Fire = NOOP
 	},
-	RequestDisplay = {
-		Fire = NOOP
-	},
-	RequestClearDisplay = {
-		Fire = NOOP
-	},
-	RequestRebirth = {
-		Fire = NOOP
-	},
-	RequestUpgrade = {
-		Fire = NOOP
-	},
-	RequestRoll = {
-		Fire = NOOP
-	},
-	RequestGift = {
-		Fire = NOOP
-	},
-	RequestMailClaim = {
-		Fire = NOOP
-	},
 	AdminTriggerEvent = {
 		Fire = NOOP
 	},
@@ -401,39 +304,39 @@ Reliable.OnClientEvent:Connect(function(Buffer: buffer, Instances: {Instance})
 		-- Read BLOCK: 1 bytes
 		local BLOCK_START = Read(1)
 		local Index = buffer.readu8(RecieveBuffer, BLOCK_START + 0)
-		if Index == 10 then
+		if Index == 3 then
 			local Value: any = SerdesFunctions.ReadEVENT_StateSync()
-			if Events.Reliable[10] ~= nil then
-				task.spawn(Events.Reliable[10], Value)
+			if Events.Reliable[3] ~= nil then
+				task.spawn(Events.Reliable[3], Value)
 			else
-				if #Queue.Reliable[10] > 256 then
+				if #Queue.Reliable[3] > 256 then
 					warn("[Blink]: Event queue of \"StateSync\" exceeded 256, did you forget to implement a listener?")
 				end
-				table.insert(Queue.Reliable[10], {Value} :: {any})
+				table.insert(Queue.Reliable[3], {Value} :: {any})
 			end
-		elseif Index == 11 then
+		elseif Index == 4 then
 			local Value: { Kind: string, Text: string, Tier: string?, Position: Vector3? } = SerdesFunctions.ReadEVENT_Feedback()
-			if #Events.Reliable[11] > 0 then
-				for _, Listener in Events.Reliable[11] do
+			if #Events.Reliable[4] > 0 then
+				for _, Listener in Events.Reliable[4] do
 					task.spawn(Listener, Value)
 				end
 			else
-				if #Queue.Reliable[11] > 256 then
+				if #Queue.Reliable[4] > 256 then
 					warn("[Blink]: Event queue of \"Feedback\" exceeded 256, did you forget to implement a listener?")
 				end
-				table.insert(Queue.Reliable[11], {Value} :: {any})
+				table.insert(Queue.Reliable[4], {Value} :: {any})
 			end
-		elseif Index == 12 then
+		elseif Index == 5 then
 			local Value1: string, Value2: number = SerdesFunctions.ReadEVENT_EventState()
-			if #Events.Reliable[12] > 0 then
-				for _, Listener in Events.Reliable[12] do
+			if #Events.Reliable[5] > 0 then
+				for _, Listener in Events.Reliable[5] do
 					task.spawn(Listener, Value1, Value2)
 				end
 			else
-				if #Queue.Reliable[12] > 256 then
+				if #Queue.Reliable[5] > 256 then
 					warn("[Blink]: Event queue of \"EventState\" exceeded 256, did you forget to implement a listener?")
 				end
-				table.insert(Queue.Reliable[12], {Value1, Value2} :: {any})
+				table.insert(Queue.Reliable[5], {Value1, Value2} :: {any})
 			end
 		end
 	end
@@ -465,41 +368,6 @@ local Returns = table.freeze({
 			SerdesFunctions.WriteEVENT_StateInit(Value)
 		end
 	},
-	RequestDisplay = {
-		Fire = function(Value1: string, Value2: string?): ()
-			SerdesFunctions.WriteEVENT_RequestDisplay(Value1, Value2)
-		end
-	},
-	RequestClearDisplay = {
-		Fire = function(Value: string): ()
-			SerdesFunctions.WriteEVENT_RequestClearDisplay(Value)
-		end
-	},
-	RequestRebirth = {
-		Fire = function(Value: nil): ()
-			SerdesFunctions.WriteEVENT_RequestRebirth(Value)
-		end
-	},
-	RequestUpgrade = {
-		Fire = function(Value: string): ()
-			SerdesFunctions.WriteEVENT_RequestUpgrade(Value)
-		end
-	},
-	RequestRoll = {
-		Fire = function(Value: string): ()
-			SerdesFunctions.WriteEVENT_RequestRoll(Value)
-		end
-	},
-	RequestGift = {
-		Fire = function(Value1: number, Value2: string): ()
-			SerdesFunctions.WriteEVENT_RequestGift(Value1, Value2)
-		end
-	},
-	RequestMailClaim = {
-		Fire = function(Value: string): ()
-			SerdesFunctions.WriteEVENT_RequestMailClaim(Value)
-		end
-	},
 	AdminTriggerEvent = {
 		Fire = function(Value: string): ()
 			SerdesFunctions.WriteEVENT_AdminTriggerEvent(Value)
@@ -512,44 +380,44 @@ local Returns = table.freeze({
 	},
 	StateSync = {
 		On = function(Listener: (Value: any) -> ()): () -> ()
-			Events.Reliable[10] = Listener
-			for Index, Arguments in Queue.Reliable[10] do
+			Events.Reliable[3] = Listener
+			for Index, Arguments in Queue.Reliable[3] do
 				task.spawn(Listener, table.unpack(Arguments))
 			end
-			Queue.Reliable[10] = {}
+			Queue.Reliable[3] = {}
 			return function (): ()
-				if Events.Reliable[10] == Listener then
-					Events.Reliable[10] = nil
+				if Events.Reliable[3] == Listener then
+					Events.Reliable[3] = nil
 				end
 			end
 		end
 	},
 	Feedback = {
 		On = function(Listener: (Value: { Kind: string, Text: string, Tier: string?, Position: Vector3? }) -> ()): () -> ()
-			table.insert(Events.Reliable[11], Listener)
-			for Index, Arguments in Queue.Reliable[11] do
+			table.insert(Events.Reliable[4], Listener)
+			for Index, Arguments in Queue.Reliable[4] do
 				task.spawn(Listener, table.unpack(Arguments))
 			end
-			Queue.Reliable[11] = {}
+			Queue.Reliable[4] = {}
 			return function (): ()
-				local Index = table.find(Events.Reliable[11], Listener)
+				local Index = table.find(Events.Reliable[4], Listener)
 				if Index ~= nil then
-					table.remove(Events.Reliable[11], Index)
+					table.remove(Events.Reliable[4], Index)
 				end
 			end
 		end
 	},
 	EventState = {
 		On = function(Listener: (Value1: string, Value2: number) -> ()): () -> ()
-			table.insert(Events.Reliable[12], Listener)
-			for Index, Arguments in Queue.Reliable[12] do
+			table.insert(Events.Reliable[5], Listener)
+			for Index, Arguments in Queue.Reliable[5] do
 				task.spawn(Listener, table.unpack(Arguments))
 			end
-			Queue.Reliable[12] = {}
+			Queue.Reliable[5] = {}
 			return function (): ()
-				local Index = table.find(Events.Reliable[12], Listener)
+				local Index = table.find(Events.Reliable[5], Listener)
 				if Index ~= nil then
-					table.remove(Events.Reliable[12], Index)
+					table.remove(Events.Reliable[5], Index)
 				end
 			end
 		end

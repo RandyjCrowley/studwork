@@ -41,7 +41,7 @@
 	            a kit module (whole word, from packages/kits/*/*/module.luau), an event a kit's
 	            net.blink declares, a v1.2 kit request event, or Kits / ModuleServers /
 	            ModuleClients / kitLoadServer; on the comment-stripped and the normalised text.
-	            The only allow-list is TRANSITIONAL_V131 (deleted in core-v1.3.1 Phase 3).
+	            No allow-list (the core-v1.3.1 transitional list is gone).
 	  theme     (D's R4) a hex colour literal ("#RRGGBB"), a Color3.fromRGB literal or an asset id
 	            ("rbxassetid://123") in UI or kit/example/game-module client code outside a theme or
 	            config file (THEME_ALLOWED): colours and assets come from the theme.
@@ -1173,24 +1173,6 @@ Guard.KIT_V12_EVENTS = {
 	"RequestMailClaim",
 }
 
--- TRANSITIONAL (core-v1.3.1 Phase 1 -> Phase 3): the ONLY allow-list of the framework scan. The kit
--- request events still in framework.blink / Net.LIMITS / CLIENT_EVENTS, and the `net = "framework"`
--- marker kit client parts use until their own net.blink lands (Runtime.buildActions). The
--- lead DELETES this constant in Phase 3; the scan then flags whatever is left.
-local TRANSITIONAL_V131 = {
-	names = {
-		"RequestDisplay",
-		"RequestClearDisplay",
-		"RequestRebirth",
-		"RequestUpgrade",
-		"RequestRoll",
-		"RequestGift",
-		"RequestMailClaim",
-	},
-	markers = { 'net=="framework"' },
-}
-Guard.TRANSITIONAL_V131 = TRANSITIONAL_V131
-
 -- The names the scan flags: { [name] = reason }. Pure: `kitModules` = kit module names,
 -- `kitEvents` = Blink event names declared in kit net.blink files.
 function Guard.frameworkSpecialNames(kitModules: { string }, kitEvents: { string }): { [string]: string }
@@ -1276,15 +1258,9 @@ local function codeLinesOf(source: string, isBlink: boolean?): ({ string }, { st
 	return codeLines, rawLines
 end
 
--- Scans one framework file. ctx = { path, names ({ [name] = reason }), isBlink?, transitional?
--- (default TRANSITIONAL_V131; the self-test passes {} to prove the allow-list is what lets the
--- transitional names through) }.
+-- Scans one framework file. ctx = { path, names ({ [name] = reason }), isBlink? }. No allow-list:
+-- the core-v1.3.1 Phase 1 transitional list (TRANSITIONAL_V131) was deleted in Phase 3.
 function Guard.scanFrameworkSpecial(source: string, ctx: any): { string }
-	local transitional = ctx.transitional or TRANSITIONAL_V131
-	local allowedName = {}
-	for _, n in transitional.names or {} do
-		allowedName[n] = true
-	end
 	local codeLines, rawLines = codeLinesOf(source, ctx.isBlink)
 	local norm, lineOf = Guard.normalize(codeLines)
 	local findings, seen = {}, {}
@@ -1307,39 +1283,29 @@ function Guard.scanFrameworkSpecial(source: string, ctx: any): { string }
 	end
 	table.sort(names)
 	for _, name in names do
-		if not allowedName[name] then
-			local pattern = "%f[%w_]" .. escape(name) .. "%f[^%w_]"
-			-- 1. each comment-stripped line, concatenations folded (`return Mail`, `"Ma" .. "il"`)
-			for lineNo, code in codeLines do
-				if string.find(foldConcat(code), pattern) then
-					add(lineNo, message(ctx.names[name]))
-				end
-			end
-			-- 2. the normalised file (split across lines, x["Mail"] -> x.Mail)
-			local init = 1
-			while true do
-				local s, e = string.find(norm, pattern, init)
-				if s == nil then
-					break
-				end
-				add(lineOf[s] or 1, message(ctx.names[name]))
-				init = (e or s) + 1
+		local pattern = "%f[%w_]" .. escape(name) .. "%f[^%w_]"
+		-- 1. each comment-stripped line, concatenations folded (`return Mail`, `"Ma" .. "il"`)
+		for lineNo, code in codeLines do
+			if string.find(foldConcat(code), pattern) then
+				add(lineNo, message(ctx.names[name]))
 			end
 		end
-	end
-	-- the transitional `net = "framework"` marker (kit client parts on the framework's Blink file)
-	local markers = { 'net=="framework"' }
-	local allowedMarker = {}
-	for _, m in transitional.markers or {} do
-		allowedMarker[m] = true
-	end
-	for _, marker in markers do
-		if not allowedMarker[marker] then
-			local s = string.find(norm, marker, 1, true)
-			if s then
-				add(lineOf[s] or 1, message('the kit net marker net == "framework"'))
+		-- 2. the normalised file (split across lines, x["Mail"] -> x.Mail)
+		local init = 1
+		while true do
+			local s, e = string.find(norm, pattern, init)
+			if s == nil then
+				break
 			end
+			add(lineOf[s] or 1, message(ctx.names[name]))
+			init = (e or s) + 1
 		end
+	end
+	-- the old kit net marker `net = "framework"` (kit client parts on the framework's Blink file)
+	local marker = 'net=="framework"'
+	local ms = string.find(norm, marker, 1, true)
+	if ms then
+		add(lineOf[ms] or 1, message('the kit net marker net == "framework"'))
 	end
 	table.sort(findings, function(a, b)
 		return a.line < b.line
@@ -1878,8 +1844,6 @@ local function selfTest(): boolean
 			{ "block comment", "--[[\n\tMail\n]]\nlocal x = 1" },
 			{ "longer word", "local MailboxEntry = 1\nlocal t: RarityTier? = nil" },
 			{ "lower case key", "local mail = section.mail" },
-			{ "transitional event", "local e = Generated.RequestMailClaim" },
-			{ "transitional marker", 'if net == "framework" then end' },
 		}
 	do
 		expectClean("framework special clean " .. clean[1], Guard.scanFrameworkSpecial(clean[2], fwCtx))
@@ -1891,23 +1855,22 @@ local function selfTest(): boolean
 			{ path = Guard.FRAMEWORK_BLINK, names = fwNames, isBlink = true }
 		)
 	)
-	-- without the transitional allow-list (Phase 3) the same lines are findings
-	local noTransition = { path = fwCtx.path, names = fwNames, transitional = {} }
+	-- the old v1.2 kit request events and the old `net = "framework"` marker (no allow-list since Phase 3)
 	expectCheck(
-		"framework special event without TRANSITIONAL_V131",
-		Guard.scanFrameworkSpecial("local e = Generated.RequestMailClaim", noTransition),
+		"framework special old kit event",
+		Guard.scanFrameworkSpecial("local e = Generated.RequestMailClaim", fwCtx),
 		"special"
 	)
 	expectCheck(
-		"framework special marker without TRANSITIONAL_V131",
-		Guard.scanFrameworkSpecial('if net == "framework" then end', noTransition),
+		"framework special old kit net marker",
+		Guard.scanFrameworkSpecial('if net == "framework" then end', fwCtx),
 		"special"
 	)
 	expectCheck(
-		"framework special event in framework.blink without TRANSITIONAL_V131",
+		"framework special old kit event in framework.blink",
 		Guard.scanFrameworkSpecial(
 			"event RequestUpgrade {\n    From: Client\n}",
-			{ path = Guard.FRAMEWORK_BLINK, names = fwNames, isBlink = true, transitional = {} }
+			{ path = Guard.FRAMEWORK_BLINK, names = fwNames, isBlink = true }
 		),
 		"special"
 	)
