@@ -10,6 +10,28 @@ Contract frozen at `core-contract-v1.3` (Phase 0). Breaking changes are allowed 
 the last time (only scaffolds exist, nothing is published): see `docs/decisions.md` and
 `docs/framework/module-api.md` for the full design.
 
+### Phase 2 (P2-F): final-review fixes
+
+- **Guardrails scan every shipped file** (review 1-2): `.lua` too, any name or folder; only the
+  Blink outputs the `.blink` files declare and `deps/Packages`/`deps/ServerPackages` are excluded,
+  by exact path. The remotes/purchases checks read a normalised file (no whitespace or comments,
+  literal concatenation joined, `x["Name"]` as `x.Name`); `GetService`/`Instance.new` need a
+  literal; client code is a `client` folder segment; `special` flags `GetChildren`/`GetDescendants`
+  on `ServerScriptService`/`Framework`.
+- **Committed save sections are frozen** (review 3): a kept `ctx.section(tx)` reference can't
+  change committed data after the tx (it errors).
+- **`ctx.compliance.spendPaid(tx, currency, amount, reason)`** (review 5/7, additive, module-api
+  §19.6): any module spends a paid currency on a non-random good; a later roll in that tx is paid.
+  The economy kit's private `KitAccess` token is removed; Upgrades and Rebirth use `spendPaid`.
+- **Paid rolls need disclosed odds at any luck** (review 4): `odds_not_disclosed`
+  (`retryLater` in a purchase). **Forged paid tags** are stripped (review 8).
+- **Theme**: unknown `colors`/`fonts`/`metrics` keys warn at boot; a bare component in
+  `client.hud.widgets` replaces a widget's component; theme.md lists the real tokens (review 6).
+- **Migration gaps** are a boot error naming the missing number (review 10).
+- **UI kit text fits any theme font** (playtest): Button's minimum width is its measured text
+  width; fixed-size buttons, RarityBadge, the odds percent cell and Panel titles scale down
+  (UITextSizeConstraint, max = the theme size).
+
 ### Phase 2 (P2-C): performance, override suite, scaffolds, tools
 
 - **Tick cost back under budget** ((internal build report, not public)). Commits keep the

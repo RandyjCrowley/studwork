@@ -836,3 +836,45 @@ it's never in a game build (outside Lune it errors).
   - Further: `server:save(p)`, `server:onProduct(product, fn(tx))`, and `server:heard("<Module>.<Signal>"
     | "framework.<Signal>")`, which records every firing since boot.
   - Stored sectioned saves: `sim.saved(world, userId)` and `sim.section(world, userId, key)`.
+
+### 19.6 `ctx.compliance.spendPaid` (added in Phase 2: final review 5/7)
+
+```lua
+ctx.compliance.spendPaid(tx, currency, amount, reason) -> (ok, reason?)
+```
+
+- Spends a `compliance.paidCurrencies` currency on a **non-random** good (an upgrade level, a
+  rebirth, a hat in any module's shop) through the currency's registered spender, inside the
+  caller's tx. Any module can call it; the economy kit's Upgrades and Rebirth use it (the kit's
+  private access token is gone).
+- `currency` must be a paid currency (else it errors; spend free currencies through their own
+  module), `amount` a finite number > 0, `reason` a non-empty string (the spender's sink reason).
+  Not enough funds: `(false, "insufficient")`, nothing spent.
+- It marks the tx: a `ctx.compliance.roll` later in the same tx is a **paid** roll (policy,
+  odds disclosure and the luck rule apply; a refused roll returns its reason, so error to discard
+  the spend), tagged `"paidcur:<sourceId>"`. Before such a roll `tagPaid(tx)` returns
+  `"paidcur:<currency>"`.
+- `Economy.spend` / `txApi.spend` still refuse paid currencies (§14 C3, same error text).
+- The spender registered with `registerCurrencySpender(currency, fn(tx, amount, reason?))` now gets
+  the reason as a third argument (`"roll"` for `spendForRoll`).
+
+### 19.7 Paid rolls need disclosed odds; tags can't be forged (added in Phase 2: final review 4 and 8)
+
+- A paid roll (inside a purchase, through `spendForRoll`, or after `spendPaid`) on a source whose
+  odds this player's client was never sent (`ctx.compliance.disclosed(player, sourceId) == nil`) is
+  refused at any luck: inside a purchase `tx.retryLater("odds_not_disclosed")` (Roblox retries; no
+  grant, no record), otherwise `(false, nil, "odds_not_disclosed")`. Odds are sent when the
+  player's client subscribes after join, before it can buy.
+- `tagPaid(tx, reason)` outside a paid tx strips a caller's `"paid:"` / `"paidcur:"` prefix
+  (`"paid:CoinPack"` -> `"CoinPack"`; nothing left -> `"free"`).
+
+### 19.8 Committed data is frozen; migration gaps; theme typos (added in Phase 2: final review 3, 6 and 10)
+
+- **Never keep a `ctx.section(tx)` reference past the tx.** Committed section tables are frozen:
+  a write through a kept reference after the tx raises `attempt to modify a readonly table` and
+  changes nothing (final review 3).
+- A gap in a module's migration numbers, between its first migration and `data.version`, is a
+  boot error naming the missing number (final review 10).
+- An unknown key in `GameConfig.theme` (or a preset table) under `colors`, `fonts` or `metrics`,
+  or an unknown group, is a boot warning naming it (final review 6). A bare component in
+  `client.hud.widgets[id]` replaces that widget's component and keeps its slot, order and module.

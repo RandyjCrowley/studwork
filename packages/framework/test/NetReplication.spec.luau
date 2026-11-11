@@ -212,7 +212,7 @@ describe("ctx.replicate (Replication)", function()
 				end,
 			} },
 		})
-		local p = h:addPlayer({ userId = 4 })
+		local p = h:addPlayer({ userId = 4, sync = false }) -- the window before StateInit
 		c.replicate.set(p, "k", 1)
 		h:tick(1)
 		expect(c.replicate.sent(p, "k")).toBeNil()

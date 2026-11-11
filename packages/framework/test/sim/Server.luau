@@ -870,6 +870,22 @@ function Server.join(self, userId: number, opts: any?)
 	})
 	table.insert(self.players, player)
 	self.Players.PlayerAdded:Fire(player)
+	-- the client: once the save is loaded it subscribes (StateInit) and is sent its state, odds
+	-- included, before it can buy (core-v1.3.0 Phase 2 P2-F, final review 4). opts.noClient skips it.
+	if not o.noClient then
+		self.scheduler:spawn(self, function()
+			for _ = 1, 600 do
+				if player.Parent == nil then
+					return
+				end
+				if server.runtime.data.isLoaded(player) then
+					server.runtime.replication.subscribe(player)
+					return
+				end
+				server.scheduler:wait(0.1)
+			end
+		end)
+	end
 	return player
 end
 

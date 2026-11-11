@@ -152,6 +152,17 @@ function Data.new(opts: any): any
 			for _, e in errs do
 				table.insert(bootErrors, `{ref.name}: data.{e}`)
 			end
+			-- final review 10: once a module has migrations, every version from its first
+			-- migration up to data.version needs one (a forgotten file would silently skip a step)
+			local missing = Migrate.gaps(migrations, ref.data.version)
+			if #missing > 0 then
+				table.insert(
+					bootErrors,
+					`{ref.name}: data.migrations has no migration {table.concat(missing, ", ")} (between its first migration and data.version {tostring(
+						ref.data.version
+					)}); add migrations/{string.format("%03d", missing[1])}_<name>.luau`
+				)
+			end
 			local spec = { name = ref.name, data = ref.data, migrations = migrations }
 			table.insert(specs, spec)
 			byKey[ref.data.key] = spec
@@ -228,7 +239,8 @@ function Data.new(opts: any): any
 				end
 				section = out
 			end
-			root[key] = section
+			-- committed section tables are frozen (final review 3): see runTx's commit
+			root[key] = Freeze.deepFreeze(section)
 			versions[key] = spec.data.version
 			owners[key] = spec.name
 		end
@@ -608,7 +620,10 @@ function Data.new(opts: any): any
 			-- structural sharing: unchanged subtrees keep the committed tables (benchmark fix)
 			local merged, differs = Freeze.share(w, record.root[key])
 			if differs then
-				record.root[key] = merged
+				-- final review 3: freeze what the commit adds (shared subtrees already are), so a
+				-- reference kept from ctx.section(tx) can't change committed data after the tx
+				-- ends; a late write raises "attempt to modify a readonly table"
+				record.root[key] = Freeze.deepFreeze(merged)
 				record.versions[key] = nextVersion()
 				anyChange = true
 			end

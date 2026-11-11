@@ -99,12 +99,6 @@ README) and maps it in `games/my-game/default.project.json`. Then:
 
    Expected: the module's own spec (2 tests) and the boot spec pass; typecheck and lint are clean.
 
-Known gap: `games/my-game/src/shared/Config.spec.luau` can't load a Config that lists a module
-from `ReplicatedStorage.Modules` yet (the Lune test runner's fake `ReplicatedStorage` only knows the
-framework and kit folders; requested from the framework owner), so `tools/test games/my-game`
-reports that one spec until it's fixed. The boot spec covers the same validation with the real
-project mapping.
-
 Next: [concepts](concepts.md), the [module API reference](module-reference.md), the
 [generators](generators.md), and the [example module](../../examples/modules/session-leaderboard/README.md).
 

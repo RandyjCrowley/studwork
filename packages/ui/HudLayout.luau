@@ -12,7 +12,8 @@
 	  { layout = <same>, widgets = { [id] = false | spec } }. load(moduleScript) requires it.
 	HudLayout.resolve(defaults, registered, overrides, isEnabled) -> { [Slot]: { {id, spec} } }
 	  defaults (framework), then registered (UI.registerWidget), then overrides
-	  (client.hud.widgets: false removes, a spec replaces); sorted by order then id.
+	  (client.hud.widgets: false removes, a spec replaces, a bare component replaces only the
+	  component of an existing widget, keeping its slot/order/module); sorted by order then id.
 ]]
 
 local HudLayout = {}
@@ -34,6 +35,19 @@ function HudLayout.checkSpec(id: string, spec: any)
 		type(spec.component) == "function" or type(spec.component) == "table",
 		`HUD widget '{id}': component must be a React component`
 	)
+end
+
+-- A React component given where a widget spec is expected: a function component, a memo /
+-- forwardRef object (`$$typeof`) or a class component (a table with a metatable), never a table
+-- with `slot` / `component` (that is a spec).
+function HudLayout.isBareComponent(v: any): boolean
+	if type(v) == "function" then
+		return true
+	end
+	if type(v) ~= "table" or v.slot ~= nil or v.component ~= nil then
+		return false
+	end
+	return v["$$typeof"] ~= nil or getmetatable(v) ~= nil
 end
 
 local function isInstance(v: any): boolean
@@ -98,6 +112,17 @@ function HudLayout.resolve(
 	for id, spec in overrides do
 		if spec == false then
 			merged[id] = nil
+		elseif HudLayout.isBareComponent(spec) then
+			-- (added in Phase 2: final review 6) a bare component replaces the widget's component
+			-- and keeps its slot, order and module gate
+			local base = merged[id]
+			assert(
+				type(base) == "table",
+				`HUD widget '{id}': a bare component can only replace an existing widget; for a new one pass \{ slot, order?, component }`
+			)
+			local replaced = table.clone(base)
+			replaced.component = spec
+			merged[id] = replaced
 		else
 			HudLayout.checkSpec(id, spec)
 			merged[id] = spec

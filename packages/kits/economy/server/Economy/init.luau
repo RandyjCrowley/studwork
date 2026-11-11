@@ -17,8 +17,9 @@
 	  signals.CurrencyChanged(player, currency, newBalance, delta, reason)
 	txApi
 	  grant(tx, amount, reason, currency?) -> boolean
-	  spend(tx, amount, reason, currency?) -> boolean       same paid-currency refusal (the
-	      economy kit's own non-random sinks pass a kit-private 5th argument, KitAccess.luau)
+	  spend(tx, amount, reason, currency?) -> boolean       same paid-currency refusal (a
+	      non-random good priced in a paid currency goes through ctx.compliance.spendPaid, which
+	      any module can call; Phase 2 final review 5/7)
 	  balance(tx, currency?) -> number                      (addition: the tx working copy)
 	purchaseOps.grant(tx, amount, currency?) -> boolean     reason "product:<product>"
 	extensions
@@ -49,7 +50,6 @@
 
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
-local KitAccess = require(script.Parent.KitAccess)
 local RateMath = require(script.RateMath)
 
 local Collection = ReplicatedStorage:WaitForChild("Kits"):WaitForChild("Collection")
@@ -332,10 +332,9 @@ function Economy.new(): any
 		return true
 	end
 
-	local function txSpend(tx: any, amount: number, reason: string, currency: string?, token: any?): boolean
-		if isPaid(if currency == nil then primary() else currency) and token ~= KitAccess.TOKEN then
-			error(Economy.PAID_SPEND_ERROR, 3)
-		end
+	-- The spend itself, any currency. Reached for a paid currency only through Compliance's
+	-- registered spender (spendForRoll / spendPaid); txSpend below refuses paid currencies.
+	local function applySpend(tx: any, amount: number, reason: string, currency: string?): boolean
 		if not RateMath.isPositiveAmount(amount) or type(reason) ~= "string" then
 			return false
 		end
@@ -355,6 +354,13 @@ function Economy.new(): any
 			logEconomy(player, "Sink", cid, amount, newBalance, reason)
 		end)
 		return true
+	end
+
+	local function txSpend(tx: any, amount: number, reason: string, currency: string?): boolean
+		if isPaid(if currency == nil then primary() else currency) then
+			error(Economy.PAID_SPEND_ERROR, 3)
+		end
+		return applySpend(tx, amount, reason, currency)
 	end
 
 	local function txBalance(tx: any, currency: string?): number
@@ -652,11 +658,15 @@ function Economy.new(): any
 	function part.init(context: any)
 		ctx = context
 		created.CurrencyChanged = ctx.signals.new("CurrencyChanged")
-		-- §14 C3: compliance.spendForRoll spends a paid currency through Economy, in the roll's tx
+		-- §14 C3: compliance.spendForRoll / spendPaid spend a paid currency through Economy, in the
+		-- caller's tx
 		for _, currency in ctx.compliance.paidCurrencies() do
-			ctx.compliance.registerCurrencySpender(currency, function(tx: any, amount: number): boolean
-				return txSpend(tx, amount, "roll", currency, KitAccess.TOKEN)
-			end)
+			ctx.compliance.registerCurrencySpender(
+				currency,
+				function(tx: any, amount: number, reason: string?): boolean
+					return applySpend(tx, amount, reason or "roll", currency)
+				end
+			)
 		end
 		ctx.data.onLoaded(onLoaded)
 		ctx.lifecycle.onPlayerRemoving(function(player: any)

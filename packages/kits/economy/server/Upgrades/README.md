@@ -18,9 +18,9 @@ maxed/unknown), `purchase(player, id) -> (ok, reason?)` (`unknown_upgrade`, `not
 
 ## Behaviour
 - `purchase` is one transaction: the level is re-read, the cost is paid with `Economy.txApi.spend`
-  and the level is bumped, so both commit or neither does. A paid currency is accepted here (a
-  non-random sink; kit-private `KitAccess` token): every shipped game prices upgrades in Coins,
-  which are also Robux-buyable.
+  and the level is bumped, so both commit or neither does. A paid currency is paid through the
+  public `ctx.compliance.spendPaid` (a non-random good; any module can do the same): every shipped
+  game prices upgrades in Coins, which are also Robux-buyable.
 - `incomeMultiplier` upgrades are an Economy `rateFactor` (`1 + level * perLevel` each);
   `inventoryCap` is read by Inventory through `level`; `custom` is read by the game.
 - With Rebirth enabled, a `resetStep` resets every level whose `resetsOnRebirth ~= false`.

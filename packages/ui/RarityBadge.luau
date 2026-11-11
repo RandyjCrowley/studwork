@@ -9,6 +9,7 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
 local React = require(ReplicatedStorage:WaitForChild("Packages"):WaitForChild("React"))
 local Primitives = require(script.Parent.Primitives)
+local TextFit = require(script.Parent.TextFit)
 local Theme = require(script.Parent.Theme)
 
 local e = React.createElement
@@ -25,6 +26,8 @@ local function RarityBadge(props: Props)
 		Text = string.upper(props.rarity),
 		FontFace = Theme.font("display"),
 		TextSize = Theme.text.small,
+		-- a fixed size fits its text for any theme font (Phase 2 P2-F, TextFit)
+		TextScaled = props.size ~= nil,
 		TextColor3 = Theme.color("outline"),
 		BackgroundColor3 = color,
 		BorderSizePixel = 0,
@@ -34,6 +37,12 @@ local function RarityBadge(props: Props)
 	}, {
 		Corner = e("UICorner", { CornerRadius = UDim.new(0.5, 0) }),
 		Padding = e("UIPadding", { PaddingLeft = UDim.new(0, 8), PaddingRight = UDim.new(0, 8) }),
+		Fit = if props.size
+			then Primitives.textSize(
+				TextFit.fixedLabel(Theme.text.small).MinTextSize :: number,
+				Theme.text.small
+			)
+			else nil,
 		-- glow: thicker, more opaque stroke for rarer tiers (Common has none)
 		Glow = if strength > 0
 			then Primitives.stroke(glow, 1 + math.floor(strength * 3 + 0.5), 1 - strength * 0.8)

@@ -269,7 +269,21 @@ function Harness.boot(opts: Options): (any, string?)
 	return h, if err == nil then nil else tostring(err)
 end
 
-function Harness.addPlayer(self: any, spec: { userId: number, name: string?, data: any? }): any
+-- A real client subscribes (StateInit) right after joining and is sent its state (odds included)
+-- before it can buy anything, so the harness does the same for a loaded player (core-v1.3.0
+-- Phase 2 P2-F: a paid roll needs the odds disclosed to the client, final review 4).
+-- spec.sync = false skips it (a test of the not-yet-subscribed window).
+local function syncJoin(self: any, p: any, sync: boolean?)
+	if p.loaded and sync ~= false then
+		self.runtime.replication.subscribe(p)
+		self.runtime.replication.step()
+	end
+end
+
+function Harness.addPlayer(
+	self: any,
+	spec: { userId: number, name: string?, data: any?, sync: boolean? }
+): any
 	local p = self.players[spec.userId] or Harness.player(spec.userId, spec.name)
 	self.players[spec.userId] = p
 	if spec.data ~= nil then
@@ -277,6 +291,7 @@ function Harness.addPlayer(self: any, spec: { userId: number, name: string?, dat
 	end
 	self.inGame[p] = true
 	p.loaded = self.runtime.playerAdded(p)
+	syncJoin(self, p, spec.sync)
 	return p
 end
 
@@ -289,6 +304,7 @@ function Harness.rejoin(self: any, p: any, opts: { secondsAway: number? }?)
 	self.runtime.playerRemoving(p)
 	self.clock += (opts and opts.secondsAway) or 0
 	p.loaded = self.runtime.playerAdded(p)
+	syncJoin(self, p, nil)
 	return p
 end
 

@@ -15,6 +15,7 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
 local React = require(ReplicatedStorage:WaitForChild("Packages"):WaitForChild("React"))
 local Primitives = require(script.Parent.Primitives)
+local TextFit = require(script.Parent.TextFit)
 local Theme = require(script.Parent.Theme)
 
 local e = React.createElement
@@ -59,11 +60,17 @@ local function Panel(props: Props)
 					Text = props.title,
 					FontFace = Theme.font("display"),
 					TextSize = Theme.text.title,
+					TextScaled = true, -- fits the panel width for any theme font (Phase 2 P2-F)
 					TextColor3 = Theme.color("text"),
 					TextXAlignment = Enum.TextXAlignment.Left,
 					BackgroundTransparency = 1,
 					Size = UDim2.new(1, 0, 0, Theme.text.title + 6),
 					LayoutOrder = -1000,
+				}, {
+					Fit = Primitives.textSize(
+						TextFit.fixedLabel(Theme.text.title).MinTextSize :: number,
+						Theme.text.title
+					),
 				})
 				else nil,
 			Content = e(React.Fragment, nil, props.children),

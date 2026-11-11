@@ -19,16 +19,25 @@
 	      currency's owner registered a spender; the spend and the roll happen in the same tx, so
 	      they commit together or not at all. Always paid. Insufficient funds -> (false, nil,
 	      "insufficient"); an empty sample after the spend errors (the tx is discarded).
-	  registerCurrencySpender(currency, fn(tx, amount) -> boolean)       (added in step 4b)
+	  spendPaid(tx, currency, amount, reason) -> (ok, reason?)   (added in Phase 2: final review 5/7)
+	      Spends a paid currency on a NON-random good (an upgrade level, a rebirth, any module's
+	      shop item) through the registered spender. Any module may call it. Insufficient funds ->
+	      (false, "insufficient"). Marks the tx: a later roll in the same tx is a PAID roll
+	      (policy, disclosure and luck rules; "paidcur:<sourceId>" tag), and tagPaid(tx) returns
+	      "paidcur:<currency>" until then. If that roll is refused, error to discard the spend.
+	  registerCurrencySpender(currency, fn(tx, amount, reason) -> boolean)  (added in step 4b)
 	      The currency module (Economy) hands Compliance its spend for a paid currency. One owner per
 	      currency. Only Compliance calls it.
 	  isPaidCurrency(currency) -> boolean, paidCurrencies() -> { string }   (added in step 4b)
 	  tagPaid(tx, reason?) -> string                                       (step 4b: takes the tx)
 	  tagPaid(sourceId) -> "paidcur:<sourceId>"   §14's frozen form, for a registered source
 	      "paid:<product>" inside a purchase, "paidcur:<sourceId>" after a spendForRoll in this tx,
-	      otherwise `reason` (or "free") — callers can't choose the prefix (M5).
+	      otherwise `reason` (or "free") with any "paid:" / "paidcur:" prefix stripped — callers
+	      can't choose the prefix (M5, final review 8).
 	  disclose(player, sourceId?)   (re)send the player's odds (framework field `odds`)
 	  disclosed(player, sourceId) -> OddsDetail?   what the client was last sent
+	Disclosure rule (final review 4): a PAID roll on a source whose odds were never sent to the
+	player's client is refused: "odds_not_disclosed" (inside a purchase also tx.retryLater).
 	Luck rule (hard rule 11): a PAID roll with luck ~= 1 errors unless the source is luckDisclosed
 	AND the odds last sent to this player's client carry exactly that luck.
 	There is no opts.free (C3): a genuinely free reward is roll(tx, ...) outside a purchase with no
@@ -66,7 +75,7 @@ function Compliance.new(opts: any): any
 
 	local sources: { [string]: { owner: string, source: Source } } = {}
 	local order: { string } = {}
-	local spenders: { [string]: { owner: string, fn: (any, number) -> boolean } } = {}
+	local spenders: { [string]: { owner: string, fn: (any, number, string) -> boolean } } = {}
 
 	local c: any = {}
 
@@ -138,6 +147,14 @@ function Compliance.new(opts: any): any
 		if policy.paidRandomRestricted(player) then
 			return false, "restricted"
 		end
+		-- final review 4: every paid roll, at any luck, needs the source's odds to have been sent
+		-- to this player's client (replicated at join, before the player can buy)
+		if type(c.disclosed(player, sourceId)) ~= "table" then
+			if m.purchase then
+				tx.retryLater("odds_not_disclosed")
+			end
+			return false, "odds_not_disclosed"
+		end
 		if luck ~= 1 then
 			if not entry.source.luckDisclosed then
 				error(
@@ -200,7 +217,7 @@ function Compliance.new(opts: any): any
 				sources[id] = { owner = caller, source = table.freeze(table.clone(source)) :: any }
 				table.insert(order, id)
 			end,
-			registerCurrencySpender = function(currency: string, fn: (any, number) -> boolean)
+			registerCurrencySpender = function(currency: string, fn: (any, number, string) -> boolean)
 				assert(
 					type(currency) == "string" and currency ~= "",
 					"registerCurrencySpender: currency must be a string"
@@ -225,7 +242,9 @@ function Compliance.new(opts: any): any
 				local m = meta(tx)
 				local entry = sourceFor(caller, sourceId)
 				local l = readLuck(luck)
-				if m.purchase then
+				-- paid inside a purchase, or after a paid-currency spendPaid in this tx (final review 7)
+				local paid = m.purchase or m.paidSpent ~= nil
+				if paid then
 					local ok, reason = paidGate(tx, m, sourceId, entry, l)
 					if not ok then
 						return false, nil, reason
@@ -234,6 +253,9 @@ function Compliance.new(opts: any): any
 				local outcome = doSample(tx, m, sourceId, entry, l)
 				if outcome == nil then
 					return false, nil, "no_outcome"
+				end
+				if paid and not m.purchase then
+					m.paidcur = sourceId
 				end
 				return true, outcome, nil
 			end,
@@ -264,7 +286,7 @@ function Compliance.new(opts: any): any
 				if not ok then
 					return false, nil, reason
 				end
-				if spender.fn(tx, amount) ~= true then
+				if spender.fn(tx, amount, "roll") ~= true then
 					return false, nil, "insufficient"
 				end
 				m.paidcur = sourceId
@@ -276,6 +298,36 @@ function Compliance.new(opts: any): any
 					)
 				end
 				return true, outcome, nil
+			end,
+			-- (added in Phase 2: final review 5/7) a paid currency spent on a NON-random good
+			spendPaid = function(
+				tx: any,
+				currency: string,
+				amount: number,
+				reason: string
+			): (boolean, string?)
+				local m = meta(tx)
+				if not paidSet[currency] then
+					error(
+						`ctx.compliance.spendPaid: '{tostring(currency)}' is not in GameConfig.compliance.paidCurrencies (spend free currencies through their own module)`,
+						2
+					)
+				end
+				if not isFinitePositive(amount) then
+					error("ctx.compliance.spendPaid: amount must be a finite number > 0", 2)
+				end
+				if type(reason) ~= "string" or reason == "" then
+					error("ctx.compliance.spendPaid: reason must be a non-empty string", 2)
+				end
+				local spender = spenders[currency]
+				if spender == nil then
+					error(`ctx.compliance.spendPaid: no module registered a spender for '{currency}'`, 2)
+				end
+				if spender.fn(tx, amount, reason) ~= true then
+					return false, "insufficient"
+				end
+				m.paidSpent = currency
+				return true, nil
 			end,
 			tagPaid = function(tx: any, reason: string?): string
 				-- §14's tagPaid(source) form: a registered random source id -> "paidcur:<id>"
@@ -295,7 +347,19 @@ function Compliance.new(opts: any): any
 				if m.paidcur then
 					return "paidcur:" .. tostring(m.paidcur)
 				end
-				return reason or "free"
+				if m.paidSpent then
+					return "paidcur:" .. tostring(m.paidSpent)
+				end
+				-- final review 8: a caller can't forge a paid tag outside a paid tx
+				local r = reason or "free"
+				while true do
+					local stripped = string.match(r, "^paid:(.*)$") or string.match(r, "^paidcur:(.*)$")
+					if stripped == nil then
+						break
+					end
+					r = stripped
+				end
+				return if r == "" then "free" else r
 			end,
 			disclose = function(player: any, sourceId: string?)
 				c.disclose(player, sourceId)

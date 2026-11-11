@@ -30,6 +30,7 @@ local Format = require(script.Parent.Format)
 local Odds = require(script.Parent.Odds)
 local Panel = require(script.Parent.Panel)
 local RarityBadge = require(script.Parent.RarityBadge)
+local TextFit = require(script.Parent.TextFit)
 local Theme = require(script.Parent.Theme)
 
 local e = React.createElement
@@ -97,11 +98,17 @@ local function Row(props: { row: Odds.OddsRow, layoutOrder: number })
 			Text = Format.percent(row.probability),
 			FontFace = Theme.font("display"),
 			TextSize = Theme.text.body,
+			TextScaled = true, -- fixed-width cell: fits for any theme font (Phase 2 P2-F, TextFit)
 			TextColor3 = color,
 			TextXAlignment = Enum.TextXAlignment.Right,
 			BackgroundTransparency = 1,
 			Size = UDim2.new(0.25, -8, 1, 0),
 			Position = UDim2.fromScale(0.75, 0),
+		}, {
+			Fit = e("UITextSizeConstraint", {
+				MinTextSize = TextFit.fixedLabel(Theme.text.body).MinTextSize,
+				MaxTextSize = Theme.text.body,
+			}),
 		}),
 	})
 end
