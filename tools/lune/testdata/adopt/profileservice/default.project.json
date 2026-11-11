@@ -1,0 +1,9 @@
+{
+  "name": "profileservice",
+  "tree": {
+    "$className": "DataModel",
+    "ServerScriptService": {
+      "Server": { "$path": "src/server" }
+    }
+  }
+}

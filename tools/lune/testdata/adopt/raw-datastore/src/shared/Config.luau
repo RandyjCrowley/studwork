@@ -1,0 +1,3 @@
+return {
+	StartCoins = 10,
+}
