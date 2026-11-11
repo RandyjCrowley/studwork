@@ -1,4 +1,4 @@
--- Type declarations for the globals injected into *.spec.luau by packages/core/tests/harness.luau.
+-- Type declarations for the globals injected into *.spec.luau by tools/lune/testkit/harness.luau.
 -- Loaded by tools/typecheck through `luau-lsp analyze --defs`.
 
 type Matchers = {

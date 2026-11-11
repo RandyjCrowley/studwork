@@ -411,3 +411,77 @@ Move + wire only, per module-api.md §5 step 5; no service logic was edited.
 5. **Not done here:** `FrameworkSection.V12_MAP` still targets the coarse kit keys
    (`economy`/`collection`/`social`/`engagement`); retargeting it to decision 2's finer keys
    belongs with Phase 1's real data sections.
+
+## core-v1.3.0 step 4b, resumed (builder 4b-I: green again, real framework services, Shop)
+
+The previous run stopped partway through step 4b. On resume, the WIP was committed as-is
+(`9942a44`, `--no-verify`) and the starting point recorded in
+`(internal build report, not public)`. Decisions from this pass, all verified by the
+lead re-running lint, typecheck (6 games), tests (582), test-sim (51) and 8 rojo builds:
+1. **`ReplicatedStorage.FrameworkClient` -> `packages/framework/client`** in every project. It sits
+   next to `Framework`; `StudWork.Client` is the API name, not a DataModel name.
+2. **`ServerScriptService.Compat` -> `packages/kits/compat`** while the v1.2 path is live. v1.2
+   Replication's `SectionCache` was restored there (`compat/SectionCache.luau`). Phase 2 deletes
+   the whole folder.
+3. **Policy retries on a self-rescheduling `platform.delay` timer, not a `while ... wait()` loop.**
+   The loop was the ShopCompliance.spec hang: under `Platform.inert`, `wait` returns immediately.
+4. **Shop claims `ProcessReceipt` as the very last boot step, after `net.start`**, which can run
+   module code from the pre-start queue.
+5. **N9: after-purchase effects are run, not best-effort.** If the buyer leaves while a grant's save
+   is still unconfirmed, `shop.settleOnLeave` makes one more confirmed save before the release.
+   While it waits, the PurchaseIds are marked in flight, so a concurrent retry gets
+   NotProcessedYet. Effects run only after confirmation; if the save fails as well, they are
+   dropped with a warning. Documented in `framework/server/Shop/README.md` and known-issues R11.
+6. **Module actions declared as a bare function get the default limit of 4/s, burst 8.**
+7. **New lint guardrail `purchases`:** bans `ProcessReceipt =`, `Prompt*PurchaseFinished`,
+   `DataStoreService` and `ProfileStore` outside an allow-list: framework Shop/Platform/Store/Data
+   and test fakes, plus, temporarily, `packages/core` and v1.2 Mail. Phase 1 agent C moves Mail
+   onto `ctx.data.messages`, and Phase 2 deletes `packages/core`.
+8. **§7.1's runtime replacement check can't work on a live server as written.** On Roblox,
+   `MarketplaceService.ProcessReceipt` is a write-only callback and can't be read back to compare.
+   The check is built behind the Platform adapter (`getProcessReceipt`) and fully tested with the
+   fake platform (warn naming the source, `ProcessReceiptHijacked` analytics, reclaim). On a live
+   server the adapter reports the callback as unreadable and `receiptCheck().status` says the check
+   is unavailable, so enforcement there is the lint guardrail plus claiming last. The frozen doc is
+   not edited (contract frozen at `core-contract-v1.3`). This is a clarification of what the engine
+   allows, logged here and in known-issues, not an API change.
+9. Additive, framework-internal helpers accepted: `compliance.registerCurrencySpender` /
+   `isPaidCurrency` / `paidCurrencies`; `tagPaid(tx, reason)` alongside the frozen
+   `tagPaid(sourceId)`; `sample(player, luck, tx)`; `analytics.custom(..., fields?)`; server parts
+   may declare `net`.
+
+### Step 4b-IIa/IIb decisions (live boot switched to StudWork.start)
+
+1. **The compat bridge:** `packages/kits/compat/Bridge.luau` runs the 11 unchanged v1.2 services
+   behind their wrappers. It reaches the runtime through `packages/framework/server/CompatDoor.luau`,
+   which nothing in ctx, StudWork or the kits exposes. Every roll goes through Compliance, and a
+   coin-priced roll uses `spendForRoll`. Everything compat-era is listed in
+   `(internal build report, not public)`.
+2. **`FrameworkSection.V12_MAP` was retargeted to the finer per-module keys in step 4b, not Phase 1.**
+   The bridge needs every v1.2 field to land in a section that an enabled module owns. Phase 1 kit
+   agents still own their rows and may change them along with their `data.key`.
+3. **The game is its own module (§7 C4):** `games/<g>/modules/<id>/`. The framework adds it itself,
+   and `Main.server.luau` only builds the world and calls `StudWork.start`. Game module names:
+   `Sandbox`, `FoundationOnly`, `ExampleGifts`, `ExampleCourier`, `ExampleCollector`, `ExampleShop`,
+   `ExampleGarden`.
+4. **The console lives at `ServerScriptService.Framework.StudWorkConsole`.** The v1.2 command names
+   are kept as they were (unprefixed). Module commands are prefixed, for example `sandbox giftme`.
+5. **The test infrastructure lives outside `packages/core`:** the runner is in `tools/lune/testkit/`,
+   the bench in `tools/lune/bench/`, and the multi-server sim in `packages/framework/test/sim/` (it
+   boots the real framework). Each game has a `Boot.spec.luau` that boots its real Config in the sim
+   and pins its module list.
+6. **A stolen save session now kicks at once.** The session ending as "External", or a save finding
+   the lock gone, drops the record and kicks with `KICK_SESSION_ENDED`. After that, every save path
+   on the old server writes nothing: update, autosave, leave, BindToClose, the Shop settle and late
+   `OnAfterSave`. Covered by `test/sim/StolenSession.spec.luau`; the SessionLock gap assertion is
+   now real.
+7. **`ReplicatedStorage.Core` stays mapped to `packages/core/shared`** until Phase 1. The kits, the
+   framework client and the UI still read Types/Validate/HandlerList/RarityTiers/Palette/Sounds/
+   Modules from it. `packages/core/shared/init.luau` (the `Core` facade) is deleted, and
+   `Data/Internal` moved to `compat/MailInternal.luau`.
+8. **`tools/lune/KitModules.luau` reads the kit definitions.** NewGame and guardrails no longer
+   read `Modules.luau`. A guardrail now flags game code that requires a kit module the Config
+   doesn't enable. A `Kits` reference is allowed on `ReplicatedStorage` lines, since those are the
+   kit definitions.
+9. **Open:** the bench's `MERGED` variant still times the v1.2 `Data/Transaction.luau`. It gets
+   ported in Phase 2 step 7.

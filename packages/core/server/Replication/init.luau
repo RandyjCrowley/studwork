@@ -34,8 +34,14 @@ local Packages = ReplicatedStorage:WaitForChild("Packages")
 local Charm = require(Packages:WaitForChild("Charm")) :: any
 local CharmSync = require(Packages:WaitForChild("CharmSync")) :: any
 
-local Snapshot = require(script.Snapshot)
-local SectionCache = require(script.SectionCache)
+local Snapshot = require(
+	game:GetService("ServerScriptService")
+		:WaitForChild("Framework")
+		:WaitForChild("Replication")
+		:WaitForChild("Snapshot")
+)
+local SectionCache =
+	require(game:GetService("ServerScriptService"):WaitForChild("Compat"):WaitForChild("SectionCache"))
 
 local Replication = {}
 

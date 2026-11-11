@@ -6,9 +6,14 @@
 	- assigns the next free Rojo servePort (highest existing + 1, starting at 34872)
 	- writes deploy.json with clearly marked placeholder ids (0, plus an `idsNote`); tools/publish
 	  refuses them until the experiences exist on Roblox
-	- sets the project name, servePort and GameConfig.gameId
-	- --modules: writes GameConfig.modules (names checked against packages/core/shared/Modules.luau;
-	  missing hard dependencies are added and reported). Default: the template's list (all).
+	- sets the project name, servePort and GameConfig.gameId, and renames the game's own module
+	  (templates/new-game/modules/sandbox -> modules/<name>, module + server part "<Name>",
+	  ServerScriptService.Modules.<Name> in the project)
+	- --modules: trims GameConfig.modules and the game module's dependsOn to that list (names
+	  checked against the kit module definitions, tools/lune/KitModules.luau; missing hard
+	  dependencies are added and reported). Default: the template's list (all). The template's
+	  game code is NOT trimmed: a warning lists what still uses a dropped module (the full
+	  `--modules` generator is core-v1.3.0 Phase 1 agent E's).
 	- writes a README stub ("Status: scaffolded")
 	- adds a row to GAMES.md (Core column "—" until the first tools/publish) and, unless
 	  --no-design-doc, creates docs/games/<name>.md from templates/game-design.md
@@ -19,8 +24,10 @@ local fs = require("@lune/fs")
 local process = require("@lune/process")
 local serde = require("@lune/serde")
 
-local Modules = require("../../packages/core/shared/Modules")
+local KitModules = require("./KitModules")
 local NewGame = require("./NewGame")
+
+local Modules = KitModules.load(fs)
 
 local BASE_PORT = 34872
 
@@ -92,11 +99,31 @@ local function copyDir(src: string, dst: string)
 end
 copyDir("templates/new-game", target)
 
+-- the game's own module: modules/sandbox -> modules/<name>, "Sandbox" -> "<Name>"
+local moduleName = NewGame.moduleName(name)
+local TEMPLATE_MODULE = "Sandbox"
+local moduleDir = target .. "/modules/" .. name
+fs.move(target .. "/modules/sandbox", moduleDir)
+local modulePath = moduleDir .. "/module.luau"
+local moduleSource = fs.readFile(modulePath)
+local renamedModule, renames =
+	string.gsub(moduleSource, '"' .. TEMPLATE_MODULE .. '"', '"' .. moduleName .. '"')
+if renames ~= 2 then
+	print('error: expected name and server = "' .. TEMPLATE_MODULE .. '" in ' .. modulePath)
+	process.exit(1)
+end
+
 -- project file
 local projectPath = target .. "/default.project.json"
 local project = serde.decode("json", fs.readFile(projectPath))
 project.name = name
 project.servePort = port
+local tree = project.tree
+tree.ReplicatedStorage.GameModule.module["$path"] = "modules/" .. name .. "/module.luau"
+tree.ServerScriptService.Modules = {
+	["$className"] = "Folder",
+	[moduleName] = { ["$path"] = "modules/" .. name .. "/server" },
+}
 fs.writeFile(projectPath, serde.encode("json", project, true) .. "\n")
 
 -- deploy.json
@@ -111,14 +138,55 @@ if count ~= 1 then
 	process.exit(1)
 end
 if chosenModules then
-	local rewritten, rewriteError = NewGame.rewriteModulesBlock(replaced, chosenModules)
+	local rewritten, rewriteError = NewGame.rewriteModulesBlock(replaced, chosenModules, Modules.kitFolder)
 	if rewritten == nil then
 		print("error: " .. tostring(rewriteError) .. " (" .. configPath .. ")")
 		process.exit(1)
 	end
-	replaced = rewritten
+	replaced = NewGame.pruneKitLocals(rewritten)
+	local trimmed, trimError = NewGame.trimDependsOn(renamedModule, chosenModules)
+	if trimmed == nil then
+		print("error: " .. tostring(trimError) .. " (" .. modulePath .. ")")
+		process.exit(1)
+	end
+	renamedModule = NewGame.pruneKitLocals(trimmed)
 end
 fs.writeFile(configPath, replaced)
+fs.writeFile(modulePath, renamedModule)
+
+-- the game's specs: its own module name, its project path, its module list
+local specPath = target .. "/src/shared/Config.spec.luau"
+if fs.isFile(specPath) then
+	local spec = string.gsub(
+		fs.readFile(specPath),
+		'name = "' .. TEMPLATE_MODULE .. '"',
+		'name = "' .. moduleName .. '"'
+	)
+	fs.writeFile(specPath, spec)
+end
+local bootPath = target .. "/src/server/Boot.spec.luau"
+if fs.isFile(bootPath) then
+	local boot = fs.readFile(bootPath)
+	boot = string.gsub(boot, "templates/new%-game/default%.project%.json", target .. "/default.project.json")
+	boot = string.gsub(boot, 'describe%("templates/new%-game boot"', 'describe("' .. name .. ' boot"')
+	boot = string.gsub(boot, "the template's real Config", name .. "'s real Config")
+	boot = string.gsub(boot, '"' .. TEMPLATE_MODULE .. '", %-%-', '"' .. moduleName .. '", --')
+	if chosenModules then
+		local keep = { [moduleName] = true }
+		for _, n in chosenModules do
+			keep[n] = true
+		end
+		local lines = {}
+		for line in string.gmatch(boot .. "\n", "([^\n]*)\n") do
+			local listed = string.match(line, '^\t"([%w_]+)",')
+			if listed == nil or keep[listed] then
+				table.insert(lines, line)
+			end
+		end
+		boot = table.concat(lines, "\n")
+	end
+	fs.writeFile(bootPath, boot)
+end
 
 -- README
 fs.writeFile(target .. "/README.md", NewGame.readme(name, port, opts.designDoc, chosenModules))

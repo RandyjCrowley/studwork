@@ -39,11 +39,13 @@ local RunService = game:GetService("RunService")
 local ServerStorage = game:GetService("ServerStorage")
 
 local Types = require(game:GetService("ReplicatedStorage"):WaitForChild("Core"):WaitForChild("Types"))
-local Internal = require(script.Internal)
+local Internal =
+	require(game:GetService("ServerScriptService"):WaitForChild("Compat"):WaitForChild("MailInternal"))
 local Load = require(script.Load)
 local Transaction = require(script.Transaction)
 local ReadOnlyView = require(script.ReadOnlyView)
-local Sanitize = require(script.Sanitize)
+local Sanitize =
+	require(game:GetService("ServerScriptService"):WaitForChild("Compat"):WaitForChild("V12Sanitize"))
 local Schema = require(script.Schema)
 
 type PlayerData = Types.PlayerData

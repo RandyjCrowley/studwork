@@ -5,28 +5,49 @@
 	Context builds from it (ScopedData, ctx.tx, ctx.section, ctx.framework).
 
 	Data.new(opts) -> data
-	  opts.store      { load(userId) -> root?, save(userId, root) }   (ProfileStore adapter or a mock)
+	  opts.store      the save store (Store.memory() or the ProfileStore adapter, Store.luau):
+	                    load(userId, player) -> root?      (may yield; error = load failure)
+	                    save(userId, root)                  snapshot write (memory store)
+	                    attach?(userId, root, hooks)        live root after a successful load;
+	                                                        hooks.beforeSave(), hooks.sessionLost()
+	                    reject?(userId)                     failed load: end without writing
+	                    release?(userId, root)              final save + end session
+	                    saveNow?(userId, root) -> boolean   yields until the save is confirmed
+	                    send?(userId, message) -> boolean   cross-server message to a user's save
+	                    onMessage?(userId, fn(message, processed))
+	                    nudge?(userId)                      ask for an early save (faster delivery)
 	  opts.modules    boot order: { ModuleRef } (only modules with `data` get a section)
 	  opts.gameId     for the v1.2 split (game[gameId] -> its own section)
 	  opts.now        () -> unix seconds
 	  opts.log        (msg) -> ()        warnings
 	  opts.require    require used for migrations folders (injected in tests)
+	  opts.onSessionLost(player)          the save was taken by another server (kick)
 
 	Load (all-or-nothing): framework migration on the whole root -> per enabled module: owner check
 	(H5) -> section default or Migrate.run(section, _versions[key], data.version) -> reconcile
 	missing top-level keys from data.default -> data.sanitize once (M3) -> record _owners/_versions.
+	Then _framework.stats.sessions += 1 (sessions == 1 = first join ever). While onLoaded handlers
+	run, _framework.lastSeen is still the PREVIOUS session's last save (Offline reads it); every
+	save stamps lastSeen = now and prunes _framework.purchases to PURCHASES_CAP.
 	Any failure: the player isn't loaded, nothing is ever saved for them (Decision 1, v1.1) and
 	the caller kicks them. Sections of modules that aren't enabled are carried through untouched.
+	A session taken by another server (ProfileStore "External", or a save that finds the lock
+	gone) drops the record at once: nothing is written from this server again (autosave, leave,
+	BindToClose, saveAsync / Shop settle and late tx.after all see no record), and the runtime
+	kicks the player (opts.onSessionLost).
 
-	Transactions (sealed handle, H1): runTx(player, fn) gives fn an opaque, frozen `tx` whose only
-	readable keys are player / after / retryLater. The working copies live in `txState`, a private
-	table keyed by the handle, inside this file; section(tx, key) is the only way in, and Context
-	binds `key` to the calling module's own data.key. Rules (kept from v1.1 Data.update):
+	Transactions (sealed handle, H1): runTx(player, fn, opts?) gives fn an opaque, frozen `tx` whose
+	only readable keys are player / after / retryLater (+ opts.extras, used by Shop for the
+	PurchaseTx fields). The working copies live in `txState`, a private table keyed by the handle;
+	section(tx, key) is the only way in, and Context binds `key` to the calling module's data.key.
+	txMeta(tx) is framework-internal bookkeeping (Shop: purchase/product; Compliance: rolls).
+	Rules (kept from v1.1 Data.update):
 	  - commit only when fn returns without error; an error discards everything and re-raises
 	  - fn must not yield (YIELD_ERROR, discarded)
 	  - one tx open on the call stack at a time: same player -> NESTED_ERROR (L6); a DIFFERENT
 	    player -> CROSS_PLAYER_ERROR (M1): use tx.after to act on them once this one commits
-	  - tx.after effects run, in order, only after commit; tx.retryLater() discards the tx and
+	  - tx.after effects run, in order, only after commit (opts.deferAfter: returned instead, for
+	    Shop, which runs them once the save is confirmed); tx.retryLater() discards the tx and
 	    runTx returns (false, nil)
 	  - only sections fn touched AND changed get a new section version
 ]]
@@ -44,6 +65,7 @@ Data.NESTED_ERROR =
 	"nested ctx.tx for the same player: open one transaction and pass `tx` to txApi functions instead"
 Data.SEALED_POST_COMMIT =
 	"this tx is closed (it already committed or failed); ctx.section(tx) only works inside ctx.tx"
+Data.PURCHASES_CAP = 200
 
 function Data.crossPlayerError(openFor: string): string
 	return `tx open for {openFor}; use tx.after to act on another player once this one commits`
@@ -66,11 +88,36 @@ local function nextVersion(): number
 	return clock
 end
 
+-- Oldest receipts beyond `cap` are dropped (v1.2 Sanitize.prunePurchases). Returns how many.
+local function prunePurchases(purchases: any, cap: number): number
+	if type(purchases) ~= "table" then
+		return 0
+	end
+	local list = {}
+	for id, at in purchases do
+		table.insert(list, { id = id, at = if type(at) == "number" then at else 0 })
+	end
+	if #list <= cap then
+		return 0
+	end
+	table.sort(list, function(a, b)
+		return a.at > b.at
+	end)
+	local removed = 0
+	for i = cap + 1, #list do
+		purchases[list[i].id] = nil
+		removed += 1
+	end
+	return removed
+end
+Data.prunePurchases = prunePurchases
+
 type Record = {
 	player: any,
 	root: { [string]: any },
 	versions: { [string]: number },
 	views: { [string]: { version: number, view: any } },
+	lastSeenOverride: number?, -- Studio `lastseen` console (compat bridge): stamped instead of now()
 }
 
 type TxState = {
@@ -79,6 +126,7 @@ type TxState = {
 	working: { [string]: any },
 	after: { () -> () },
 	retry: boolean,
+	meta: { [string]: any },
 }
 
 local NO_SECTION = newproxy(false)
@@ -91,6 +139,8 @@ function Data.new(opts: any): any
 	local records: { [any]: Record } = {}
 	local failed: { [any]: string } = {}
 	local loadedListeners: { [string]: { (any) -> () } } = {}
+	local changeListeners: { (any) -> () } = {}
+	local messageHandlers: { [string]: (any, any, () -> ()) -> () } = {}
 
 	-- Per-module data specs in boot order, with migrations resolved once at boot.
 	local specs: { { name: string, data: any, migrations: { [number]: any } } } = {}
@@ -116,6 +166,15 @@ function Data.new(opts: any): any
 	local openTx: any = nil
 
 	local d = {}
+
+	local function changed(player: any)
+		for _, fn in changeListeners do
+			local ok, err = pcall(fn :: any, player)
+			if not ok then
+				log("[StudWork] data change listener failed: " .. tostring(err))
+			end
+		end
+	end
 
 	local function loadInto(player: any, raw: any): (Record?, string?)
 		local root, ferr = FrameworkSection.migrate(raw, gameId, now())
@@ -173,7 +232,21 @@ function Data.new(opts: any): any
 			versions[key] = spec.data.version
 			owners[key] = spec.name
 		end
+		if type(fw.stats) ~= "table" then
+			fw.stats = {}
+		end
+		local sessions = fw.stats.sessions
+		fw.stats.sessions = (if type(sessions) == "number" and sessions == sessions then sessions else 0) + 1
+		prunePurchases(fw.purchases, Data.PURCHASES_CAP)
 		return { player = player, root = root, versions = {}, views = {} }, nil
+	end
+
+	-- Stamped right before every write of this record (memory save, ProfileStore OnSave).
+	local function beforeSave(record: Record)
+		local fw = record.root._framework
+		fw.lastSeen = record.lastSeenOverride or now()
+		prunePurchases(fw.purchases, Data.PURCHASES_CAP)
+		record.versions._framework = nextVersion()
 	end
 
 	-- Returns (true) or (false, reason). On failure the player must be kicked; nothing is saved.
@@ -181,19 +254,67 @@ function Data.new(opts: any): any
 		if records[player] then
 			return true, nil
 		end
-		local okLoad, raw = pcall(store.load, userIdOf(player))
+		local userId = userIdOf(player)
+		local okLoad, raw = pcall(store.load, userId, player)
 		if not okLoad then
 			failed[player] = "load failed: " .. tostring(raw)
+			if store.reject then
+				pcall(store.reject, userId)
+			end
 			return false, failed[player]
 		end
 		local record, err = loadInto(player, raw)
 		if record == nil then
 			failed[player] = tostring(err)
 			log(`[StudWork] data for {playerLabel(player)} not loaded: {tostring(err)}`)
+			if store.reject then
+				pcall(store.reject, userId)
+			end
 			return false, failed[player]
 		end
+		local loadedRecord: Record = record
 		failed[player] = nil
-		records[player] = record
+		records[player] = loadedRecord
+		if store.attach then
+			store.attach(userId, loadedRecord.root, {
+				beforeSave = function()
+					if records[player] == loadedRecord then
+						beforeSave(loadedRecord)
+					end
+				end,
+				sessionEnded = function()
+					if records[player] == loadedRecord then
+						records[player] = nil -- the session is over: never write from this server again
+						log(`[StudWork] save session of {playerLabel(player)} ended`)
+					end
+				end,
+				sessionLost = function()
+					if records[player] == loadedRecord then
+						records[player] = nil -- never write from this server again
+						log(`[StudWork] save session of {playerLabel(player)} was taken by another server`)
+						if opts.onSessionLost then
+							opts.onSessionLost(player)
+						end
+					end
+				end,
+			})
+		end
+		if store.onMessage then
+			store.onMessage(userId, function(message: any, processed: () -> ())
+				if records[player] ~= loadedRecord then
+					return -- left / session ended: ProfileStore re-delivers next session
+				end
+				local owner = if type(message) == "table" then message.m else nil
+				local handler = if type(owner) == "string" then messageHandlers[owner] else nil
+				if handler == nil then
+					if type(owner) ~= "string" then
+						processed() -- not a framework message: drop it rather than re-deliver forever
+					end
+					return -- the owning module isn't enabled here: leave it queued
+				end
+				handler(player, message.p, processed)
+			end)
+		end
 		for _, spec in specs do
 			local listeners: { (any) -> () } = loadedListeners[spec.data.key] or {}
 			for _, fn in listeners do
@@ -203,6 +324,7 @@ function Data.new(opts: any): any
 				end
 			end
 		end
+		changed(player)
 		return true, nil
 	end
 
@@ -219,16 +341,37 @@ function Data.new(opts: any): any
 		if record == nil then
 			return false -- never loaded (or failed to load): never write over the stored save
 		end
-		record.root._framework.lastSeen = now()
-		record.versions._framework = nextVersion()
+		beforeSave(record)
 		store.save(userIdOf(player), Freeze.deepCopy(record.root))
 		return true
 	end
 
+	-- Yields until the current data is saved (true) or the save failed / the player isn't loaded.
+	function d.saveAsync(player: any): boolean
+		local record = records[player]
+		if record == nil then
+			return false
+		end
+		if store.saveNow then
+			local ok, saved = pcall(store.saveNow, userIdOf(player), record.root)
+			return ok and saved == true and records[player] == record
+		end
+		return d.save(player)
+	end
+
 	function d.release(player: any)
-		d.save(player)
+		local record = records[player]
 		records[player] = nil
 		failed[player] = nil
+		if record == nil then
+			return
+		end
+		beforeSave(record)
+		if store.release then
+			store.release(userIdOf(player), record.root)
+		else
+			store.save(userIdOf(player), Freeze.deepCopy(record.root))
+		end
 	end
 
 	function d.players(): { any }
@@ -242,6 +385,10 @@ function Data.new(opts: any): any
 	function d.onLoaded(key: string, fn: (any) -> ())
 		loadedListeners[key] = loadedListeners[key] or {}
 		table.insert(loadedListeners[key], fn)
+	end
+
+	function d.onChange(fn: (any) -> ())
+		table.insert(changeListeners, fn)
 	end
 
 	function d.sectionVersion(player: any, key: string): number
@@ -276,10 +423,38 @@ function Data.new(opts: any): any
 		if record == nil then
 			error(`data for {playerLabel(player)} is not loaded`, 3)
 		end
-		return record.root._framework[field]
+		local v = record.root._framework[field]
+		return if type(v) == "table" then Freeze.freezeCopy(v) else v
 	end
 
-	local function makeHandle(state: TxState): any
+	-- Cross-server messages (ctx.data.messages): delivered to the recipient's save by the store,
+	-- routed to the sending module's handler on the recipient's server.
+	function d.sendMessage(owner: string, userId: number, payload: any): boolean
+		if store.send == nil then
+			return false
+		end
+		local ok, sent = pcall(store.send, userId, { m = owner, p = payload })
+		if not ok then
+			log(`[StudWork] message to {userId} failed: {tostring(sent)}`)
+			return false
+		end
+		return sent == true
+	end
+
+	function d.onMessage(owner: string, fn: (player: any, payload: any, processed: () -> ()) -> ())
+		if messageHandlers[owner] ~= nil then
+			error(`{owner}: ctx.data.messages.onReceive is already set`, 3)
+		end
+		messageHandlers[owner] = fn
+	end
+
+	function d.nudge(userId: number)
+		if store.nudge then
+			pcall(store.nudge, userId)
+		end
+	end
+
+	local function makeHandle(state: TxState, extras: { [string]: any }?): any
 		local after = function(fn: () -> ())
 			if type(fn) ~= "function" then
 				error("tx.after expects a function", 2)
@@ -292,6 +467,9 @@ function Data.new(opts: any): any
 		local player = state.player
 		local meta = table.freeze({
 			__index = function(_, key: any): any
+				if extras ~= nil and extras[key] ~= nil then
+					return extras[key]
+				end
 				if key == "player" then
 					return player
 				elseif key == "after" then
@@ -321,6 +499,15 @@ function Data.new(opts: any): any
 		return txState[tx] ~= nil
 	end
 
+	-- Framework-internal bookkeeping of an OPEN tx (never handed to modules).
+	function d.txMeta(tx: any): { [string]: any }
+		local state = txState[tx]
+		if state == nil then
+			error(Data.SEALED_POST_COMMIT, 3)
+		end
+		return state.meta
+	end
+
 	-- The calling module's working copy of `key` inside an open tx (copy on first access).
 	function d.section(tx: any, key: string): any
 		local state = txState[tx]
@@ -346,7 +533,9 @@ function Data.new(opts: any): any
 		return if state then state.player else nil
 	end
 
-	function d.runTx(player: any, fn: (tx: any) -> ...any): (boolean, any)
+	-- opts: { extras?, meta?, deferAfter? }. Returns (committed, result, effects?) where effects is
+	-- the tx.after list when opts.deferAfter (the caller runs it), else nil (already run).
+	function d.runTx(player: any, fn: (tx: any) -> ...any, runOpts: any?): (boolean, any, any)
 		if openTx ~= nil then
 			local open = txState[openTx]
 			if open.player == player then
@@ -356,10 +545,18 @@ function Data.new(opts: any): any
 		end
 		local record = records[player]
 		if record == nil then
-			return false, nil
+			return false, nil, nil
 		end
-		local state: TxState = { player = player, record = record, working = {}, after = {}, retry = false }
-		local handle = makeHandle(state)
+		local o = runOpts or {}
+		local state: TxState = {
+			player = player,
+			record = record,
+			working = {},
+			after = {},
+			retry = false,
+			meta = if o.meta then table.clone(o.meta) else {},
+		}
+		local handle = makeHandle(state, o.extras)
 		txState[handle] = state
 		openTx = handle
 
@@ -378,19 +575,20 @@ function Data.new(opts: any): any
 		if not resumed then
 			error(resumeErr, 0)
 		end
+		if coroutine.status(co) ~= "dead" then
+			coroutine.close(co)
+			error(Data.YIELD_ERROR, 3)
+		end
+		if state.retry then
+			return false, nil, nil
+		end
 		if failure then
 			if type(failure.value) == "string" then
 				error(failure.trace, 0)
 			end
 			error(failure.value, 0)
 		end
-		if coroutine.status(co) ~= "dead" then
-			coroutine.close(co)
-			error(Data.YIELD_ERROR, 3)
-		end
-		if state.retry then
-			return false, nil
-		end
+		local anyChange = false
 		for key, w in state.working do
 			if w == NO_SECTION then
 				continue
@@ -398,7 +596,14 @@ function Data.new(opts: any): any
 			if not Freeze.deepEqual(w, record.root[key]) then
 				record.root[key] = w
 				record.versions[key] = nextVersion()
+				anyChange = true
 			end
+		end
+		if anyChange then
+			changed(player)
+		end
+		if o.deferAfter then
+			return true, result, state.after
 		end
 		for _, effect in state.after do
 			local ok, err = pcall(effect :: any)
@@ -406,11 +611,42 @@ function Data.new(opts: any): any
 				log("[StudWork] post-commit effect failed: " .. tostring(err))
 			end
 		end
-		return true, result
+		return true, result, nil
 	end
 
 	function d.hasSection(key: string): boolean
 		return byKey[key] ~= nil
+	end
+
+	-- ===== COMPAT-ONLY (packages/kits/compat via CompatDoor; deleted in Phase 2) =====
+	-- The v1.2 services behind the compat bridge read one flat PlayerData that spans sections.
+
+	-- The LIVE save root of a loaded player (never handed to a module).
+	function d.compatLive(player: any): { [string]: any }?
+		local record = records[player]
+		return if record then record.root else nil
+	end
+
+	-- A write made outside a tx (Studio console) to section `key`: new section version + change.
+	function d.compatTouch(player: any, key: string)
+		local record = records[player]
+		if record then
+			record.versions[key] = nextVersion()
+			changed(player)
+		end
+	end
+
+	-- Studio `lastseen` console: lastSeen is stamped with this value on every save (nil = now()).
+	function d.compatSetLastSeen(player: any, at: number?)
+		local record = records[player]
+		if record then
+			record.lastSeenOverride = at
+			if at ~= nil then
+				record.root._framework.lastSeen = at
+				record.versions._framework = nextVersion()
+				changed(player)
+			end
+		end
 	end
 
 	return d

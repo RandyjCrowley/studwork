@@ -24,7 +24,7 @@ local Players = game:GetService("Players")
 
 local Types = require(game:GetService("ReplicatedStorage"):WaitForChild("Core"):WaitForChild("Types"))
 local RateMath = require(script.RateMath)
-local Tx = require(game:GetService("ServerScriptService"):WaitForChild("CoreServer"):WaitForChild("Tx"))
+local Tx = require(game:GetService("ServerScriptService"):WaitForChild("Compat"):WaitForChild("Tx"))
 
 -- Engineering constants (not balance).
 local ANALYTICS_FLUSH_SECONDS = 60 -- income ticks are summed and logged once per this window

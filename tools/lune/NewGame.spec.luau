@@ -1,7 +1,10 @@
 --!nocheck
 -- tools/ is outside the harness index (packages, games, templates), so load by file path.
 local NewGame = require("tools/lune/NewGame.luau")
-local Modules = require("packages/core/shared/Modules.luau")
+-- the kit module manifest, read from the kit module definitions (core-v1.3.0 step 4b-IIb; was
+-- packages/core/shared/Modules.luau)
+local fs = (getmetatable(getfenv(1)) :: any).__index.require("@lune/fs")
+local Modules = require("tools/lune/KitModules.luau").load(fs)
 
 local TEMPLATE_CONFIG = [[
 local Config = {
@@ -154,5 +157,79 @@ describe("NewGame.deployJson / readme", function()
 		local r2 = NewGame.readme("g", 34900, true, nil)
 		expect(string.find(r2, "docs/games/g.md", 1, true) ~= nil).toBe(true)
 		expect(string.find(r2, "template default", 1, true) ~= nil).toBe(true)
+	end)
+end)
+
+local TEMPLATE_V13 = [[
+local KitDefs = ReplicatedStorage:WaitForChild("Kits")
+local Collection = KitDefs:WaitForChild("Collection")
+local Economy = KitDefs:WaitForChild("Economy")
+local Base = KitDefs:WaitForChild("Base")
+
+local Config = {
+	gameId = "sandbox",
+	modules = {
+		require(Collection:WaitForChild("Items")), -- item definitions
+		require(Collection:WaitForChild("Inventory")), -- owned copies (needs Items)
+		require(Economy:WaitForChild("Economy")), -- currencies
+		require(Base:WaitForChild("Plot")), -- needs Inventory
+	} :: { any },
+}
+]]
+
+describe("NewGame v1.3 module refs (core-v1.3.0 step 4b-IIb)", function()
+	it("the kit manifest comes from the kit definitions (hard deps from dependsOn)", function()
+		expect(Modules.isModule("Plot")).toBe(true)
+		expect(Modules.SPECS.Plot.requires).toEqual({ "Inventory" })
+		expect(Modules.SPECS.Upgrades.requires).toEqual({ "Economy" })
+		expect(Modules.kitFolder("Mail")).toBe("Social")
+		expect(Modules.ACTIONS.roll).toBe("Rarity")
+		expect(Modules.ACTIONS.claimMail).toBe("Mail")
+		expect(#Modules.ORDER).toBe(11)
+	end)
+
+	it("keeps the ref lines of chosen modules and adds a ref line for a missing one", function()
+		local out =
+			NewGame.rewriteModulesBlock(TEMPLATE_V13, { "Items", "Economy", "Mail" }, Modules.kitFolder)
+		expect(
+			string.find(out, 'require(Collection:WaitForChild("Items")), -- item definitions', 1, true) ~= nil
+		).toBe(true)
+		expect(string.find(out, 'WaitForChild("Inventory")', 1, true)).toBeNil()
+		expect(string.find(out, 'WaitForChild("Plot")', 1, true)).toBeNil()
+		expect(string.find(out, '\t\trequire(Social:WaitForChild("Mail")),', 1, true) ~= nil).toBe(true)
+		expect(string.find(out, "} :: { any },", 1, true) ~= nil).toBe(true)
+	end)
+
+	it("pruneKitLocals drops kit folder locals nothing uses any more", function()
+		local out = NewGame.rewriteModulesBlock(TEMPLATE_V13, { "Items", "Inventory" }, Modules.kitFolder)
+		out = NewGame.pruneKitLocals(out)
+		expect(string.find(out, "local Collection =", 1, true) ~= nil).toBe(true)
+		expect(string.find(out, "local Economy =", 1, true)).toBeNil()
+		expect(string.find(out, "local Base =", 1, true)).toBeNil()
+		expect(string.find(out, 'local KitDefs = ReplicatedStorage:WaitForChild("Kits")', 1, true) ~= nil).toBe(
+			true
+		)
+	end)
+
+	it("trimDependsOn drops refs of modules not chosen and adds none", function()
+		local src = [[
+return StudWork.defineModule({
+	name = "Sandbox",
+	dependsOn = {
+		require(Collection:WaitForChild("Rarity")),
+		require(EconomyKit:WaitForChild("Rebirth")),
+	},
+})
+]]
+		local out = NewGame.trimDependsOn(src, { "Items", "Rarity", "Mail" })
+		expect(string.find(out, 'WaitForChild("Rarity")', 1, true) ~= nil).toBe(true)
+		expect(string.find(out, 'WaitForChild("Rebirth")', 1, true)).toBeNil()
+		expect(string.find(out, "Mail", 1, true)).toBeNil()
+	end)
+
+	it("moduleName makes the game module's name from the gameId", function()
+		expect(NewGame.moduleName("example-collector")).toBe("ExampleCollector")
+		expect(NewGame.moduleName("zz-scratch")).toBe("ZzScratch")
+		expect(NewGame.moduleName("sandbox")).toBe("Sandbox")
 	end)
 end)

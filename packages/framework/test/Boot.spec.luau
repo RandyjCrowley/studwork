@@ -162,6 +162,26 @@ describe("fail closed (N7)", function()
 end)
 
 describe("StudWork.use (§4, C1)", function()
+	it(
+		"a second StudWork.start errors and leaves the running runtime untouched (Gate 0 regression)",
+		function()
+			Harness.new({
+				modules = { Base },
+				servers = { Base = { api = {
+					ping = function()
+						return "pong"
+					end,
+				} } },
+			})
+			expect(StudWork.use(Base).ping()).toBe("pong")
+			local ok, err = pcall(StudWork.start, { gameId = "bogus" }, {})
+			expect(ok).toBe(false)
+			expect(tostring(err)).toContain("StudWork.start called twice")
+			-- the live runtime is still the one that booted: no boot-failed poisoning
+			expect(StudWork.use(Base).ping()).toBe("pong")
+		end
+	)
+
 	it("returns the frozen API of an enabled module, an erroring proxy for a disabled one", function()
 		local h = Harness.new({
 			modules = { Base },
@@ -304,7 +324,7 @@ describe("ctx (§5)", function()
 		end
 	)
 
-	it("signals, console prefix and stubs behave", function()
+	it("signals, console prefix and framework services behave", function()
 		local c
 		local h = Harness.new({
 			modules = { Base },
@@ -329,10 +349,13 @@ describe("ctx (§5)", function()
 		expect(ok).toBe(true)
 		expect(res).toBe("ok")
 		expect(got).toBe(5)
+		-- step 4b: the framework services behind ctx are real (no stubs left)
 		expect(function()
 			c.compliance.roll()
-		end).toThrow("not implemented yet")
-		c.replicate.set("p", "rate", 3)
-		expect(c.replicate.sent("p", "rate")).toBe(true)
+		end).toThrow("must be the OPEN tx")
+		local p = h:addPlayer({ userId = 7 })
+		c.replicate.set(p, "rate", 3)
+		h:tick(1)
+		expect(h.runtime.replication.peek(p).modules.Base.extra.rate).toBe(3)
 	end)
 end)

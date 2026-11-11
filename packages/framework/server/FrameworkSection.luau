@@ -9,18 +9,24 @@
 	}
 
 	Framework migrations run on the WHOLE profile root (they're the only ones allowed to move data
-	between sections). Version 1 is "a v1.2 flat PlayerData"; migration 2 splits it into sections:
+	between sections). Version 1 is "a v1.2 flat PlayerData"; migration 2 splits it into sections,
+	one per FINER kit module (decisions.md "Phase 0 step 4", decision 2; retargeted in step 4b-IIa
+	to the keys the kit wrappers declare):
 	  firstJoin, lastSeen, purchases, funnel, stats  -> _framework
-	  currency, upgrades, rebirths, multipliers      -> economy
-	  inventory, pity                                -> collection
-	  displayed                                      -> plot
-	  mail                                           -> social
-	  streak                                         -> engagement
-	  game[gameId]                                   -> [gameId]  (the game's implicit module)
-	Split sections are stored at section version 0 with no recorded owner, so the owning kit's
+	  currency, multipliers                          -> economy    (Economy)
+	  upgrades                                       -> upgrades   (Upgrades)
+	  rebirths                                       -> rebirth    (Rebirth)
+	  inventory                                      -> inventory  (Inventory)
+	  pity                                           -> rarity     (Rarity)
+	  displayed                                      -> plot       (Plot)
+	  mail                                           -> mail       (Mail)
+	  streak                                         -> streak     (Streak)
+	  game[gameId]                                   -> [gameId]   (the game's implicit module)
+	Each field keeps its v1.2 name inside its section (economy = { currency, multipliers }, ...).
+	Split sections are stored at section version 0 with no recorded owner, so the owning module's
 	migration 001 receives the v1.2 shape and the first module to claim the key becomes its owner.
-	The target keys are the Phase 1 kit keys from §17 Q7; V12_MAP is the single place to change
-	them if a kit settles on a different data.key.
+	V12_MAP is also the flat-view map of the compat bridge (packages/kits/compat/V12Data.luau);
+	it is the single place to change a key if a Phase 1 kit settles on a different data.key.
 ]]
 
 local Shared = require(script.Parent.Shared)
@@ -38,14 +44,14 @@ FrameworkSection.V12_MAP = table.freeze({
 	funnel = "_framework",
 	stats = "_framework",
 	currency = "economy",
-	upgrades = "economy",
-	rebirths = "economy",
 	multipliers = "economy",
-	inventory = "collection",
-	pity = "collection",
+	upgrades = "upgrades",
+	rebirths = "rebirth",
+	inventory = "inventory",
+	pity = "rarity",
 	displayed = "plot",
-	mail = "social",
-	streak = "engagement",
+	mail = "mail",
+	streak = "streak",
 })
 
 function FrameworkSection.default(now: number): { [string]: any }

@@ -44,7 +44,7 @@ local Types = require(Core:WaitForChild("Types"))
 local Validate = require(Core:WaitForChild("Validate"))
 local InventoryRules = require(script.InventoryRules)
 local Gift = require(script.Gift)
-local Tx = require(game:GetService("ServerScriptService"):WaitForChild("CoreServer"):WaitForChild("Tx"))
+local Tx = require(game:GetService("ServerScriptService"):WaitForChild("Compat"):WaitForChild("Tx"))
 
 local Inventory = {}
 

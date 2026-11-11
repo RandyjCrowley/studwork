@@ -25,12 +25,10 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local Core = ReplicatedStorage:WaitForChild("Core")
 local Types = require(Core:WaitForChild("Types"))
 local Validate = require(Core:WaitForChild("Validate"))
-local Internal = require(
-	game:GetService("ServerScriptService")
-		:WaitForChild("CoreServer")
-		:WaitForChild("Data")
-		:WaitForChild("Internal")
-)
+-- v1.2 Data<->Mail bridge, now in packages/kits/compat (COMPAT; Phase 1 agent C moves Mail
+-- onto ctx.data.messages and Phase 2 deletes it)
+local Internal =
+	require(game:GetService("ServerScriptService"):WaitForChild("Compat"):WaitForChild("MailInternal"))
 local MailValidate = require(script.MailValidate)
 local Delivery = require(script.Delivery)
 local Outbox = require(script.Outbox)

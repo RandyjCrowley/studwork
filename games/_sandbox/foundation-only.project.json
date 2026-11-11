@@ -17,40 +17,79 @@
       "Core": {
         "$path": "../../packages/core/shared"
       },
-      "CoreClient": {
-        "$path": "../../packages/core/client"
+      "FrameworkClient": {
+        "$path": "../../packages/framework/client"
       },
-      "Framework": { "$path": "../../packages/framework/shared" },
+      "Framework": {
+        "$path": "../../packages/framework/shared"
+      },
       "Kits": {
         "$className": "Folder",
-        "Collection": { "$path": "../../packages/kits/collection/shared" },
-        "Economy": { "$path": "../../packages/kits/economy/shared" },
-        "Base": { "$path": "../../packages/kits/base/shared" },
-        "Social": { "$path": "../../packages/kits/social/shared" },
-        "Engagement": { "$path": "../../packages/kits/engagement/shared" }
+        "Collection": {
+          "$path": "../../packages/kits/collection/shared"
+        },
+        "Economy": {
+          "$path": "../../packages/kits/economy/shared"
+        },
+        "Base": {
+          "$path": "../../packages/kits/base/shared"
+        },
+        "Social": {
+          "$path": "../../packages/kits/social/shared"
+        },
+        "Engagement": {
+          "$path": "../../packages/kits/engagement/shared"
+        }
       },
       "UI": {
         "$path": "../../packages/ui"
       },
       "Game": {
         "$path": "foundation-only/shared"
+      },
+      "CompatShared": {
+        "$path": "../../packages/kits/compat/shared"
+      },
+      "GameModule": {
+        "$className": "Folder",
+        "module": {
+          "$path": "foundation-only/modules/foundationonly/module.luau"
+        }
       }
     },
     "ServerScriptService": {
-      "CoreServer": {
-        "$path": "../../packages/core/server"
+      "Compat": {
+        "$path": "../../packages/kits/compat"
       },
-      "Framework": { "$path": "../../packages/framework/server" },
+      "Framework": {
+        "$path": "../../packages/framework/server"
+      },
       "Kits": {
         "$className": "Folder",
-        "Collection": { "$path": "../../packages/kits/collection/server" },
-        "Economy": { "$path": "../../packages/kits/economy/server" },
-        "Base": { "$path": "../../packages/kits/base/server" },
-        "Social": { "$path": "../../packages/kits/social/server" },
-        "Engagement": { "$path": "../../packages/kits/engagement/server" }
+        "Collection": {
+          "$path": "../../packages/kits/collection/server"
+        },
+        "Economy": {
+          "$path": "../../packages/kits/economy/server"
+        },
+        "Base": {
+          "$path": "../../packages/kits/base/server"
+        },
+        "Social": {
+          "$path": "../../packages/kits/social/server"
+        },
+        "Engagement": {
+          "$path": "../../packages/kits/engagement/server"
+        }
       },
       "Game": {
         "$path": "foundation-only/server"
+      },
+      "Modules": {
+        "$className": "Folder",
+        "FoundationOnly": {
+          "$path": "foundation-only/modules/foundationonly/server"
+        }
       }
     },
     "ServerStorage": {

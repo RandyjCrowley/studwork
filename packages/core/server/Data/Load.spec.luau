@@ -1,5 +1,6 @@
 local Load = require(script.Parent.Load)
-local Sanitize = require(script.Parent.Sanitize)
+local Sanitize =
+	require(game:GetService("ServerScriptService"):WaitForChild("Compat"):WaitForChild("V12Sanitize"))
 local Schema = require(script.Parent.Schema)
 
 local function config(): any

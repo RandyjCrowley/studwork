@@ -4,7 +4,7 @@
 	                                     --dry-run --version <n>)
 	Record the core a game was built with. Called by tools/publish on every publish, dry runs
 	included (`how` says which, e.g. "publish --test --dry-run"). Writes games/<name>/deploy.json:
-	  coreVersion  Core.version of the build ("1.1.0")
+	  coreVersion  StudWork.VERSION of the build ("1.3.0"; core-info.luau)
 	  coreCommit   last commit touching packages/{core,framework,kits,ui} (+ "-dirty")
 	  coreStamp    { how, at (UTC ISO time) }
 	and the game's "Core" cell in GAMES.md ("1.1.0 (abc1234)").

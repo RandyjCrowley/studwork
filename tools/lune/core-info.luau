@@ -2,10 +2,12 @@
 --[[
 	tools/lune/core-info: shared helpers for tools that track which core a game ships.
 
-	coreVersion = the `Core.version = "x.y.z"` string in packages/core/shared/init.luau (what the
-	              built place actually reports at runtime).
-	coreCommit  = the last commit that touched packages/core, framework, kits or ui (short hash), with
-	              "-dirty" appended when those folders have uncommitted changes.
+	coreVersion = the framework version, `StudWork.VERSION = "x.y.z"` in
+	              packages/framework/shared/init.luau (what the built place reports at runtime;
+	              core-v1.3.0 step 4b-IIb, was the v1.2 Core.version).
+	coreCommit  = the last commit that touched packages/framework, kits, ui or core (short hash),
+	              with "-dirty" appended when those folders have uncommitted changes. packages/core
+	              stays in the list until Phase 2 deletes it (the kits still read its shared files).
 ]]
 
 local fs = require("@lune/fs")
@@ -13,17 +15,22 @@ local process = require("@lune/process")
 
 local CoreInfo = {}
 
-CoreInfo.CORE_PATHS = { "packages/core", "packages/framework", "packages/kits", "packages/ui" }
+CoreInfo.CORE_PATHS = { "packages/framework", "packages/kits", "packages/ui", "packages/core" }
+CoreInfo.VERSION_FILE = "packages/framework/shared/init.luau"
 
 local function git(args: { string }): (boolean, string)
 	local result = process.exec("git", args)
 	return result.ok, string.gsub(result.stdout, "%s+$", "")
 end
 
+-- The framework version string in a framework shared/init.luau source.
+function CoreInfo.parseVersion(source: string): string?
+	return string.match(source, 'StudWork%.VERSION%s*=%s*"([^"]+)"')
+end
+
 function CoreInfo.version(): string
-	local source = fs.readFile("packages/core/shared/init.luau")
-	local version = string.match(source, 'Core%.version%s*=%s*"([^"]+)"')
-	assert(version, "could not find Core.version in packages/core/shared/init.luau")
+	local version = CoreInfo.parseVersion(fs.readFile(CoreInfo.VERSION_FILE))
+	assert(version, "could not find StudWork.VERSION in " .. CoreInfo.VERSION_FILE)
 	return version
 end
 

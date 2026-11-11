@@ -1,44 +1,53 @@
 --!strict
 --[[
-	The sandbox GameConfig. Both the server and client scripts pass this to Core.start.
-	Sandbox loop: touch the glowing block -> get an item -> it goes on your plot -> it earns.
+	The GameConfig (core-v1.3.0 shape, module-api.md §3, §11). The server and client scripts both
+	pass it to StudWork.start. Template loop: touch the glowing block -> get an item -> it goes on
+	your plot -> it earns.
+
+	modules: kit module refs. The game's own module (modules/<gameId>: module.luau + server/) is
+	added by the framework; the game never lists itself. Delete the lines you don't need; a
+	module's hard dependencies must stay listed (StudWork.start names the missing one). Calling a
+	module that is not listed errors: "<Name> is not enabled in GameConfig.modules". When you
+	remove a module here, also remove it from modules/<gameId>/module.luau `dependsOn`, its
+	section in Balance.luau and the game code that uses it.
+	config: each module's config (config.<Name>, Balance.luau); compliance.paidCurrencies: the
+	Robux-buyable currencies (framework, §14).
 ]]
 
-local Types = require(game:GetService("ReplicatedStorage"):WaitForChild("Core"):WaitForChild("Types"))
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local KitDefs = ReplicatedStorage:WaitForChild("Kits")
+local Collection = KitDefs:WaitForChild("Collection")
+local Economy = KitDefs:WaitForChild("Economy")
+local Base = KitDefs:WaitForChild("Base")
+local Social = KitDefs:WaitForChild("Social")
+local Engagement = KitDefs:WaitForChild("Engagement")
 
-local Config: Types.GameConfig = {
+local Config = {
 	gameId = "sandbox",
-	-- Optional core modules. The foundation (Data, Net, Shop, Analytics, Policy, Events, Console,
-	-- Replication, UI kit, Feedback, Input, Hud) is always on. Delete the lines you don't need;
-	-- a module's dependencies must stay listed (Core.start says which). Calling a module that is
-	-- not listed errors: "<Name> is not enabled in GameConfig.modules". See CLAUDE.md "Modules".
 	modules = {
-		"Items", -- item definitions (Core.Items); needed by Inventory and Rarity
-		"Inventory", -- owned item copies, gifting, cap (needs Items; balance.inventory)
-		"Rarity", -- weighted rolls, luck, pity, mutations, odds disclosure (needs Items; balance.rarityTables)
-		"Economy", -- currencies, income ticks, multipliers (balance.income)
-		"Upgrades", -- level-based upgrades bought with currency (needs Economy; balance.upgrades)
-		"Rebirth", -- reset for a permanent multiplier; keeps Robux items (needs Economy; balance.rebirth)
-		"Offline", -- what returning players get for time away (balance.offline; autoPay needs Economy)
-		"Streak", -- daily UTC streak with grace (balance.streak; rewards need Economy)
-		"Friends", -- co-play detection + optional income bonus (balance.friends)
-		"Mail", -- cross-server / offline messages + mailbox (handler false = held; must be idempotent)
-		"Plot", -- per-player plots with item display slots (needs Inventory; balance.plot)
-	},
+		require(Collection:WaitForChild("Items")), -- item definitions; needed by Inventory and Rarity
+		require(Collection:WaitForChild("Rarity")), -- weighted rolls, luck, pity, mutations, odds (needs Items)
+		require(Collection:WaitForChild("Inventory")), -- owned item copies, gifting, cap (needs Items)
+		require(Economy:WaitForChild("Economy")), -- currencies, income ticks, multipliers
+		require(Economy:WaitForChild("Upgrades")), -- level upgrades bought with currency (needs Economy)
+		require(Economy:WaitForChild("Rebirth")), -- reset for a permanent multiplier (needs Economy)
+		require(Economy:WaitForChild("Offline")), -- payout for time away (autoPay needs Economy)
+		require(Engagement:WaitForChild("Streak")), -- daily UTC streak with grace (rewards need Economy)
+		require(Social:WaitForChild("Friends")), -- co-play detection + optional income bonus
+		require(Social:WaitForChild("Mail")), -- cross-server / offline messages + mailbox (idempotent handlers)
+		require(Base:WaitForChild("Plot")), -- per-player plots with item display slots (needs Inventory)
+	} :: { any },
+	config = require(script.Balance),
+	-- Coins are sold for Robux (CoinPack), so the Coin-priced Chest is a paid random item too.
+	compliance = { paidCurrencies = { "Coins" } },
 	items = require(script.Items),
-	balance = require(script.Balance),
 	products = require(script.Products),
 	events = require(script.Events),
-	palette = require(script.Palette),
-	data = {
-		defaults = { blockTouches = 0 },
-		version = 1,
-	},
+	client = { palette = require(script.Palette) },
 	analytics = {
 		funnel = { "Joined", "FirstCollect", "FirstUpgrade", "FirstRebirth" },
 		clientSteps = {},
 	},
-	assetsFolderName = "GameAssets",
 }
 
 return Config

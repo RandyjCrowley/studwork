@@ -2,32 +2,41 @@
 --[[
 	StudWork server runtime: the boot sequence (module-api.md §3) and the running server.
 
-	  local FrameworkServer = require(ServerScriptService.FrameworkServer)
-	  FrameworkServer.start(Config, ServerConfig)      -- or StudWork.start(Config, ServerConfig)
+	  StudWork.start(Config, ServerConfig)   -- the game's one-line server bootstrap
 
 	Boot steps:
 	  1. resolve        Loader: refs, hard deps listed, names/data keys unique, framework range,
 	                    topo order (ties = list order), cycles named; server parts found by name
 	  2. validate       ConfigValidate: per-module config (defaults <- config.<Name>, schema),
 	                    items (base fields + enabled modules' itemFields), theme; ALL errors at once
-	  3. framework init Data, Lifecycle, theme, gameConfig view, wrapped module surfaces, ctx per
-	                    module; (the real Shop claims ProcessReceipt last here, H4 — later step)
+	  3. framework init Data (+ store), Lifecycle, Net (listens now; requests queue until step 6),
+	                    Replication, Policy, Analytics, Compliance, Events, Shop, Console; wrapped
+	                    module surfaces; one scoped ctx per module
 	  4. init(ctx)      every module, boot order; must not yield; other modules' APIs are blocked
-	  5. start(ctx)     every module, boot order; dependency APIs allowed
-	  6. framework start players load (Data), ticker runs, (Net releases its queue — later step)
+	  5. start(ctx)     every module, boot order; dependency APIs allowed; must not yield
+	  6. framework start Events start, Net releases its queue, console installed, then Shop
+	                    claims ProcessReceipt (the very last step, §7.1); players load, ticker runs
 	If any step throws, boot fails closed (N7): Server.start re-raises, and every later call into
 	the runtime, any module API, StudWork.use and StudWork.<Name> errors with the boot message.
 
-	opts (all optional; tests inject them, a live server uses the defaults):
-	  loadServer(ref) -> impl     find a module's server part (default ServerScriptService.Modules)
-	  store                        { load(userId), save(userId, root) } (default: in-memory; the
-	                               ProfileStore adapter is the later Data step)
-	  now() -> number              unix seconds (default os.time)
-	  isStudio: boolean            default RunService:IsStudio()
+	opts (all optional; tests and the sim inject them, a live server uses Platform.live()):
+	  platform                     the engine adapter (Platform.luau); default Platform.live(),
+	                               or Platform.inert() when bindPlatform == false
+	  loadServer(ref) -> impl      find a module's server part (default ServerScriptService.Modules)
+	  store                        Data store (default platform.makeStore(gameId))
+	  now() -> number              unix seconds (default platform.now)
+	  isStudio: boolean            default platform.isStudio
 	  logSink(level, msg)          default print/warn
-	  kick(player, msg)            default player:Kick(msg)
-	  bindPlatform(rt)             default wires Players / Heartbeat / BindToClose; false = none
+	  kick(player, msg)            default platform.kick
+	  bindPlatform                 false = don't connect Players/Heartbeat/BindToClose
 	  require                      used for migrations folders (default require)
+	  gameModule                   the game's implicit module (§7, C4); default platform.gameModule()
+	                               (live: ReplicatedStorage.GameModule.module). It is appended to
+	                               GameConfig.modules unless already listed; the game never lists
+	                               itself. Its data.key must be the gameId (the v1.2 game[gameId]
+	                               table splits into that section).
+	  compat                       opaque options for the compat bridge (packages/kits/compat; the
+	                               multi-server sim injects its signal factory). Deleted in Phase 2.
 ]]
 
 local Shared = require(script.Shared)
@@ -37,45 +46,33 @@ local Freeze = requireShared(Shared.Freeze)
 local Resolve = requireShared(Shared.Resolve)
 local Signal = requireShared(Shared.Signal)
 local StudWork = requireShared(Shared)
+local Admins = require(script.Events.Admins)
+local Analytics = require(script.Analytics)
 local Boot = require(script.Boot)
+local CompatDoor = require(script.CompatDoor)
+local Compliance = require(script.Compliance)
 local Context = require(script.Context)
 local Data = require(script.Data)
+local Events = require(script.Events)
 local Extensions = require(script.Extensions)
 local Lifecycle = require(script.Lifecycle)
 local Loader = require(script.Loader)
+local Net = require(script.Net)
+local Platform = require(script.Platform)
+local Policy = require(script.Policy)
+local Replication = require(script.Replication)
+local Shop = require(script.Shop)
+local Store = require(script.Store)
 
 local Server = {}
 
 Server.KICK_MESSAGE =
 	"Your save couldn't be loaded safely, so nothing was changed. Please rejoin in a moment."
+Server.KICK_SESSION_ENDED = "Your save data was opened in another server. Please rejoin."
 
-local function memoryStore()
-	local saves: { [any]: any } = {}
-	return {
-		saves = saves,
-		load = function(userId: any): any
-			return Freeze.deepCopy(saves[userId])
-		end,
-		save = function(userId: any, root: any)
-			saves[userId] = Freeze.deepCopy(root)
-		end,
-	}
-end
-Server.memoryStore = memoryStore
+Server.memoryStore = Store.memory
 
-local function defaultBind(rt: any)
-	local Players = game:GetService("Players")
-	local RunService = game:GetService("RunService")
-	Players.PlayerAdded:Connect(rt.playerAdded)
-	Players.PlayerRemoving:Connect(rt.playerRemoving)
-	for _, p in Players:GetPlayers() do
-		task.spawn(rt.playerAdded, p)
-	end
-	RunService.Heartbeat:Connect(rt.tick)
-	game:BindToClose(rt.shutdown)
-end
-
-local function runNoYield(label: string, fn: any, ...: any)
+local function runNoYield(label: string, what: string, fn: any, ...: any)
 	local co = coroutine.create(fn)
 	local ok, err = coroutine.resume(co, ...)
 	if not ok then
@@ -83,8 +80,19 @@ local function runNoYield(label: string, fn: any, ...: any)
 	end
 	if coroutine.status(co) ~= "dead" then
 		coroutine.close(co)
-		error(`{label} yielded: init(ctx) must not yield (connect events and start loops in start)`, 0)
+		error(`{label} yielded: {what} must not yield (connect events and start loops with task.spawn)`, 0)
 	end
+end
+
+local function splitWords(...: any): { string }
+	local words: { string } = {}
+	for i = 1, select("#", ...) do
+		local v = select(i, ...)
+		for w in string.gmatch(tostring(v), "%S+") do
+			table.insert(words, w)
+		end
+	end
+	return words
 end
 
 function Server.start(gameConfig: any, serverConfig: any?, opts: any?): any
@@ -97,6 +105,10 @@ function Server.start(gameConfig: any, serverConfig: any?, opts: any?): any
 				print(msg)
 			end
 		end
+	local function warnLog(msg: string)
+		logSink("warn", msg)
+	end
+	local platform = o.platform or (if o.bindPlatform == false then Platform.inert() else Platform.live())
 	local enabled: { [any]: boolean } = {}
 	local byName: { [string]: any } = {}
 
@@ -108,20 +120,21 @@ function Server.start(gameConfig: any, serverConfig: any?, opts: any?): any
 		apis = {},
 		txApis = {},
 		exts = {},
+		purchaseOps = {},
 		console = {},
-		netLog = {},
-		analyticsLog = {},
-		replicated = {},
-		randomSources = {},
-		products = {},
-		passHandlers = {},
 		frameworkSignals = table.freeze({
 			PlayerLoaded = Signal.new("framework.PlayerLoaded"),
 			PlayerRemoving = Signal.new("framework.PlayerRemoving"),
+			ProductGranted = Signal.new("framework.ProductGranted"),
+			EventStarted = Signal.new("framework.EventStarted"),
+			EventEnded = Signal.new("framework.EventEnded"),
 		}),
 		logSink = logSink,
 		serverConfig = serverConfig,
 		order = {},
+		platform = platform,
+		compat = o.compat, -- compat bridge options (Phase 2: delete)
+		gameModule = nil,
 	}
 
 	function rt.assertUsable()
@@ -145,13 +158,191 @@ function Server.start(gameConfig: any, serverConfig: any?, opts: any?): any
 		end
 		return StudWork._notEnabledProxy(if type(ref) == "table" then tostring(ref.name) else tostring(ref))
 	end
+	-- May module `callerName` reach `owner` (a ref or a module name)? Itself, or a declared dep.
+	function rt.canUse(callerName: string, owner: any): boolean
+		local ownerRef = if type(owner) == "string" then byName[owner] else owner
+		local caller = byName[callerName]
+		if caller == nil or ownerRef == nil then
+			return false
+		end
+		if caller == ownerRef then
+			return true
+		end
+		for _, d in caller.dependsOn do
+			if d == ownerRef then
+				return true
+			end
+		end
+		for _, d in caller.optional do
+			if d == ownerRef then
+				return true
+			end
+		end
+		return false
+	end
 
 	Boot.attach(rt)
+	CompatDoor.attach(rt) -- compat bridge only (deleted in Phase 2)
 
 	local impls: { [any]: any } = {}
 	local ctxs: { [any]: any } = {}
 
+	local function kick(player: any, msg: string)
+		if o.kick then
+			o.kick(player, msg)
+		else
+			platform.kick(player, msg)
+		end
+	end
+
+	local function registerFrameworkConsole()
+		local function cmd(key: string, help: string, fn: (...string) -> any)
+			rt.console[key] = {
+				owner = "framework",
+				fn = function(_player: any, ...: string)
+					return fn(...)
+				end,
+				help = help,
+			}
+		end
+		local function target(userId: string?): any
+			local id = tonumber(userId)
+			if id then
+				return platform.players.byUserId(id)
+			end
+			return platform.players.list()[1]
+		end
+		cmd("modules", "modules: enabled modules in boot order", function()
+			local names = {}
+			for _, ref in rt.order do
+				table.insert(names, ref.name)
+			end
+			return if #names == 0 then "framework only" else table.concat(names, ", ")
+		end)
+		cmd("net", "net: framework event owners, dropped and rate-limited request counts", function()
+			return rt.net.summary()
+		end)
+		cmd("data dump", "data dump [userId]: the player's whole save (Studio)", function(userId: string?)
+			if not rt.isStudio then
+				return "Studio-only"
+			end
+			local player = target(userId)
+			if player == nil or not rt.data.isLoaded(player) then
+				return "no loaded player"
+			end
+			local out = {}
+			for _, ref in rt.order do
+				if ref.data then
+					out[ref.data.key] = rt.data.view(player, ref.data.key)
+				end
+			end
+			out._framework = {
+				firstJoin = rt.data.frameworkField(player, "firstJoin"),
+				lastSeen = rt.data.frameworkField(player, "lastSeen"),
+				stats = rt.data.frameworkField(player, "stats"),
+				funnel = rt.data.frameworkField(player, "funnel"),
+				purchases = rt.data.frameworkField(player, "purchases"),
+			}
+			if platform.encode == nil then
+				return "data dump: this platform has no JSON encoder (platform.encode)"
+			end
+			local ok, text = pcall(platform.encode, out)
+			if not ok then
+				return "data dump: could not encode the save: " .. tostring(text)
+			end
+			return text
+		end)
+		cmd(
+			"policy restrict",
+			"policy restrict <true|false|clear> [userId]: override the paid-random policy (Studio)",
+			function(value: string?, userId: string?)
+				if not rt.isStudio then
+					return "Studio-only"
+				end
+				local player = target(userId)
+				if player == nil then
+					return "no player"
+				end
+				if value == "true" then
+					rt.policy.override(player, true)
+				elseif value == "false" then
+					rt.policy.override(player, false)
+				elseif value == "clear" then
+					rt.policy.override(player, nil)
+				else
+					return "usage: policy restrict <true|false|clear> [userId]"
+				end
+				return `{tostring(player)} paidRandomRestricted = {tostring(
+					rt.policy.paidRandomRestricted(player)
+				)}`
+			end
+		)
+		cmd(
+			"shop receipt",
+			"shop receipt <productName> [purchaseId] [userId]: simulate ProcessReceipt twice (Studio)",
+			function(name: string?, purchaseId: string?, userId: string?)
+				return rt.shop.consoleReceipt(name, purchaseId, userId)
+			end
+		)
+		cmd(
+			"events event",
+			"events event [id]: trigger an event now (no id = list events)",
+			function(id: string?)
+				if id == nil then
+					return rt.events.consoleList()
+				end
+				if rt.gameConfigPublic.events[id] == nil then
+					return "unknown event " .. id
+				end
+				if rt.events.trigger(id, platform.players.list()[1]) then
+					return `started {id}`
+				end
+				return id .. " is already active"
+			end
+		)
+	end
+
+	-- The game's implicit module (§7, C4) joins GameConfig.modules here; the game doesn't list it.
+	local function withGameModule(config: any): any
+		if type(config) ~= "table" then
+			return config
+		end
+		local gm = o.gameModule
+		if gm == nil and platform.gameModule then
+			gm = platform.gameModule()
+		end
+		if gm == nil then
+			return config
+		end
+		if not StudWork.isModuleRef(gm) then
+			error("the game module (GameModule.module) must return StudWork.defineModule(...)", 0)
+		end
+		if gm.data ~= nil and gm.data.key ~= config.gameId then
+			error(
+				`the game module '{gm.name}' must use data.key = gameId ('{tostring(config.gameId)}'), got '{gm.data.key}'`,
+				0
+			)
+		end
+		rt.gameModule = gm
+		local list = {}
+		local listed = false
+		for i, ref in (if type(config.modules) == "table" then config.modules else {}) :: { any } do
+			list[i] = ref
+			if ref == gm then
+				listed = true
+			end
+		end
+		if not listed then
+			table.insert(list, gm)
+		end
+		local out = table.clone(config)
+		out.modules = list
+		return out
+	end
+
 	local function boot()
+		gameConfig = withGameModule(gameConfig)
+		rt.gameConfig = gameConfig -- framework-internal (the compat bridge reads it; Phase 2: drop)
 		-- 1. resolve
 		local order, found = Loader.load(gameConfig, StudWork.VERSION, o.loadServer)
 		impls = found
@@ -175,36 +366,142 @@ function Server.start(gameConfig: any, serverConfig: any?, opts: any?): any
 
 		-- 3. framework init
 		rt.phase = "framework-init"
-		rt.isStudio = if o.isStudio ~= nil then o.isStudio else game:GetService("RunService"):IsStudio()
-		local now = o.now or os.time
+		rt.isStudio = if o.isStudio ~= nil then o.isStudio else platform.isStudio
+		local now = o.now or platform.now
 		rt.now = now
 		rt.data = Data.new({
-			store = o.store or memoryStore(),
+			store = o.store or platform.makeStore(gameConfig.gameId),
 			modules = order,
 			gameId = gameConfig.gameId,
 			now = now,
-			log = function(msg: string)
-				logSink("warn", msg)
-			end,
+			log = warnLog,
 			require = o.require,
+			onSessionLost = function(player: any)
+				kick(player, Server.KICK_SESSION_ENDED)
+			end,
 		})
-		rt.lifecycle = Lifecycle.new(function(msg: string)
-			logSink("warn", msg)
-		end)
+		rt.lifecycle = Lifecycle.new(warnLog)
 		rt.gameConfigPublic = table.freeze({
 			gameId = gameConfig.gameId,
 			items = result.items,
-			products = Freeze.freezeCopy(gameConfig.products or {}),
+			products = Freeze.freezeCopy(gameConfig.products or { passes = {}, devProducts = {} }),
 			events = Freeze.freezeCopy(gameConfig.events or {}),
 		})
+		rt.net = Net.new({
+			events = platform.events,
+			isPlayer = platform.isPlayer,
+			isLoaded = function(player: any): boolean
+				return rt.data.isLoaded(player)
+			end,
+			clock = platform.clock,
+			spawn = platform.spawn,
+			log = warnLog,
+		})
+		rt.replication = Replication.new({
+			modules = order,
+			data = rt.data,
+			isPlayer = platform.isPlayer,
+			makeSync = platform.makeSync,
+			log = warnLog,
+		})
+		rt.data.onChange(function(player: any)
+			rt.replication.markDirty(player)
+		end)
+		rt.policy = Policy.new({
+			lookup = platform.policyLookup,
+			isPlayer = platform.isPlayer,
+			wait = platform.wait,
+			delay = platform.delay,
+			publish = function(player: any, value: boolean)
+				rt.replication.setFramework(player, "paidRandomRestricted", value)
+			end,
+			log = warnLog,
+		})
+		rt.analytics = Analytics.new({
+			config = gameConfig.analytics,
+			service = platform.analytics,
+			data = rt.data,
+			now = now,
+			log = warnLog,
+		})
+		local compliance = if type(gameConfig.compliance) == "table" then gameConfig.compliance else {}
+		rt.compliance = Compliance.new({
+			data = rt.data,
+			policy = rt.policy,
+			replication = rt.replication,
+			paidCurrencies = compliance.paidCurrencies,
+			canUse = rt.canUse,
+			isPlayer = platform.isPlayer,
+			log = warnLog,
+		})
+		local admins = if type(serverConfig) == "table" then serverConfig.admins else nil
+		rt.events = Events.new({
+			config = rt.gameConfigPublic.events,
+			now = now,
+			spawn = platform.spawn,
+			log = warnLog,
+			feedback = rt.net.feedback,
+			players = platform.players.list,
+			fireState = function(id: string, endsAt: number)
+				rt.net.fireFramework("EventState", nil, id, endsAt)
+			end,
+			replicateAll = function(snapshot: any)
+				rt.replication.setFrameworkAll("activeEvents", snapshot)
+			end,
+			signals = rt.frameworkSignals,
+			isAdmin = function(player: any): boolean
+				return Admins.isAdmin(player.UserId, rt.isStudio, admins, nil)
+			end,
+		})
+		rt.shop = Shop.new({
+			data = rt.data,
+			policy = rt.policy,
+			products = Freeze.deepCopy(gameConfig.products or { passes = {}, devProducts = {} }),
+			marketplace = platform.marketplace,
+			players = platform.players,
+			isPlayer = platform.isPlayer,
+			feedback = rt.net.feedback,
+			analytics = rt.analytics.api,
+			signals = rt.frameworkSignals,
+			purchaseOps = function(ref: any): any
+				return rt.purchaseOps[ref] or {}
+			end,
+			canUse = rt.canUse,
+			isEnabled = rt.isEnabled,
+			now = now,
+			spawn = platform.spawn,
+			wait = platform.wait,
+			log = warnLog,
+			isStudio = rt.isStudio,
+			guid = platform.guid,
+		})
+		-- framework-owned client events
+		rt.net.claim("framework", "StateInit", function(player: any)
+			rt.replication.subscribe(player)
+		end)
+		rt.net.claim("framework", "ClientFunnel", function(player: any, step: any)
+			rt.analytics.clientFunnel(player, step)
+		end)
+		rt.net.claim("framework", "AdminTriggerEvent", function(player: any, eventId: any)
+			rt.events.adminTrigger(player, eventId)
+		end)
+		registerFrameworkConsole()
+
 		for _, ref in order do
 			local impl = impls[ref]
 			rt.apis[ref] = Extensions.wrapApi(rt, ref.name, impl.api)
 			rt.txApis[ref] = Extensions.wrapTxApi(rt, ref.name, impl.txApi)
 			rt.exts[ref] = Extensions.wrapExtensions(rt, ref.name, impl.extensions)
+			rt.purchaseOps[ref] = Extensions.wrapTxApi(rt, ref.name, impl.purchaseOps)
 		end
 		for _, ref in order do
 			ctxs[ref] = Context.build(rt, ref)
+		end
+		for _, ref in order do
+			local impl = impls[ref]
+			if impl.actions then
+				rt.net.bindActions(ref.name, impl.actions, impl.net) -- listening now; queued until step 6
+			end
 		end
 
 		-- 4. init(ctx), in order, no yielding, no cross-module API calls
@@ -212,39 +509,34 @@ function Server.start(gameConfig: any, serverConfig: any?, opts: any?): any
 		for _, ref in order do
 			local impl = impls[ref]
 			if impl.init then
-				runNoYield(`{ref.name}.init`, impl.init, ctxs[ref])
+				runNoYield(`{ref.name}.init`, "init(ctx)", impl.init, ctxs[ref])
 			end
 		end
 
-		-- 5. start(ctx), in order
+		-- 5. start(ctx), in order (decision 5: start must not yield either)
 		rt.phase = "start"
 		for _, ref in order do
 			local impl = impls[ref]
 			if impl.start then
-				local ok, err = pcall(impl.start, ctxs[ref])
-				if not ok then
-					error(`{ref.name}.start failed: {tostring(err)}`, 0)
-				end
+				runNoYield(`{ref.name}.start`, "start(ctx)", impl.start, ctxs[ref])
 			end
 		end
 
 		-- 6. framework start
+		rt.events.start()
+		rt.net.start() -- releases the queued requests (module handlers run here)
+		platform.installConsole(function(...: any): string
+			return rt.consoleText(...)
+		end)
+		rt.shop.claim() -- LAST: no module code that runs during boot can replace it (§7.1)
 		rt.phase = "running"
 		rt.state = "running"
 	end
 
-	local function kick(player: any, msg: string)
-		if o.kick then
-			o.kick(player, msg)
-		else
-			pcall(function()
-				player:Kick(msg)
-			end)
-		end
-	end
-
 	function rt.playerAdded(player: any): boolean
 		rt.assertUsable()
+		platform.spawn(rt.policy.track, player)
+		rt.shop.playerAdded(player)
 		local ok, err = rt.data.load(player)
 		if not ok then
 			logSink("warn", `[StudWork] {tostring(err)}`)
@@ -253,6 +545,11 @@ function Server.start(gameConfig: any, serverConfig: any?, opts: any?): any
 		end
 		rt.lifecycle.firePlayerLoaded(player)
 		rt.frameworkSignals.PlayerLoaded:Fire(player)
+		rt.analytics.onLoaded(player)
+		rt.compliance.onPlayerLoaded(player)
+		rt.events.onPlayerLoaded(player)
+		rt.shop.playerLoaded(player)
+		rt.replication.markDirty(player)
 		return true
 	end
 
@@ -261,13 +558,25 @@ function Server.start(gameConfig: any, serverConfig: any?, opts: any?): any
 		if rt.data.isLoaded(player) then
 			rt.lifecycle.firePlayerRemoving(player)
 			rt.frameworkSignals.PlayerRemoving:Fire(player)
+			rt.shop.settleOnLeave(player) -- N9: may yield (one confirmed save) before the release
 		end
 		rt.data.release(player)
+		rt.policy.forget(player)
+		rt.shop.playerRemoving(player)
+		rt.replication.remove(player)
+		rt.net.forget(player)
+	end
+
+	function rt.passPurchased(player: any, gamePassId: number, wasPurchased: boolean)
+		rt.shop.passPurchased(player, gamePassId, wasPurchased)
 	end
 
 	function rt.tick(dt: number)
 		rt.assertUsable()
 		rt.lifecycle.tick(dt)
+		rt.events.tick(dt)
+		rt.shop.tick(dt) -- §7.1 ProcessReceipt owner check
+		rt.replication.step()
 	end
 
 	function rt.shutdown()
@@ -278,33 +587,58 @@ function Server.start(gameConfig: any, serverConfig: any?, opts: any?): any
 		end
 	end
 
-	-- Client action routing (minimal until per-module Blink lands): drops calls from players
-	-- whose data isn't loaded, pcalls the handler. No rate limit yet.
+	-- Module-declared actions (§9, server.actions): routed by Net (wire: the module's own Blink
+	-- events; here: a server-side call, e.g. the harness's h:action). Left / not loaded / rate
+	-- limit / pcall all apply. -> (ok, result | reason)
 	function rt.action(player: any, ref: any, actionName: string, ...: any): (boolean, any)
 		rt.assertUsable()
 		if not enabled[ref] then
 			error(Resolve.notEnabledMessage(ref.name), 2)
 		end
-		local actions = impls[ref].actions
-		local action = actions and actions[actionName]
-		if action == nil then
+		if not rt.net.hasAction(ref.name, actionName) then
 			error(`{ref.name} has no action '{actionName}'`, 2)
 		end
-		if not rt.data.isLoaded(player) then
-			return false, "not_loaded"
-		end
-		local handler = if type(action) == "function" then action else action.handler
-		return pcall(handler, player, ...)
+		return rt.net.action(ref.name, actionName, player, ...)
 	end
 
+	-- Console: `<prefix> <command> args...` (module commands are prefixed with the lower-case
+	-- module name) or a framework command (`modules`, `net`, `data dump`, ...).
 	function rt.runConsole(player: any, line: string): (boolean, any)
 		rt.assertUsable()
-		local words = string.split(line, " ")
-		local cmd = rt.console[`{words[1]} {words[2] or ""}`]
+		local words = splitWords(line)
+		local two = `{words[1] or ""} {words[2] or ""}`
+		local cmd = rt.console[two]
+		local rest = 3
 		if cmd == nil then
-			return false, `unknown command '{line}'`
+			cmd = rt.console[words[1] or ""]
+			rest = 2
 		end
-		return pcall(cmd.fn, player, table.unpack(words, 3))
+		if cmd == nil then
+			return false, `unknown command '{line}' (try 'help')`
+		end
+		return pcall(cmd.fn, player, table.unpack(words, rest))
+	end
+
+	function rt.consoleText(...: any): string
+		local words = splitWords(...)
+		if #words == 0 or words[1] == "help" then
+			local keys = {}
+			for k in rt.console do
+				table.insert(keys, k)
+			end
+			table.sort(keys)
+			local lines = { "StudWork console:" }
+			for _, k in keys do
+				local c = rt.console[k]
+				table.insert(lines, `  {k}{if c.help ~= "" then " - " .. c.help else ""}`)
+			end
+			return table.concat(lines, "\n")
+		end
+		local ok, res = rt.runConsole(nil, table.concat(words, " "))
+		if not ok then
+			return "error: " .. tostring(res)
+		end
+		return if res == nil then "ok" else tostring(res)
 	end
 
 	local ok, err = pcall(boot :: any)
@@ -317,8 +651,8 @@ function Server.start(gameConfig: any, serverConfig: any?, opts: any?): any
 		error(rt.bootError, 0)
 	end
 
-	if o.bindPlatform ~= false then
-		(o.bindPlatform or defaultBind)(rt)
+	if o.bindPlatform ~= false and platform.bind then
+		platform.bind(rt)
 	end
 	return rt
 end

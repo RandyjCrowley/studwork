@@ -1,0 +1,132 @@
+-- Core network contract (Blink IDL, compiled with `tools/net` -> blink 0.18.9).
+-- FROZEN at core-contract-v1.2 (first frozen at core-contract-v0): additive only (new
+-- events/fields with optional types). v1.2 adds RequestMailClaim. v1.1 added no events: rarity odds (Rarity.getOddsDetail)
+-- travel in ReplicatedState.odds over StateSync, and M2's per-section deltas reuse StateSync's
+-- `unknown` payload. Events of a module that is not enabled have no handler: Net drops them.
+-- Every client -> server event is a REQUEST: the server validates type, range and ownership
+-- and rate-limits it in core/server/Net before any service sees it. Blink checks the wire
+-- types/ranges below on receive; services still check ownership and game rules.
+-- Games define their own remotes in games/<name>/src/shared/net/game.blink with their own
+-- RemoteScope so they never collide with core.
+
+option RemoteScope = "STUDWORK"
+option Casing = Pascal
+option ServerOutput = "../../server/Net/Generated.luau"
+option ClientOutput = "../../client/Net/Generated.luau"
+option TypesOutput = "Generated.Types.luau"
+
+type Id = string(1..64)
+
+-- ===== client -> server requests =====
+
+-- Ask for a full state snapshot (sent once when the client boots).
+event StateInit {
+    From: Client,
+    Type: Reliable,
+    Call: SingleAsync
+}
+
+-- Put an owned item on the plot. (uid, slotId?)
+event RequestDisplay {
+    From: Client,
+    Type: Reliable,
+    Call: SingleAsync,
+    Data: (Id, Id?)
+}
+
+-- Remove an item from the plot. (uid)
+event RequestClearDisplay {
+    From: Client,
+    Type: Reliable,
+    Call: SingleAsync,
+    Data: Id
+}
+
+event RequestRebirth {
+    From: Client,
+    Type: Reliable,
+    Call: SingleAsync
+}
+
+-- Buy one level of an upgrade. (upgradeId)
+event RequestUpgrade {
+    From: Client,
+    Type: Reliable,
+    Call: SingleAsync,
+    Data: Id
+}
+
+-- Roll a rarity table that has an in-game currency cost. (tableId)
+-- Robux rolls never use this: they go through a developer product + Shop.onProduct.
+event RequestRoll {
+    From: Client,
+    Type: Reliable,
+    Call: SingleAsync,
+    Data: Id
+}
+
+-- Gift an owned item to another player in the server. (toUserId, uid)
+event RequestGift {
+    From: Client,
+    Type: Reliable,
+    Call: SingleAsync,
+    Data: (f64, Id)
+}
+
+-- Claim a held mailbox message (Core.Mail.claim). (messageId) -- v1.2
+event RequestMailClaim {
+    From: Client,
+    Type: Reliable,
+    Call: SingleAsync,
+    Data: Id
+}
+
+-- Admin-only: trigger a configured event now. Server checks ServerConfig.admins (Core.start's
+-- server-only second argument; Studio allows everyone). (eventId)
+event AdminTriggerEvent {
+    From: Client,
+    Type: Reliable,
+    Call: SingleAsync,
+    Data: Id
+}
+
+-- UI-only funnel step; accepted only if listed in AnalyticsConfig.clientSteps. (step)
+event ClientFunnel {
+    From: Client,
+    Type: Reliable,
+    Call: SingleAsync,
+    Data: string(1..32)
+}
+
+-- ===== server -> client =====
+
+-- Replicated state for the local player only (charm-sync payload, or a full snapshot).
+event StateSync {
+    From: Server,
+    Type: Reliable,
+    Call: SingleAsync,
+    Data: unknown
+}
+
+-- Cosmetic feedback: number pops, rarity reveals, toasts.
+struct FeedbackMessage {
+    Kind: string(1..32),
+    Text: string(0..120),
+    Rarity: string(1..16)?,
+    Position: vector?
+}
+
+event Feedback {
+    From: Server,
+    Type: Reliable,
+    Call: ManyAsync,
+    Data: FeedbackMessage
+}
+
+-- A live event started (endsAt > 0) or ended (endsAt == 0). (eventId, endsAt unix seconds)
+event EventState {
+    From: Server,
+    Type: Reliable,
+    Call: ManyAsync,
+    Data: (Id, f64)
+}

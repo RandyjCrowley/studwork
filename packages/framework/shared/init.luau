@@ -7,7 +7,14 @@
 	  StudWork.start(GameConfig, ServerConfig?)        boot (delegates to the side's runtime,
 	                                                   installed by requiring server/ or client/)
 	  StudWork.<Name>                                  untyped sugar for every ENABLED module
+	  StudWork.Client                                  client only: state() (§10, the replicated
+	                                                   { loaded, framework, modules }) plus the
+	                                                   framework client UI (Hud, Feedback, Input)
 	  StudWork.hook()                                  a helper list for offering extensions (§8)
+
+	StudWork.start finds the side's runtime by itself on Roblox (ServerScriptService.Framework on
+	the server, ReplicatedStorage.FrameworkClient on the client), so a game's scripts are one line:
+	StudWork.start(Config, ServerConfig) / StudWork.start(Config).
 
 	C1: `use` accepts ONLY a ModuleRef. Data, Compliance, Net, Replication, Shop and Policy are
 	framework internals with no ModuleRef and no facade; they are reachable only through the
@@ -37,8 +44,44 @@ local RuntimeSlot = require(script.RuntimeSlot)
 
 StudWork.defineModule = DefineModule.defineModule
 StudWork.isModuleRef = DefineModule.isModuleRef
+-- Declared for the type checker only: the key is never set, so __index serves it (client only).
+StudWork.Client = (nil :: any) :: any
+
+-- On Roblox, requiring the side's runtime installs its starter (server/Boot.luau, client/Boot.luau).
+local function installSideRuntime()
+	local ok, RunService = pcall(function(): any
+		return game:GetService("RunService")
+	end)
+	if not ok or RunService == nil then
+		return -- Lune: tests install the runtime themselves
+	end
+	local holder: any = nil
+	if RunService:IsServer() then
+		holder = game:GetService("ServerScriptService"):FindFirstChild("Framework")
+	else
+		holder = game:GetService("ReplicatedStorage"):FindFirstChild("FrameworkClient")
+	end
+	if holder ~= nil and holder:IsA("ModuleScript") then
+		(require :: any)(holder)
+	end
+end
 
 function StudWork.start(...: any): any
+	-- A second start must never replace (or poison) the runtime that is already running: v1.2
+	-- row 15 ("a second Core.start errors"). Found in the step 4b Gate 0 Studio run, where a
+	-- second StudWork.start with a bad config swapped the live runtime for a failed one.
+	if RuntimeSlot.runtime ~= nil then
+		error(
+			`[StudWork] StudWork.start called twice: the framework is already {if RuntimeSlot.runtime.state
+					== "failed"
+				then "failed (boot error above)"
+				else "started"}; call it once per side`,
+			2
+		)
+	end
+	if RuntimeSlot.starter == nil then
+		installSideRuntime()
+	end
 	local starter = RuntimeSlot.starter
 	if starter == nil then
 		error(
@@ -129,6 +172,16 @@ setmetatable(
 	StudWork,
 	table.freeze({
 		__index = function(_, key: any)
+			if key == "Client" then
+				local rt = RuntimeSlot.runtime
+				if rt == nil or rt.client == nil then
+					error(
+						"[StudWork] StudWork.Client is client-only and exists after StudWork.start(Config) on the client",
+						2
+					)
+				end
+				return rt.client
+			end
 			if type(key) == "string" and INTERNALS[key] then
 				error(
 					`[StudWork] StudWork.{key}: {key} is a framework internal with no public facade; use ctx.{string.lower(

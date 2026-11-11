@@ -46,7 +46,7 @@ local LuckRegistry = require(script.LuckRegistry)
 local LuckRule = require(script.LuckRule)
 local OddsSync = require(script.OddsSync)
 local RollMath = require(script.RollMath)
-local Tx = require(game:GetService("ServerScriptService"):WaitForChild("CoreServer"):WaitForChild("Tx"))
+local Tx = require(game:GetService("ServerScriptService"):WaitForChild("Compat"):WaitForChild("Tx"))
 
 local Rarity = {}
 

@@ -12,7 +12,7 @@
 	Checks (each finding: path:line: [check] message):
 	  modules   game code uses a core module that is not in its GameConfig.modules:
 	            Core.<Module>.x, Core.Client.Actions.<action> of that module, or Core internals
-	            (CoreServer / CoreClient) required directly.
+	            (CoreServer / CoreClient / FrameworkClient / Compat) required directly.
 	  packages  game work edits packages/: on a branch named game/*, any change under packages/
 	            since the merge-base with main; on any branch, staged changes that mix packages/
 	            with games/<name>/ (other than _sandbox). GUARD_ALLOW_CORE=1 skips it (core owner).
@@ -22,6 +22,11 @@
 	  remotes   a remote that bypasses core's validated Net: OnServerEvent / OnServerInvoke,
 	            Instance.new("RemoteEvent"|"RemoteFunction"|"UnreliableRemoteEvent"), or a Blink
 	            `.On(` / `.SetCallback(` in server code (use Core.Net.handle).
+	  purchases (core-v1.3.0 step 4b, module-api.md §7.1) only the framework may assign
+	            MarketplaceService.ProcessReceipt or use Prompt*PurchaseFinished, and only framework
+	            Data may touch DataStoreService / ProfileStore. Checked in game code AND in
+	            packages/ (every file outside PURCHASES_ALLOWED: framework Shop/Data/Store/Platform,
+	            and the v1.2 leftovers still live until Phase 2, listed below with a reason).
 	A line ending in `-- guard: allow <check>` (e.g. `-- guard: allow numbers`) is skipped for
 	that check; use it rarely and say why on the line above.
 ]]
@@ -29,24 +34,60 @@
 local fs = require("@lune/fs")
 local process = require("@lune/process")
 
-local Modules = require("../../packages/core/shared/Modules")
+-- the kit module manifest, read from the kit module definitions (packages/kits/*/shared;
+-- core-v1.3.0 step 4b-IIb, was packages/core/shared/Modules.luau)
+local Modules = require("./KitModules").load(fs)
 
 local Guard = {}
 
+-- Files/folders under packages/ allowed to own purchases / persistence (the purchases check).
+Guard.PURCHASES_ALLOWED = {
+	"packages/framework/server/Shop/", -- the exclusive ProcessReceipt owner (§7.1)
+	"packages/framework/server/Platform.luau", -- the engine adapter Shop and Data go through
+	"packages/framework/server/Store.luau", -- framework Data's ProfileStore store
+	"packages/framework/server/Data.luau",
+	"packages/framework/test/", -- fakes
+	"packages/core/", -- v1.2 Core facade + its tests (no game boots it since step 4b-IIb); Phase 2 deletes it
+	"packages/kits/social/server/Mail/", -- v1.2 Mail's cross-server DataStore (Phase 1 kit work: move to ctx.data.messages)
+}
+
+local function purchasesViolation(code: string): string?
+	if string.find(code, "ProcessReceipt%s*=[^=]") or string.find(code, "ProcessReceipt%s*=$") then
+		return "only the framework Shop assigns MarketplaceService.ProcessReceipt: use ctx.shop.onProduct"
+	end
+	if string.find(code, "Prompt%a*PurchaseFinished") then
+		return "Prompt*PurchaseFinished belongs to the framework Shop: use ctx.shop.onPassOwned / onProduct"
+	end
+	if string.find(code, "DataStoreService", 1, true) or string.find(code, "ProfileStore", 1, true) then
+		return "DataStoreService / ProfileStore only inside framework Data: use ctx.data"
+	end
+	return nil
+end
+
 local MODULE_SET = {}
-for _, name in Modules.MODULE_ORDER do
+for _, name in Modules.ORDER do
 	MODULE_SET[name] = true
 end
 
--- Extracts the module names from a Config init.luau source (`modules = { "A", "B" }`).
+-- Extracts the module names from a Config init.luau source: v1.3 module refs
+-- (`modules = { require(Collection:WaitForChild("Items")), ... }`) or v1.2 names
+-- (`modules = { "A", "B" }`). Comments inside the block are ignored.
 function Guard.parseModules(source: string): { [string]: boolean }?
 	local body = string.match(source, "modules%s*=%s*(%b{})")
 	if body == nil then
 		return nil
 	end
 	local set = {}
-	for name in string.gmatch(body, '"([%w_]+)"') do
-		set[name] = true
+	for line in string.gmatch(body, "[^\n]+") do
+		local code = string.gsub(line, "%-%-.*$", "")
+		local ref = string.match(code, 'WaitForChild%("([%w_]+)"%)%)')
+		if ref then
+			set[ref] = true
+		else
+			for name in string.gmatch(code, '"([%w_]+)"') do
+				set[name] = true
+			end
+		end
 	end
 	return set
 end
@@ -183,6 +224,13 @@ function Guard.scanSource(source: string, ctx): { string }
 			end
 		end
 		local code = stripComment(text)
+		if ctx.onlyPurchases then
+			local why = not allowed(raw, "purchases") and purchasesViolation(code) or nil
+			if why then
+				add(lineNo, "purchases", why)
+			end
+			continue
+		end
 
 		-- modules
 		if ctx.modules and not allowed(raw, "modules") then
@@ -191,8 +239,21 @@ function Guard.scanSource(source: string, ctx): { string }
 					add(lineNo, "modules", `Core.{ns} is used but "{ns}" is not in GameConfig.modules`)
 				end
 			end
+			-- v1.3: a kit module ref required in game code (`require(Economy:WaitForChild("Rebirth"))`
+			-- for ctx.deps / StudWork.use / dependsOn) must be enabled. Config/ itself is the list.
+			if not ctx.inConfig then
+				for ref in string.gmatch(code, 'require%([%w_]+:WaitForChild%("([%w_]+)"%)%)') do
+					if MODULE_SET[ref] and not ctx.modules[ref] then
+						add(
+							lineNo,
+							"modules",
+							`module {ref} is used but "{ref}" is not in GameConfig.modules`
+						)
+					end
+				end
+			end
 			for action in string.gmatch(code, "Actions%.([%a_][%w_]*)%s*%(") do
-				local owner = Modules.CLIENT_ACTIONS[action]
+				local owner = Modules.ACTIONS[action]
 				if owner and not ctx.modules[owner] then
 					add(
 						lineNo,
@@ -204,17 +265,29 @@ function Guard.scanSource(source: string, ctx): { string }
 		end
 		if
 			not allowed(raw, "modules")
-			and (string.find(code, "CoreServer") or string.find(code, "CoreClient"))
+			and (
+				string.find(code, "CoreServer")
+				or string.find(code, "CoreClient")
+				or string.find(code, "FrameworkClient")
+				or string.find(code, 'Child%(%s*"Compat"')
+			)
 		then
-			add(lineNo, "modules", "game code must use the Core facade, not CoreServer/CoreClient internals")
+			add(
+				lineNo,
+				"modules",
+				"game code must use the Core facade, not CoreServer/CoreClient/FrameworkClient/Compat internals"
+			)
 		end
 		if
 			not allowed(raw, "modules")
-			and (
-				string.find(code, 'Child%(%s*"Kits"')
-				or string.find(code, "Child%(%s*'Kits'")
-				or string.find(code, "%.Kits[%.:]")
-			)
+			and (string.find(code, 'Child%(%s*"Kits"') or string.find(code, "Child%(%s*'Kits'") or string.find(
+				code,
+				"%.Kits[%.:]"
+			))
+			-- core-v1.3.0 step 4b-IIa: ReplicatedStorage.Kits.<Kit>.<Module> are the kits' module
+			-- DEFINITIONS (ModuleRefs), which a game lists in GameConfig.modules and passes to
+			-- StudWork.use / dependsOn (module-api.md §3). Only the server internals are off limits.
+			and not string.find(code, "ReplicatedStorage")
 		then
 			-- core-v1.3.0 step 5: the v1.2 services now live in ServerScriptService.Kits.<Kit>
 			add(
@@ -256,6 +329,14 @@ function Guard.scanSource(source: string, ctx): { string }
 					"remotes",
 					"Blink listener outside client code: use Core.Net.handle(name, event, limit, fn)"
 				)
+			end
+		end
+
+		-- purchases (§7.1)
+		if not allowed(raw, "purchases") then
+			local why = purchasesViolation(code)
+			if why then
+				add(lineNo, "purchases", why)
 			end
 		end
 
@@ -339,6 +420,31 @@ function Guard.scanGame(dir: string): { string }
 					inConfig = inConfig,
 				})
 			do
+				table.insert(findings, f)
+			end
+		end
+	end
+	return findings
+end
+
+-- The purchases check over packages/ (everything outside Guard.PURCHASES_ALLOWED).
+function Guard.isPurchasesAllowed(path: string): boolean
+	for _, prefix in Guard.PURCHASES_ALLOWED do
+		if string.sub(path, 1, #prefix) == prefix then
+			return true
+		end
+	end
+	return false
+end
+
+function Guard.scanPackages(root: string): { string }
+	local findings = {}
+	local files = {}
+	walk(root, files)
+	table.sort(files)
+	for _, path in files do
+		if not Guard.isPurchasesAllowed(path) and not string.find(path, "Generated", 1, true) then
+			for _, f in Guard.scanSource(fs.readFile(path), { path = path, onlyPurchases = true }) do
 				table.insert(findings, f)
 			end
 		end
@@ -438,14 +544,77 @@ local function selfTest(): boolean
 		{ path = "games/x/src/client/Main.client.luau", modules = mods, isServer = false, isClient = true }
 
 	expectCheck("module off", Guard.scanSource("Core.Rebirth.rebirth(player)", server), "modules")
+	-- v1.3 module refs (core-v1.3.0 step 4b-IIb)
+	local refMods = Guard.parseModules(
+		'modules = {\n\trequire(Collection:WaitForChild("Items")), -- "Rebirth" in a comment\n'
+			.. '\trequire(Economy:WaitForChild("Economy")),\n} :: { any },'
+	)
+	if not (refMods and refMods.Items and refMods.Economy and not refMods.Rebirth) then
+		table.insert(failures, "parseModules: v1.3 ref lines not read (or a comment was)")
+	end
+	local refServer = { path = "games/x/modules/x/server/init.luau", modules = refMods, isServer = true }
+	expectCheck(
+		"ref off",
+		Guard.scanSource('local Rebirth = require(EconomyKit:WaitForChild("Rebirth"))', refServer),
+		"modules"
+	)
+	expectClean(
+		"ref on",
+		Guard.scanSource('local Economy = require(EconomyKit:WaitForChild("Economy"))', refServer)
+	)
 	expectCheck("action off", Guard.scanSource("Core.Client.Actions.rebirth()", client), "modules")
 	expectCheck("internals", Guard.scanSource('require(SSS:WaitForChild("CoreServer"))', server), "modules")
+	expectCheck(
+		"client internals",
+		Guard.scanSource('require(RS:WaitForChild("FrameworkClient"))', client),
+		"modules"
+	)
+	expectCheck(
+		"compat",
+		Guard.scanSource('require(SSS:WaitForChild("Compat"):WaitForChild("Tx"))', server),
+		"modules"
+	)
+	expectCheck(
+		"ProcessReceipt",
+		Guard.scanSource("MarketplaceService.ProcessReceipt = function(r) return 1 end", server),
+		"purchases"
+	)
+	expectCheck(
+		"ProcessReceipt spaced",
+		Guard.scanSource("MarketplaceService.ProcessReceipt=myHandler", server),
+		"purchases"
+	)
+	expectCheck(
+		"PromptFinished",
+		Guard.scanSource("MPS.PromptProductPurchaseFinished:Connect(fn)", client),
+		"purchases"
+	)
+	expectCheck(
+		"DataStore",
+		Guard.scanSource('local ds = game:GetService("DataStoreService")', server),
+		"purchases"
+	)
+	expectCheck("ProfileStore", Guard.scanSource("local PS = require(SS.ProfileStore)", server), "purchases")
+	expectClean("ProcessReceipt compare", Guard.scanSource("if MPS.ProcessReceipt == mine then end", server))
+	local pkg = { path = "packages/kits/x/server/Thing.luau", onlyPurchases = true }
+	expectCheck("package ProcessReceipt", Guard.scanSource("MPS.ProcessReceipt = fn", pkg), "purchases")
+	expectClean("package other checks off", Guard.scanSource("local eggCost = 500", pkg))
+	if Guard.isPurchasesAllowed("packages/kits/x/server/Thing.luau") then
+		table.insert(failures, "purchases allow-list: a kit file must not be allowed")
+	end
+	if not Guard.isPurchasesAllowed("packages/framework/server/Shop/init.luau") then
+		table.insert(failures, "purchases allow-list: framework Shop must be allowed")
+	end
 	expectCheck(
 		"kit internals",
 		Guard.scanSource('require(SSS:WaitForChild("Kits"):WaitForChild("Economy"))', server),
 		"modules"
 	)
 	expectCheck("kit internals dot", Guard.scanSource("require(SSS.Kits.Economy.Economy)", server), "modules")
+	expectClean(
+		"kit module definitions",
+		Guard.scanSource('local Kits = ReplicatedStorage:WaitForChild("Kits")', server)
+	)
 	expectClean("module on", Guard.scanSource("Core.Economy.grant(player, Balance.reward, 'x')", server))
 	expectClean("comment", Guard.scanSource("-- Core.Rebirth.rebirth(player)", server))
 	expectClean(
@@ -545,6 +714,11 @@ end
 local findings = {}
 for _, dir in dirs do
 	for _, f in Guard.scanGame(dir) do
+		table.insert(findings, f)
+	end
+end
+if runGit then
+	for _, f in Guard.scanPackages("packages") do
 		table.insert(findings, f)
 	end
 end

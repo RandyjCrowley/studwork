@@ -1,17 +1,24 @@
 --!strict
 --[[
 	Server parts of the engagement kit's modules for the framework loader (loadServer(ref) -> impl).
-	core-v1.3.0 Phase 0 step 5 thin wrappers: each impl only exposes the UNCHANGED v1.2 service
-	table as `api`, with no init/start, because the v1.2 packages/core facade (Core.start) still
-	owns these services' lifecycle in this step. Requires are lazy so loading this file never
-	boots or requires a service. Phase 1 replaces these with real server/init.luau parts.
+	core-v1.3.0 step 4b-IIa: each part is built by the COMPAT BRIDGE (packages/kits/compat/
+	Bridge.luau; deleted in Phase 2): the UNCHANGED v1.2 service runs behind the module's
+	defineModule wrapper, with a real init(ctx)/start(ctx) that runs the v1.2 service's
+	init/start on a v1.2-shaped ctx built from the framework, its v1.2 public functions as `api`
+	(+ `signals`), and its purchase operations as `purchaseOps` (Economy.grant,
+	Inventory.addItem, Rarity.roll). The framework's default loader finds this file in the Phase 0
+	kit layout (ServerScriptService.Kits.<Kit>.ModuleServers). Service requires are lazy, so
+	loading this file never boots or requires a service. Phase 1 replaces this file with real
+	server/init.luau parts.
 ]]
+
+local ServerScriptService = game:GetService("ServerScriptService")
 
 local ModuleServers = {}
 
-local LOADERS: { [string]: () -> any } = {
+local SERVICES: { [string]: () -> any } = {
 	Streak = function()
-		return { api = require(script.Parent.Streak) }
+		return require(script.Parent.Streak)
 	end,
 }
 
@@ -19,8 +26,13 @@ ModuleServers.names = table.freeze({ "Streak" })
 
 -- loadServer(ref) for StudWork server boot opts; nil when the module is not part of this kit.
 function ModuleServers.loadServer(ref: any): any
-	local loader = LOADERS[ref.server or ref.name]
-	return if loader then loader() else nil
+	local name = ref.server or ref.name
+	local load = SERVICES[name]
+	if load == nil then
+		return nil
+	end
+	local Bridge = (require :: any)(ServerScriptService:WaitForChild("Compat"):WaitForChild("Bridge"))
+	return Bridge.serverPart(name, load)
 end
 
 return ModuleServers

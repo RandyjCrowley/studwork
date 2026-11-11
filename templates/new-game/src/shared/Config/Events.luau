@@ -1,8 +1,6 @@
 --!strict
 -- Weekly and scheduled live events (UTC). Triggerable from the admin command / console too.
-local Types = require(game:GetService("ReplicatedStorage"):WaitForChild("Core"):WaitForChild("Types"))
-
-local Events: Types.EventsConfig = {
+local Events = {
 	CoinRain = {
 		schedule = { weekday = 7, hourUtc = 18, minuteUtc = 0 }, -- Saturday 18:00 UTC
 		durationSec = 300,

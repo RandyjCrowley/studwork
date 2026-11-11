@@ -1,7 +1,7 @@
 --!strict
 --[[
 	StudWork module test harness (module-api.md §15), pure Lune, no Studio. Modeled on §15's
-	sketch and packages/core/tests/harness.luau; this is what StudWork.test.harness will expose.
+	sketch and tools/lune/testkit/harness.luau; this is what StudWork.test.harness will expose.
 
 	local h = Harness.new({ modules = { A, B }, servers = { A = implA, B = implB },
 	                        config = { B = { ... } }, items = { ... }, serverConfig = { ... } })
@@ -11,11 +11,18 @@
 	h:rejoin(p, { secondsAway = 3600 })                  -- save -> release -> load -> migrate
 	h:use(A).something(p)
 	h:saved(p)                                           -- the stored save (deep copy)
+	h:fire(p, "RequestUpgrade", "IncomeBoost")           -- a framework Blink client event
+	h:fireCustom(event, p, ...)                          -- a module's own fake Blink event
+	h.fake                                               -- recorded engine traffic: feedback,
+	                                                     -- serverEvents, analytics, receipts...
+	h:receipt({ ... }) -> "PurchaseGranted"|...          -- MarketplaceService.ProcessReceipt
 
 	Harness.boot(opts) -> (h?, err?) returns the boot error instead of raising (fail-closed tests).
 ]]
 
 local Server = (require :: any)(script.Parent.Parent.server)
+local Platform = (require :: any)(script.Parent.Parent.server.Platform)
+local Net = (require :: any)(script.Parent.Parent.server.Net)
 
 local Harness = {}
 Harness.__index = Harness
@@ -33,7 +40,165 @@ export type Options = {
 	isStudio: boolean?,
 	store: any?,
 	startTime: number?,
+	analytics: any?,
+	compliance: any?,
+	policy: { [number]: boolean | string }?, -- userId -> restricted, or "fail" (lookup errors)
+	owned: { [number]: { [number]: boolean } }?, -- userId -> passId -> owns
 }
+
+-- A fake Blink event (client -> server: On; server -> client: Fire/FireAll), recording traffic.
+function Harness.fakeEvent(name: string, log: { any }): any
+	local ev: any = { name = name, listeners = {} }
+	function ev.On(fn: any)
+		table.insert(ev.listeners, fn)
+	end
+	function ev.Fire(player: any, ...: any)
+		table.insert(log, { event = name, player = player, args = table.pack(...) })
+	end
+	function ev.FireAll(...: any)
+		table.insert(log, { event = name, all = true, args = table.pack(...) })
+	end
+	return ev
+end
+
+-- The engine stand-in handed to Server.start (Platform.inert + recorders + players in game).
+local function fakePlatform(self: any, opts: Options): any
+	local fake: any = {
+		serverEvents = {},
+		analytics = {},
+		receiptFn = nil,
+		synced = {},
+		consoleRun = nil,
+		kicks = {},
+	}
+	self.fake = fake
+	self.inGame = {}
+	self.timers = {}
+	local events: any = {}
+	for _, name in Net.CLIENT_EVENTS do
+		events[name] = Harness.fakeEvent(name, fake.serverEvents)
+	end
+	for _, name in Net.FRAMEWORK_SERVER_EVENTS do
+		events[name] = Harness.fakeEvent(name, fake.serverEvents)
+	end
+	fake.events = events
+	return Platform.inert({
+		isStudio = opts.isStudio or false,
+		now = function()
+			return self.clock
+		end,
+		clock = function()
+			return self.clock
+		end,
+		-- task.delay stand-in: fired by h:tick once the fake clock reaches it
+		delay = function(seconds: number, fn: any)
+			table.insert(self.timers, { at = self.clock + (seconds or 0), fn = fn })
+		end,
+		isPlayer = function(p: any): boolean
+			return self.inGame[p] == true
+		end,
+		players = {
+			list = function(): { any }
+				local out = {}
+				for p in self.inGame do
+					table.insert(out, p)
+				end
+				table.sort(out, function(a, b)
+					return a.UserId < b.UserId
+				end)
+				return out
+			end,
+			byUserId = function(id: number): any
+				for p in self.inGame do
+					if p.UserId == id then
+						return p
+					end
+				end
+				return nil
+			end,
+		},
+		events = events,
+		marketplace = {
+			setProcessReceipt = function(fn: any)
+				fake.receiptFn = fn
+			end,
+			-- readable here (unlike the live engine), so the §7.1 runtime check can be tested:
+			-- a test replaces fake.receiptFn and ticks
+			getProcessReceipt = function(): (boolean, any)
+				return true, fake.receiptFn
+			end,
+			decision = function(name: string): string
+				return name
+			end,
+			ownsPass = function(userId: number, id: number): boolean
+				local owned = opts.owned and opts.owned[userId]
+				return owned ~= nil and owned[id] == true
+			end,
+			onPassPurchaseFinished = function() end,
+		},
+		policyLookup = function(player: any): any
+			local answer = opts.policy and opts.policy[player.UserId]
+			if answer == "fail" then
+				error("PolicyService down")
+			end
+			return { ArePaidRandomItemsRestricted = answer == true }
+		end,
+		analytics = {
+			funnel = function(p: any, index: number, name: string)
+				table.insert(fake.analytics, { kind = "funnel", player = p, index = index, name = name })
+			end,
+			economy = function(
+				p: any,
+				flow: string,
+				currency: string,
+				amount: number,
+				ending: number,
+				kind: string
+			)
+				table.insert(fake.analytics, {
+					kind = "economy",
+					player = p,
+					flow = flow,
+					currency = currency,
+					amount = amount,
+					ending = ending,
+					type = kind,
+				})
+			end,
+			custom = function(p: any, name: string, value: number, fields: any)
+				table.insert(
+					fake.analytics,
+					{ kind = "custom", player = p, name = name, value = value, fields = fields }
+				)
+			end,
+		},
+		makeSync = function(hooks: any): any
+			return {
+				subscribe = function(player: any, state: any)
+					fake.synced[player] = state
+				end,
+				set = function(player: any, state: any)
+					fake.synced[player] = state
+				end,
+				remove = function(player: any)
+					fake.synced[player] = nil
+				end,
+				flush = function()
+					for player in fake.synced do
+						hooks.sent(player)
+					end
+				end,
+			}
+		end,
+		installConsole = function(run: any)
+			fake.consoleRun = run
+		end,
+		kick = function(player: any, msg: string)
+			table.insert(fake.kicks, { player = player, msg = msg })
+			player:Kick(msg)
+		end,
+	})
+end
 
 function Harness.player(userId: number, name: string?): any
 	local p: any = { UserId = userId, Name = name or ("Player" .. userId), kicked = nil }
@@ -62,6 +227,8 @@ local function build(opts: Options): (any, any)
 		theme = opts.theme,
 		products = opts.products,
 		events = opts.events,
+		analytics = opts.analytics,
+		compliance = opts.compliance,
 	}
 	self.gameConfig = gameConfig
 	local ok, rt = pcall(Server.start, gameConfig, opts.serverConfig, {
@@ -80,6 +247,7 @@ local function build(opts: Options): (any, any)
 			player:Kick(msg)
 		end,
 		bindPlatform = false,
+		platform = fakePlatform(self, opts),
 	})
 	if not ok then
 		return nil, rt
@@ -107,12 +275,14 @@ function Harness.addPlayer(self: any, spec: { userId: number, name: string?, dat
 	if spec.data ~= nil then
 		self.store.save(spec.userId, spec.data)
 	end
+	self.inGame[p] = true
 	p.loaded = self.runtime.playerAdded(p)
 	return p
 end
 
 function Harness.removePlayer(self: any, p: any)
 	self.runtime.playerRemoving(p)
+	self.inGame[p] = nil
 end
 
 function Harness.rejoin(self: any, p: any, opts: { secondsAway: number? }?)
@@ -122,15 +292,58 @@ function Harness.rejoin(self: any, p: any, opts: { secondsAway: number? }?)
 	return p
 end
 
+-- A framework Blink client event arriving from `p` (goes through Net: rate limit, queue, drops).
+function Harness.fire(self: any, p: any, eventName: string, ...: any)
+	for _, fn in self.fake.events[eventName].listeners do
+		fn(p, ...)
+	end
+end
+
+function Harness.fireCustom(_self: any, event: any, p: any, ...: any)
+	for _, fn in event.listeners do
+		fn(p, ...)
+	end
+end
+
+function Harness.receipt(self: any, receipt: any): any
+	assert(self.fake.receiptFn, "ProcessReceipt was not claimed")
+	return self.fake.receiptFn(receipt)
+end
+
+-- The replicated state the player's client was last sent (subscribe with StateInit first).
+function Harness.state(self: any, p: any): any
+	self.runtime.replication.step()
+	return self.fake.synced[p]
+end
+
+function Harness.console(self: any, ...: any): string
+	return self.fake.consoleRun(...)
+end
+
+-- Runs every platform.delay timer that is due at the current fake clock.
+function Harness.runTimers(self: any)
+	local due = {}
+	local keep = {}
+	for _, t in self.timers do
+		table.insert(if t.at <= self.clock then due else keep, t)
+	end
+	self.timers = keep
+	for _, t in due do
+		t.fn()
+	end
+end
+
 function Harness.tick(self: any, seconds: number)
 	local whole = math.floor(seconds)
 	for _ = 1, whole do
 		self.clock += 1
+		self:runTimers()
 		self.runtime.tick(1)
 	end
 	local rest = seconds - whole
 	if rest > 0 then
 		self.clock += rest
+		self:runTimers()
 		self.runtime.tick(rest)
 	end
 end

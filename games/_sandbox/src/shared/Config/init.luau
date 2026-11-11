@@ -1,41 +1,52 @@
 --!strict
 --[[
-	The sandbox GameConfig. Both the server and client scripts pass this to Core.start.
-	Sandbox loop: touch the glowing block -> get an item -> it goes on your plot -> it earns.
+	The sandbox GameConfig (core-v1.3.0 shape, module-api.md §3, §11). The server and client
+	scripts both pass it to StudWork.start. Sandbox loop: touch the glowing block -> get an item
+	-> it goes on your plot -> it earns.
+
+	modules: kit module refs (the game's own module, games/_sandbox/modules/sandbox, is added by
+	the framework; the game never lists itself). Listed in the v1.2 boot order, which the
+	framework keeps (ties = list order), so the v1.2 services behind the compat bridge start in
+	the same order as under the v1.2 boot.
+	config: each module's config (config.<Name>, Balance.luau); compliance.paidCurrencies: the
+	Robux-buyable currencies (framework, §14).
 ]]
 
-local Types = require(game:GetService("ReplicatedStorage"):WaitForChild("Core"):WaitForChild("Types"))
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local KitDefs = ReplicatedStorage:WaitForChild("Kits")
+local Collection = KitDefs:WaitForChild("Collection")
+local Economy = KitDefs:WaitForChild("Economy")
+local Base = KitDefs:WaitForChild("Base")
+local Social = KitDefs:WaitForChild("Social")
+local Engagement = KitDefs:WaitForChild("Engagement")
 
-local Config: Types.GameConfig = {
+local Config = {
 	gameId = "sandbox",
-	-- Optional core modules (the foundation is always on). The sandbox exercises all of them.
+	-- The sandbox exercises every kit module.
 	modules = {
-		"Items",
-		"Inventory",
-		"Rarity",
-		"Economy",
-		"Upgrades",
-		"Rebirth",
-		"Offline",
-		"Streak",
-		"Friends",
-		"Mail",
-		"Plot",
-	},
+		require(Collection:WaitForChild("Items")),
+		require(Collection:WaitForChild("Rarity")),
+		require(Collection:WaitForChild("Inventory")),
+		require(Economy:WaitForChild("Economy")),
+		require(Economy:WaitForChild("Upgrades")),
+		require(Economy:WaitForChild("Rebirth")),
+		require(Economy:WaitForChild("Offline")),
+		require(Engagement:WaitForChild("Streak")),
+		require(Social:WaitForChild("Friends")),
+		require(Social:WaitForChild("Mail")),
+		require(Base:WaitForChild("Plot")),
+	} :: { any },
+	config = require(script.Balance),
+	-- Coins are sold for Robux (CoinPack), so the Coin-priced Chest is a paid random item too.
+	compliance = { paidCurrencies = { "Coins" } },
 	items = require(script.Items),
-	balance = require(script.Balance),
 	products = require(script.Products),
 	events = require(script.Events),
-	palette = require(script.Palette),
-	data = {
-		defaults = { blockTouches = 0 },
-		version = 1,
-	},
+	client = { palette = require(script.Palette) },
 	analytics = {
 		funnel = { "Joined", "FirstCollect", "FirstUpgrade", "FirstRebirth" },
 		clientSteps = {},
 	},
-	assetsFolderName = "GameAssets",
 }
 
 return Config
