@@ -1,0 +1,41 @@
+--!strict
+--[[
+	The GameConfig of an adopted game (module-api.md §3, §11), written by `tools/adopt --init`
+	because the game had no src/shared/Config. It is deliberately EMPTY: no items, no rarity
+	tables, no starter items, no events. Fill it from the old game while you migrate (the save map
+	in modules/{{gameId}}/README.md and studwork-adopt-report.md); never copy the new-game
+	sandbox's content into it. The server and client boot scripts (studwork-boot/) pass it to
+	StudWork.start.
+
+	modules: the kit modules the game uses (keep it in step with modules/{{gameId}}/module.luau
+	dependsOn). The game's own module is added by the framework; never list it here.
+]]
+{{modulesHeader}}
+local Config = {
+	gameId = "{{gameId}}",
+	modules = {
+{{modules}}	} :: { any },
+	-- Each kit's config (config.<Name>), merged over the kit's defaults at boot. Every kit below
+	-- runs at its defaults: uncomment a line and set what the old game used (kit pages:
+	-- studwork/docs/framework/kits/).
+	config = {
+{{kitConfig}}	},
+	-- The currencies players buy with Robux (paid currency rules, module-api.md §14). Empty until
+	-- you know: every save field a product sells (studwork-adopt-report.md, "sells ...", and the
+	-- product handlers themselves) that becomes a currency must be listed here.
+	compliance = { paidCurrencies = {} },
+	-- Item definitions (module-api.md §12). Ids are saved forever; never reuse one.
+	items = {},
+	-- The old game's developer products and passes, from the audit report (no id invented).
+	-- Rename each placeholder, then port its handler to the framework Shop (ctx.shop.onProduct).
+	products = {
+		passes = {
+{{passes}}		},
+		devProducts = {
+{{devProducts}}		},
+	},
+	events = {},
+	client = {},
+}
+
+return Config

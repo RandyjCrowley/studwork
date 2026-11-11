@@ -9,6 +9,15 @@
 	  Place.sanitize(name) -> fileName, changed     an untrusted instance name -> a safe file name
 	  Place.plan(env, place) -> { files, dirs, collisions, containers }   pure, nothing written
 	  Place.run(env, placeAbs, outAbs) -> result?, err?   checks everything, then writes
+	  Place.find(root, path) -> ({ Instance }, err?)   the instances at a full dotted path
+	                                    ("StarterGui.ShopGui.ShopGuiClient", the audit report's
+	                                    notExtracted[].path); names with dots are matched too
+	  Place.strip(env, projectAbs, paths) -> result?, err?   tools/adopt --strip-place (v1.6.0
+	                                    dogfood r2): studwork.json's placeFile without the named
+	                                    instances -> <name>.studwork.rbxlx (or .rbxl) next to it,
+	                                    studwork.json pointed at the copy. The original is never
+	                                    written; on the copy it removes more (repeatable). Every
+	                                    path must exist (exactly one instance), or nothing is written.
 
 	Safety rules (all checked BEFORE the first write; any failure writes nothing):
 	  - names are sanitized (separators, `.`/`..`, control and Windows/macOS-invalid characters,
@@ -438,6 +447,142 @@ function Place.run(env, placeAbs: string, outAbs: string)
 		stale = stale,
 		report = report,
 		out = outAbs,
+	}
+end
+
+--------------------------------------------------------------------------------
+-- tools/adopt --strip-place (v1.6.0 dogfood r2)
+--------------------------------------------------------------------------------
+
+-- every instance under `root` whose full dotted path is `path` (an instance name may hold dots)
+function Place.find(root, path: string): { any }
+	local out = {}
+	local function walk(node, rest: string)
+		for _, child in node:GetChildren() do
+			local name = child.Name
+			if rest == name then
+				table.insert(out, child)
+			elseif string.sub(rest, 1, #name + 1) == name .. "." then
+				walk(child, string.sub(rest, #name + 2))
+			end
+		end
+	end
+	if path ~= "" then
+		walk(root, path)
+	end
+	return out
+end
+
+local function readMarker(env, projectAbs: string): (any?, string?)
+	local markerPath = projectAbs .. "/studwork.json"
+	if not env.fs.isFile(markerPath) then
+		return nil, "no studwork.json in the project (run tools/adopt --init first)"
+	end
+	local text = env.fs.readFile(markerPath)
+	local ok, marker = pcall(env.serde.decode, "json", text)
+	if not ok or type(marker) ~= "table" then
+		return nil, "studwork.json is not valid JSON"
+	end
+	if type(marker.placeFile) ~= "string" then
+		return nil, 'studwork.json has no "placeFile" (a Rojo-only game has no place scripts to strip)'
+	end
+	local rel = marker.placeFile
+	if
+		string.sub(rel, 1, 1) == "/"
+		or string.find(rel, "..", 1, true)
+		or not string.match(rel, "%.rbxlx?$")
+	then
+		return nil,
+			"studwork.json placeFile must be a project-relative .rbxl / .rbxlx path (got " .. rel .. ")"
+	end
+	return { text = text, rel = rel }, nil
+end
+
+function Place.strip(env, projectAbs: string, paths: { string })
+	local fs = env.fs
+	if #paths == 0 then
+		return nil, "name at least one instance path (e.g. StarterGui.ShopGui.ShopGuiClient)"
+	end
+	local marker, err = readMarker(env, projectAbs)
+	if marker == nil then
+		return nil, err
+	end
+	local sourceRel = marker.rel
+	local sourceAbs = projectAbs .. "/" .. sourceRel
+	if not fs.isFile(sourceAbs) then
+		return nil, "the place file " .. sourceRel .. " (studwork.json placeFile) is missing"
+	end
+	local stem, ext = string.match(sourceRel, "^(.*)%.(rbxlx?)$")
+	local isCopy = string.match(stem, "%.studwork$") ~= nil
+	local outRel = if isCopy then sourceRel else stem .. ".studwork." .. ext
+	local outAbs = projectAbs .. "/" .. outRel
+	if not isCopy and fs.isFile(outAbs) then
+		return nil,
+			outRel
+				.. " already exists but studwork.json points at "
+				.. sourceRel
+				.. ": point placeFile at the copy (to remove more from it) or move the copy away. Nothing was written."
+	end
+	local ok, place = pcall(function()
+		return env.roblox.deserializePlace(fs.readFile(sourceAbs))
+	end)
+	if not ok then
+		return nil, "can't read the place file " .. sourceRel .. ": " .. tostring(place)
+	end
+	-- resolve every path first: one missing or ambiguous path writes nothing
+	local targets, problems = {}, {}
+	for _, p in paths do
+		local found = Place.find(place, p)
+		if #found == 0 then
+			table.insert(problems, p .. ": no such instance in " .. sourceRel)
+		elseif #found > 1 then
+			table.insert(
+				problems,
+				p .. ": " .. #found .. " instances have this path; rename one in Studio first"
+			)
+		else
+			table.insert(targets, { path = p, inst = found[1] })
+		end
+	end
+	if #problems > 0 then
+		return nil, table.concat(problems, "\n") .. "\nNothing was written."
+	end
+	local removed = {}
+	for _, t in targets do
+		-- a path inside another named path goes with it
+		local covered = false
+		for _, other in targets do
+			if other ~= t and t.inst:IsDescendantOf(other.inst) then
+				covered = true
+			end
+		end
+		table.insert(removed, { path = t.path, class = t.inst.ClassName, covered = covered })
+	end
+	for _, t in targets do
+		if t.inst.Parent ~= nil then
+			t.inst:Destroy()
+		end
+	end
+	local bytes = env.roblox.serializePlace(place, ext == "rbxlx")
+	local newText = marker.text
+	if not isCopy then
+		local count
+		newText, count = string.gsub(marker.text, '("placeFile"%s*:%s*)"[^"]*"', function(prefix)
+			return prefix .. '"' .. outRel .. '"'
+		end)
+		if count ~= 1 then
+			return nil, "could not update placeFile in studwork.json. Nothing was written."
+		end
+	end
+	fs.writeFile(outAbs, bytes)
+	if newText ~= marker.text then
+		fs.writeFile(projectAbs .. "/studwork.json", newText)
+	end
+	return {
+		source = sourceRel,
+		out = outRel,
+		removed = removed,
+		markerChanged = newText ~= marker.text,
 	}
 end
 

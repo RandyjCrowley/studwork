@@ -571,6 +571,45 @@ keyOf = function(ctx, expr: string, depth: number): string?
 	then
 		return "{userId}"
 	end
+	-- (v1.6.0 dogfood r2) the Roblox sample's purchase-history key: receiptInfo.PlayerId .. "_" ..
+	-- receiptInfo.PurchaseId -> {userId}_{purchaseId} (ctx.shop.legacyReceipts' pattern)
+	if string.match(expr, "^[%w_%.]+%.PurchaseId$") then
+		return "{purchaseId}"
+	end
+	-- (v1.6.0 dogfood r2) a local helper: `local function keyFor(player) return "Player_" ..
+	-- player.UserId end` then `store:GetAsync(keyFor(player))` -> its return expression with the
+	-- arguments in place of the parameters
+	local fname, call = string.match(expr, "^([%a_][%w_]*)%s*(%b())$")
+	if fname then
+		local params, body =
+			string.match(ctx.m.code, "function%s+" .. fname .. "%s*(%b())%s*(.-)%f[%w_]end%f[^%w_]")
+		if params == nil then
+			params, body = string.match(
+				ctx.m.code,
+				"%f[%w_]" .. fname .. "%s*=%s*function%s*(%b())%s*(.-)%f[%w_]end%f[^%w_]"
+			)
+		end
+		local ret = body and string.match(body, "^%s*return%s+(.-)%s*$")
+		if ret and not string.find(ret, "\n%s*%S") then
+			local names = splitArgs(string.sub(params, 2, -2))
+			local values = argsOf(call)
+			local sub = ret
+			for k, pname in names do
+				pname = trim(string.gsub(pname, ":.*$", ""))
+				if string.match(pname, "^[%a_][%w_]*$") and values[k] then
+					local value = trim(values[k])
+					local wrapped = if string.match(value, "^[%w_%.:]+$") then value else "(" .. value .. ")"
+					sub = string.gsub(sub, "%f[%w_]" .. pname .. "%f[^%w_]", function()
+						return wrapped
+					end)
+				end
+			end
+			local v = keyOf(ctx, sub, depth + 1)
+			if v then
+				return v
+			end
+		end
+	end
 	if string.match(expr, "^[%a_][%w_]*$") then
 		if ctx.uid[expr] then
 			return "{userId}"
@@ -854,8 +893,12 @@ local function soldFields(ctx, region: string, ds2Vars): { string }
 	for field in string.gmatch(region, "[%w_%]%)]%.([%a_][%w_]*)%s*[%+%-%*]?=%s*[^=]") do
 		set[field] = true
 	end
-	for field in string.gmatch(region, "%.([%a_][%w_]*)%s*%b[]%s*=%s*[^=]") do
-		set[field] = true
+	for field, index, value in string.gmatch(region, "%.([%a_][%w_]*)%s*(%b[])%s*=%s*([^=\n]*)") do
+		-- (v1.6.0 dogfood r2) `data.Purchases[receipt.PurchaseId] = true` is the receipt history,
+		-- not something the product sells
+		if not (string.find(index, "PurchaseId", 1, true) and string.match(value, "^%s*true")) then
+			set[field] = true
+		end
 	end
 	for field in string.gmatch(region, "%.([%a_][%w_]*)%.Value%s*[%+%-%*]?=%s*[^=]") do
 		set[field] = true
@@ -883,6 +926,21 @@ local function soldFields(ctx, region: string, ds2Vars): { string }
 	table.sort(out)
 	return out
 end
+
+-- (v1.6.0 dogfood r2) does the region write save data at all (a DataStore2 handle, a store
+-- call, an update of a table field)? A product handler that does but has no `sold` field the
+-- scan could name (handles kept in tables / _G) is reported for a manual read.
+local function writesData(region: string): boolean
+	return string.find(region, ":%s*Increment%s*%(") ~= nil
+		or string.find(region, ":%s*Set%s*%(") ~= nil
+		or string.find(region, ":%s*Update%s*%(") ~= nil
+		or string.find(region, "SetAsync%s*%(") ~= nil
+		or string.find(region, "UpdateAsync%s*%(") ~= nil
+		or string.find(region, "IncrementAsync%s*%(") ~= nil
+		or string.find(region, "[%w_%]%)]%s*[%+%-%*]=") ~= nil
+		or string.find(region, "%.Value%s*=%s*[^=]") ~= nil
+end
+Scan.writesData = writesData
 
 local function usesRandom(region: string): boolean
 	return string.find(region, "math%.random") ~= nil
@@ -926,7 +984,7 @@ local function scanPurchases(ctx, res)
 		end
 		local entry = seen[id]
 		if entry == nil then
-			entry = { id = id, line = lineOf(m, pos), sold = {}, random = false }
+			entry = { id = id, line = lineOf(m, pos), sold = {}, random = false, writes = false }
 			seen[id] = entry
 			table.insert(p.products, entry)
 		end
@@ -937,6 +995,7 @@ local function scanPurchases(ctx, res)
 		end
 		table.sort(entry.sold)
 		entry.random = entry.random or usesRandom(region)
+		entry.writes = entry.writes or writesData(region)
 	end
 	if purchaseFile then
 		-- handlers table: [123] = function(receipt, player) ... end / [PRODUCTS.Gems] = grantGems
@@ -1230,6 +1289,21 @@ function Scan.scan(source: string, constants: { [string]: number }?)
 	res.lines = if source == "" then 0 else nl + (if string.sub(source, -1) == "\n" then 0 else 1)
 	res.empty = string.match(m.code, "^%s*$") ~= nil
 	res.random = usesRandom(m.code)
+	-- (v1.6.0 dogfood r2) randomness inside one function that also grants (writes save data or
+	-- a sold field): what a paid random item looks like. Visual randomness (positions, effects)
+	-- in a function that grants nothing doesn't count.
+	res.randomGrants = false
+	if res.random then
+		for pos in string.gmatch(m.code, "()%f[%w_]function%f[^%w_]") do
+			local region = string.sub(m.code, pos, blockEnd(m.code, pos))
+			if
+				usesRandom(region) and (writesData(region) or #soldFields(ctx, region, res.ds2Vars or {}) > 0)
+			then
+				res.randomGrants = true
+				break
+			end
+		end
+	end
 	res.mentionsOdds = string.find(string.lower(source), "odds") ~= nil
 	return res
 end

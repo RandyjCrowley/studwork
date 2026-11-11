@@ -171,6 +171,22 @@ local SCRIPT_SUFFIXES = {
 	{ ".lua", "ModuleScript" },
 }
 
+-- (v1.6.0 dogfood r2) generated code is never audited: Blink's output (server/Net.luau and
+-- client/Net.luau of a module with a net.blink, in that folder or the one above) and any
+-- Generated*.luau. Its remotes and _G use are Blink's, not the old game's.
+function Audit.isGenerated(fs, abs: string): boolean
+	local base = string.match(abs, "([^/]+)$") or abs
+	if string.match(base, "^Generated.*%.luau?$") then
+		return true
+	end
+	if base == "Net.luau" or base == "Net.lua" then
+		local dir = string.match(abs, "^(.*)/[^/]+$") or "."
+		local up = string.match(dir, "^(.*)/[^/]+$") or "."
+		return fs.isFile(dir .. "/net.blink") or fs.isFile(up .. "/net.blink")
+	end
+	return false
+end
+
 local function scriptKind(fileName: string): (string?, string?)
 	for _, s in SCRIPT_SUFFIXES do
 		if #fileName > #s[1] and string.sub(fileName, -#s[1]) == s[1] then
@@ -265,7 +281,7 @@ local function loadRojo(env, root: string, projectFile: string)
 	end
 
 	local function addScript(abs: string, class: string, instPath: string, ext: string?, metaPath: string?)
-		if seenFiles[abs] then
+		if seenFiles[abs] or Audit.isGenerated(fs, abs) then
 			return
 		end
 		seenFiles[abs] = true
@@ -998,7 +1014,13 @@ function Audit.build(env, projects, reportDir: string)
 							)
 						end
 					end
-					if c.op == "SetAsync" and c.key and string.find(c.key, "{userId}", 1, true) then
+					if
+						c.op == "SetAsync"
+						and c.key
+						and string.find(c.key, "{userId}", 1, true)
+						-- a receipt history entry ({userId}_{purchaseId}) is written once
+						and not string.find(c.key, "{purchaseId}", 1, true)
+					then
 						risk(
 							"set_without_lock",
 							"high",
@@ -1094,6 +1116,19 @@ function Audit.build(env, projects, reportDir: string)
 				end
 				table.sort(e.sold)
 				e.random = e.random or pr.random
+				if pr.writes and #pr.sold == 0 and s.side ~= "client" then
+					-- (v1.6.0 dogfood r2) e.g. `_G.Stores[plr].coins:Increment(...)`: the scan
+					-- can't name the field, so say so instead of a silent sold = []
+					risk(
+						"sold_unknown",
+						"medium",
+						"product "
+							.. pr.id
+							.. "'s handler writes save data but the audit couldn't tell which field it sells (a handle kept in a table or _G?): read the handler and decide which currency or items it sells",
+						file,
+						pr.line
+					)
+				end
 				if pr.random then
 					risk(
 						"product_random",
@@ -1121,8 +1156,21 @@ function Audit.build(env, projects, reportDir: string)
 					{ kind = o.kind, id = o.id or NULL, file = file, line = o.line }
 				)
 			end
+			-- (v1.6.0 dogfood r2) only server code (a client's math.random for visuals sells
+			-- nothing), only randomness in a function that also grants, and not twice for a
+			-- product handler already rated product_random
 			local sells = #pur.processReceipt > 0 or #pur.prompts > 0
-			if sells and scan.random and not scan.mentionsOdds then
+			local productRandom = false
+			for _, pr in pur.products do
+				productRandom = productRandom or pr.random
+			end
+			if
+				sells
+				and s.side ~= "client"
+				and scan.randomGrants
+				and not productRandom
+				and not scan.mentionsOdds
+			then
 				local rl = nil
 				for _, pr in pur.products do
 					rl = rl or pr.line
@@ -1253,6 +1301,41 @@ function Audit.build(env, projects, reportDir: string)
 				list[1].f,
 				list[1].l
 			)
+		end
+	end
+	-- (v1.6.0 dogfood r2) DataStore2 keys combined into a master key (DataStore2.Combine(main,
+	-- ...keys)) are saved inside the master, not as stores of their own: only the master entry
+	-- (with `combined`) is reported, and the per-key DataStore2(...) entries are dropped
+	local combinedKeys = {}
+	for _, l in report.libraries do
+		if l.name == "DataStore2" then
+			for _, k in l.combined do
+				combinedKeys[k] = true
+			end
+		end
+	end
+	if next(combinedKeys) then
+		local kept = A()
+		local dropped = {}
+		for _, l in report.libraries do
+			if l.name == "DataStore2" and #l.combined == 0 and combinedKeys[l.store] then
+				dropped[l.store] = true
+			else
+				table.insert(kept, l)
+			end
+		end
+		report.libraries = kept
+		for name in dropped do
+			local stillUsed = false
+			for _, l in kept do
+				stillUsed = stillUsed or l.store == name
+			end
+			for _, d in report.datastores do
+				stillUsed = stillUsed or d.name == name
+			end
+			if not stillUsed then
+				storeProjects[name] = nil
+			end
 		end
 	end
 	-- shared stores (several projects of one universe)
@@ -2216,7 +2299,10 @@ local function luauFiles(env, root: string): { string }
 				if not LUAU_SKIP[e] and string.sub(e, 1, 1) ~= "." then
 					walk(r)
 				end
-			elseif string.match(e, "%.luau$") or string.match(e, "%.lua$") then
+			elseif
+				(string.match(e, "%.luau$") or string.match(e, "%.lua$"))
+				and not Audit.isGenerated(env.fs, full)
+			then
 				table.insert(out, r)
 			end
 		end

@@ -314,3 +314,107 @@ describe("AdoptPlace.run", function()
 		fs.removeDir(root)
 	end)
 end)
+
+-- (v1.6.0 dogfood r2) tools/adopt --strip-place: a tiny place built here, a project around it
+describe("AdoptPlace.strip", function()
+	local function stripProject(xml: boolean): (string, string)
+		local root = tmpRoot()
+		local game = Instance.new("DataModel")
+		local sg = game:GetService("StarterGui")
+		local gui = new("ScreenGui", "ShopGui", sg)
+		new(
+			"LocalScript",
+			"ShopGuiClient",
+			gui,
+			"game:GetService('MarketplaceService'):PromptProductPurchase(nil, 1)\n"
+		)
+		new("Frame", "Panel", gui)
+		local rs = game:GetService("ReplicatedStorage")
+		local remotes = new("Folder", "Remotes", rs)
+		new("RemoteEvent", "Buy", remotes)
+		local ws = game:GetService("Workspace")
+		local pad = new("Part", "CoinPad", ws)
+		new("Script", "CoinPadScript", pad, "print('pad')\n")
+		new("Part", "Map.v2", ws) -- a name with a dot
+		local file = if xml then "my-game.rbxlx" else "my-game.rbxl"
+		fs.writeFile(root .. "/" .. file, roblox.serializePlace(game, xml))
+		fs.writeFile(
+			root .. "/studwork.json",
+			'{\n  "layout": "single-game",\n  "framework": "studwork",\n  "adopted": true,\n  "placeFile": "'
+				.. file
+				.. '",\n  "legacyBaseline": {\n    "files": {}\n  }\n}\n'
+		)
+		return root, file
+	end
+	local function load(path: string)
+		return roblox.deserializePlace(fs.readFile(path))
+	end
+
+	it(
+		"writes <name>.studwork.rbxlx without the named instances, repoints studwork.json, keeps the original",
+		function()
+			local root, file = stripProject(true)
+			local original = fs.readFile(root .. "/" .. file)
+			local res, err =
+				Place.strip(env, root, { "StarterGui.ShopGui.ShopGuiClient", "ReplicatedStorage.Remotes" })
+			expect(err).toBeNil()
+			expect(res.out).toBe("my-game.studwork.rbxlx")
+			expect(fs.readFile(root .. "/" .. file)).toBe(original)
+			local copy = load(root .. "/my-game.studwork.rbxlx")
+			expect(#Place.find(copy, "StarterGui.ShopGui.ShopGuiClient")).toBe(0)
+			expect(#Place.find(copy, "ReplicatedStorage.Remotes")).toBe(0)
+			expect(#Place.find(copy, "StarterGui.ShopGui.Panel")).toBe(1) -- the UI itself stays
+			expect(#Place.find(copy, "Workspace.CoinPad.CoinPadScript")).toBe(1)
+			local marker = readJson(root .. "/studwork.json")
+			expect(marker.placeFile).toBe("my-game.studwork.rbxlx")
+			expect(marker.adopted).toBe(true)
+			expect(marker.legacyBaseline).toEqual({ files = {} })
+			-- repeatable: on the copy it removes more, the original still untouched
+			local res2 = Place.strip(env, root, { "Workspace.CoinPad.CoinPadScript" })
+			expect(res2.out).toBe("my-game.studwork.rbxlx")
+			expect(res2.markerChanged).toBe(false)
+			local copy2 = load(root .. "/my-game.studwork.rbxlx")
+			expect(#Place.find(copy2, "Workspace.CoinPad.CoinPadScript")).toBe(0)
+			expect(#Place.find(copy2, "Workspace.CoinPad")).toBe(1)
+			expect(fs.readFile(root .. "/" .. file)).toBe(original)
+			fs.removeDir(root)
+		end
+	)
+
+	it("keeps the binary format for .rbxl and matches names with dots", function()
+		local root = stripProject(false)
+		local res, err = Place.strip(env, root, { "Workspace.Map.v2" })
+		expect(err).toBeNil()
+		expect(res.out).toBe("my-game.studwork.rbxl")
+		local copy = load(root .. "/my-game.studwork.rbxl")
+		expect(#Place.find(copy, "Workspace.Map.v2")).toBe(0)
+		expect(string.sub(fs.readFile(root .. "/my-game.studwork.rbxl"), 1, 8)).toBe("<roblox!")
+		fs.removeDir(root)
+	end)
+
+	it("refuses a path that doesn't exist, writing nothing", function()
+		local root, file = stripProject(true)
+		local before = fs.readFile(root .. "/studwork.json")
+		local res, err = Place.strip(env, root, { "ReplicatedStorage.Remotes", "StarterGui.NoSuchGui" })
+		expect(res).toBeNil()
+		expect(err).toContain("StarterGui.NoSuchGui: no such instance in " .. file)
+		expect(err).toContain("Nothing was written")
+		expect(fs.isFile(root .. "/my-game.studwork.rbxlx")).toBe(false)
+		expect(fs.readFile(root .. "/studwork.json")).toBe(before)
+		fs.removeDir(root)
+	end)
+
+	it("refuses without a placeFile, and a stale copy studwork.json doesn't point at", function()
+		local root = tmpRoot()
+		fs.writeFile(root .. "/studwork.json", '{ "layout": "single-game", "adopted": true }\n')
+		local _, e1 = Place.strip(env, root, { "Workspace.X" })
+		expect(e1).toContain('no "placeFile"')
+		fs.removeDir(root)
+		local root2 = stripProject(true)
+		fs.writeFile(root2 .. "/my-game.studwork.rbxlx", "old copy")
+		local _, e2 = Place.strip(env, root2, { "ReplicatedStorage.Remotes" })
+		expect(e2).toContain("already exists")
+		expect(fs.readFile(root2 .. "/my-game.studwork.rbxlx")).toBe("old copy")
+		fs.removeDir(root2)
+	end)
+end)
