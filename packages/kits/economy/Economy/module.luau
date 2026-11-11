@@ -10,7 +10,12 @@
 	  income.source        "owned" (every inventory copy earns) | "displayed"
 	                       (only copies on the plot earn; needs Plot)          default "owned"
 	  multiplierStacking   "multiply" | "add" (1 + Σ(f - 1))                   default "multiply"
+	  currencies           further currencies Economy OWNS besides primaryCurrency default none
 	Paid (Robux-buyable) currencies are framework config: GameConfig.compliance.paidCurrencies.
+	Economy registers the compliance spender (ctx.compliance.registerCurrencySpender) only for the
+	paid currencies it owns: primaryCurrency and `currencies` (core-v1.3.1, R20). Any other paid
+	currency needs its own owner module, or boot fails (module-api §19.10). Granting/holding any
+	currency id is unchanged.
 	data: section `economy` = { currency = { [id]: number }, multipliers = { [id]: { mult,
 	expiresAt? } } } (the v1.2 fields; FrameworkSection.V12_MAP splits a v1.2 save into it).
 	itemFields: item.economy.incomePerSec (an item without it earns nothing),
@@ -35,6 +40,10 @@ return StudWork.defineModule({
 	config = {
 		schema = {
 			primaryCurrency = { type = "string", description = "HUD / default currency" },
+			currencies = {
+				type = "{string}?",
+				description = "further currencies Economy owns besides primaryCurrency (a paid currency gets Economy's spender only if it is one of these)",
+			},
 			startingCurrency = {
 				type = "{[string]: number}?",
 				description = "balances granted on a player's first join",

@@ -27,6 +27,11 @@ API (`defineModule`, `ctx`, `StudWork.use`, actions, `StudWork.test`) only gaine
 - **`Runtime.buildActions` no longer accepts `net = "framework"`** (a client part fires its own `Net`).
 - **R20: boot fails** if a currency in `compliance.paidCurrencies` has no registered spender
   (module-api.md §19.10). Every shipped game, fixture and the template already registered one.
+- **Economy owns only its own paid currencies** (final review High 1): it registers the compliance
+  spender for `primaryCurrency` and the new optional `config.Economy.currencies` list, not for every
+  currency in `compliance.paidCurrencies`. A game whose paid currency isn't Economy's primary lists it
+  in `config.Economy.currencies` (the shipped games all sell `Coins`, the primary). This lets a typo'd
+  paid currency fail boot (R20) and another module own a different paid currency next to Economy.
 
 - **Kit Rojo paths.** Kits moved to one folder per module (`packages/kits/<kit>/<Module>/`:
   `module.luau`, `server/`, optional `client/`, `shared/`, `net.blink`). `ReplicatedStorage.Kits`
@@ -84,6 +89,10 @@ API (`defineModule`, `ctx`, `StudWork.use`, actions, `StudWork.test`) only gaine
 
 ### Fixed
 
+- **Final review fixes:** the framework half of `special` ignores `-- guard: allow special` (no
+  allow-list at all); `Net.bindActions` logs an action that has no Blink event in a module's
+  `net.blink` (it was bound wire-less silently); the dead `Replication/Snapshot.EXTRA_KEYS` table is
+  deleted.
 - **R22:** `Store.saveNow` (through a `frameworkReplaced` hook) and `Data.saveAsync` bump the
   `_framework` section version when a save replaces it, so `_framework` views and replication are
   current right after `saveAsync` (`SaveNowVersion.spec`).

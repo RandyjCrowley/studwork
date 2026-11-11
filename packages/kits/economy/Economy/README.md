@@ -9,6 +9,7 @@ A real StudWork module (core-v1.3.0 Phase 1). Definition: `module.luau`. Server 
 | key | default | meaning |
 |---|---|---|
 | `primaryCurrency` | `"Coins"` | HUD / default currency |
+| `currencies` | none | further currencies Economy owns; Economy registers the paid-currency spender only for `primaryCurrency` + these (R20) |
 | `startingCurrency` | none | `{ [currency]: amount }` granted on the first join |
 | `income.tickSeconds` | `1` | seconds between payouts (shared ticker) |
 | `income.source` | `"owned"` | `"owned"` = every inventory copy earns; `"displayed"` = only plot copies |

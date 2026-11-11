@@ -63,7 +63,7 @@ local function boot(extra)
 		servers = servers(),
 		compliance = { paidCurrencies = { "Gems" } },
 		config = {
-			Economy = { startingCurrency = { Coins = 0, Gems = 0 } },
+			Economy = { startingCurrency = { Coins = 0, Gems = 0 }, currencies = { "Gems" } }, -- Economy owns Gems (R20)
 			Upgrades = {
 				upgrades = {
 					Boost = {
@@ -80,6 +80,12 @@ local function boot(extra)
 	}
 	for k, v in extra or {} do
 		opts[k] = v
+	end
+	-- the fixture lists Gems as paid, so Economy must own it (R20: Economy registers spenders only for
+	-- primaryCurrency + config.Economy.currencies) even when a test passes its own config
+	if opts.config.Economy == nil then
+		opts.config = table.clone(opts.config)
+		opts.config.Economy = { currencies = { "Gems" } }
 	end
 	return Harness.new(opts)
 end

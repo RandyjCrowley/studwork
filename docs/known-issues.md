@@ -1,6 +1,7 @@
 # Known issues
 
-core-v1.3.1: R19, R20 and R22 are closed (see their entries below); R21, R23 and R24 stay open.
+core-v1.3.1: R19, R20 and R22 are closed (see their entries below); R21, R23 and R24 stay open; the
+v1.3.1 final review (`(internal build report, not public)`) adds R25-R27.
 
 Open findings after `core-v1.2.0`. The v1.1.0 review findings N1–N10 are fixed (N8 and N9 within
 the limits listed under Low). The v1.2.0 review (`(internal build report, not public)`) found
@@ -117,3 +118,25 @@ Mediums/Lows were fixed before the tag (`P2F-REPORT.md`).
   top-centre HUD in a small viewport.
 - **R3 (rest).** Unsent gift outboxes are retried on leave and at the sender's next login, not from any
   server (that would need the sender's session).
+
+## core-v1.3.1 open items (final review)
+
+- **R25 (Medium, review 4). The framework still carries v1.2 kit-shaped legacy data shapes.** No kit
+  code path, event, loader, widget or PascalCase kit name is left in `packages/framework` (the
+  `special` scan enforces that), but lower-case v1.2 shapes are: `Types.luau` `BalanceConfig` kit
+  sections (`income`, `inventory`, `rarityTables`, `upgrades`, `rebirth`, `offline`, `streak`,
+  `friends`, `plot`), `PlayerData.mail`, the flat `ReplicatedState` fields (`ratePerSec`,
+  `multiplier`, `plotName`, `odds`, `mailbox`) with `Replication/Snapshot.build` and the client
+  `State` initial value that fill them, `FrameworkSection.V12_MAP` (the v1.2 save split), and the
+  default theme's kit sounds (`rebirth`, `streak`). The scan doesn't flag lower-case keys. None of it
+  gives a kit a capability a third-party module lacks (module state is namespaced under
+  `state.modules.<Name>`, config under `config.<Name>`), and removing the v1.2 flat view and types
+  would break the v1.2-compatible client surface, so it waits for a major version.
+  Fix then: move the kit types into each kit's `module.luau`, drop the flat view, and let the scan
+  also derive each kit's `data.key`.
+- **R26 (Low, review 5). Runtime-built names evade the framework scan** (`string.char`, `format`,
+  `reverse`, `table.concat`, `gsub`): lint is a guardrail against mistakes, not against deliberate
+  obfuscation in the core owner's own code; review merges.
+- **R27 (Low, review 7). The sim R22 spec passes without the R22 bumps** (ProfileStore's `beforeSave`
+  bumps the version during the save). The unit spec `SaveNowVersion.spec` is the regression guard.
+

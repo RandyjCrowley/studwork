@@ -1261,13 +1261,11 @@ end
 -- Scans one framework file. ctx = { path, names ({ [name] = reason }), isBlink? }. No allow-list:
 -- the core-v1.3.1 Phase 1 transitional list (TRANSITIONAL_V131) was deleted in Phase 3.
 function Guard.scanFrameworkSpecial(source: string, ctx: any): { string }
-	local codeLines, rawLines = codeLinesOf(source, ctx.isBlink)
+	local codeLines, _rawLines = codeLinesOf(source, ctx.isBlink)
 	local norm, lineOf = Guard.normalize(codeLines)
 	local findings, seen = {}, {}
 	local function add(line: number, message: string)
-		if allowed(rawLines[line] or "", "special") then
-			return
-		end
+		-- no `-- guard: allow special` here: the framework half has no allow-list (final review M3)
 		local key = `{line}|{message}`
 		if not seen[key] then
 			seen[key] = true
@@ -1856,6 +1854,11 @@ local function selfTest(): boolean
 		)
 	)
 	-- the old v1.2 kit request events and the old `net = "framework"` marker (no allow-list since Phase 3)
+	expectCheck(
+		"framework special ignores a guard: allow comment",
+		Guard.scanFrameworkSpecial("local m = Modules.Mail -- guard: allow special", fwCtx),
+		"special"
+	)
 	expectCheck(
 		"framework special old kit event",
 		Guard.scanFrameworkSpecial("local e = Generated.RequestMailClaim", fwCtx),

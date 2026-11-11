@@ -210,15 +210,4 @@ function Snapshot.build(
 	}
 end
 
--- Extra keys services may push (Types.ReplicatedState minus loaded/data).
-Snapshot.EXTRA_KEYS = {
-	ratePerSec = true,
-	multiplier = true,
-	paidRandomRestricted = true,
-	activeEvents = true,
-	plotName = true,
-	odds = true,
-	mailbox = true, -- v1.2 (N1): Mail.pending(player)
-}
-
 return Snapshot

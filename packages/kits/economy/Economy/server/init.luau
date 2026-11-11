@@ -659,8 +659,17 @@ function Economy.new(): any
 		ctx = context
 		created.CurrencyChanged = ctx.signals.new("CurrencyChanged")
 		-- §14 C3: compliance.spendForRoll / spendPaid spend a paid currency through Economy, in the
-		-- caller's tx
+		-- caller's tx. core-v1.3.1 (R20): only for the paid currencies Economy OWNS (primaryCurrency +
+		-- config.currencies), so a listed paid currency nobody owns (a typo, a missing module) fails
+		-- boot, and another module may own a different paid currency alongside Economy.
+		local owned: { [string]: boolean } = { [ctx.config.primaryCurrency] = true }
+		for _, c in ctx.config.currencies or {} do
+			owned[c] = true
+		end
 		for _, currency in ctx.compliance.paidCurrencies() do
+			if not owned[currency] then
+				continue
+			end
 			ctx.compliance.registerCurrencySpender(
 				currency,
 				function(tx: any, amount: number, reason: string?): boolean

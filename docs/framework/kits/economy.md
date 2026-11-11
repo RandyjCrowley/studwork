@@ -24,6 +24,7 @@ nothing (cards, cosmetics, quest items).
 | Key | Default | Meaning |
 |---|---|---|
 | `primaryCurrency` | `"Coins"` | the HUD's currency and the default for every currency argument |
+| `currencies` | none | further currencies Economy owns besides `primaryCurrency`. Economy is the compliance spender (`ctx.compliance.registerCurrencySpender`) only for paid currencies it owns, so list a non-primary currency here if it is in `compliance.paidCurrencies` (core-v1.3.1, R20) |
 | `startingCurrency` | `{}` | `{ [currency] = amount }` for a new player; its keys are known currencies |
 | `income.tickSeconds` | required (> 0) | payout interval; 1 = every second |
 | `income.source` | required | `"displayed"` (items shown on the plot; needs Plot) or `"owned"` (everything owned) |

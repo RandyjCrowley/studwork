@@ -64,10 +64,40 @@ describe("R20: every paid currency has a registered spender at boot", function()
 		expect(h ~= nil).toBe(true)
 	end)
 
-	it("Economy enabled with the paid currency boots (Economy registers its spender)", function()
+	it("Economy enabled with a paid currency it owns boots (Economy registers its spender)", function()
+		-- core-v1.3.1 final review High 1: Economy owns primaryCurrency + config.Economy.currencies only
 		local h, err = StudWork.test.boot({
 			modules = { Economy },
+			config = { Economy = { currencies = { "Gems" } } },
 			compliance = { paidCurrencies = { "Gems" } },
+		})
+		expect(err).toBeNil()
+		expect(h ~= nil).toBe(true)
+		local h2, err2 = StudWork.test.boot({
+			modules = { Economy },
+			compliance = { paidCurrencies = { "Coins" } }, -- the default primaryCurrency
+		})
+		expect(err2).toBeNil()
+		expect(h2 ~= nil).toBe(true)
+	end)
+
+	it("Economy doesn't own every listed currency: a typo'd paid currency still fails boot", function()
+		-- final review High 1 repro: paidCurrencies = { "Gemz_TYPO" } used to boot (Economy registered a
+		-- spender for every listed currency)
+		local h, err = StudWork.test.boot({
+			modules = { Economy },
+			compliance = { paidCurrencies = { "Coins", "Gemz_TYPO" } },
+		})
+		expect(h).toBeNil()
+		expect(tostring(err)).toContain("compliance.paidCurrencies lists 'Gemz_TYPO'")
+	end)
+
+	it("a third-party module can own a paid currency alongside Economy", function()
+		-- final review Medium 2: 'currency 'Tokens' already has a spender (owned by Economy)'
+		local h, err = StudWork.test.boot({
+			modules = { Economy, Wallet },
+			servers = { WalletR20 = walletPart },
+			compliance = { paidCurrencies = { "Coins", "Tokens" } },
 		})
 		expect(err).toBeNil()
 		expect(h ~= nil).toBe(true)
