@@ -50,13 +50,15 @@ A rarity table:
 | `mutationChance` | `0` | 0..1 chance the result gets a mutation |
 
 - **API:** `roll(tableId, player, luck?, opts?) -> (ItemDef?, RollInfo)`, `getOdds(tableId, luck?)`,
-  `getOddsDetail(tableId, player?) -> OddsDetail?`, `tiers()` (the resolved ordered tier list,
+  `getOddsDetail(tableId, player?, luck?) -> OddsDetail?`, `discloseItem(player, tableId, itemKey,
+  luck) -> boolean`, `clearItem(player, tableId, itemKey)`, `tiers()` (the resolved ordered tier list,
   contract), `setLuck(player, luck, tableId?)`, `getLuck(player, tableId?)`. `RollInfo = { ok,
   reason?, mutation?, pity, instance? }`; reasons: `unknown_table`, `restricted`, `not_loaded`,
-  `inventory_full`, `empty_table`, `policy_unknown`.
-- **purchaseOps (contract):** `roll(tx, tableId, luck?) -> (def?, info)`: a paid roll inside a
-  purchase, through `compliance.roll`; the item is granted with a `paid:` source.
-- **txApi (contract):** `roll(tx, tableId, luck?) -> (def?, info)`: a free roll inside your tx.
+  `inventory_full`, `empty_table`, `policy_unknown`, `odds_not_disclosed`.
+- **purchaseOps (contract):** `roll(tx, tableId, luck?, opts?) -> (def?, info)`: a paid roll inside a
+  purchase, through `compliance.roll`; the item is granted with a `paid:` source. `opts.item` (v1.6.0).
+- **txApi (contract):** `roll(tx, tableId, luck?, opts?) -> (def?, info)`: a free roll inside your
+  tx (`opts = { grant?, reason?, item? }`).
 - **Client action:** `roll(tableId)` (tables with a `cost` and `paid ~= true`): capacity is checked
   before spending, a coin-priced roll spends and rolls in one transaction. Wire: Rarity's own
   `net.blink` event `Roll` (`Data: Id`, RemoteScope `STUDWORK_RARITY`), rate limit 4/s, burst 8.
@@ -64,6 +66,40 @@ A rarity table:
 - **Replicated `extra`:** `odds = { [tableId] = OddsDetail }` for every table with a `cost`,
   `paid = true` or `luckDisclosed = true`; `tiers` (the resolved tier list). Render it with `UI.OddsTable`; never compute odds on the
   client.
+- **Odds preview at any luck (v1.6.0):** `getOddsDetail(tableId, player, luck)` returns the odds
+  at exactly that luck (sanitized: `<= 0` / non-finite -> 1, above 100 -> 100). It is pure: it
+  doesn't change the player's luck, disclose anything or touch replication. For "odds at 0 / 50 /
+  100%" boards. Without `luck` nothing changed.
+- **Luck on a single item (v1.6.0):** a roll can carry its own luck for one item (an egg in an
+  incubator) with `opts.item = itemKey` (a short id, <= 64 chars). An item roll uses exactly the
+  `luck` it is given (nil = 1), never the player's session luck, and never changes `getLuck`.
+  - **Free** item rolls may use any luck; the key is only a label.
+  - **Paid** item rolls (inside a purchase, through `spendForRoll` / after `spendPaid`, or a
+    `paid = true` table) pass the usual gate (unknown policy -> retry / `policy_unknown`;
+    restricted -> `restricted`), then need `discloseItem(player, tableId, itemKey, luck)` to have
+    reached the player's client **at exactly the roll's luck** (else `odds_not_disclosed`; a
+    purchase retries later), and luck != 1 needs `luckDisclosed = true` (hard rule 11 error).
+    Both sides go through `RollMath.sanitizeLuck`, so a disclosed luck always matches its roll.
+  - At most `Compliance.MAX_ITEM_DISCLOSURES` (64) item disclosures per player across tables:
+    past that `discloseItem` returns `false` (nothing is evicted; `clearItem` hatched eggs first).
+    They are dropped when the player leaves.
+  - The client reads them from the framework field `itemOdds = { [tableId] = { [itemKey] =
+    OddsDetail } }`: `StudWork.use(Rarity).read.itemOdds(state, tableId, itemKey)` gives the detail
+    to pass to `UI.OddsTable` (`detail` prop).
+
+  ```lua
+  -- egg delivered with a skill score: show its odds in the incubator
+  Rarity.discloseItem(player, "NestEgg", egg.id, egg.luck)
+  -- the player buys "hatch now" (a dev product): roll that egg at its own luck
+  ctx.shop.onProduct("HatchNow", function(tx)
+  	local egg = currentEgg(tx.player)
+  	local def, info = tx.use(Rarity).roll("NestEgg", egg.luck, { item = egg.id })
+  	assert(def and info.ok, info.reason) -- odds_not_disclosed: the purchase retries later
+  	tx.after(function()
+  		Rarity.clearItem(tx.player, "NestEgg", egg.id)
+  	end)
+  end)
+  ```
 - **Theme (contract):** contributes `theme.rarity = { tiers = <resolved list> }`.
 - **Save data:** section `rarity`: `{ pity = { [tableId] = count } }`, not replicated.
 

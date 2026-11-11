@@ -21,6 +21,17 @@ Real StudWork module (v1.3.0). Definition: `module.luau`; server part:
 - Hard rule 11 (luck on a paid roll needs `luckDisclosed` and the client shown that luck):
   Compliance for purchases / `spendForRoll`, LuckRule here for a `paid = true` table outside a
   purchase. The `roll` action checks capacity and the rule before anything is spent.
+- v1.6.0: `getOddsDetail(tableId, player?, luck?)`: a pure preview at exactly that (sanitized)
+  luck. Per-item luck: `discloseItem(player, tableId, itemKey, luck) -> boolean` /
+  `clearItem(player, tableId, itemKey)` (through `ctx.compliance.discloseItem`; every table
+  registers `oddsAt`), and `opts.item` on `roll` / `txApi.roll` / `purchaseOps.roll`. An item roll
+  uses exactly its luck (never session luck). Free: any luck. Paid: policy gate, then the item's
+  odds must have been sent at exactly the roll's luck (`odds_not_disclosed` otherwise), luck != 1
+  needs `luckDisclosed`. Cap: `Compliance.MAX_ITEM_DISCLOSURES` (64) per player, refuse, never
+  evict. Client: `read.itemOdds(state, tableId?, itemKey?)`. Example (an egg in an incubator):
+  `Rarity.discloseItem(player, "NestEgg", egg.id, egg.luck)` when the egg arrives, then in the
+  hatch product `tx.use(Rarity).roll("NestEgg", egg.luck, { item = egg.id })`, then `clearItem`.
+  Details: `docs/framework/kits/collection.md`.
 - Save section `rarity = { pity = { [tableId]: count } }` (the v1.2 field, unchanged; server-only).
 - Replicated `extra.odds` for tables with a cost, `paid` or `luckDisclosed` (luck-adjusted per
   player while their luck ~= 1 on a luckDisclosed table).
