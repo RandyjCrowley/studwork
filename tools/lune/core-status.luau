@@ -2,8 +2,10 @@
 --[[
 	tools/lune/core-status: every game's recorded core (deploy.json coreVersion/coreCommit, written
 	by tools/publish) against the current core, plus per target (test/live) whether the ids are
-	placeholders and whether that place is in sync with HEAD (PublishGate.syncStatus). Games
-	without a readable deploy.json are listed too. Exit 0 always; it is a report.
+	placeholders and whether that place is in sync with HEAD (PublishGate.syncStatus), and whether
+	its Rojo projects map the core v1.3.0 layout (Layout.luau: packages/framework + packages/kits,
+	nothing into packages/core). Games without a readable deploy.json are listed too. Exit 0
+	always; it is a report.
 ]]
 
 local fs = require("@lune/fs")
@@ -12,6 +14,7 @@ local serde = require("@lune/serde")
 local process = require("@lune/process")
 
 local CoreInfo = require("./core-info")
+local Layout = require("./Layout")
 local PublishGate = require("./PublishGate")
 
 local headResult = process.exec("git", { "rev-parse", "HEAD" })
@@ -20,15 +23,46 @@ local head = string.gsub(headResult.stdout, "%s+$", "")
 local currentVersion = CoreInfo.version()
 local currentCommit = CoreInfo.commit()
 
+local kits = {}
+for _, entry in fs.readDir(Layout.KITS_DIR) do
+	if fs.isDir(Layout.KITS_DIR .. "/" .. entry) then
+		table.insert(kits, entry)
+	end
+end
+table.sort(kits)
+
+-- "ok" or the number of layout issues over the game's *.project.json files (details printed below)
+local layoutDetails = {}
+local function layoutOf(entry: string): string
+	local dir = "games/" .. entry
+	local issues = {}
+	for _, file in fs.readDir(dir) do
+		if string.match(file, "%.project%.json$") then
+			local ok, project = pcall(serde.decode, "json", fs.readFile(dir .. "/" .. file))
+			for _, issue in (if ok then Layout.projectIssues(project, dir, kits) else { "not valid JSON" }) do
+				table.insert(issues, file .. ": " .. issue)
+			end
+		end
+	end
+	if #issues == 0 then
+		return "ok"
+	end
+	layoutDetails[entry] = issues
+	return string.format("%d issue(s)", #issues)
+end
+
 local rows = {}
 for _, entry in fs.readDir("games") do
 	local path = "games/" .. entry .. "/deploy.json"
 	if fs.isDir("games/" .. entry) and not fs.isFile(path) then
-		table.insert(rows, { entry, "-", "-", "no deploy.json", "-", "-", "-" })
+		table.insert(rows, { entry, "-", "-", "no deploy.json", "-", "-", "-", layoutOf(entry) })
 	elseif fs.isFile(path) then
 		local ok, deploy = pcall(serde.decode, "json", fs.readFile(path))
 		if not ok then
-			table.insert(rows, { entry, "-", "-", "deploy.json is not valid JSON", "-", "-", "-" })
+			table.insert(
+				rows,
+				{ entry, "-", "-", "deploy.json is not valid JSON", "-", "-", "-", layoutOf(entry) }
+			)
 		else
 			local version = deploy.coreVersion
 			local commit = deploy.coreCommit
@@ -58,6 +92,7 @@ for _, entry in fs.readDir("games") do
 				PublishGate.syncStatus(deploy, "test", head),
 				PublishGate.syncStatus(deploy, "live", head),
 				how,
+				layoutOf(entry),
 			})
 		end
 	end
@@ -67,9 +102,22 @@ table.sort(rows, function(a, b)
 end)
 
 print(
-	string.format("current core: %s (%s), HEAD %s\n", currentVersion, currentCommit, string.sub(head, 1, 7))
+	string.format(
+		"current core: StudWork %s (%s), HEAD %s",
+		currentVersion,
+		currentCommit,
+		string.sub(head, 1, 7)
+	)
 )
-local header = { "game", "coreVersion", "coreCommit", "core status", "test", "live", "last stamp" }
+print(string.format("framework: %s   kits: %s   ui: packages/ui", Layout.FRAMEWORK, table.concat(kits, ", ")))
+local function exists(path: string): boolean
+	return fs.isFile(path) or fs.isDir(path)
+end
+for _, issue in Layout.repoIssues(exists, kits) do
+	print("layout: " .. issue)
+end
+print("")
+local header = { "game", "coreVersion", "coreCommit", "core status", "test", "live", "last stamp", "layout" }
 local widths = {}
 for c, h in header do
 	widths[c] = #h
@@ -87,4 +135,9 @@ end
 line(header)
 for _, r in rows do
 	line(r)
+end
+for _, r in rows do
+	for _, issue in layoutDetails[r[1]] or {} do
+		print(string.format("  %s: %s", r[1], issue))
+	end
 end

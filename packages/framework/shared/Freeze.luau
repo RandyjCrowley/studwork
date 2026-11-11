@@ -12,16 +12,21 @@ local function isPlain(value: any): boolean
 end
 Freeze.isPlain = isPlain
 
-function Freeze.deepCopy(value: any): any
+local function deepCopy(value: any): any
 	if not isPlain(value) then
 		return value
 	end
-	local out = {}
+	-- table.clone copies every leaf at C speed (hot in every ctx.tx; benchmark fix); only
+	-- nested tables are then replaced by their own copies
+	local out = table.clone(value)
 	for k, v in value do
-		out[k] = Freeze.deepCopy(v)
+		if type(v) == "table" then
+			out[k] = deepCopy(v)
+		end
 	end
 	return out
 end
+Freeze.deepCopy = deepCopy
 
 -- Frozen deep copy (the read-view builder, same as v1.2 Data/ReadOnlyView.freezeCopy).
 function Freeze.freezeCopy(value: any): any
@@ -30,7 +35,7 @@ function Freeze.freezeCopy(value: any): any
 	end
 	local out = {}
 	for k, v in value do
-		out[k] = Freeze.freezeCopy(v)
+		out[k] = if type(v) == "table" then Freeze.freezeCopy(v) else v
 	end
 	return table.freeze(out)
 end
@@ -46,7 +51,7 @@ function Freeze.deepFreeze(value: any): any
 	return value
 end
 
-function Freeze.deepEqual(a: any, b: any): boolean
+local function deepEqual(a: any, b: any): boolean
 	if a == b then
 		return true
 	end
@@ -54,7 +59,8 @@ function Freeze.deepEqual(a: any, b: any): boolean
 		return false
 	end
 	for k, v in a do
-		if not Freeze.deepEqual(v, b[k]) then
+		local w = b[k]
+		if v ~= w and (type(v) ~= "table" or type(w) ~= "table" or not deepEqual(v, w)) then
 			return false
 		end
 	end
@@ -65,6 +71,97 @@ function Freeze.deepEqual(a: any, b: any): boolean
 	end
 	return true
 end
+Freeze.deepEqual = deepEqual
+
+--[[
+	Structural sharing at commit (core-v1.3.0 Phase 2 step 7, benchmark fix). `new` is a
+	transaction's working copy (a fresh deep copy the transaction owns), `old` the committed value.
+	Returns (value, changed): `old` itself when the two are deep-equal, else `new` with every
+	deep-equal subtree replaced by the committed one, so unchanged subtrees keep their identity.
+	One walk, no allocation (same cost as deepEqual). Frozen tables inside `new` (a module may
+	store a frozen read view in its section) are never written to.
+]]
+-- returns `old` when deep-equal (so "changed" is simply result ~= old), else `new`. Both are
+-- plain tables (checked by the caller); kept lean because it runs on every commit.
+local function shareInto(new: any, old: any): any
+	local changed = false
+	local writable: boolean? = nil
+	for k, v in new do
+		local o = old[k]
+		if v ~= o then
+			if not changed or (type(v) == "table" and type(o) == "table") then
+				if
+					type(v) == "table"
+					and type(o) == "table"
+					and getmetatable(v) == nil
+					and getmetatable(o) == nil
+				then
+					if shareInto(v, o) ~= o then
+						changed = true
+					else
+						if writable == nil then
+							writable = not table.isfrozen(new)
+						end
+						if writable then
+							new[k] = o -- assigning an existing key while iterating is allowed
+						end
+					end
+				else
+					changed = true
+				end
+			end
+		end
+	end
+	if not changed then
+		for k in old do
+			if new[k] == nil then
+				return new
+			end
+		end
+		return old
+	end
+	return new
+end
+
+local function share(new: any, old: any): (any, boolean)
+	if new == old then
+		return old, false
+	end
+	if not isPlain(new) or not isPlain(old) then
+		return new, true
+	end
+	local v = shareInto(new, old)
+	return v, v ~= old
+end
+Freeze.share = share
+
+--[[
+	Frozen deep copy that reuses the previous one (core-v1.3.0 Phase 2 step 7, benchmark fix).
+	`prevSource` is the committed table the frozen `prevView` was built from. Any subtree of `value`
+	that is still the very same table as in prevSource is returned as prevView's frozen subtree
+	without a walk, so a view rebuilt after a commit only copies the tables the commit replaced
+	(Freeze.share keeps every unchanged subtree's identity) and charm-sync's diff skips the reused
+	ones by reference.
+	Only valid while committed tables are never mutated in place: every framework write to a
+	committed section replaces the tables on the path it changes (Data.beforeSave, Store.saveNow).
+]]
+local function freezeShared(value: any, prevSource: any, prevView: any): any
+	if not isPlain(value) then
+		return value
+	end
+	if value == prevSource and prevView ~= nil then
+		return prevView
+	end
+	local ps = if type(prevSource) == "table" and type(prevView) == "table" then prevSource else nil
+	local out = table.clone(value)
+	for k, v in value do
+		if type(v) == "table" then
+			out[k] = if ps then freezeShared(v, ps[k], prevView[k]) else freezeShared(v, nil, nil)
+		end
+	end
+	return table.freeze(out)
+end
+Freeze.freezeShared = freezeShared
 
 local function isArray(t: any): boolean
 	if not isPlain(t) then

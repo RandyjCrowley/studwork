@@ -13,8 +13,9 @@
 	    },
 	  }
 	  data   the fields in the module's data.replicate list (minus serverOnly) from ITS section,
-	         copied (Snapshot.copy: wire-safe) only when that section's version moved (M2: an
-	         unchanged section is the SAME table as last send, so charm-sync's diff skips it);
+	         copied (Snapshot.copyShared: wire-safe, reusing the last copy of unchanged subtrees)
+	         only when that section's version moved (M2: an unchanged section is the SAME table as last send, so
+	         charm-sync's diff skips it; v1.3: so is every unchanged subtree of a changed one);
 	  extra  ctx.replicate.set(player, key, value) / setAll(key, value), namespaced to the module.
 	ctx.replicate.sent(player, key) -> the value of that key in the state last handed to the
 	transport for this player (nil = never sent): StateSync is reliable and ordered, so the client
@@ -123,13 +124,16 @@ function Replication.new(opts: any): any
 					local picked: { [string]: any } = {}
 					if type(view) == "table" then
 						for _, f in spec.fields do
-							local copied = Snapshot.copy(view[f])
+							-- reuse the last copy of every unchanged subtree (benchmark fix)
+							local copied = if cache and type(cache.view) == "table"
+								then Snapshot.copyShared(view[f], cache.view[f], cache.data[f])
+								else Snapshot.copy(view[f])
 							if copied ~= nil then
 								picked[f] = copied
 							end
 						end
 					end
-					cache = { version = version, data = picked }
+					cache = { version = version, data = picked, view = view }
 					entry.caches[spec.name] = cache
 				end
 				m.data = cache.data

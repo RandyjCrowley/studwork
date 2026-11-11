@@ -85,6 +85,70 @@ function Snapshot.copy(value: any): any
 	return copyValue(value, 1)
 end
 
+--[[
+	Snapshot.copyShared(view, prevView, prevCopy) (core-v1.3.0 Phase 2 step 7, benchmark fix): the
+	same wire-safe copy, for FROZEN read views (Data.view). A frozen table cannot change, so any
+	subtree of `view` that is the very same table as in `prevView` (the view the last copy was made
+	from) reuses prevCopy's subtree: views share every unchanged subtree with the last view
+	(Freeze.freezeShared), so only the replaced tables are copied and charm-sync's diff skips the
+	rest by reference. Non-frozen tables are copied as Snapshot.copy does.
+]]
+local function copySharedValue(value: any, depth: number, prevView: any, prevCopy: any): any
+	if type(value) ~= "table" or not table.isfrozen(value) or depth > MAX_DEPTH then
+		return copyValue(value, depth)
+	end
+	if value == prevView and prevCopy ~= nil then
+		return prevCopy
+	end
+	local pv = if type(prevView) == "table" and type(prevCopy) == "table" then prevView else nil
+	if isDenseArray(value) then
+		local list: { any } = {}
+		local complete = true
+		for index, item in ipairs(value) do
+			local copied = copySharedValue(
+				item,
+				depth + 1,
+				if pv then pv[index] else nil,
+				if pv then prevCopy[index] else nil
+			)
+			if copied == nil then
+				complete = false
+				break
+			end
+			list[index] = copied
+		end
+		if complete then
+			return list
+		end
+	end
+	local out: { [string]: any } = {}
+	for key, item in value do
+		local keyType = type(key)
+		local wireKey: string? = nil
+		if keyType == "string" then
+			wireKey = key
+		elseif keyType == "number" and isFinite(key) then
+			wireKey = tostring(key)
+		end
+		if wireKey ~= nil then
+			local copied = copySharedValue(
+				item,
+				depth + 1,
+				if pv then pv[key] else nil,
+				if pv then prevCopy[wireKey] else nil
+			)
+			if copied ~= nil then
+				out[wireKey] = copied
+			end
+		end
+	end
+	return out
+end
+
+function Snapshot.copyShared(view: any, prevView: any, prevCopy: any): any
+	return copySharedValue(view, 1, prevView, prevCopy)
+end
+
 local function bool(value: any, default: boolean): boolean
 	if type(value) == "boolean" then
 		return value

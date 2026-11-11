@@ -2,8 +2,10 @@
 # tools/doctor: check the dev environment. One line per check, with a fix hint:
 #   toolchain versions vs rokit.toml, Wally packages vs deps/wally.toml, the pre-commit hook
 #   (core.hooksPath), .env keys from .env.example (present/missing only, never values), and each
-#   game's Rojo serve port (free / in use, via lsof).
-# Exit 1 when a check FAILs (toolchain, packages, hook); .env and ports are warnings only.
+#   game's Rojo serve port (free / in use, via lsof), the core v1.3.0 layout (packages/framework
+#   with StudWork.VERSION, packages/kits/<kit>/{shared,server}, no packages/core) and every Rojo
+#   project's Framework/Kits mapping (tools/lune/Layout.luau).
+# Exit 1 when a check FAILs (toolchain, packages, hook, layout); .env and ports are warnings only.
 source "$(dirname "$0")/_common.sh"
 
 lune run tools/lune/doctor

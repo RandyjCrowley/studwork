@@ -24,7 +24,8 @@
 	    step overlaps a sync; same method for all variants. Samples cost ~50 calls/tick and are
 	    inside the timed region for every variant.
 
-	Usage: lune run tools/lune/bench/replication [runs]   (default 5 runs; prints a markdown table)
+	Usage: lune run tools/lune/bench/replication [runs] [variant...]   (default 5 runs, every
+	variant; prints a markdown table with the median and the min-max spread over the runs)
 ]]
 
 local fs = require("@lune/fs")
@@ -246,13 +247,15 @@ variants.MERGED = function(players)
 		assert(data.load(player), "bench: framework Data.load failed")
 		runtimes[p] = { data = data, player = player }
 	end
-	local function sync(i, p)
+	local function sync(i, p, modulesOnly: boolean?)
 		local rt = runtimes[p]
 		local new = { data = {}, extra = EXTRA, shared = shared }
 		for _, key in SECTION_KEYS do
 			new.data[key] = rt.data.view(rt.player, key)
 		end
-		new.data._framework = rt.data.view(rt.player, "_framework")
+		if not modulesOnly then
+			new.data._framework = rt.data.view(rt.player, "_framework")
+		end
 		local d = diff(last[i], new)
 		last[i] = new
 		return d, new
@@ -269,7 +272,96 @@ local tickFns = {
 	end,
 }
 
-local ORDER = { "BEFORE", "AFTER", "AFTER-STUB", "MERGED" }
+-- MERGED-V13 (core-v1.3.0 Phase 2 step 7): MERGED in the shape v1.3 code actually has. No kit
+-- writes `_framework` on the income tick (v1.2's `stats` counter moved into `_framework` next to
+-- the 200 purchase receipts, and nothing ticks it), and Replication sends module sections only
+-- (never `_framework`). So the tick touches `economy` and the snapshot holds the module sections.
+variants["MERGED-V13"] = function(players)
+	local sync = variants.MERGED(players)
+	return function(i, p)
+		local d, new = sync(i, p, true)
+		return d, new
+	end
+end
+tickFns["MERGED-V13"] = function(p: FakePlayer, tick: number)
+	local rt = runtimes[p]
+	rt.data.runTx(rt.player, function(tx)
+		rt.data.section(tx, "economy").currency.Coins += 10 + tick
+	end)
+end
+
+-- KITS (core-v1.3.0 Phase 2 step 7): the whole framework through the REAL kit modules, booted
+-- with StudWork.test.harness: Items + Rarity + Inventory + Economy (income.source = "owned", so
+-- the rate is summed over Inventory.list's frozen views) + Upgrades + Rebirth + Offline. Each
+-- player owns ITEMS items (Inventory.add). One tick = h:tick(1): the shared ticker pays income
+-- (one ctx.data.update per player), Replication rebuilds every dirty player's state from the
+-- frozen section views; then charm-sync's real diff runs on each player's new state.
+local kitHarness: any = nil
+variants.KITS = function(players)
+	Harness.mapGame(nil)
+	local ReplicatedStorage = Harness.game:GetService("ReplicatedStorage")
+	local StudWork = Harness.require(ReplicatedStorage.Framework)
+	local Kits = ReplicatedStorage.Kits
+	local function kit(k, m)
+		return Harness.require(Kits[k][m])
+	end
+	local Inventory = kit("Collection", "Inventory")
+	local items = {}
+	for n = 0, 24 do
+		table.insert(items, {
+			id = "item" .. n,
+			name = "Item " .. n,
+			rarity = RARITIES[1 + n % #RARITIES],
+			economy = { incomePerSec = 1 + n },
+		})
+	end
+	local h = StudWork.test.harness({
+		modules = {
+			kit("Collection", "Items"),
+			kit("Collection", "Rarity"),
+			Inventory,
+			kit("Economy", "Economy"),
+			kit("Economy", "Upgrades"),
+			kit("Economy", "Rebirth"),
+			kit("Economy", "Offline"),
+		},
+		items = items,
+		config = {
+			Economy = {
+				primaryCurrency = "Coins",
+				startingCurrency = { Coins = 0 },
+				income = { tickSeconds = 1, source = "owned" },
+			},
+			Inventory = { inventory = { cap = ITEMS + 10 } },
+		},
+	})
+	kitHarness = h
+	local inv = h:use(Inventory)
+	for i, p in players do
+		local player = h:addPlayer({ userId = i })
+		for n = 1, ITEMS do
+			assert(inv.add(player, "item" .. (n % 25)), "bench: Inventory.add failed")
+		end
+		h:fire(player, "StateInit") -- the client asked for its state: Replication sends to it
+		runtimes[p] = { player = player }
+	end
+	h:tick(1) -- settle: rates computed, first states built
+	local last = {}
+	return function(i, p)
+		local new = h.fake.synced[runtimes[p].player]
+		local d = diff(last[i], new)
+		last[i] = new
+		return d, new
+	end
+end
+-- the framework tick runs once for all players (first player of the tick only)
+tickFns.KITS = function(p: FakePlayer, _tick: number)
+	if runtimes[p].player.UserId == 1 then
+		kitHarness:tick(1)
+	end
+end
+
+local ORDER = { "BEFORE", "AFTER", "AFTER-STUB", "MERGED", "MERGED-V13", "KITS" }
 
 local function median(list: { number }): number
 	local s = table.clone(list)
@@ -339,7 +431,8 @@ local function runOnce(name: string)
 			prevSnaps[i] = snaps[i]
 		end
 		table.insert(freshTicks, fresh)
-		local lastPatch = { data = patches[PLAYERS] and patches[PLAYERS].data }
+		local lp = patches[PLAYERS]
+		local lastPatch = { data = lp and (lp.data or lp.modules) }
 		if patchKeys == nil then
 			local keys = {}
 			for k in lastPatch.data or {} do
@@ -349,7 +442,25 @@ local function runOnce(name: string)
 			patchKeys = table.concat(keys, ",")
 		end
 	end
-	return median(msTicks), median(kbTicks), median(freshTicks), patchKeys
+	local total = 0
+	for _, ms in msTicks do
+		total += ms
+	end
+	return median(msTicks), median(kbTicks), median(freshTicks), patchKeys, total / #msTicks
+end
+
+local wanted = {}
+for i = 2, #process.args do
+	wanted[process.args[i]] = true
+end
+if next(wanted) ~= nil then
+	local filtered = {}
+	for _, name in ORDER do
+		if wanted[name] then
+			table.insert(filtered, name)
+		end
+	end
+	ORDER = filtered
 end
 
 local results = {}
@@ -358,7 +469,9 @@ for _, name in ORDER do
 end
 for _ = 1, RUNS do
 	for _, name in ORDER do
-		local ms, kb, fresh, keys = runOnce(name)
+		local ms, kb, fresh, keys, mean = runOnce(name)
+		results[name].mean = results[name].mean or {}
+		table.insert(results[name].mean, mean)
 		table.insert(results[name].ms, ms)
 		table.insert(results[name].kb, kb)
 		table.insert(results[name].fresh, fresh)
@@ -376,15 +489,22 @@ print(
 	)
 )
 print("")
-print("| variant | ms / tick | new tables / tick | KB allocated / tick | data keys in a tick's patch |")
-print("|---|---:|---:|---:|---|")
+print(
+	"| variant | ms / tick (median) | spread (min-max of runs) | ms / tick (mean, incl. GC steps) | new tables / tick | KB allocated / tick | data keys in a tick's patch |"
+)
+print("|---|---:|---:|---:|---:|---:|---|")
 for _, name in ORDER do
 	local r = results[name]
+	local sorted = table.clone(r.ms)
+	table.sort(sorted)
 	print(
 		string.format(
-			"| %s | %.3f | %d | %.1f | %s |",
+			"| %s | %.3f | %.3f-%.3f | %.3f | %d | %.1f | %s |",
 			name,
 			median(r.ms),
+			sorted[1],
+			sorted[#sorted],
+			median(r.mean),
 			median(r.fresh),
 			median(r.kb),
 			r.keys or "-"

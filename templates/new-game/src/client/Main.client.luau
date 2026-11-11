@@ -1,9 +1,13 @@
 --!strict
 --[[
-	Sandbox client: StudWork.start(Config), the framework HUD (StudWork.Client.Hud), and a small
-	action bar built from the UI kit (upgrade, chest roll, Robux egg roll with its odds table,
-	rebirth), driving the kit modules' client actions (StudWork.use(X).actions.y, §9) and reading
-	their replicated slices (StudWork.use(X).state(), §10).
+	The game's client: StudWork.start(Config), the framework HUD (StudWork.Client.Hud), and a
+	small action bar built from the UI kit, driving the kit modules' client actions
+	(StudWork.use(X).actions.y, §9) and reading their replicated slices (StudWork.use(X).state(),
+	§10). Its buttons (tools/new-game keeps the lines of the modules you chose):
+	  - upgrade (Upgrades) -- @if Upgrades
+	  - chest roll for Coins and the Robux egg roll, each with its odds table (Rarity) -- @if Rarity
+	  - rebirth (Rebirth) -- @if Rebirth
+	  - the mailbox (Mail): claim waiting gifts -- @if Mail
 
 	Paid random items: the odds the server discloses (Rarity's replicated `odds`) are shown for
 	both the Chest and the Robux egg before rolling/buying, and players whose policy restricts

@@ -1,13 +1,17 @@
 --!strict
 --[[
-	Sandbox server module (the game's implicit module, module-api.md §7 C4). What
-	src/server/Main.server.luau did under v1.2, through ctx only:
-	  - Collect: touching the block rolls the free "Block" table (Rarity), counts blockTouches in
-	    the sandbox's own section, funnel FirstCollect; FirstUpgrade / FirstRebirth from signals
-	  - Offline / Streak / Friends hooks (prints), live events CoinRain and SecretDrop
-	  - Robux products EggRoll (paid roll of "Egg"; a restricted player gets a fixed crystal) and
-	    CoinPack, the DoubleCoins pass, the "gift" mail kind
-	  - Studio console (StudWorkConsole): `sandbox giftme [itemId]`, `sandbox fill`, `sandbox free`
+	The game's server module (the game's implicit module, module-api.md §7 C4). What
+	src/server/Main.server.luau did under v1.2, through ctx only (tools/new-game keeps the lines
+	of the modules you chose):
+	  - Collect: touching the block rolls the free "Block" table (Rarity), counts blockTouches in -- @if Rarity
+	    the game's own section, funnel FirstCollect -- @if Rarity
+	  - funnel steps FirstUpgrade / FirstRebirth from the kit signals -- @if Upgrades|Rebirth
+	  - Offline / Streak / Friends hooks (prints) -- @if Offline|Streak|Friends
+	  - live events CoinRain (Economy) and SecretDrop (Inventory) -- @if Economy|Inventory
+	  - Robux product EggRoll (paid roll of "Egg"; a restricted player gets a fixed crystal) -- @if Rarity,Inventory
+	  - Robux product CoinPack and the DoubleCoins pass -- @if Economy
+	  - the "gift" mail kind -- @if Mail
+	  - Studio console (StudWorkConsole): `giftme [itemId]` (Mail), `fill`, `free` (Inventory) -- @if Inventory|Mail
 ]]
 
 local Players = game:GetService("Players")

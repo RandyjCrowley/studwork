@@ -8,6 +8,11 @@
 	  hook       git core.hooksPath = .githooks and .githooks/pre-commit exists  (FAIL)
 	  .env       each key of .env.example: present / missing (NEVER the value)   (WARN)
 	  ports      each game's servePort: free or in use (lsof)                    (WARN)
+	  framework  the core v1.3.0 layout (Layout.luau): packages/framework/{shared,server,client},
+	             StudWork.VERSION, packages/kits/<kit>/{shared,server}, no packages/core   (FAIL)
+	  projects   every games/*/*.project.json and templates/new-game maps Framework,
+	             FrameworkClient and each kit it lists to that layout, nothing into
+	             packages/core                                                   (FAIL)
 ]]
 
 local fs = require("@lune/fs")
@@ -15,6 +20,8 @@ local process = require("@lune/process")
 local serde = require("@lune/serde")
 
 local Doctor = require("./DoctorChecks")
+local Layout = require("./Layout")
+local CoreInfo = require("./core-info")
 
 local rows = {}
 local function add(level, item, detail, fix)
@@ -138,6 +145,63 @@ for _, entry in entries do
 			end
 		end
 	end
+end
+
+-- framework layout (core v1.3.0: StudWork in packages/framework, kits in packages/kits)
+local kits = {}
+if fs.isDir(Layout.KITS_DIR) then
+	for _, entry in fs.readDir(Layout.KITS_DIR) do
+		if fs.isDir(Layout.KITS_DIR .. "/" .. entry) then
+			table.insert(kits, entry)
+		end
+	end
+end
+table.sort(kits)
+local function exists(path: string): boolean
+	return fs.isFile(path) or fs.isDir(path)
+end
+local layoutIssues = Layout.repoIssues(exists, kits)
+for _, issue in layoutIssues do
+	local fix = if string.find(issue, "still exists", 1, true)
+		then "delete it (git rm -r): its code lives in packages/framework and packages/kits since core v1.3.0"
+		else "restore it from git (git status / git checkout -- <path>)"
+	add("fail", "framework layout", issue, fix)
+end
+if #layoutIssues == 0 then
+	local okVersion, version = pcall(CoreInfo.version)
+	if okVersion then
+		add("ok", "framework", string.format("StudWork %s, kits: %s", version, table.concat(kits, ", ")))
+	else
+		add("fail", "framework", tostring(version), "restore packages/framework/shared/init.luau")
+	end
+end
+
+-- every Rojo project maps the v1.3 layout
+local projects = {}
+for _, entry in entries do
+	local dir = "games/" .. entry
+	if fs.isDir(dir) then
+		for _, file in fs.readDir(dir) do
+			if string.match(file, "%.project%.json$") then
+				table.insert(projects, { dir = dir, file = dir .. "/" .. file })
+			end
+		end
+	end
+end
+table.insert(projects, { dir = "templates/new-game", file = "templates/new-game/default.project.json" })
+local badProjects = 0
+for _, proj in projects do
+	if fs.isFile(proj.file) then
+		local ok, decoded = pcall(serde.decode, "json", fs.readFile(proj.file))
+		local issues = if ok then Layout.projectIssues(decoded, proj.dir, kits) else { "not valid JSON" }
+		for _, issue in issues do
+			badProjects += 1
+			add("fail", "project " .. proj.file, issue, "map it like templates/new-game/default.project.json")
+		end
+	end
+end
+if badProjects == 0 then
+	add("ok", "rojo projects", string.format("%d map packages/framework + packages/kits", #projects))
 end
 
 local text, failures = Doctor.format(rows)
