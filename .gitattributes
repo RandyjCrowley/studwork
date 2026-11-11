@@ -1,0 +1,28 @@
+# Normalise every text file to LF in the repository and the working tree.
+* text=auto eol=lf
+
+# Shell scripts must stay LF even on Windows checkouts.
+*.sh text eol=lf
+tools/* text eol=lf
+.githooks/* text eol=lf
+
+# Binary files: never touch line endings, never diff as text.
+*.rbxl binary
+*.rbxm binary
+*.rbxlx binary
+*.rbxmx binary
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.gif binary
+*.webp binary
+*.ico binary
+*.ogg binary
+*.mp3 binary
+*.wav binary
+*.ttf binary
+*.otf binary
+*.zip binary
+
+# Lock files: generated.
+*.lock linguist-generated=true

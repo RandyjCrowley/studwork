@@ -1,0 +1,53 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      # Installs Rokit, puts ~/.rokit/bin on PATH and runs `rokit install` for rokit.toml.
+      - name: Set up Rokit (toolchain from rokit.toml)
+        uses: CompeyDev/setup-rokit@1d9390883f7ebce19d48f5b8d006e11d387c92ab # v0.2.1
+        with:
+          token: ${{ github.token }}
+
+      # tools/test runs tools/test-games-repo, which makes commits in a throwaway repo.
+      - name: Git identity for test commits
+        run: |
+          git config --global user.name "CI"
+          git config --global user.email "ci@studwork.invalid"
+          git config --global init.defaultBranch main
+
+      - name: Install (Wally packages into deps/, pre-commit hook)
+        run: tools/install
+
+      - name: Lint
+        run: tools/lint
+
+      - name: Type check
+        run: tools/typecheck --all
+
+      - name: Tests
+        run: tools/test
+
+      - name: Multi-server simulation
+        run: tools/test-sim
+
+      - name: Build
+        run: tools/build --all
