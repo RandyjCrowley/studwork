@@ -118,28 +118,14 @@ local function itemsAdapter(api: any): any
 	}
 end
 
-local function inventoryAdapter(rt: any, api: any, txApi: any, extensions: any): any
+local function inventoryAdapter(rt: any, api: any, txApi: any, _extensions: any): any
 	local Util = kitServer("Util")
 	local InventoryRules = kitServer("Inventory", "InventoryRules")
 
 	forward({ "ItemAdded", "ItemRemoved" }, rt, api)
 
-	-- bridged Upgrades' inventoryCap effect (remove once Upgrades is a real module)
-	local upgradesRef = refNamed(rt, "Upgrades")
-	if upgradesRef ~= nil then
-		local cfg = rt.configs and rt.configs.Upgrades
-		local upgrades = if type(cfg) == "table" then cfg.upgrades else nil
-		local ok, err = pcall(extensions.capBonus, "Upgrades", function(player: any): number
-			local upgradesApi = rt.apis[upgradesRef]
-			return InventoryRules.capacity(0, upgrades, function(id: string): number
-				local okLevel, level = pcall(upgradesApi.level, player, id)
-				return if okLevel and type(level) == "number" then level else 0
-			end)
-		end)
-		if not ok then
-			rt.logSink("warn", "[Compat.Collection] Upgrades cap bonus not registered: " .. tostring(err))
-		end
-	end
+	-- (the Upgrades cap bonus is registered by the real Upgrades module itself since Phase 1
+	-- integration; the bridged-Upgrades shim that lived here is gone)
 
 	local function itemsApi(): any
 		local ref = refNamed(rt, "Items")

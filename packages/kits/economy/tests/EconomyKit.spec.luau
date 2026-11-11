@@ -232,10 +232,17 @@ describe("Economy kit: Upgrades and Rebirth", function()
 		for _, item in Inventory.list(p) do
 			Inventory.remove(p, item.uid, "test") -- start from an empty inventory
 		end
-		local paid = Inventory.add(p, "crystal", { source = "paid:EggRoll" })
-		local paidcur = Inventory.add(p, "acorn", { source = "paidcur:Chest" })
+		-- Seed the save directly (a copy bought / rolled earlier): the real Inventory refuses a
+		-- caller-supplied paid:/paidcur: source outside a purchase or Compliance roll (M5), and the
+		-- sandbox's product ids are 0, so the sim can't route a receipt to EggRoll.
+		local now = os.time()
+		local paid = { uid = "seed-paid", itemId = "crystal", source = "paid:EggRoll", acquiredAt = now }
+		local paidcur = { uid = "seed-paidcur", itemId = "acorn", source = "paidcur:Chest", acquiredAt = now }
 		local earned = Inventory.add(p, "twig", { source = "drop" })
 		server.runtime.data.runTx(p, function(tx)
+			local inv = server.runtime.data.section(tx, "inventory").inventory
+			inv[paid.uid] = table.clone(paid)
+			inv[paidcur.uid] = table.clone(paidcur)
 			server.runtime.data.section(tx, "plot").displayed.slot01 = paid.uid
 		end)
 		expect(Rebirth.canRebirth(p)).toBe(false)

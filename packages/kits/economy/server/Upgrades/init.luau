@@ -31,6 +31,9 @@ local UpgradeMath = require(script.UpgradeMath)
 local EconomyKit = ReplicatedStorage:WaitForChild("Kits"):WaitForChild("Economy")
 local EconomyRef = require(EconomyKit:WaitForChild("Economy")) :: any
 local RebirthRef = require(EconomyKit:WaitForChild("Rebirth")) :: any
+local InventoryRef = require(
+	ReplicatedStorage:WaitForChild("Kits"):WaitForChild("Collection"):WaitForChild("Inventory")
+) :: any
 
 local MAX_ID_LENGTH = 64
 
@@ -165,6 +168,13 @@ function Upgrades.new(): any
 			end
 			return out
 		end)
+		-- "inventoryCap" upgrades: Inventory.cap = base + Σ capBonus (Phase 1 integration glue;
+		-- replaces the Collection compat adapter's shim over the bridged Upgrades)
+		if ctx.isEnabled(InventoryRef) then
+			ctx.depsExt[InventoryRef].capBonus("Upgrades", function(player: any): number
+				return UpgradeMath.capBonus(ctx.config.upgrades, levels(player))
+			end)
+		end
 		if ctx.isEnabled(RebirthRef) then
 			ctx.depsExt[RebirthRef].resetStep("Upgrades", function(tx: any, _player: any)
 				local s = ctx.section(tx)
