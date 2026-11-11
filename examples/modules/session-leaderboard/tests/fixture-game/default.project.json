@@ -1,0 +1,58 @@
+{
+  "name": "session-leaderboard-fixture",
+  "globIgnorePaths": ["**/*.spec.luau", "**/README.md", "**/*.blink"],
+  "tree": {
+    "$className": "DataModel",
+    "ReplicatedStorage": {
+      "Packages": { "$path": "../../../../../deps/Packages" },
+      "Core": { "$path": "../../../../../packages/core/shared" },
+      "FrameworkClient": { "$path": "../../../../../packages/framework/client" },
+      "Framework": { "$path": "../../../../../packages/framework/shared" },
+      "Kits": {
+        "$className": "Folder",
+        "Collection": { "$path": "../../../../../packages/kits/collection/shared" },
+        "Economy": { "$path": "../../../../../packages/kits/economy/shared" },
+        "Base": { "$path": "../../../../../packages/kits/base/shared" },
+        "Social": { "$path": "../../../../../packages/kits/social/shared" },
+        "Engagement": { "$path": "../../../../../packages/kits/engagement/shared" }
+      },
+      "UI": { "$path": "../../../../../packages/ui" },
+      "Game": { "$path": "src/shared" },
+      "CompatShared": { "$path": "../../../../../packages/kits/compat/shared" },
+      "GameModule": {
+        "$className": "Folder",
+        "module": { "$path": "game-module/module.luau" }
+      },
+      "Modules": {
+        "$className": "Folder",
+        "SessionLeaderboard": {
+          "$className": "Folder",
+          "module": { "$path": "../../module.luau" },
+          "client": { "$path": "../../client" }
+        }
+      }
+    },
+    "ServerScriptService": {
+      "Compat": { "$path": "../../../../../packages/kits/compat" },
+      "Framework": { "$path": "../../../../../packages/framework/server" },
+      "Kits": {
+        "$className": "Folder",
+        "Collection": { "$path": "../../../../../packages/kits/collection/server" },
+        "Economy": { "$path": "../../../../../packages/kits/economy/server" },
+        "Base": { "$path": "../../../../../packages/kits/base/server" },
+        "Social": { "$path": "../../../../../packages/kits/social/server" },
+        "Engagement": { "$path": "../../../../../packages/kits/engagement/server" }
+      },
+      "Game": { "$path": "src/server" },
+      "Modules": {
+        "$className": "Folder",
+        "LeaderboardFixture": { "$path": "game-module/server" },
+        "SessionLeaderboard": { "$path": "../../server" }
+      }
+    },
+    "ServerStorage": {
+      "ServerPackages": { "$path": "../../../../../deps/ServerPackages" },
+      "Vendor": { "$path": "../../../../../packages/vendor" }
+    }
+  }
+}
