@@ -29,6 +29,9 @@
 	      The currency module (Economy) hands Compliance its spend for a paid currency. One owner per
 	      currency. Only Compliance calls it.
 	  isPaidCurrency(currency) -> boolean, paidCurrencies() -> { string }   (added in step 4b)
+	Boot rule (module-api.md §19.10, added in core-v1.3.1: R20): once every module has run init and
+	start, every currency in GameConfig.compliance.paidCurrencies must have a registered spender;
+	the runtime calls c.assertSpenders() and boot fails (closed) naming the first one that has none.
 	  tagPaid(tx, reason?) -> string                                       (step 4b: takes the tx)
 	  tagPaid(sourceId) -> "paidcur:<sourceId>"   §14's frozen form, for a registered source
 	      "paid:<product>" inside a purchase, "paidcur:<sourceId>" after a spendForRoll in this tx,
@@ -78,6 +81,19 @@ function Compliance.new(opts: any): any
 	local spenders: { [string]: { owner: string, fn: (any, number, string) -> boolean } } = {}
 
 	local c: any = {}
+
+	-- R20 (core-v1.3.1): a paid currency nobody can spend through Compliance is a config error,
+	-- not a runtime surprise. Called by the server runtime after every module's init + start.
+	function c.assertSpenders()
+		for _, currency in paidList do
+			if spenders[currency] == nil then
+				error(
+					`compliance.paidCurrencies lists '{currency}', but no enabled module registered a spender for it (ctx.compliance.registerCurrencySpender); enable the module that owns '{currency}' or remove it from the list`,
+					0
+				)
+			end
+		end
+	end
 
 	local function meta(tx: any): any
 		if not data.isTxHandle(tx) then

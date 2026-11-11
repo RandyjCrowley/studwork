@@ -48,8 +48,18 @@ uid, slotId?) -> (ok, reason?)` (`no_plot`, `not_owned`, `already_displayed`, `n
 
 ## Client actions
 
-`display(uid, slotId?)`, `clearDisplay(uid)`: they act on the sender's own plot only and check
-the uid is in the sender's inventory.
+`StudWork.use(Plot).actions.display(uid, slotId?)`, `.clearDisplay(uid)`: they act on the sender's
+own plot only and check the uid is in the sender's inventory. Since core-v1.3.1 (R19) they are
+module actions (module-api.md §9) on Plot's own `net.blink` (`RemoteScope = "STUDWORK_PLOT"`):
+
+| Action | Blink event | Wire types | Limit (per player) |
+|---|---|---|---|
+| `display` | `Display` | `(Id, Id?)` (`Id = string(1..64)`) | 8/s, burst 16 |
+| `clearDisplay` | `ClearDisplay` | `Id` | 8/s, burst 16 |
+
+They replace the framework events `RequestDisplay` / `RequestClearDisplay` (same wire types, same
+limits). The handler re-checks argument types (also when called with `h:action` in tests) and
+returns `display`'s `(ok, reason?)` / `clearDisplay`'s boolean.
 
 ## Replicated
 

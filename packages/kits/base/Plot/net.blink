@@ -1,0 +1,27 @@
+-- Plot's client -> server messages (Blink IDL, compiled with `tools/net`; module-api.md §9, §19.9).
+-- core-v1.3.1 (R19): moved out of the framework's framework.blink (were RequestDisplay /
+-- RequestClearDisplay, same wire types). Each event backs the server part's action of the same
+-- (PascalCase) name; the server part still validates type, ownership and slot rules.
+
+option RemoteScope = "STUDWORK_PLOT"
+option Casing = Pascal
+option ServerOutput = "server/Net.luau"
+option ClientOutput = "client/Net.luau"
+
+type Id = string(1..64)
+
+-- Put an owned item on the plot. (uid, slotId?)
+event Display {
+    From: Client,
+    Type: Reliable,
+    Call: SingleAsync,
+    Data: (Id, Id?)
+}
+
+-- Remove an item from the plot. (uid)
+event ClearDisplay {
+    From: Client,
+    Type: Reliable,
+    Call: SingleAsync,
+    Data: Id
+}

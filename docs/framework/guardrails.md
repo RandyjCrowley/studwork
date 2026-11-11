@@ -49,12 +49,25 @@ What is **enforced** by the framework, for every module including third-party on
   currency errors; its `api.spend` does too once the Economy rewrite lands (PHASE1-CONTRACT.md;
   the bridged v1.2 `spend` keeps its v1.2 behaviour until then). There is no "free roll" escape: a
   genuinely free reward calls `roll`.
+- Every currency in `GameConfig.compliance.paidCurrencies` has a spender (core-v1.3.1, R20; was
+  guided): once every module has run `init` and `start`, boot fails closed if a listed currency
+  has no spender registered through `ctx.compliance.registerCurrencySpender` ("compliance.paidCurrencies
+  lists 'Gems', but no enabled module registered a spender for it ..."). A paid currency can no
+  longer be listed while `spendForRoll` / `spendPaid` would error on every call because its owner
+  isn't enabled. What this checks is that *a* spender exists, one per currency (a second
+  registration errors); not which module registered it, nor that the spender debits the right
+  balance (module-api.md §19.10).
 - Luck on a paid roll is refused unless the source discloses luck and that player was sent exactly
   those odds (`ctx.replicate.sent`).
 - Unknown policy: retried later inside a purchase, refused outside. Restricted: refused with
   `"restricted"`; grant a fixed non-random fallback.
 
 What can **only be guided**:
+
+- A module that keeps a paid currency's balance in its own data section can still debit it
+  directly, without going through its registered spender / `spendForRoll` (Economy's own
+  `txApi.spend` refuses, but the framework can't see a third-party module writing its own section).
+  The boot check only proves a spender exists; that residual of R20 stays guided (docs, review).
 
 - Module code can still invent randomness outside these APIs (`math.random`, `Random.new`) and
   never register a source. The framework can't see that. The docs, the generator templates and a

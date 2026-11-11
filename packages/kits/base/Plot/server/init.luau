@@ -779,19 +779,6 @@ function Plot.start(_context: any)
 			reconcile(player)
 		end)
 	end
-
-	ctx.net.handle("RequestDisplay", function(player: Player, uid: any, slotId: any)
-		if not validId(uid) or (slotId ~= nil and not validId(slotId)) then
-			return
-		end
-		Plot.api.display(player, uid, slotId)
-	end)
-	ctx.net.handle("RequestClearDisplay", function(player: Player, uid: any)
-		if not validId(uid) then
-			return
-		end
-		Plot.api.clearDisplay(player, uid)
-	end)
 end
 
 --------------------------------------------------------------------------------
@@ -904,6 +891,34 @@ Plot.api = {
 	onAssigned = function(handler: (player: Player, plot: Model) -> ()): any
 		return signals.PlotAssigned:Connect(handler)
 	end,
+}
+
+--------------------------------------------------------------------------------
+-- actions (module-api.md §9; core-v1.3.1 R19: the module's own net.blink, events Display and
+-- ClearDisplay, replace the framework's RequestDisplay / RequestClearDisplay; same limits)
+--------------------------------------------------------------------------------
+
+Plot.actions = {
+	display = {
+		limit = { rate = 8, burst = 16 },
+		handler = function(player: Player, uid: any, slotId: any): (boolean, string?)
+			if not validId(uid) then
+				return false, Slots.NOT_OWNED
+			elseif slotId ~= nil and not validId(slotId) then
+				return false, Slots.NO_SLOT
+			end
+			return Plot.api.display(player, uid, slotId)
+		end,
+	},
+	clearDisplay = {
+		limit = { rate = 8, burst = 16 },
+		handler = function(player: Player, uid: any): boolean
+			if not validId(uid) then
+				return false
+			end
+			return Plot.api.clearDisplay(player, uid)
+		end,
+	},
 }
 
 return Plot

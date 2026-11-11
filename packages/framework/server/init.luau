@@ -543,6 +543,7 @@ function Server.start(gameConfig: any, serverConfig: any?, opts: any?): any
 				runNoYield(`{ref.name}.start`, "start(ctx)", impl.start, ctxs[ref])
 			end
 		end
+		rt.compliance.assertSpenders() -- R20: every paid currency has a spender (module-api.md §19.10)
 
 		-- 6. framework start
 		rt.events.start()

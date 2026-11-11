@@ -9,7 +9,8 @@
 	                    load(userId, player) -> root?      (may yield; error = load failure)
 	                    save(userId, root)                  snapshot write (memory store)
 	                    attach?(userId, root, hooks)        live root after a successful load;
-	                                                        hooks.beforeSave(), hooks.sessionLost()
+	                                                        hooks.beforeSave(), hooks.sessionLost(),
+	                                                        hooks.frameworkReplaced() (R22)
 	                    reject?(userId)                     failed load: end without writing
 	                    release?(userId, root)              final save + end session
 	                    saveNow?(userId, root) -> boolean   yields until the save is confirmed
@@ -302,6 +303,12 @@ function Data.new(opts: any): any
 						beforeSave(loadedRecord)
 					end
 				end,
+				-- R22 (core-v1.3.1): the store replaced root._framework (saveNow's _saveSeq stamp)
+				frameworkReplaced = function()
+					if records[player] == loadedRecord then
+						loadedRecord.versions._framework = nextVersion()
+					end
+				end,
 				sessionEnded = function()
 					if records[player] == loadedRecord then
 						records[player] = nil -- the session is over: never write from this server again
@@ -373,7 +380,13 @@ function Data.new(opts: any): any
 			return false
 		end
 		if store.saveNow then
+			local fw = record.root._framework
 			local ok, saved = pcall(store.saveNow, userIdOf(player), record.root)
+			-- R22 (core-v1.3.1): a store that replaced _framework without the frameworkReplaced
+			-- hook still leaves no stale _framework view / replication behind
+			if records[player] == record and record.root._framework ~= fw then
+				record.versions._framework = nextVersion()
+			end
 			return ok and saved == true and records[player] == record
 		end
 		return d.save(player)
