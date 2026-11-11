@@ -17,8 +17,8 @@ if #args ~= 2 then
 	print("usage: tools/make-screen <game> <ScreenName>")
 	process.exit(1)
 end
-local gameDir = "games/" .. args[1]
-if not fs.isDir(gameDir) then
+local gameDir = require("./Roots").findGame(fs, args[1])
+if gameDir == nil then
 	print("error: no such game: " .. args[1])
 	process.exit(1)
 end
@@ -27,7 +27,11 @@ if written == nil then
 	print("error: " .. tostring(err))
 	process.exit(1)
 end
-pcall(process.exec, "stylua", { gameDir .. "/src/client" })
+pcall(
+	process.exec,
+	"stylua",
+	{ "--config-path", require("./Roots").core("stylua.toml"), gameDir .. "/src/client" }
+)
 for _, path in written do
 	print("wrote " .. path)
 end

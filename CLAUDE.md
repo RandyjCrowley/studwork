@@ -1,37 +1,38 @@
-# CLAUDE.md — rules for every agent in this repo
+# CLAUDE.md — rules for agents working ON the framework
 
-Roblox multi-game monorepo built on **StudWork**, an opinionated framework: a small foundation
-(`packages/framework`), optional kit modules (`packages/kits`), a UI kit (`packages/ui`), and many games
-(`games/<name>`), each published as its own Roblox experience. Language: **Luau, `--!strict`**.
+This repo is **StudWork** (roblox-core), an opinionated Roblox game framework: a small foundation
+(`packages/framework`), optional kit modules (`packages/kits`), a UI kit (`packages/ui`), example
+games and modules (`examples/`), templates and tools. Language: **Luau, `--!strict`**.
 Read `docs/philosophy.md` (why it is opinionated), `docs/framework/` (how to use it; start with
 `getting-started.md`) and `docs/decisions.md` (why things are the way they are).
 `docs/framework/module-api.md` is the source of truth for the module API.
 
+Games do **not** live here. They live in a games repo that has this repo as its `roblox-core/`
+git submodule, pinned at a release tag (`docs/framework/games-repo.md`). **Games and game agents
+never edit this repo**; they file an entry in the games repo's `FRAMEWORK_REQUESTS.md`, and the core
+owner picks it up here.
+
 ## Hard rules
 
-1. **Games never edit `packages/`** (framework, kits, ui, vendor). Game work happens on a `game/<name>`
-   branch; the `packages` guardrail refuses package edits there. Need something? Add an entry to
-   `CORE_REQUESTS.md`. Only the core owner changes packages.
+1. **Only the core owner changes this repo**, following "Changing the framework" below. A games
+   repo's lint refuses local edits to its `roblox-core/` submodule and an untagged submodule HEAD.
 2. **The module API is additive only.** `docs/framework/module-api.md`, `packages/framework/shared/`
    (the `StudWork` facade and `Types.luau`) and `framework.blink` gain things; nothing is renamed or
    removed. Mark old calls `-- @deprecated <replacement>` and keep them working. Record every change in
    `packages/framework/CHANGELOG.md`; module-api.md additions go in §19+ marked `(added in ...)`.
-   (core-v1.3.0 was the last round allowed to break things; listed under "Breaking".)
+   (core-v1.3.0 was the last round allowed to break things; listed under "Breaking".) Never weaken a
+   test assertion; a moved spec keeps its test count.
 3. **The server is authoritative.** Clients only send requests (module actions, §9). The server validates
    every argument (type, range, ownership) and every action is rate-limited by the framework's Net. Never
    trust amounts, item ids, uids, prices or positions from a client. Robux purchases go through
-   `ctx.shop.onProduct` (receipt-safe, data-only handlers, see "Purchases"), never through a remote.
-4. **Every balance number lives in the game's Config** (`games/<name>/src/shared/Config`): kit settings
-   in `config.<Module>` (`Balance.luau`), game-own numbers in `Tuning.luau`. Modules read their config
-   from `ctx.config`; kits ship opinionated defaults, documented on each kit page.
-5. **No secrets in the repo.** Open Cloud keys come from env vars or the git-ignored `.env`.
-6. **Look before you use** a library: check it is maintained, confirm version and install method, pin
-   exact versions (`=x.y.z` in `deps/wally.toml`, `@x.y.z` in `rokit.toml`), record the choice in
-   `docs/decisions.md`. Not on Wally → vendor into `packages/vendor/<name>/` with its LICENSE and a
-   SOURCE.md (url, commit/version, why).
-7. **Git:** feature branches + worktrees, local commits only. Never push, never add remotes. Commit only
-   your own paths (no `git add -A` in shared trees).
-8. **Paid random items** (Compliance, module-api §14 and §19.6–19.7):
+   `ctx.shop.onProduct` (receipt-safe, data-only handlers), never through a remote.
+4. **Network only through the framework.** Declare a module's actions/events (§9); never use
+   `OnServerEvent`/`OnServerInvoke`, `RemoteEvent`/`RemoteFunction` instances, `ProcessReceipt`,
+   `Prompt*PurchaseFinished`, `DataStoreService` or ProfileStore directly outside the framework's own
+   Shop/Data/Store/Platform. The framework owns `ProcessReceipt` exclusively (§7.1).
+5. **Every balance number lives in config.** Kits read theirs from `ctx.config` and ship opinionated
+   defaults, documented on each kit page; games set them in their Config (`Balance.luau`).
+6. **Paid random items** (Compliance, module-api §14 and §19.6–19.7):
    - Odds are always disclosed: every random source registers with `ctx.compliance`; players see the
      server's odds (mutations, pity, luck) in the odds UI. Never recompute odds on the client.
    - Paid rolls go only through `ctx.compliance.roll` (inside a purchase) or
@@ -46,31 +47,32 @@ Read `docs/philosophy.md` (why it is opinionated), `docs/framework/` (how to use
      fixed non-random fallback (`tx.paidRandomRestricted`), never takes money for nothing. Copies from
      paid sources are tagged by the framework (`paid:<product>`, `paidcur:<table>`); tags can't be forged
      and those copies can't be traded or mailed.
-9. **No text-chat dependence** (chat is age-gated): pings, emotes, roles.
-10. **Ask the user** before installing anything outside the repo or with sudo, spending money, publishing
-    to Roblox, or touching files outside the repo root.
-11. **Nothing is special.** Kits, examples and game modules use only the `StudWork` facade, their `ctx`,
-    the UI kit and other modules' public APIs (`StudWork.use(ref)` / `ctx.deps[ref]`). Never require
-    framework internals (`ServerScriptService.Framework`), never read or write another module's save
-    section, never walk the framework's instances. The `special` guardrail enforces it.
-12. **Network only through the framework.** Declare a module's actions/events (§9); never use
-    `OnServerEvent`/`OnServerInvoke`, `RemoteEvent`/`RemoteFunction` instances, `ProcessReceipt`,
-    `Prompt*PurchaseFinished`, `DataStoreService` or ProfileStore directly. The framework owns
-    `ProcessReceipt` exclusively (§7.1).
-13. **Full inventory is not a failure.** A Mail handler that can't accept a message now returns `false`:
-    the message waits in the player's mailbox (HUD badge, Mailbox screen) with no time limit. Only
-    thrown errors are retried and dead-lettered. Gifts are capped per recipient (100 undelivered) and
-    return to the sender after 14 days. Handlers must be safe to run twice.
-14. **Items are declared in `GameConfig.items`**, validated once at boot. Registering items after
-    `StudWork.start` errors (so nothing enters a paid table before its odds are disclosed).
-15. **`tools/lint` guardrails must stay clean** (`tools/lune/guardrails.luau`, `docs/framework/guardrails.md`):
+7. **Nothing is special.** Kits, examples and game modules use only the `StudWork` facade, their `ctx`,
+   the UI kit and other modules' public APIs (`StudWork.use(ref)` / `ctx.deps[ref]`). Never require
+   framework internals (`ServerScriptService.Framework`), never read or write another module's save
+   section, never walk the framework's instances. Framework code never names a kit. The `special`
+   guardrail enforces both halves.
+8. **No text-chat dependence** (chat is age-gated): pings, emotes, roles.
+9. **No secrets in the repo.** Open Cloud keys come from env vars or a git-ignored `.env` (in the
+   games repo). No absolute paths in committed files either.
+10. **Look before you use** a library: check it is maintained, confirm version and install method, pin
+    exact versions (`=x.y.z` in `deps/wally.toml`, `@x.y.z` in `rokit.toml`), record the choice in
+    `docs/decisions.md`. Not on Wally → vendor into `packages/vendor/<name>/` with its LICENSE and a
+    SOURCE.md (url, commit/version, why). Pins live only here: games repos use this repo's `deps/`.
+11. **Git: local only.** Feature branches + worktrees, local commits. Never push, never add remotes,
+    never `--no-verify`, never rewrite history, never move or delete a release tag. Commit only your
+    own paths (no `git add -A` in shared trees).
+12. **Ask the user** before installing anything outside the repo or with sudo, spending money,
+    publishing to Roblox, or touching files outside the repo root.
+13. **`tools/lint` guardrails must stay clean** (`tools/lune/guardrails.luau`, `docs/framework/guardrails.md`):
     `modules`, `numbers`, `remotes`, `purchases`, `packages`, `special`, `theme`. They scan every file
-    Rojo syncs. `-- guard: allow <check>` on a line is a last resort and needs a reason on the line above.
+    Rojo syncs. `-- guard: allow <check>` on a line is a last resort and needs a reason on the line
+    above. A guardrail change needs a planted violation in its `--self-test`.
 
 ## Folder map
 
 ```
-packages/framework/shared/  ReplicatedStorage.Framework        the StudWork facade (init.luau), Types,
+packages/framework/shared/  ReplicatedStorage.Framework        the StudWork facade (init.luau, VERSION), Types,
                                                                defineModule, Theme, framework.blink
 packages/framework/server/  ServerScriptService.Framework      boot + module loader, Data (sections,
                                                                migrations, Tx), Net, Shop, Compliance,
@@ -78,25 +80,24 @@ packages/framework/server/  ServerScriptService.Framework      boot + module loa
                                                                Console (internal: never require it)
 packages/framework/client/  ReplicatedStorage.FrameworkClient  client boot, state, Feedback, Input, Hud
 packages/framework/test/    (not in the place)                 Lune harness, specs, sim/ (multi-server)
-packages/kits/<kit>/        shared -> ReplicatedStorage.Kits.<Kit>, server -> ServerScriptService.Kits.<Kit>
+packages/framework/CHANGELOG.md                                every release
+packages/kits/<kit>/<Module>/  one folder per module: module.luau -> ReplicatedStorage.Modules.<Name>.module,
+                            server/ -> ServerScriptService.Modules.<Name>, client/, shared/, net.blink
                             collection: Items Rarity Inventory    economy: Economy Upgrades Rebirth Offline
                             base: Plot    social: Friends Mail    engagement: Streak
 packages/ui/                ReplicatedStorage.UI               React-lua component kit (theme-driven)
 packages/vendor/            ServerStorage.Vendor               vendored libraries
-deps/                       wally.toml; Packages -> ReplicatedStorage.Packages,
-                            ServerPackages -> ServerStorage.ServerPackages
-games/<name>/               default.project.json, deploy.json, README.md
-  src/shared/Config/        ReplicatedStorage.Game.Config      init (GameConfig), Balance, Items,
-                                                               Products, Events, Palette, Tuning
-  src/server/               ServerScriptService.Game           Main.server.luau (world + StudWork.start),
-                                                               ServerConfig (admins; never reaches clients)
-  src/client/               StarterPlayerScripts.Game          Main.client.luau
-  modules/<gameId>/         module.luau -> ReplicatedStorage.GameModule.module,
-                            server/ -> ServerScriptService.Modules.<Name>   the game's own module
-examples/modules/           third-party-style modules (e.g. leaderboard)
-templates/                  copied by tools/new-game, make-module, make-screen, make-migration
-tools/                      see Commands
-docs/                       philosophy.md, framework/, decisions.md, known-issues.md, games/<name>.md
+deps/                       wally.toml + wally.lock; Packages -> ReplicatedStorage.Packages,
+                            ServerPackages -> ServerStorage.ServerPackages (games repos map these too)
+examples/sandbox/           the reference game (every kit); foundation-only.project.json + foundation-only/
+                            = the same place with modules = {}
+examples/overrides/ov-a..f  one game per override case, each with src/server/Override.spec.luau
+examples/modules/           third-party-style modules (session-leaderboard) with their fixture games
+templates/                  new-game/ (tools/new-game), game-design.md, module/, migration/, screen/
+                            (tools/make-module, make-migration, make-screen; *.tmpl)
+tools/                      see Commands; tools/lune/ holds the Lune side (Roots.luau: core vs games repo)
+docs/                       philosophy.md, framework/, decisions.md, known-issues.md, manual-qa.md,
+                            (internal build report, not public), prompts/core-*
 ```
 
 ## The API (summary — `docs/framework/module-api.md` is the source of truth)
@@ -158,24 +159,11 @@ Go only as deep as you need:
 (Server context during Play). Commands are module-prefixed: `economy grant 100 Coins <userId>`,
 `rarity roll Block <userId>`, `shop receipt EggRoll <purchaseId> <userId>`, `data dump <userId>`.
 
-## How games use StudWork
-
-- `src/shared/Config/init.luau` returns a GameConfig (`gameId`, `modules = { require(<kit module>) ... }`,
-  `items`, `config` per module, `products`, `theme`, `client.hud`, `compliance.paidCurrencies`).
-  Unknown config and theme keys are boot warnings, so typos show up.
-- `src/server/Main.server.luau` builds the world and calls `StudWork.start(Config, ServerConfig)`.
-  Gameplay lives in the game's own module (`modules/<gameId>/`), which the framework adds by itself;
-  its save section is the gameId.
-- `src/client/Main.client.luau` calls `StudWork.start(Config)`; read state with `StudWork.Client.state()`.
-- Plots: Models tagged `CorePlot` with BasePart slots carrying a string `SlotId` attribute (see the Plot
-  kit page). Item models live in `ReplicatedStorage.GameAssets`.
-- UI: render inside `UI.ScaledRoot`, use theme tokens (no colour/asset literals: `theme` guardrail),
-  `docs/framework/theme.md`, `packages/ui/README.md` (mobile checklist).
-
 ## Changing the framework (core owner only)
 
-Games and game agents never do this (hard rule 1): they file a `CORE_REQUESTS.md` entry. For the core
-owner, every change to the module API is **additive** (hard rule 2):
+Games and game agents never do this (hard rule 1): they file an entry in the games repo's
+`FRAMEWORK_REQUESTS.md`. For the core owner, every change to the module API is **additive** (hard
+rule 2):
 
 1. **Design it in `docs/framework/module-api.md` first**, as a new numbered subsection at the end of §19
    (or a later section), titled `(added in <version>: <why>)`. Never edit earlier sections' meaning;
@@ -192,44 +180,49 @@ owner, every change to the module API is **additive** (hard rule 2):
    data, purchases or cross-server behaviour. Never weaken an existing assertion.
 6. **Docs:** the user-facing page (`docs/framework/*.md` or the kit page under `docs/framework/kits/`)
    and the folder README; an entry in `packages/framework/CHANGELOG.md`; the reason in `docs/decisions.md`.
-7. **Check:** `tools/lint`, `tools/typecheck` for every game, `tools/test`, `tools/test-sim`, a rojo build
-   of every game, and `tools/bench` if it runs per tick or per player (≤ +20% vs the last release).
+7. **Check:** the definition of done below (every example game, and
+   `tools/bench` if it runs per tick or per player: ≤ +20% vs the last release).
 
 ## Commands (from the repo root)
 
 ```sh
 tools/install                 # rokit install + wally install (deps/); --hooks-only enables the pre-commit hook
-tools/doctor                  # toolchain, Wally packages, hook, .env keys (never values), ports
-tools/lint                    # selene + stylua --check + guardrails
-tools/typecheck [game]        # luau-lsp strict type check with Roblox definitions
-tools/test                    # Lune specs (*.spec.luau)
+tools/doctor                  # toolchain, Wally packages, hook, .env keys (never values), ports, layout
+tools/lint                    # selene + stylua --check + sync-projects --check + guardrails
+tools/typecheck [game|--all]  # luau-lsp strict (default: sandbox; --all: every example game)
+tools/test [paths]            # Lune specs (*.spec.luau)
 tools/test-sim [--pending]    # multi-server simulation incl. the slow soak test
 tools/bench                   # server tick cost at 50 players
 tools/net                     # regenerate Blink code after editing a .blink file
-tools/new-game <name> [--modules A,B,C] [--no-design-doc]
-tools/make-module <Name> / tools/make-screen <Name> / tools/make-migration <module>
-tools/dev <name>              # rojo serve on the game's port + Studio connect steps
-tools/core-status             # every game's framework version and test/live sync with HEAD
-tools/publish <name> --test|--live [--dry-run]   # ask the user first
-rojo build games/_sandbox/default.project.json -o /tmp/sandbox.rbxl
+tools/sync-projects [--check] # regenerate the Modules entries of every *.project.json
+tools/new-game <name> [--modules A,B,C] [--no-design-doc] [--into <folder>]
+tools/make-module <Name> --game <g>|--dir <path> / tools/make-screen <g> <Name> / tools/make-migration <module>
+tools/dev <game>              # rojo serve on the game's port + Studio connect steps
+tools/core-status             # every game's framework stamp vs this core
+tools/publish <game> --test|--live [--dry-run]   # games repos publish; ask the user first
+rojo build examples/sandbox/default.project.json -o build/sandbox.rbxl
 ```
 
-## Publish flow (docs/publishing.md has the one-time setup)
+## Definition of done (framework change)
 
-1. The user creates the Group, a test and a live experience per game, and an Open Cloud key with only
-   `universe-places:write` for those experiences, in the git-ignored `.env` (`ROBLOX_OPEN_CLOUD_API_KEY`).
-   Agents never create keys or upload without the user's OK.
-2. Put the universe/place ids in `games/<name>/deploy.json` (placeholders are 0; publish refuses them).
-3. `tools/publish <name> --test --dry-run`, then (with the user's OK) `tools/publish <name> --test`.
-4. Playtest the test place (`docs/manual-qa.md`).
-5. `tools/publish <name> --live`: refused unless the same build went to `--test` first and the tree is
-   clean; asks for the game name to confirm. Commit the stamped files.
+- Behaviour implemented for real (no stub left in your scope), server-authoritative, config-driven,
+  additive to the module API.
+- A `*.spec.luau` that fails without the change; `tools/test` and `tools/test-sim` pass.
+- `tools/lint` clean; `tools/typecheck --all` clean.
+- `rojo build` of every `*.project.json` under `examples/` and `templates/` succeeds.
+- `tools/new-game` still produces a working game (in a temporary worktree: lint, typecheck, test,
+  rojo build).
+- `tools/bench` within budget if it runs per tick or per player.
+- CHANGELOG, docs page, decisions entry. Report: what you built, files touched, test output, open
+  questions.
 
-## Definition of done
+## Release flow
 
-- Behaviour implemented for real (no stub left in your scope), server-authoritative, config-driven.
-- Pure logic has `*.spec.luau` tests (`StudWork.test` for module tests); `tools/test` passes.
-- `tools/lint` clean; `tools/typecheck` clean for your game.
-- `rojo build games/<name>/default.project.json -o /tmp/<name>.rbxl` succeeds.
-- Module API unchanged unless the core owner approved an additive change (CHANGELOG updated).
-- Report: what you built, files touched, test output, open questions.
+1. Finish the change (definition of done), bump `StudWork.VERSION` in
+   `packages/framework/shared/init.luau` (and `Runtime.VERSION` in the client) for the release.
+2. `packages/framework/CHANGELOG.md`: `## vX.Y.Z (date)` with Added / Changed / Fixed (Breaking only
+   in a major); `docs/decisions.md`: why.
+3. Commit, then tag the commit `vX.Y.Z` (the core owner tags after verifying; tags never move).
+4. Games repos bump their submodule to the new tag in their own commit
+   (`git -C roblox-core fetch --tags && git -C roblox-core checkout vX.Y.Z`, then commit the
+   pointer), run their checks, and `framework-status` shows each game against the new tag.

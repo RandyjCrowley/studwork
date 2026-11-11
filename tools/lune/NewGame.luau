@@ -4,7 +4,8 @@
 	tools/lune/KitModules.luau read from the kit module definitions, is passed in). Specs:
 	NewGame.spec.luau.
 
-	parseArgs(args)                 -> (opts?, error?)   opts = { name, modules: {string}?, designDoc }
+	parseArgs(args)                 -> (opts?, error?)   opts = { name, modules: {string}?, designDoc,
+	                                    into (v1.4.0: parent folder, default "games") }
 	resolveModules(Modules, names)  -> (ordered?, added?, errors?)  adds missing hard dependencies
 	                                    (transitively) and reports them in `added`
 	rewriteModulesBlock(src, list, modulesVar?) -> (src?, error?)
@@ -43,9 +44,9 @@
 
 local NewGame = {}
 
-export type Opts = { name: string, modules: { string }?, designDoc: boolean }
+export type Opts = { name: string, modules: { string }?, designDoc: boolean, into: string }
 
-local USAGE = "usage: tools/new-game <name> [--modules A,B,C] [--no-design-doc]"
+local USAGE = "usage: tools/new-game <name> [--modules A,B,C] [--no-design-doc] [--into <folder>]"
 NewGame.USAGE = USAGE
 
 function NewGame.validName(name: any): boolean
@@ -56,11 +57,28 @@ function NewGame.parseArgs(args: { string }): (Opts?, string?)
 	local name: string? = nil
 	local modules: { string }? = nil
 	local designDoc = true
+	local into = "games"
 	local i = 1
 	while i <= #args do
 		local a = args[i]
 		if a == "--no-design-doc" then
 			designDoc = false
+		elseif a == "--into" then
+			-- (added in v1.4.0) the parent folder of the new game, relative to the project root
+			-- (default games/; the core's override examples use examples/overrides)
+			local value = args[i + 1]
+			i += 1
+			if
+				value == nil
+				or string.sub(value, 1, 2) == "--"
+				or string.sub(value, 1, 1) == "/"
+				or string.find(value, "..", 1, true) ~= nil
+				or not string.match(value, "^[%w_%-/]+$")
+			then
+				return nil,
+					"--into needs a relative folder inside the project (e.g. --into examples/overrides)"
+			end
+			into = (string.gsub(value, "/+$", ""))
 		elseif a == "--modules" or string.sub(a, 1, 10) == "--modules=" then
 			local value: string?
 			if a == "--modules" then
@@ -96,7 +114,7 @@ function NewGame.parseArgs(args: { string }): (Opts?, string?)
 		return nil,
 			"bad name '" .. name .. "': lowercase letters, digits, dashes; 2-32 chars, starts with a letter"
 	end
-	return { name = name, modules = modules, designDoc = designDoc }, nil
+	return { name = name, modules = modules, designDoc = designDoc, into = into }, nil
 end
 
 -- `Modules` = the KitModules manifest. Returns the modules in boot order (Modules.ORDER) with

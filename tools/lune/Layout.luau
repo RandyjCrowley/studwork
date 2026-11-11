@@ -22,6 +22,8 @@
 	Layout.projectKits(project)                   -> { string }  the kit modules a project maps
 	    (ReplicatedStorage.Modules children whose module is under packages/kits), sorted
 	Layout.normalize(path)                        -> string      collapses "a/b/../c" and "./"
+	repoIssues / projectIssues take an optional last argument coreDir (StudWork v1.4.0): the core's
+	folder relative to the project ("roblox-core" in a games repo); every expected path is under it.
 ]]
 
 local Layout = {}
@@ -29,6 +31,16 @@ local Layout = {}
 Layout.FRAMEWORK = "packages/framework"
 Layout.KITS_DIR = "packages/kits"
 Layout.REMOVED = { "packages/core", "packages/kits/compat" }
+
+-- A core path as seen from the project root (coreDir: "." / nil in the core repo, "roblox-core"
+-- in a games repo; StudWork v1.4.0, tools/lune/Roots.luau).
+local function under(coreDir: string?, path: string): string
+	if coreDir == nil or coreDir == "" or coreDir == "." then
+		return path
+	end
+	return coreDir .. "/" .. path
+end
+Layout.under = under
 
 function Layout.normalize(path: string): string
 	local parts: { string } = {}
@@ -50,40 +62,44 @@ end
 function Layout.repoIssues(
 	exists: (string) -> boolean,
 	kits: { string },
-	kitModules: { [string]: { string } }?
+	kitModules: { [string]: { string } }?,
+	coreDir: string?
 ): { string }
+	local FRAMEWORK = under(coreDir, Layout.FRAMEWORK)
+	local KITS_DIR = under(coreDir, Layout.KITS_DIR)
 	local issues = {}
 	for _, sub in { "shared", "server", "client" } do
-		if not exists(Layout.FRAMEWORK .. "/" .. sub) then
-			table.insert(issues, `{Layout.FRAMEWORK}/{sub} is missing`)
+		if not exists(FRAMEWORK .. "/" .. sub) then
+			table.insert(issues, `{FRAMEWORK}/{sub} is missing`)
 		end
 	end
-	if not exists(Layout.FRAMEWORK .. "/shared/init.luau") then
-		table.insert(issues, `{Layout.FRAMEWORK}/shared/init.luau (StudWork.VERSION) is missing`)
+	if not exists(FRAMEWORK .. "/shared/init.luau") then
+		table.insert(issues, `{FRAMEWORK}/shared/init.luau (StudWork.VERSION) is missing`)
 	end
 	if #kits == 0 then
-		table.insert(issues, `no kits under {Layout.KITS_DIR}`)
+		table.insert(issues, `no kits under {KITS_DIR}`)
 	end
 	for _, kit in kits do
 		for _, sub in { "shared", "server" } do
-			if exists(`{Layout.KITS_DIR}/{kit}/{sub}`) then
+			if exists(`{KITS_DIR}/{kit}/{sub}`) then
 				table.insert(
 					issues,
-					`{Layout.KITS_DIR}/{kit}/{sub} is the pre-v1.3.1 kit layout (one folder per module: {Layout.KITS_DIR}/{kit}/<Module>/)`
+					`{KITS_DIR}/{kit}/{sub} is the pre-v1.3.1 kit layout (one folder per module: {KITS_DIR}/{kit}/<Module>/)`
 				)
 			end
 		end
 		local modules = if kitModules then kitModules[kit] else nil
 		if kitModules and (modules == nil or #modules == 0) then
-			table.insert(issues, `{Layout.KITS_DIR}/{kit} has no module folder (<Module>/module.luau)`)
+			table.insert(issues, `{KITS_DIR}/{kit} has no module folder (<Module>/module.luau)`)
 		end
 		for _, m in modules or {} do
-			if not exists(`{Layout.KITS_DIR}/{kit}/{m}/module.luau`) then
-				table.insert(issues, `{Layout.KITS_DIR}/{kit}/{m}/module.luau is missing`)
+			if not exists(`{KITS_DIR}/{kit}/{m}/module.luau`) then
+				table.insert(issues, `{KITS_DIR}/{kit}/{m}/module.luau is missing`)
 			end
 		end
 	end
-	for _, removed in Layout.REMOVED do
+	for _, removedPath in Layout.REMOVED do
+		local removed = under(coreDir, removedPath)
 		if exists(removed) then
 			table.insert(issues, `{removed} still exists (removed in core v1.3.0; nothing may use it)`)
 		end
@@ -119,12 +135,13 @@ local function allPaths(node: any, gameDir: string, where: string, out: { { at: 
 	end
 end
 
-local function kitModuleOf(path: string?): (string?, string?, string?)
+local function kitModuleOf(path: string?, kitsDir: string?): (string?, string?, string?)
 	-- packages/kits/<kit>/<Module>/<rest>
 	if path == nil then
 		return nil, nil, nil
 	end
-	return string.match(path, "^" .. Layout.KITS_DIR .. "/([^/]+)/([^/]+)/?(.*)$")
+	local dir = string.gsub(kitsDir or Layout.KITS_DIR, "%p", "%%%0")
+	return string.match(path, "^" .. dir .. "/([^/]+)/([^/]+)/?(.*)$")
 end
 
 local function moduleChildren(service: any): { string }
@@ -154,7 +171,9 @@ function Layout.projectKits(project: any): { string }
 	return out
 end
 
-function Layout.projectIssues(project: any, gameDir: string, kits: { string }): { string }
+function Layout.projectIssues(project: any, gameDir: string, kits: { string }, coreDir: string?): { string }
+	local FRAMEWORK = under(coreDir, Layout.FRAMEWORK)
+	local KITS_DIR = under(coreDir, Layout.KITS_DIR)
 	local issues = {}
 	local tree = child(project, "tree")
 	if type(tree) ~= "table" then
@@ -170,9 +189,9 @@ function Layout.projectIssues(project: any, gameDir: string, kits: { string }): 
 			table.insert(issues, `{where} maps {got} (want {want})`)
 		end
 	end
-	expect(child(rs, "Framework"), "ReplicatedStorage.Framework", Layout.FRAMEWORK .. "/shared")
-	expect(child(rs, "FrameworkClient"), "ReplicatedStorage.FrameworkClient", Layout.FRAMEWORK .. "/client")
-	expect(child(sss, "Framework"), "ServerScriptService.Framework", Layout.FRAMEWORK .. "/server")
+	expect(child(rs, "Framework"), "ReplicatedStorage.Framework", FRAMEWORK .. "/shared")
+	expect(child(rs, "FrameworkClient"), "ReplicatedStorage.FrameworkClient", FRAMEWORK .. "/client")
+	expect(child(sss, "Framework"), "ServerScriptService.Framework", FRAMEWORK .. "/server")
 	local known: { [string]: boolean } = {}
 	for _, kit in kits do
 		known[kit] = true
@@ -191,14 +210,14 @@ function Layout.projectIssues(project: any, gameDir: string, kits: { string }): 
 		local node = child(child(rs, "Modules"), name)
 		local where = "ReplicatedStorage.Modules." .. name
 		local modulePath = pathOf(child(node, "module"), projectDir)
-		local kit, folder, rest = kitModuleOf(modulePath)
+		local kit, folder, rest = kitModuleOf(modulePath, KITS_DIR)
 		if kit ~= nil then
 			if not known[kit :: string] then
-				table.insert(issues, `{where}: no kit '{kit}' under {Layout.KITS_DIR}`)
+				table.insert(issues, `{where}: no kit '{kit}' under {KITS_DIR}`)
 			elseif folder ~= name or rest ~= "module.luau" then
 				table.insert(
 					issues,
-					`{where}.module maps {modulePath} (want {Layout.KITS_DIR}/{kit}/{name}/module.luau)`
+					`{where}.module maps {modulePath} (want {KITS_DIR}/{kit}/{name}/module.luau)`
 				)
 			end
 		end
@@ -206,19 +225,20 @@ function Layout.projectIssues(project: any, gameDir: string, kits: { string }): 
 	for _, name in moduleChildren(sss) do
 		local where = "ServerScriptService.Modules." .. name
 		local serverPath = pathOf(child(child(sss, "Modules"), name), projectDir)
-		local kit, folder, rest = kitModuleOf(serverPath)
+		local kit, folder, rest = kitModuleOf(serverPath, KITS_DIR)
 		if kit ~= nil then
 			if not known[kit :: string] then
-				table.insert(issues, `{where}: no kit '{kit}' under {Layout.KITS_DIR}`)
+				table.insert(issues, `{where}: no kit '{kit}' under {KITS_DIR}`)
 			elseif folder ~= name or rest ~= "server" then
-				table.insert(issues, `{where} maps {serverPath} (want {Layout.KITS_DIR}/{kit}/{name}/server)`)
+				table.insert(issues, `{where} maps {serverPath} (want {KITS_DIR}/{kit}/{name}/server)`)
 			end
 		end
 	end
 	local paths = {}
 	allPaths(tree, gameDir, "", paths)
 	for _, entry in paths do
-		for _, removed in Layout.REMOVED do
+		for _, removedPath in Layout.REMOVED do
+			local removed = under(coreDir, removedPath)
 			if entry.path == removed or string.sub(entry.path, 1, #removed + 1) == removed .. "/" then
 				table.insert(issues, `{entry.at} maps {entry.path} (removed in core v1.3.0)`)
 			end

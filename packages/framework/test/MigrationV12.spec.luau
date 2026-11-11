@@ -18,7 +18,7 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local StudWork = require(ReplicatedStorage:WaitForChild("Framework"))
 local Fixture = require(script.Parent.fixtures.v12_save)
 
-local SANDBOX = "games/_sandbox/default.project.json"
+local SANDBOX = "examples/sandbox/default.project.json"
 local STORE = "PlayerData_sandbox"
 local EPOCH = Fixture.EPOCH
 

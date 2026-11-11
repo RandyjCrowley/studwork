@@ -1,0 +1,14 @@
+-- {{Name}} network contract (Blink IDL; compiled by tools/net). Only this module uses these events.
+-- Every client -> server event is a REQUEST: the server validates it in the action handler.
+option RemoteScope = "STUDWORK_{{UPPER}}"
+option Casing = Pascal
+option ServerOutput = "server/Net.luau"
+option ClientOutput = "client/Net.luau"
+
+-- An example client action (server: actions.ping = { handler = function(player, note) ... end }).
+event Ping {
+    From: Client,
+    Type: Reliable,
+    Call: SingleAsync,
+    Data: string(0..32)
+}

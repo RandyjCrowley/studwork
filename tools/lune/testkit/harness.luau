@@ -73,7 +73,27 @@ Harness.Stubs = Stubs
 local index: { [string]: "file" | "dir" } = {}
 local listing: { [string]: { string } } = {}
 
-local INDEX_ROOTS = { "packages", "games", "templates", "examples", "deps/Packages", "deps/ServerPackages" }
+-- Core folders are reached through Roots.core (StudWork v1.4.0: in a games repo the core is the
+-- `roblox-core/` submodule and the working directory is the games repo); the project's own game
+-- folders (games/, and in the core repo templates/ + examples/) are indexed as they are.
+local Roots = require("../Roots")
+local INDEX_ROOTS = {}
+for _, root in
+	{
+		Roots.core("packages"),
+		Roots.core("templates"),
+		Roots.core("examples"),
+		Roots.core("deps/Packages"),
+		Roots.core("deps/ServerPackages"),
+		"games",
+		"templates",
+		"examples",
+	}
+do
+	if not table.find(INDEX_ROOTS, root) then
+		table.insert(INDEX_ROOTS, root)
+	end
+end
 local SKIP = { [".git"] = true, node_modules = true }
 
 local function indexTree(dir: string)
@@ -209,7 +229,8 @@ makeNode = function(path: string)
 	return setmetatable(node, meta)
 end
 
--- Fake `game` exposing only the Rojo mapping of core (see games/_sandbox/default.project.json):
+-- Fake `game` exposing only the Rojo mapping of core (see examples/sandbox/default.project.json;
+-- every path below goes through Roots.core):
 --   ReplicatedStorage.FrameworkClient -> packages/framework/client, .UI -> packages/ui,
 --   .Packages -> Packages, .Framework -> packages/framework/shared,
 --   .Modules.<Name>.{module,client,shared} -> each module folder's parts (below);
@@ -256,19 +277,19 @@ end
 -- client, shared} and ServerScriptService.Modules.<Name> (the server part). Discovery is shared
 -- with the sim and tools/sync-projects (tools/lune/ModuleDiscovery.luau).
 local ModuleDiscovery = require("../ModuleDiscovery")
-local MODULE_CHILDREN = ModuleDiscovery.children(ModuleDiscovery.discover(fs))
+local MODULE_CHILDREN = ModuleDiscovery.children(ModuleDiscovery.discover(fs, Roots.CORE))
 
 local BASE_CHILDREN: { [string]: { [string]: any } } = {
 	ReplicatedStorage = {
-		FrameworkClient = "packages/framework/client",
-		UI = "packages/ui",
-		Packages = "deps/Packages",
-		Framework = "packages/framework/shared",
+		FrameworkClient = Roots.core("packages/framework/client"),
+		UI = Roots.core("packages/ui"),
+		Packages = Roots.core("deps/Packages"),
+		Framework = Roots.core("packages/framework/shared"),
 		Modules = MODULE_CHILDREN.ReplicatedStorage,
 	},
 	ServerScriptService = {
-		Framework = "packages/framework/server",
-		FrameworkTest = "packages/framework/test", -- the StudWork module harness (specs only)
+		Framework = Roots.core("packages/framework/server"),
+		FrameworkTest = Roots.core("packages/framework/test"), -- the StudWork module harness (specs only)
 		Modules = MODULE_CHILDREN.ServerScriptService,
 	},
 }
@@ -283,7 +304,9 @@ end
 
 local fakeServices = servicesFrom(BASE_CHILDREN)
 
--- A spec under games/<g>/ or templates/<t>/ (Phase 2, E R2): that game's Rojo project adds its own
+-- A spec inside a game folder (games/<g>/, examples/sandbox/, examples/overrides/<g>/,
+-- templates/new-game/, an example module's tests/fixture-game/: the nearest folder above the spec
+-- with a default.project.json; Phase 2, E R2): that game's Rojo project adds its own
 -- ReplicatedStorage / ServerScriptService children (Game, GameModule, Modules, ...) next to the
 -- framework/kit mapping above (names the mapping already has keep the mapping's path), so a
 -- Config listing a game-local module (ReplicatedStorage.Modules.<X>.module) loads.
@@ -302,9 +325,21 @@ local function projectChildren(dir: string, node: any): { [string]: any }
 end
 
 function Harness.mapGame(specPath: string?)
-	local gameDir = if specPath
-		then (string.match(specPath, "^(games/[^/]+)/") or string.match(specPath, "^(templates/[^/]+)/"))
-		else nil
+	local gameDir = nil
+	if specPath then
+		local dir = dirname(normalize(specPath))
+		while dir ~= "." and dir ~= "" do
+			if isFile(dir .. "/default.project.json") then
+				gameDir = dir
+				break
+			end
+			local up = dirname(dir)
+			if up == dir then
+				break
+			end
+			dir = up
+		end
+	end
 	local projectPath = if gameDir then gameDir .. "/default.project.json" else nil
 	if projectPath == nil or not fs.isFile(projectPath) then
 		fakeServices = servicesFrom(BASE_CHILDREN)
@@ -414,7 +449,15 @@ end
 requireNode = function(target: any)
 	if type(target) == "string" then
 		-- allow plain path requires from tests: require("packages/framework/shared/Types")
-		target = makeNode(target)
+		-- (core paths: in a games repo they resolve inside the core submodule, Roots.core)
+		local plain = target
+		if Roots.external and not isFile(plain) and not isDir(plain) then
+			local inCore = Roots.core(plain)
+			if isFile(inCore) or isDir(inCore) then
+				plain = inCore
+			end
+		end
+		target = makeNode(plain)
 	end
 	local path = target.__path
 	local filePath = path

@@ -44,8 +44,8 @@ What you get in `games/my-game/`:
 | `deploy.json` | placeholder experience ids (0); `tools/publish` refuses them until you fill them in |
 
 Only the listed modules' code and config are written, so nothing needs trimming by hand. It also
-adds a row to `GAMES.md` and creates `docs/games/my-game.md` (pass `--no-design-doc` to skip the
-design doc).
+adds a row to `GAMES.md` (when the project has one) and creates `docs/games/my-game.md` (pass
+`--no-design-doc` to skip the design doc).
 
 ## 2. Check it
 
@@ -104,5 +104,5 @@ Next: [concepts](concepts.md), the [module API reference](module-reference.md), 
 
 ## Removing a scratch game
 
-`tools/new-game` touches three places: `games/<name>/`, `docs/games/<name>.md` and a row in
-`GAMES.md`. Delete all three.
+`tools/new-game` touches up to three places: `games/<name>/`, `docs/games/<name>.md` and a row in
+`GAMES.md` (if the project has one). Delete them.

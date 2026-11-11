@@ -1,11 +1,15 @@
 #!/usr/bin/env bash
-# tools/new-game <name> [--modules A,B,C] [--no-design-doc]
-# Scaffold games/<name> from templates/new-game (see tools/lune/new-game.luau).
+# tools/new-game <name> [--modules A,B,C] [--no-design-doc] [--into <folder>]
+# Scaffold games/<name> (or <folder>/<name>) from templates/new-game (see tools/lune/new-game.luau).
 #   --modules A,B,C   write GameConfig.modules + the game module's dependsOn (validated against the
 #                     kit module definitions, tools/lune/KitModules.luau;
 #                     required dependencies are added and reported). Default: all (template).
 #   --no-design-doc   don't create docs/games/<name>.md
+#   --into <folder>   (v1.4.0) create the game under <folder>/ instead of games/ (relative; e.g. the
+#                     core's examples/overrides). Project $paths are computed for its depth.
+# In a games repo (docs/framework/games-repo.md) the template comes from roblox-core/templates and
+# the project's $paths point into roblox-core/.
 source "$(dirname "$0")/_common.sh"
 
-[ $# -ge 1 ] || die "usage: tools/new-game <name> [--modules A,B,C] [--no-design-doc]"
-lune run tools/lune/new-game "$@"
+[ $# -ge 1 ] || die "usage: tools/new-game <name> [--modules A,B,C] [--no-design-doc] [--into <folder>]"
+lune_tool new-game "$@"

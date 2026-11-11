@@ -12,13 +12,21 @@
 local fs = require("@lune/fs")
 local process = require("@lune/process")
 
+local Roots = require("./Roots")
+
 local CoreInfo = {}
 
 CoreInfo.CORE_PATHS = { "packages/framework", "packages/kits", "packages/ui" }
-CoreInfo.VERSION_FILE = "packages/framework/shared/init.luau"
+CoreInfo.VERSION_FILE = Roots.core("packages/framework/shared/init.luau")
 
+-- git in the core's checkout (the core repo itself, or a games repo's roblox-core/ submodule);
+-- CORE_PATHS are relative to it
 local function git(args: { string }): (boolean, string)
-	local result = process.exec("git", args)
+	local full = { "-C", Roots.CORE }
+	for _, a in args do
+		table.insert(full, a)
+	end
+	local result = process.exec("git", full)
 	return result.ok, string.gsub(result.stdout, "%s+$", "")
 end
 
@@ -49,6 +57,18 @@ function CoreInfo.commit(): string
 		hash ..= "-dirty"
 	end
 	return hash
+end
+
+-- The core checkout's full HEAD commit sha (nil outside git).
+function CoreInfo.headSha(): string?
+	local ok, sha = git({ "rev-parse", "HEAD" })
+	return if ok and sha ~= "" then sha else nil
+end
+
+-- The tag at the core's HEAD (vX.Y.Z), or nil when HEAD is not exactly a tag.
+function CoreInfo.tag(): string?
+	local ok, tag = git({ "describe", "--tags", "--exact-match", "HEAD" })
+	return if ok and tag ~= "" then tag else nil
 end
 
 -- Number of commits touching core between `from` and HEAD (nil if `from` is unknown to git).

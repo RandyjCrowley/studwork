@@ -57,8 +57,8 @@ if not fs.isFile(dir .. "/module.luau") then
 			end
 		end
 	end
-	for _, g in fs.readDir("games") do
-		scan("games/" .. g .. "/modules")
+	for _, g in require("./Roots").gameDirs(fs) do
+		scan(g .. "/modules")
 	end
 	scan("examples/modules")
 	if #found ~= 1 then
@@ -80,11 +80,14 @@ if plan == nil then
 	process.exit(1)
 end
 -- a module inside a game: make sure its Rojo mapping carries the migrations folder
-local gameName, folder = string.match(dir, "^games/([^/]+)/modules/([^/]+)$")
-if gameName then
+local gameDir, folder = string.match(dir, "^(.+)/modules/([^/]+)$")
+if gameDir and not fs.isFile(gameDir .. "/default.project.json") then
+	gameDir = nil
+end
+if gameDir then
 	-- order-preserving JSON (tools/sync-projects), so lint's sync-projects --check stays clean
 	local SyncProjects = require("./SyncProjects")
-	local projectPath = "games/" .. gameName .. "/default.project.json"
+	local projectPath = gameDir .. "/default.project.json"
 	local project = SyncProjects.decode(fs.readFile(projectPath))
 	local rs = project.vals.tree.vals.ReplicatedStorage
 	local rsModules = rs and rs.vals.Modules
@@ -111,7 +114,7 @@ else
 			.. "/migrations next to module.luau in your Rojo project (ReplicatedStorage.Modules.<Name>.migrations)"
 	)
 end
-pcall(process.exec, "stylua", { dir })
+pcall(process.exec, "stylua", { "--config-path", require("./Roots").core("stylua.toml"), dir })
 print(
 	string.format(
 		"created %s/migrations/%s.luau (data.version %d -> %d)",

@@ -26,4 +26,4 @@ step() {
 }
 
 step lint tools/lint
-step tests tools/test packages games tools
+step tests tools/test packages examples tools

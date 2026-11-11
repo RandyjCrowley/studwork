@@ -7,13 +7,16 @@ self-test that generates into a scratch folder, checks the output and cleans up
 ## tools/new-game
 
 ```
-tools/new-game <name> [--modules A,B,C] [--no-design-doc]
+tools/new-game <name> [--modules A,B,C] [--no-design-doc] [--into <folder>]
 ```
 
-Copies `templates/new-game` to `games/<name>`, picks the next free Rojo port, writes `deploy.json`
-with placeholder ids, sets `gameId`, renames the game's own module (`modules/<name>`, module
-name in PascalCase: `my-game` -> `MyGame`), adds a `GAMES.md` row and (unless `--no-design-doc`)
-`docs/games/<name>.md`.
+Copies `templates/new-game` to `games/<name>` (or `<folder>/<name>` with `--into`, v1.4.0; the
+core's override examples use `--into examples/overrides`), picks the next free Rojo port, writes
+`deploy.json` with placeholder ids, sets `gameId`, renames the game's own module (`modules/<name>`,
+module name in PascalCase: `my-game` -> `MyGame`), rewrites every project `$path` that leaves the
+template for the game's depth (in a games repo: into `roblox-core/`, see
+[games-repo.md](games-repo.md)), adds a `GAMES.md` row when the project has a `GAMES.md`, and
+(unless `--no-design-doc`) creates `docs/games/<name>.md` from `templates/game-design.md`.
 
 `--modules` writes code and config for the listed modules only, so `tools/lint` passes with no
 hand trimming:
@@ -89,8 +92,8 @@ Reads `data.version` from `module.luau` and writes:
 - `module.luau`: `data.version = NNN`, and `migrations = script.Parent.migrations` the first time.
 
 For a module inside a game it also maps `migrations/` in the game's project. Update
-`data.default` to the new shape yourself. A module name is looked up in `games/*/modules` and
-`examples/modules`.
+`data.default` to the new shape yourself. A module name is looked up in every game's `modules/` (`games/*`; in the core repo also
+`examples/sandbox`, `examples/overrides/*`) and `examples/modules`.
 
 ## tools/make-screen
 
@@ -106,3 +109,26 @@ after `StudWork.start(Config)`. Open it with `UI.open("<ScreenName>")`. Register
 already uses (e.g. `Inventory`) replaces that module's screen. The registry is the module-api.md
 §13 contract being built in core v1.3.0 Phase 1; the generated registry calls it through an
 untyped `UI` until that lands.
+
+## Templates
+
+Everything the generators write comes from `templates/` in the core (v1.4.0):
+
+| Folder | Used by |
+|---|---|
+| `templates/new-game/` | `tools/new-game` (a working game; module markers, see its README) |
+| `templates/game-design.md` | `tools/new-game` (the design doc) |
+| `templates/module/` | `tools/make-module` (`*.tmpl` files: `module.luau`, `server/init.luau`, `client/init.luau`, `tests/Name.spec.luau`, `README.md`, `net.blink`) |
+| `templates/migration/` | `tools/make-migration` (`migration.luau.tmpl`, `Migration.spec.luau.tmpl`) |
+| `templates/screen/` | `tools/make-screen` (`Screen.luau.tmpl`, `Screens.init.luau.tmpl`) |
+
+`{{Name}}`-style placeholders are filled by `tools/lune/MakeGen.luau`. The `.tmpl` suffix keeps
+them out of lint, tests and Rojo. Their output is byte-identical to the v1.3.1 generators
+(`MakeGen.spec.luau` compares against v1.3.1's inline strings).
+
+## In a games repo
+
+Every generator also runs from a games repo that has this repo as its `roblox-core/` submodule
+(v1.4.0, [games-repo.md](games-repo.md)): `tools/new-game` creates `games/<name>` with `$path`s into
+`roblox-core/`, `tools/make-module --game <game>` maps the new module in that game's project, and
+the templates always come from `roblox-core/templates/`.

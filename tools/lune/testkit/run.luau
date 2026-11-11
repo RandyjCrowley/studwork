@@ -1,6 +1,7 @@
 --!nocheck
 --[[
-	Test runner: finds every *.spec.luau under packages/, games/, templates/, tools/ and examples/ (or the paths given)
+	Test runner: finds every *.spec.luau under packages/, games/, templates/, tools/ and examples/
+	(in a games repo: games/; tools/lune/Roots.luau) or the paths given
 	and runs it through the harness. Exit code 1 on any failure.
 
 	Usage (from repo root): lune run tools/lune/testkit/run [path ...]
@@ -36,9 +37,15 @@ local function collect(dir: string, out: { string })
 	end
 end
 
+local Roots = require("../Roots")
+if Roots.external then
+	-- a games repo: never walk into the core submodule (its specs run in the core repo)
+	SKIP_DIRS[(string.match(Roots.CORE, "([^/]+)$"))] = true
+end
+
 local roots = process.args
 if #roots == 0 then
-	roots = { "packages", "games", "templates", "tools", "examples" }
+	roots = if Roots.external then { "games" } else { "packages", "games", "templates", "tools", "examples" }
 end
 
 local specs = {}

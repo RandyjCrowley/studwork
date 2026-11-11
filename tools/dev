@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # tools/dev <game> [--print]
-# Serve games/<game> to Roblox Studio with Rojo on the game's servePort (deploy.json) and print the
+# Serve a game (games/<game>; examples/<game> in the core repo) to Roblox Studio with Rojo on the game's servePort (deploy.json) and print the
 # Studio connect steps. --print only prints the steps and the command (doesn't start Rojo).
 source "$(dirname "$0")/_common.sh"
 
@@ -12,19 +12,20 @@ PRINT_ONLY=0
 [ $# -le 2 ] || usage
 [ $# -lt 2 ] || [ "$PRINT_ONLY" -eq 1 ] || usage
 
-PROJECT="games/$NAME/default.project.json"
-[ -f "$PROJECT" ] || die "no such game: $NAME (missing $PROJECT)"
+GAME_DIR="$(game_dir "$NAME")"
+[ -n "$GAME_DIR" ] || die "no such game: $NAME (no games/$NAME/default.project.json)"
+PROJECT="$GAME_DIR/default.project.json"
 
 PORT=""
-if [ -f "games/$NAME/deploy.json" ]; then
-	PORT="$(lune run tools/lune/json-get "games/$NAME/deploy.json" servePort 2>/dev/null || true)"
+if [ -f "$GAME_DIR/deploy.json" ]; then
+	PORT="$(lune_tool json-get "$GAME_DIR/deploy.json" servePort 2>/dev/null || true)"
 fi
 if [ -z "$PORT" ]; then
-	PORT="$(lune run tools/lune/json-get "$PROJECT" servePort 2>/dev/null || true)"
+	PORT="$(lune_tool json-get "$PROJECT" servePort 2>/dev/null || true)"
 fi
-[ -n "$PORT" ] || die "no servePort in games/$NAME/deploy.json or $PROJECT"
+[ -n "$PORT" ] || die "no servePort in $GAME_DIR/deploy.json or $PROJECT"
 
-TEST_PLACE="$(lune run tools/lune/json-get "games/$NAME/deploy.json" test.placeId 2>/dev/null || echo 0)"
+TEST_PLACE="$(lune_tool json-get "$GAME_DIR/deploy.json" test.placeId 2>/dev/null || echo 0)"
 if [ "$TEST_PLACE" = "0" ] || [ -z "$TEST_PLACE" ]; then
 	PLACE_HINT="a new Baseplate (the test place doesn't exist yet: deploy.json test.placeId is a placeholder)"
 else

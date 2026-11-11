@@ -1,13 +1,17 @@
 #!/usr/bin/env bash
-# tools/typecheck [game]: strict type-check framework, kits, ui, a game (default _sandbox) and the
-# example modules (examples/) with luau-lsp,
-# using Roblox definitions pinned to the luau-lsp version in rokit.toml and a Rojo sourcemap.
-# Exit 1 on any type error.
+# tools/typecheck [game|--all]: strict type-check with luau-lsp, using Roblox definitions pinned to
+# the luau-lsp version in rokit.toml and the game's Rojo sourcemap. Exit 1 on any type error.
+#   <game>  a game name (games/<g>; in the core repo also examples/<g> and examples/overrides/<g>)
+#           or a game folder path. Default (core repo): sandbox (examples/sandbox).
+#   --all   every game of the project (tools/lune/Roots.luau gameDirs).
+# In the core repo each run also checks the framework, kits, ui and the example modules
+# (examples/modules/*, against their fixture games). In a games repo (docs/framework/games-repo.md)
+# it checks the game's src/ and modules/ only; the core is checked by the core's own CI.
 source "$(dirname "$0")/_common.sh"
 
-GAME="${1:-_sandbox}"
 LUAU_LSP_TAG="1.70.1"
 DEFS=".cache/globalTypes-$LUAU_LSP_TAG.d.luau"
+TESTKIT_DEFS="$(core_path tools/types/testkit.d.luau)"
 
 mkdir -p .cache
 if [ ! -f "$DEFS" ]; then
@@ -16,57 +20,87 @@ if [ ! -f "$DEFS" ]; then
 		|| die "could not download definitions"
 fi
 
-[ -f "games/$GAME/default.project.json" ] || die "no such game: $GAME"
-rojo sourcemap "games/$GAME/default.project.json" --absolute -o .cache/sourcemap.json >/dev/null
-
-OUT="$(luau-lsp analyze --platform roblox \
-	--sourcemap .cache/sourcemap.json \
-	--defs "@roblox=$DEFS" \
-	--defs "@testkit=tools/types/testkit.d.luau" \
-	--ignore "**/Generated*.luau" \
-	--ignore "**/kits/*/*/server/Net.luau" --ignore "**/kits/*/*/client/Net.luau" \
-	--ignore "**/deps/**" \
-	packages/framework/client \
-	packages/framework/shared packages/framework/server packages/kits packages/ui \
-	"games/$GAME/src" "games/$GAME/modules" 2>&1 \
-	| grep -v '^\[INFO\]\|^\[WARN\]' || true)"
-
-# Extra Rojo projects of the game (e.g. games/_sandbox/foundation-only.project.json): analyze
-# their own src folder against their own sourcemap.
-for EXTRA in games/$GAME/*.project.json; do
-	[ -f "$EXTRA" ] || continue
-	[ "$(basename "$EXTRA")" = "default.project.json" ] && continue
-	SUB="games/$GAME/$(basename "$EXTRA" .project.json)"
-	[ -d "$SUB" ] || continue
-	rojo sourcemap "$EXTRA" --absolute -o .cache/sourcemap-extra.json >/dev/null
-	OUT="$OUT$(luau-lsp analyze --platform roblox \
-		--sourcemap .cache/sourcemap-extra.json \
+# analyze <sourcemap> <path...>: luau-lsp output minus info/warn lines
+analyze() {
+	local map="$1"
+	shift
+	luau-lsp analyze --platform roblox \
+		--sourcemap "$map" \
 		--defs "@roblox=$DEFS" \
-		--defs "@testkit=tools/types/testkit.d.luau" \
+		--defs "@testkit=$TESTKIT_DEFS" \
 		--ignore "**/Generated*.luau" \
-	--ignore "**/kits/*/*/server/Net.luau" --ignore "**/kits/*/*/client/Net.luau" \
+		--ignore "**/kits/*/*/server/Net.luau" --ignore "**/kits/*/*/client/Net.luau" \
+		--ignore "**/modules/*/server/Net.luau" --ignore "**/modules/*/client/Net.luau" \
 		--ignore "**/deps/**" \
-		"$SUB" 2>&1 \
-		| grep -v '^\[INFO\]\|^\[WARN\]' || true)"
+		"$@" 2>&1 | grep -v '^\[INFO\]\|^\[WARN\]' || true
+}
+
+OUT=""
+# check_game <dir> <with_core 0|1>
+check_game() {
+	local dir="$1"
+	local with_core="$2"
+	local targets=""
+	rojo sourcemap "$dir/default.project.json" --absolute -o .cache/sourcemap.json >/dev/null
+	if [ "$with_core" -eq 1 ]; then
+		targets="packages/framework/client packages/framework/shared packages/framework/server packages/kits packages/ui"
+	fi
+	[ -d "$dir/src" ] && targets="$targets $dir/src"
+	[ -d "$dir/modules" ] && targets="$targets $dir/modules"
+	# shellcheck disable=SC2086
+	OUT="$OUT$(analyze .cache/sourcemap.json $targets)"
+
+	# Extra Rojo projects of the game (e.g. examples/sandbox/foundation-only.project.json): analyze
+	# their own folder against their own sourcemap.
+	local extra sub
+	for extra in "$dir"/*.project.json; do
+		[ -f "$extra" ] || continue
+		[ "$(basename "$extra")" = "default.project.json" ] && continue
+		sub="$dir/$(basename "$extra" .project.json)"
+		[ -d "$sub" ] || continue
+		rojo sourcemap "$extra" --absolute -o .cache/sourcemap-extra.json >/dev/null
+		OUT="$OUT$(analyze .cache/sourcemap-extra.json "$sub")"
+	done
+}
+
+GAMES=""
+if [ "${1:-}" = "--all" ]; then
+	for parent in games examples examples/overrides; do
+		for d in "$parent"/*; do
+			if [ -f "$d/default.project.json" ] && [ -d "$d/src" ]; then GAMES="$GAMES $d"; fi
+		done
+	done
+	[ -n "$GAMES" ] || die "no games found"
+else
+	if [ -n "${1:-}" ]; then
+		NAME="$1"
+	elif is_games_repo; then
+		die "usage: tools/typecheck <game>|--all"
+	else
+		NAME="sandbox"
+	fi
+	GAMES="$(game_dir "$NAME")"
+	[ -n "$GAMES" ] || die "no such game: $NAME"
+fi
+
+WITH_CORE=1
+is_games_repo && WITH_CORE=0
+for G in $GAMES; do
+	echo "== typecheck $G"
+	check_game "$G" "$WITH_CORE"
+	WITH_CORE=0
 done
 
 # The example modules (examples/modules/<m>), each against its fixture game's Rojo project
-# (tests/fixture-game/default.project.json); specs are Lune-only (Phase 2).
-for FIXTURE in examples/modules/*/tests/fixture-game/default.project.json; do
-	[ -f "$FIXTURE" ] || continue
-	MOD="$(dirname "$(dirname "$(dirname "$FIXTURE")")")"
-	rojo sourcemap "$FIXTURE" --absolute -o .cache/sourcemap-example.json >/dev/null
-	OUT="$OUT$(luau-lsp analyze --platform roblox \
-		--sourcemap .cache/sourcemap-example.json \
-		--defs "@roblox=$DEFS" \
-		--defs "@testkit=tools/types/testkit.d.luau" \
-		--ignore "**/Generated*.luau" \
-	--ignore "**/kits/*/*/server/Net.luau" --ignore "**/kits/*/*/client/Net.luau" \
-		--ignore "**/deps/**" \
-		--ignore "**/*.spec.luau" \
-		"$MOD" 2>&1 \
-		| grep -v '^\[INFO\]\|^\[WARN\]' || true)"
-done
+# (tests/fixture-game/default.project.json); specs are Lune-only (Phase 2). Core repo only.
+if ! is_games_repo; then
+	for FIXTURE in examples/modules/*/tests/fixture-game/default.project.json; do
+		[ -f "$FIXTURE" ] || continue
+		MOD="$(dirname "$(dirname "$(dirname "$FIXTURE")")")"
+		rojo sourcemap "$FIXTURE" --absolute -o .cache/sourcemap-example.json >/dev/null
+		OUT="$OUT$(analyze .cache/sourcemap-example.json --ignore "**/*.spec.luau" "$MOD")"
+	done
+fi
 
 if [ -n "$OUT" ]; then
 	echo "$OUT"

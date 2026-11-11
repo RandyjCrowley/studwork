@@ -77,4 +77,38 @@ describe("SyncProjects", function()
 		local board = p.vals.tree.vals.ReplicatedStorage.vals.Modules.vals.Board
 		expect(board.vals.module.vals["$path"]).toBe("../../../../../examples/modules/board/module.luau")
 	end)
+
+	it("(v1.4.0) maps an example module in a project that opts in by mapping it", function()
+		local optIn = string.gsub(
+			OLD,
+			'"GameModule": {',
+			'"Modules": { "$className": "Folder", "Board": { "$className": "Folder" } },\n      "GameModule": {',
+			1
+		)
+		local out = SyncProjects.sync("examples/overrides/ov-f/default.project.json", optIn, ENTRIES)
+		local p = SyncProjects.decode(out)
+		local board = p.vals.tree.vals.ReplicatedStorage.vals.Modules.vals.Board
+		expect(board.vals.module.vals["$path"]).toBe("../../../examples/modules/board/module.luau")
+		local sss = p.vals.tree.vals.ServerScriptService.vals.Modules
+		expect(sss.vals.Board.vals["$path"]).toBe("../../../examples/modules/board/server")
+		expect(SyncProjects.sync("examples/overrides/ov-f/default.project.json", out, ENTRIES)).toBe(out)
+	end)
+
+	it("(v1.4.0) games repo: core paths carry the submodule folder", function()
+		local prefixed = {}
+		for _, e in ENTRIES do
+			local c = table.clone(e)
+			for _, k in { "dir", "module", "client", "server", "shared" } do
+				if c[k] then
+					c[k] = "roblox-core/" .. c[k]
+				end
+			end
+			table.insert(prefixed, c)
+		end
+		local out = SyncProjects.sync("games/g/default.project.json", OLD, prefixed)
+		local econ = SyncProjects.decode(out).vals.tree.vals.ReplicatedStorage.vals.Modules.vals.Economy
+		expect(econ.vals.module.vals["$path"]).toBe(
+			"../../roblox-core/packages/kits/economy/Economy/module.luau"
+		)
+	end)
 end)

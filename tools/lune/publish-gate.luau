@@ -9,7 +9,8 @@
 	  lune run tools/lune/publish-gate preview <name> <test|live> <file> <bytes>
 
 	The API key is never passed to this script (only whether it is set).
-	Build-relevant paths: games/<name> (minus deploy.json), packages, deps.
+	Build-relevant paths: the game folder (minus deploy.json), packages, deps (in a games repo: the
+	roblox-core submodule). <name> is a game name (tools/lune/Roots.luau findGame) or folder.
 ]]
 
 local fs = require("@lune/fs")
@@ -17,6 +18,7 @@ local process = require("@lune/process")
 local serde = require("@lune/serde")
 
 local PublishGate = require("./PublishGate")
+local Roots = require("./Roots")
 
 local function git(args: { string }): (boolean, string)
 	local result = process.exec("git", args)
@@ -36,7 +38,11 @@ if cmd == nil or name == nil or (target ~= "test" and target ~= "live") then
 	print("usage: publish-gate check|url|preview <name> <test|live> ...")
 	process.exit(2)
 end
-local deployPath = "games/" .. name .. "/deploy.json"
+local gameDir = Roots.findGame(fs, name) or ("games/" .. name)
+local deployPath = gameDir .. "/deploy.json"
+-- build inputs: the game folder, and the core (its packages + deps in the core repo; the whole
+-- roblox-core submodule in a games repo, whose pointer/working tree shows up as one path)
+local BUILD_PATHS = if Roots.external then { gameDir, Roots.CORE } else { gameDir, "packages", "deps" }
 local ok, deploy = pcall(serde.decode, "json", fs.readFile(deployPath))
 if not ok then
 	print("error: cannot read " .. deployPath .. ": " .. tostring(deploy))
@@ -64,7 +70,12 @@ if not headOk or head == "" then
 end
 
 local excludeDeploy = ":(exclude)" .. deployPath
-local _, status = git({ "status", "--porcelain", "--", "games/" .. name, "packages", "deps", excludeDeploy })
+local statusArgs = { "status", "--porcelain", "--" }
+for _, p in BUILD_PATHS do
+	table.insert(statusArgs, p)
+end
+table.insert(statusArgs, excludeDeploy)
+local _, status = git(statusArgs)
 local dirty = {}
 for _, l in lines(status) do
 	table.insert(dirty, (string.gsub(l, "^...", "")))
@@ -75,10 +86,12 @@ end
 local testEquivalent = false
 local testCommit = PublishGate.recordCommit(deploy, "test", "published")
 if target == "live" and testCommit and testCommit ~= head then
-	local result = process.exec(
-		"git",
-		{ "diff", "--quiet", testCommit, head, "--", "games/" .. name, "packages", "deps", excludeDeploy }
-	)
+	local diffArgs = { "diff", "--quiet", testCommit, head, "--" }
+	for _, p in BUILD_PATHS do
+		table.insert(diffArgs, p)
+	end
+	table.insert(diffArgs, excludeDeploy)
+	local result = process.exec("git", diffArgs)
 	testEquivalent = result.code == 0
 end
 

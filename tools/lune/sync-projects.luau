@@ -35,7 +35,7 @@ for _, root in { "games", "templates", "examples" } do
 end
 table.sort(projects)
 
-local entries = ModuleDiscovery.discover(fs)
+local entries = ModuleDiscovery.discover(fs, require("./Roots").CORE)
 local drift = 0
 for _, path in projects do
 	local text = fs.readFile(path)

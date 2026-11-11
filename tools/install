@@ -4,6 +4,11 @@
 # tools/test) with `git config core.hooksPath .githooks` (repo-wide: applies to every worktree).
 # --hooks-only skips rokit/wally and only enables the hook.
 # Wally 0.3.2 ships only an x86_64 macOS binary: Apple Silicon needs Rosetta 2.
+#
+# In a games repo (docs/framework/games-repo.md) the toolchain and the Wally packages are the
+# CORE's: rokit installs from roblox-core/rokit.toml and wally installs into roblox-core/deps/
+# (games never pin versions themselves; their Rojo projects map ../../roblox-core/deps/Packages).
+# The hook is the games repo's own .githooks/pre-commit, if it has one.
 source "$(dirname "$0")/_common.sh"
 
 HOOKS_ONLY=0
@@ -14,11 +19,15 @@ case "${1:-}" in
 esac
 
 if [ "$HOOKS_ONLY" -eq 0 ]; then
-	rokit install
-	(cd deps && wally install)
-	echo "install: toolchain and packages done (deps/Packages, deps/ServerPackages)"
+	(cd "$CORE_ROOT" && rokit install)
+	(cd "$CORE_ROOT/deps" && wally install)
+	echo "install: toolchain and packages done ($(core_path deps/Packages), $(core_path deps/ServerPackages))"
 fi
 
+if is_games_repo && [ ! -f .githooks/pre-commit ]; then
+	echo "install: no .githooks/pre-commit in $PROJECT_ROOT; hook not enabled"
+	exit 0
+fi
 [ -f .githooks/pre-commit ] || die ".githooks/pre-commit is missing"
 chmod +x .githooks/pre-commit
 git config core.hooksPath .githooks

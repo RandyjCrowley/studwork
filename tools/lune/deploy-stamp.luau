@@ -6,6 +6,9 @@
 	included (`how` says which, e.g. "publish --test --dry-run"). Writes games/<name>/deploy.json:
 	  coreVersion  StudWork.VERSION of the build ("1.3.0"; core-info.luau)
 	  coreCommit   last commit touching packages/{core,framework,kits,ui} (+ "-dirty")
+	  coreSha      full sha of the core checkout's HEAD (v1.4.0; in a games repo: the submodule's
+	               pinned commit)
+	  coreTag      the tag at that commit (vX.Y.Z) or absent
 	  coreStamp    { how, at (UTC ISO time) }
 	and the game's "Core" cell in GAMES.md ("1.1.0 (abc1234)").
 	With --target it also records what went to that place (read by the test-before-live gate,
@@ -20,6 +23,7 @@ local process = require("@lune/process")
 local serde = require("@lune/serde")
 
 local CoreInfo = require("./core-info")
+local Roots = require("./Roots")
 
 local name, how = process.args[1], process.args[2] or "manual"
 local opts = { dryRun = false }
@@ -47,7 +51,7 @@ if name == nil then
 	print("usage: deploy-stamp <name> <how>")
 	process.exit(1)
 end
-local deployPath = "games/" .. name .. "/deploy.json"
+local deployPath = (Roots.findGame(fs, name) or ("games/" .. name)) .. "/deploy.json"
 if not fs.isFile(deployPath) then
 	print("error: missing " .. deployPath)
 	process.exit(1)
@@ -55,10 +59,16 @@ end
 
 local version = CoreInfo.version()
 local commit = CoreInfo.commit()
+local sha = CoreInfo.headSha()
+local tag = CoreInfo.tag()
 
 local deploy = serde.decode("json", fs.readFile(deployPath))
 deploy.coreVersion = version
 deploy.coreCommit = commit
+-- v1.4.0: the exact core checkout (full sha of the core's HEAD: the games repo's pinned submodule
+-- commit) and its tag, when HEAD is exactly a tag
+deploy.coreSha = sha
+deploy.coreTag = tag
 local now = DateTime.now():toIsoDate()
 deploy.coreStamp = { how = how, at = now }
 if opts.target then
@@ -95,4 +105,14 @@ if fs.isFile(GAMES) then
 	fs.writeFile(GAMES, table.concat(lines, "\n"))
 end
 
-print(string.format("stamped %s: coreVersion %s, coreCommit %s (%s)", name, version, commit, how))
+print(
+	string.format(
+		"stamped %s: coreVersion %s, coreCommit %s, coreSha %s, coreTag %s (%s)",
+		name,
+		version,
+		commit,
+		tostring(sha),
+		tostring(tag),
+		how
+	)
+)

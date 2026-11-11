@@ -22,7 +22,7 @@ real path (`packages/framework/test/sim/GiftSoakReal.spec.luau`). The text below
 - Still exposed: a receiver who **never logs in**, or who already has 500 held messages, while more
   than 1000 messages pile up. The sender has already given the item up, so the oldest gifts are lost.
 - Until fixed: game code must not mail items to users who may never return. Pick recipients from
-  recently active players and cap undelivered gifts per recipient per day (Example Gifts).
+  recently active players and cap undelivered gifts per recipient per day.
 - Possible fix: a per-recipient counter (MemoryStore or DataStore) that `sendGift` checks, or keep the
   outbox entry until the receiver acknowledges.
 
@@ -71,7 +71,7 @@ real path (`packages/framework/test/sim/GiftSoakReal.spec.luau`). The text below
   `Core["Mail"]`, `local E = Core.Economy`) and neutral names (`local k = 750`). The facade still
   errors at runtime for a disabled module, and the numbers check is only a heuristic.
 - **R16 (fixed in core-v1.3.0, Phase 1 E).** `tools/new-game --modules <subset>` copies the full template loop, so lint fails until the
-  game code is trimmed (new-game prints the findings). The five scaffolds were trimmed by hand.
+  game code is trimmed (new-game prints the findings).
 - **R17.** When one handler of a kind returns `false`, the handlers before it have already run, and
   they run again on claim. This is documented: handlers must be safe to run twice.
 - Net's pre-start queue cap (`PENDING_CAP = 256`) is shared by all players and events.

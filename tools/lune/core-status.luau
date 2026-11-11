@@ -16,6 +16,8 @@ local process = require("@lune/process")
 local CoreInfo = require("./core-info")
 local Layout = require("./Layout")
 local PublishGate = require("./PublishGate")
+local Roots = require("./Roots")
+local KITS_DIR = Roots.core(Layout.KITS_DIR)
 
 local headResult = process.exec("git", { "rev-parse", "HEAD" })
 local head = string.gsub(headResult.stdout, "%s+$", "")
@@ -24,8 +26,8 @@ local currentVersion = CoreInfo.version()
 local currentCommit = CoreInfo.commit()
 
 local kits = {}
-for _, entry in fs.readDir(Layout.KITS_DIR) do
-	if fs.isDir(Layout.KITS_DIR .. "/" .. entry) then
+for _, entry in fs.readDir(KITS_DIR) do
+	if fs.isDir(KITS_DIR .. "/" .. entry) then
 		table.insert(kits, entry)
 	end
 end
@@ -33,13 +35,15 @@ table.sort(kits)
 
 -- "ok" or the number of layout issues over the game's *.project.json files (details printed below)
 local layoutDetails = {}
-local function layoutOf(entry: string): string
-	local dir = "games/" .. entry
+local function layoutOf(dir: string): string
+	local entry = dir
 	local issues = {}
 	for _, file in fs.readDir(dir) do
 		if string.match(file, "%.project%.json$") then
 			local ok, project = pcall(serde.decode, "json", fs.readFile(dir .. "/" .. file))
-			for _, issue in (if ok then Layout.projectIssues(project, dir, kits) else { "not valid JSON" }) do
+			for _, issue in
+				(if ok then Layout.projectIssues(project, dir, kits, Roots.CORE) else { "not valid JSON" })
+			do
 				table.insert(issues, file .. ": " .. issue)
 			end
 		end
@@ -52,9 +56,9 @@ local function layoutOf(entry: string): string
 end
 
 local rows = {}
-for _, entry in fs.readDir("games") do
-	local path = "games/" .. entry .. "/deploy.json"
-	if fs.isDir("games/" .. entry) and not fs.isFile(path) then
+for _, entry in Roots.gameDirs(fs) do
+	local path = entry .. "/deploy.json"
+	if not fs.isFile(path) then
 		table.insert(rows, { entry, "-", "-", "no deploy.json", "-", "-", "-", layoutOf(entry) })
 	elseif fs.isFile(path) then
 		local ok, deploy = pcall(serde.decode, "json", fs.readFile(path))
@@ -117,8 +121,11 @@ local function kitModules(): { [string]: { string } }
 	local out = {}
 	for _, kit in kits do
 		local list = {}
-		for _, m in fs.readDir(Layout.KITS_DIR .. "/" .. kit) do
-			if fs.isFile(Layout.KITS_DIR .. "/" .. kit .. "/" .. m .. "/module.luau") then
+		for _, m in fs.readDir(KITS_DIR .. "/" .. kit) do
+			if
+				fs.isDir(KITS_DIR .. "/" .. kit .. "/" .. m)
+				and fs.isFile(KITS_DIR .. "/" .. kit .. "/" .. m .. "/module.luau")
+			then
 				table.insert(list, m)
 			end
 		end
@@ -127,7 +134,7 @@ local function kitModules(): { [string]: { string } }
 	end
 	return out
 end
-for _, issue in Layout.repoIssues(exists, kits, kitModules()) do
+for _, issue in Layout.repoIssues(exists, kits, kitModules(), Roots.CORE) do
 	print("layout: " .. issue)
 end
 print("")

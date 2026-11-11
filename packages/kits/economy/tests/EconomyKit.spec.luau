@@ -7,7 +7,7 @@
 local StudWork = require(game:GetService("ReplicatedStorage"):WaitForChild("Framework"))
 local F = StudWork.test.sim
 
-local SANDBOX = "games/_sandbox/default.project.json"
+local SANDBOX = "examples/sandbox/default.project.json"
 
 local function loaded(world, server, player): boolean
 	return world:advanceUntil(function()

@@ -231,3 +231,35 @@ describe("tools/make-screen", function()
 		expect(string.find(err, "StudWork.start", 1, true) ~= nil).toBe(true)
 	end)
 end)
+
+-- v1.4.0: the generators read templates/module, templates/migration and templates/screen; their
+-- output is byte-identical to the inline strings of the last release (v1.3.1's MakeGen.luau, read
+-- from git and loaded here).
+describe("templates/ files (v1.4.0) produce the v1.3.1 output byte for byte", function()
+	it("make-module, make-migration and make-screen sources", function()
+		local shown = process.exec("git", { "show", "v1.3.1:tools/lune/MakeGen.luau" })
+		assert(shown.ok, "git show v1.3.1:tools/lune/MakeGen.luau failed: " .. shown.stderr)
+		local Old = luau.load(shown.stdout, { debugName = "MakeGen@v1.3.1" })()
+		for _, net in { false, true } do
+			local new = MakeGen.moduleFiles("QuestLog", "games/g/modules/quest-log", { net = net })
+			local old = Old.moduleFiles("QuestLog", "games/g/modules/quest-log", { net = net })
+			local count = 0
+			for rel, text in old do
+				expect(new[rel]).toBe(text)
+				count += 1
+			end
+			for rel in new do
+				expect(old[rel] ~= nil).toBe(true)
+			end
+			expect(count).toBe(if net then 6 else 5)
+		end
+		local source = MakeGen.moduleFiles("QuestLog", "x")["module.luau"]
+		local a = MakeGen.nextMigration(source, {}, "Add streak", "games/g/modules/quest-log")
+		local b = Old.nextMigration(source, {}, "Add streak", "games/g/modules/quest-log")
+		expect(a.source).toBe(b.source)
+		expect(a.spec).toBe(b.spec)
+		expect(a.module).toBe(b.module)
+		expect(MakeGen.screenSource("DailyQuests")).toBe(Old.screenSource("DailyQuests"))
+		expect(MakeGen.registrySource()).toBe(Old.registrySource())
+	end)
+end)

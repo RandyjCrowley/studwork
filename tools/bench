@@ -6,7 +6,7 @@ source "$(dirname "$0")/_common.sh"
 
 if [ "${1:-}" = "views" ]; then
 	shift
-	lune run tools/lune/bench/views "$@"
+	lune_tool bench/views "$@"
 else
-	lune run tools/lune/bench/replication "$@"
+	lune_tool bench/replication "$@"
 fi

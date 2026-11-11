@@ -4,7 +4,9 @@
 	Run by tools/lint. LEAD-OWNED.
 
 	Usage (repo root):
-	  lune run tools/lune/guardrails              scan games/* and templates/new-game + git checks
+	  lune run tools/lune/guardrails              scan every game folder (tools/lune/Roots.luau:
+	                                              games/*, examples/sandbox, examples/overrides/*)
+	                                              and templates/new-game + packages + git checks
 	  lune run tools/lune/guardrails --self-test  plant one violation of each kind in memory and
 	                                              prove every check catches it (also run by lint)
 	  lune run tools/lune/guardrails <dir> ...    scan only these game folders (no git checks)
@@ -15,7 +17,10 @@
 	            (CoreServer / CoreClient / FrameworkClient) required directly.
 	  packages  game work edits packages/: on a branch named game/*, any change under packages/
 	            since the merge-base with main; on any branch, staged changes that mix packages/
-	            with games/<name>/ (other than _sandbox). GUARD_ALLOW_CORE=1 skips it (core owner).
+	            with games/<name>/ (or templates/, outside the core repo). GUARD_ALLOW_CORE=1 skips
+	            it (core owner, core repo only). In a games repo (v1.4.0) the core submodule
+	            (roblox-core/) counts as packages/, and the core pin is checked: the submodule is a
+	            git checkout, its HEAD is exactly a release tag, and it has no local changes.
 	  numbers   best-effort heuristic: a balance-looking number literal in game code outside
 	            src/shared/Config/ (a numeric argument >= 2 to an Economy/Rarity/Upgrades/Shop tx
 	            call, or a cost/price/reward/income/luck/chance/weight/amount/... name = number).
@@ -684,7 +689,7 @@ function Guard.scanGame(dir: string): { string }
 	walk(dir, files)
 	table.sort(files)
 	for _, path in files do
-		-- extra projects (e.g. _sandbox/foundation-only/) carry their own Config.luau
+		-- extra projects (e.g. examples/sandbox/foundation-only/) carry their own Config.luau
 		local sub = string.match(path, "^" .. dir:gsub("%p", "%%%0") .. "/([^/]+)/")
 		local mods = modules
 		if sub and sub ~= "src" then
@@ -747,7 +752,13 @@ end
 
 -- Folders the check covers (relative to the repo root); specs and tests/ folders are skipped
 -- (tests may use StudWork.test and the harness).
-Guard.SPECIAL_ROOTS = { "packages/kits", "examples", "games/*/modules" }
+Guard.SPECIAL_ROOTS = {
+	"packages/kits",
+	"examples/modules",
+	"games/*/modules",
+	"examples/*/modules", -- example games (examples/sandbox)
+	"examples/overrides/*/modules",
+}
 
 -- Internal names a module may never mention as a child (any path, any receiver).
 local INTERNAL_NAMES = { "RuntimeSlot", "CompatDoor", "FrameworkClient", "FrameworkTest" }
@@ -1030,6 +1041,10 @@ Guard.THEME_ROOTS = {
 	"examples/modules/*/client",
 	"games/*/modules/*/client",
 	"games/*/src/client",
+	"examples/*/modules/*/client", -- example games (examples/sandbox, examples/overrides/<g>)
+	"examples/*/src/client",
+	"examples/overrides/*/modules/*/client",
+	"examples/overrides/*/src/client",
 }
 -- Theme and config files may hold literals (the palette, tier colours, sound/asset ids).
 function Guard.isThemeAllowed(path: string): boolean
@@ -1209,7 +1224,7 @@ end
 function Guard.kitNamesOnDisk(): ({ string }, { string })
 	local ModuleDiscovery = require("./ModuleDiscovery")
 	local modules, events = {}, {}
-	for _, entry in ModuleDiscovery.discover(fs) do
+	for _, entry in ModuleDiscovery.discover(fs, require("./Roots").CORE) do
 		if entry.kit ~= nil then
 			table.insert(modules, entry.name)
 			if entry.blink then
@@ -1358,15 +1373,33 @@ local function lines(text: string?): { string }
 end
 
 -- Pure part of the packages check (testable): branch name, files changed on the branch since
--- main, and staged files.
-function Guard.packagesFindings(branch: string, branchFiles: { string }, staged: { string }): { string }
+-- main, and staged files. opts (v1.4.0, both optional):
+--   coreRepo  the working tree IS the core (roblox-core): templates/ are core paths there, so a
+--             commit may mix them with packages/ (only games/<name>/ counts as game work)
+--   coreDir   a games repo's core submodule folder (e.g. "roblox-core"): it is treated like
+--             packages/ (the submodule pointer or anything under it is a core change)
+function Guard.packagesFindings(
+	branch: string,
+	branchFiles: { string },
+	staged: { string },
+	opts: { coreRepo: boolean?, coreDir: string? }?
+): { string }
+	local o = opts or {}
+	local coreDir = o.coreDir
+	local function isCore(f: string): boolean
+		if string.match(f, "^packages/") then
+			return true
+		end
+		return coreDir ~= nil and (f == coreDir or string.sub(f, 1, #coreDir + 1) == coreDir .. "/")
+	end
+	local coreName = if coreDir then coreDir .. "/" else "packages/"
 	local findings = {}
 	if string.match(branch, "^game") then -- game/x, games/x, gamez/x (review R9)
 		for _, f in branchFiles do
-			if string.match(f, "^packages/") then
+			if isCore(f) then
 				table.insert(
 					findings,
-					`{f}: [packages] game branch '{branch}' edits core; add a CORE_REQUESTS.md entry instead`
+					`{f}: [packages] game branch '{branch}' edits the framework; file a FRAMEWORK_REQUESTS.md entry (games repo) instead`
 				)
 			end
 		end
@@ -1374,29 +1407,70 @@ function Guard.packagesFindings(branch: string, branchFiles: { string }, staged:
 	local touchesGame, touchesCore = nil, false
 	for _, f in staged do
 		local game = string.match(f, "^games/([^/]+)/")
-		if game and game ~= "_sandbox" then
+		if game then
 			touchesGame = game
-		elseif string.match(f, "^templates/") then
+		elseif string.match(f, "^templates/") and not o.coreRepo then
 			touchesGame = touchesGame or "templates"
 		end
-		if string.match(f, "^packages/") then
+		if isCore(f) then
 			touchesCore = true
 		end
 	end
 	if touchesGame and touchesCore then
 		table.insert(
 			findings,
-			`staged: [packages] one commit edits games/{touchesGame}/ and packages/: games never edit core`
+			`staged: [packages] one commit edits games/{touchesGame}/ and {coreName}: games never edit the framework (bump the submodule in its own commit)`
+		)
+	end
+	return findings
+end
+
+-- v1.4.0 core pin (games repo): the core submodule must be exactly a release tag with no local
+-- changes. Pure: `tag` = `git -C <coreDir> describe --tags --exact-match HEAD` output (nil/"" when
+-- HEAD is not a tag), `status` = `git -C <coreDir> status --porcelain` output (nil when the folder
+-- isn't a git checkout: submodule not initialised).
+function Guard.corePinFindings(coreDir: string, tag: string?, status: string?): { string }
+	local findings = {}
+	if status == nil then
+		table.insert(
+			findings,
+			`{coreDir}: [packages] not a git checkout; run git submodule update --init (docs/framework/games-repo.md)`
+		)
+		return findings
+	end
+	if tag == nil or not string.match(tag, "^v%d+%.%d+%.%d+$") then
+		table.insert(
+			findings,
+			`{coreDir}: [packages] the framework submodule is not at a release tag (git -C {coreDir} checkout vX.Y.Z)`
+		)
+	end
+	for line in string.gmatch(status, "[^\n]+") do
+		table.insert(
+			findings,
+			`{coreDir}/{string.sub(line, 4)}: [packages] local change in the framework submodule; games never edit {coreDir}/ (git -C {coreDir} checkout -- . / file a FRAMEWORK_REQUESTS.md entry)`
 		)
 	end
 	return findings
 end
 
 function Guard.gitFindings(): { string }
+	local Roots = require("./Roots")
+	local findings = {}
+	if Roots.external then
+		local tag = git({ "-C", Roots.CORE, "describe", "--tags", "--exact-match", "HEAD" })
+		local status = git({ "-C", Roots.CORE, "status", "--porcelain" })
+		for _, f in Guard.corePinFindings(Roots.CORE, tag and (string.gsub(tag, "%s+$", "")), status) do
+			table.insert(findings, f)
+		end
+	end
 	local branch = (git({ "rev-parse", "--abbrev-ref", "HEAD" }) or ""):gsub("%s+$", "")
-	-- the core owner's bypass works only on core branches and main (review R9)
-	if process.env.GUARD_ALLOW_CORE == "1" and (branch == "main" or string.match(branch, "^core/")) then
-		return {}
+	-- the core owner's bypass works only on core branches and main (review R9), never in a games repo
+	if
+		not Roots.external
+		and process.env.GUARD_ALLOW_CORE == "1"
+		and (branch == "main" or string.match(branch, "^core/"))
+	then
+		return findings
 	end
 	local branchFiles = {}
 	if string.match(branch, "^game") then -- game/x, games/x, gamez/x (review R9)
@@ -1409,7 +1483,11 @@ function Guard.gitFindings(): { string }
 		end
 	end
 	local staged = lines(git({ "diff", "--cached", "--name-only" }))
-	return Guard.packagesFindings(branch, branchFiles, staged)
+	local opts = if Roots.external then { coreDir = Roots.CORE } else { coreRepo = true }
+	for _, f in Guard.packagesFindings(branch, branchFiles, staged, opts) do
+		table.insert(findings, f)
+	end
+	return findings
 end
 
 local function selfTest(): boolean
@@ -1672,7 +1750,45 @@ local function selfTest(): boolean
 		Guard.packagesFindings("main", {}, { "templates/a", "packages/b" }),
 		"packages"
 	)
-	expectClean("sandbox + core", Guard.packagesFindings("main", {}, { "games/_sandbox/x", "packages/y" }))
+	expectClean("sandbox + core", Guard.packagesFindings("main", {}, { "examples/sandbox/x", "packages/y" }))
+	-- v1.4.0: in the core repo templates are core; in a games repo the core submodule is core
+	expectClean(
+		"core repo: templates + packages",
+		Guard.packagesFindings("main", {}, { "templates/a", "packages/b" }, { coreRepo = true })
+	)
+	expectCheck(
+		"core repo: a scratch game + packages",
+		Guard.packagesFindings("main", {}, { "games/x/a", "packages/b" }, { coreRepo = true }),
+		"packages"
+	)
+	local inGames = { coreDir = "roblox-core" }
+	expectCheck(
+		"games repo: game + submodule bump in one commit",
+		Guard.packagesFindings("main", {}, { "games/x/src/a.luau", "roblox-core" }, inGames),
+		"packages"
+	)
+	expectCheck(
+		"games repo: game branch moves the submodule",
+		Guard.packagesFindings("game/x", { "roblox-core" }, {}, inGames),
+		"packages"
+	)
+	expectClean(
+		"games repo: submodule bump alone",
+		Guard.packagesFindings("main", {}, { "roblox-core" }, inGames)
+	)
+	expectClean("core pin: tag, clean", Guard.corePinFindings("roblox-core", "v1.4.0", ""))
+	expectCheck("core pin: not a tag", Guard.corePinFindings("roblox-core", nil, ""), "packages")
+	expectCheck(
+		"core pin: not a tag (describe)",
+		Guard.corePinFindings("roblox-core", "v1.4.0-3-gabc", ""),
+		"packages"
+	)
+	expectCheck(
+		"core pin: local change",
+		Guard.corePinFindings("roblox-core", "v1.4.0", " M packages/ui/Button.luau\n"),
+		"packages"
+	)
+	expectCheck("core pin: not initialised", Guard.corePinFindings("roblox-core", nil, nil), "packages")
 
 	-- special ("nothing is special", Phase 2): planted violations and evasions are caught
 	local kitCtx = { path = "packages/kits/economy/server/X.luau", kit = "Economy" }
@@ -1926,13 +2042,12 @@ local runGit = #args == 0
 if #args > 0 then
 	dirs = args
 else
-	for _, entry in fs.readDir("games") do
-		if fs.isDir("games/" .. entry) then
-			table.insert(dirs, "games/" .. entry)
-		end
+	-- every game folder of the project (games/*, and in the core repo examples/sandbox +
+	-- examples/overrides/*; tools/lune/Roots.luau) and the new-game template
+	dirs = require("./Roots").gameDirs(fs)
+	if fs.isDir("templates/new-game") then
+		table.insert(dirs, "templates/new-game")
 	end
-	table.sort(dirs)
-	table.insert(dirs, "templates/new-game")
 end
 
 local findings = {}
@@ -1942,14 +2057,21 @@ for _, dir in dirs do
 	end
 end
 if runGit then
-	for _, f in Guard.scanPackages("packages") do
-		table.insert(findings, f)
+	-- the framework's own scans run in the core repo; a games repo pins a released (already
+	-- scanned) core and checks its games (special/theme over games/*/modules, games/*/src/client)
+	local external = require("./Roots").external
+	if not external then
+		for _, f in Guard.scanPackages("packages") do
+			table.insert(findings, f)
+		end
 	end
 	for _, f in Guard.scanSpecialAll() do
 		table.insert(findings, f)
 	end
-	for _, f in Guard.scanFrameworkSpecialAll() do
-		table.insert(findings, f)
+	if not external then
+		for _, f in Guard.scanFrameworkSpecialAll() do
+			table.insert(findings, f)
+		end
 	end
 end
 if runGit then

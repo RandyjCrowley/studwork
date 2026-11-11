@@ -51,12 +51,14 @@ end
 
 local projectPath = nil
 if game then
-	projectPath = "games/" .. game .. "/default.project.json"
-	if not fs.isFile(projectPath) then
+	-- games/<game> (or, in the core repo, examples/<game> / examples/overrides/<game>; Roots.luau)
+	local gameDir = require("./Roots").findGame(fs, game)
+	projectPath = (gameDir or ("games/" .. game)) .. "/default.project.json"
+	if gameDir == nil or not fs.isFile(projectPath) then
 		print("error: no such game: " .. game .. " (" .. projectPath .. ")")
 		process.exit(1)
 	end
-	dir = "games/" .. game .. "/modules/" .. MakeGen.kebab(name)
+	dir = gameDir .. "/modules/" .. MakeGen.kebab(name)
 end
 dir = string.gsub(dir, "/+$", "")
 
@@ -94,12 +96,16 @@ if projectPath then
 		SyncProjects.set(modules, name, SyncProjects.toOrdered(plain.tree[serviceName].Modules[name]))
 	end
 	-- the generated module entries stay in their canonical place (sync-projects --check)
-	local synced = SyncProjects.sync(projectPath, SyncProjects.encode(project), ModuleDiscovery.discover(fs))
+	local synced = SyncProjects.sync(
+		projectPath,
+		SyncProjects.encode(project),
+		ModuleDiscovery.discover(fs, require("./Roots").CORE)
+	)
 	fs.writeFile(projectPath, synced)
 	print("mapped " .. name .. " in " .. projectPath)
 end
 
-pcall(process.exec, "stylua", { dir })
+pcall(process.exec, "stylua", { "--config-path", require("./Roots").core("stylua.toml"), dir })
 
 print("next:")
 print("  1. list it in GameConfig.modules (src/shared/Config/init.luau):")

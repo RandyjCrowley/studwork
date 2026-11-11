@@ -38,6 +38,19 @@ describe("NewGame.parseArgs", function()
 		expect(b.modules).toEqual({ "Mail" })
 	end)
 
+	it("--into picks the parent folder (default games); only relative folders inside the project", function()
+		expect(NewGame.parseArgs({ "gx" }).into).toBe("games")
+		expect(NewGame.parseArgs({ "gx", "--into", "examples/overrides/" }).into).toBe("examples/overrides")
+		for _, bad in { "/tmp", "../x", "a/../b", "--modules" } do
+			local opts, err = NewGame.parseArgs({ "gx", "--into", bad })
+			expect(opts).toBeNil()
+			expect(type(err)).toBe("string")
+		end
+		local opts, err = NewGame.parseArgs({ "gx", "--into" })
+		expect(opts).toBeNil()
+		expect(type(err)).toBe("string")
+	end)
+
 	it("--modules with an empty list means foundation only", function()
 		local opts = NewGame.parseArgs({ "gx", "--modules", "," })
 		expect(opts.modules).toEqual({})

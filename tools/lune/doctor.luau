@@ -23,6 +23,7 @@ local serde = require("@lune/serde")
 local Doctor = require("./DoctorChecks")
 local Layout = require("./Layout")
 local CoreInfo = require("./core-info")
+local Roots = require("./Roots")
 
 local rows = {}
 local function add(level, item, detail, fix)
@@ -38,7 +39,7 @@ local function run(cmd: string, args: { string }): (boolean, string)
 end
 
 -- toolchain
-for _, tool in Doctor.parseRokit(fs.readFile("rokit.toml")) do
+for _, tool in Doctor.parseRokit(fs.readFile(Roots.core("rokit.toml"))) do
 	local bin = Doctor.BINARY[tool.name] or string.lower(tool.name)
 	local ok, out = run(bin, { "--version" })
 	local first = string.match(out, "^[^\n]*") or ""
@@ -62,14 +63,16 @@ for _, tool in Doctor.parseRokit(fs.readFile("rokit.toml")) do
 end
 
 -- wally packages
-if fs.isFile("deps/wally.toml") then
+if fs.isFile(Roots.core("deps/wally.toml")) then
 	local missing = 0
-	local deps = Doctor.parseWally(fs.readFile("deps/wally.toml"))
+	local deps = Doctor.parseWally(fs.readFile(Roots.core("deps/wally.toml")))
 	for _, dep in deps do
-		local folder = if dep.realm == "server"
-			then "deps/ServerPackages"
-			elseif dep.realm == "dev" then "deps/DevPackages"
-			else "deps/Packages"
+		local folder = Roots.core(
+			if dep.realm == "server"
+				then "deps/ServerPackages"
+				elseif dep.realm == "dev" then "deps/DevPackages"
+				else "deps/Packages"
+		)
 		local link = folder .. "/" .. dep.alias .. ".lua"
 		local index = folder .. "/_Index/" .. dep.index
 		if not fs.isFile(link) or not fs.isDir(index) then
@@ -122,10 +125,9 @@ if fs.isFile(".env.example") then
 end
 
 -- serve ports
-local entries = fs.readDir("games")
-table.sort(entries)
+local entries = Roots.gameDirs(fs)
 for _, entry in entries do
-	local path = "games/" .. entry .. "/deploy.json"
+	local path = entry .. "/deploy.json"
 	if fs.isFile(path) then
 		local ok, deploy = pcall(serde.decode, "json", fs.readFile(path))
 		local port = ok and type(deploy) == "table" and deploy.servePort
@@ -150,10 +152,11 @@ end
 
 -- framework layout (core v1.3.0: StudWork in packages/framework, kits in packages/kits; one folder
 -- per kit module since core v1.3.1)
+local KITS_DIR = Roots.core(Layout.KITS_DIR)
 local kits = {}
-if fs.isDir(Layout.KITS_DIR) then
-	for _, entry in fs.readDir(Layout.KITS_DIR) do
-		if fs.isDir(Layout.KITS_DIR .. "/" .. entry) then
+if fs.isDir(KITS_DIR) then
+	for _, entry in fs.readDir(KITS_DIR) do
+		if fs.isDir(KITS_DIR .. "/" .. entry) then
 			table.insert(kits, entry)
 		end
 	end
@@ -166,8 +169,12 @@ local function kitModules(): { [string]: { string } }
 	local out = {}
 	for _, kit in kits do
 		local list = {}
-		for _, m in fs.readDir(Layout.KITS_DIR .. "/" .. kit) do
-			if fs.isFile(Layout.KITS_DIR .. "/" .. kit .. "/" .. m .. "/module.luau") then
+		for _, m in fs.readDir(KITS_DIR .. "/" .. kit) do
+			-- (only folders: Lune's isFile errors on "<file>/module.luau")
+			if
+				fs.isDir(KITS_DIR .. "/" .. kit .. "/" .. m)
+				and fs.isFile(KITS_DIR .. "/" .. kit .. "/" .. m .. "/module.luau")
+			then
 				table.insert(list, m)
 			end
 		end
@@ -176,7 +183,7 @@ local function kitModules(): { [string]: { string } }
 	end
 	return out
 end
-local layoutIssues = Layout.repoIssues(exists, kits, kitModules())
+local layoutIssues = Layout.repoIssues(exists, kits, kitModules(), Roots.CORE)
 for _, issue in layoutIssues do
 	local fix = if string.find(issue, "still exists", 1, true)
 		then "delete it (git rm -r): its code lives in packages/framework and packages/kits since core v1.3.0"
@@ -197,22 +204,23 @@ end
 
 -- every Rojo project maps the v1.3 layout
 local projects = {}
-for _, entry in entries do
-	local dir = "games/" .. entry
-	if fs.isDir(dir) then
-		for _, file in fs.readDir(dir) do
-			if string.match(file, "%.project%.json$") then
-				table.insert(projects, { dir = dir, file = dir .. "/" .. file })
-			end
+for _, dir in entries do
+	for _, file in fs.readDir(dir) do
+		if string.match(file, "%.project%.json$") then
+			table.insert(projects, { dir = dir, file = dir .. "/" .. file })
 		end
 	end
 end
-table.insert(projects, { dir = "templates/new-game", file = "templates/new-game/default.project.json" })
+if fs.isFile("templates/new-game/default.project.json") then
+	table.insert(projects, { dir = "templates/new-game", file = "templates/new-game/default.project.json" })
+end
 local badProjects = 0
 for _, proj in projects do
 	if fs.isFile(proj.file) then
 		local ok, decoded = pcall(serde.decode, "json", fs.readFile(proj.file))
-		local issues = if ok then Layout.projectIssues(decoded, proj.dir, kits) else { "not valid JSON" }
+		local issues = if ok
+			then Layout.projectIssues(decoded, proj.dir, kits, Roots.CORE)
+			else { "not valid JSON" }
 		for _, issue in issues do
 			badProjects += 1
 			add(

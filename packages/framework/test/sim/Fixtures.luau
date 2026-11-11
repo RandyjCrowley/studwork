@@ -79,7 +79,7 @@ end
 
 -- A server that boots a REAL game (core-v1.3.0 step 4b-IIb boot tests): the game's own
 -- Config, game module and ServerConfig, through its Rojo project (`projectPath`, e.g.
--- "games/example-collector/default.project.json"), with the real framework and kit modules. Call on
+-- "games/<g>/default.project.json"), with the real framework and kit modules. Call on
 -- the spec's main thread (the project file is read here).
 function Fixtures.gameServer(world: any, projectPath: string, opts: any?)
 	local Loader = require(script.Parent.Loader)

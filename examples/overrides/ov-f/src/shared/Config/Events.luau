@@ -1,0 +1,15 @@
+--!strict
+-- Weekly and scheduled live events (UTC). Triggerable from the admin command / console too.
+local Events = {
+	CoinRain = {
+		schedule = { weekday = 7, hourUtc = 18, minuteUtc = 0 }, -- Saturday 18:00 UTC
+		durationSec = 300,
+		data = { multiplier = 2 },
+	},
+	SecretDrop = {
+		durationSec = 60,
+		data = { itemId = "void" },
+	},
+}
+
+return Events

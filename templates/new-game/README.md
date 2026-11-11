@@ -1,6 +1,6 @@
 # templates/new-game
 
-Status: template (a working copy of games/_sandbox). `tools/new-game <name>` copies this folder to
+Status: template (a working copy of examples/sandbox). `tools/new-game <name>` copies this folder to
 `games/<name>` and then rewrites this README, `deploy.json` (name, servePort, placeholder ids),
 `default.project.json` (name, servePort, the game module's paths), `GameConfig.gameId`, the game
 module's name (`modules/sandbox` -> `modules/<name>`), and with `--modules A,B,C` `GameConfig.modules`

@@ -175,10 +175,15 @@ end
 
 -- fs = @lune/fs; discovery = tools/lune/ModuleDiscovery (Lune scripts may omit it; a spec loaded
 -- through the testkit passes require("tools/lune/ModuleDiscovery.luau"))
-function KitModules.load(fs: any, discovery: any?): any
+-- coreDir: the core's folder (tools/lune/Roots.luau); default Roots.CORE when Roots loads.
+function KitModules.load(fs: any, discovery: any?, coreDir: string?): any
 	local ModuleDiscovery = discovery or (require :: any)("./ModuleDiscovery")
+	if coreDir == nil then
+		local ok, Roots = pcall(require :: any, "./Roots")
+		coreDir = if ok and type(Roots) == "table" then Roots.CORE else nil
+	end
 	local files: { [string]: string } = {}
-	for _, entry in ModuleDiscovery.discover(fs) do
+	for _, entry in ModuleDiscovery.discover(fs, coreDir) do
 		if entry.kit ~= nil then
 			files[entry.module] = fs.readFile(entry.module)
 			local client = entry.dir .. "/client/init.luau"

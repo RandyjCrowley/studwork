@@ -1,7 +1,7 @@
 --!strict
 --[[
 	Sandbox server: builds the world, then boots StudWork. The game's logic is its own module
-	(games/_sandbox/modules/sandbox, module-api.md §7 C4), which the framework adds by itself.
+	(examples/sandbox/modules/sandbox, module-api.md §7 C4), which the framework adds by itself.
 ]]
 
 local ReplicatedStorage = game:GetService("ReplicatedStorage")

@@ -1,18 +1,36 @@
 #!/usr/bin/env bash
 # tools/lint: selene + stylua --check over every Luau source (vendor, Packages, generated excluded),
-# then the game-agent guardrails (tools/lune/guardrails.luau: modules, packages, numbers, remotes;
-# its --self-test proves each check still catches a planted violation), after
-# tools/sync-projects --check (every *.project.json maps the module folders as generated).
+# then tools/sync-projects --check (every *.project.json maps the module folders as generated),
+# then the guardrails (tools/lune/guardrails.luau: modules, packages, numbers, remotes, purchases,
+# special, theme; its --self-test proves each check still catches a planted violation).
+#
+# In a games repo (STUDWORK_PROJECT_ROOT set by its tools/ wrappers, docs/framework/games-repo.md)
+# it lints the games repo's games/ with the CORE's selene/stylua configs, and the guardrails add
+# the core-pin check (the roblox-core/ submodule is clean and its HEAD is a tag).
 source "$(dirname "$0")/_common.sh"
 
-PATHS="packages games templates tools examples"
-echo "== selene"
-selene $PATHS
-echo "== stylua --check"
-stylua --check $PATHS
+if is_games_repo; then
+	[ -d games ] || die "no games/ folder in $PROJECT_ROOT"
+	echo "== selene"
+	# selene reads its std (testkit.yml, based on roblox) from the working directory: run it from
+	# the core with the games folder's absolute path
+	(cd "$CORE_ROOT" && selene "$PROJECT_ROOT/games")
+	echo "== stylua --check"
+	# the core's stylua.toml; Blink outputs (module server/Net.luau, client/Net.luau) are generated
+	stylua --config-path "$(core_path stylua.toml)" --check \
+		-g '*.luau' -g '*.lua' -g '!**/server/Net.luau' -g '!**/client/Net.luau' -g '!**/Generated*.luau' \
+		games
+else
+	PATHS="packages templates tools examples"
+	if [ -d games ]; then PATHS="$PATHS games"; fi
+	echo "== selene"
+	selene $PATHS
+	echo "== stylua --check"
+	stylua --check $PATHS
+fi
 echo "== sync-projects --check"
-lune run tools/lune/sync-projects --check
+lune_tool sync-projects --check
 echo "== guardrails"
-lune run tools/lune/guardrails --self-test
-lune run tools/lune/guardrails
+lune_tool guardrails --self-test
+lune_tool guardrails
 echo "lint: clean"

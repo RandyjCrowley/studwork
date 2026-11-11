@@ -7,7 +7,7 @@
 
 local F = require(script.Parent.Fixtures)
 
-local SANDBOX = "games/_sandbox/default.project.json"
+local SANDBOX = "examples/sandbox/default.project.json"
 
 local function refOf(server, name: string): any
 	for _, ref in server.runtime.order do

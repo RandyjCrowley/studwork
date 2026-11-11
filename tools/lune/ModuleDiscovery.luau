@@ -21,12 +21,14 @@
 
 	ModuleDiscovery.ROOTS                         { "packages/kits/*", "examples/modules" }
 	ModuleDiscovery.nameOf(source) -> string?     the defineModule `name`
-	ModuleDiscovery.discover(fs) -> { Entry }     sorted by name; Entry = { name, dir, kit?,
+	ModuleDiscovery.discover(fs, coreDir?) -> { Entry }   sorted by name; Entry = { name, dir, kit?,
 	                                              module, client?, shared?, server?, blink? }
 	ModuleDiscovery.children(entries, prefix?) -> { ReplicatedStorage = { [Name] = { module =
 	                                              path, client = path?, shared = path? } },
 	                                              ServerScriptService = { [Name] = path } }
 	                                              (prefix is prepended to every path)
+	coreDir (StudWork v1.4.0): the core's folder relative to the working directory ("." or nil in
+	the core repo, "roblox-core" in a games repo, tools/lune/Roots.luau); every path is prefixed.
 ]]
 
 local ModuleDiscovery = {}
@@ -67,11 +69,20 @@ local function entryAt(fs: any, dir: string, kit: string?): any?
 	return entry
 end
 
-function ModuleDiscovery.discover(fs: any): { any }
+local function under(coreDir: string?, path: string): string
+	if coreDir == nil or coreDir == "" or coreDir == "." then
+		return path
+	end
+	return coreDir .. "/" .. path
+end
+
+function ModuleDiscovery.discover(fs: any, coreDir: string?): { any }
 	local out = {}
-	if fs.isDir(ModuleDiscovery.KITS_DIR) then
-		for _, kit in sorted(fs.readDir(ModuleDiscovery.KITS_DIR)) do
-			local kitDir = ModuleDiscovery.KITS_DIR .. "/" .. kit
+	local kitsDir = under(coreDir, ModuleDiscovery.KITS_DIR)
+	local examplesDir = under(coreDir, ModuleDiscovery.EXAMPLES_DIR)
+	if fs.isDir(kitsDir) then
+		for _, kit in sorted(fs.readDir(kitsDir)) do
+			local kitDir = kitsDir .. "/" .. kit
 			if fs.isDir(kitDir) then
 				for _, folder in sorted(fs.readDir(kitDir)) do
 					local entry = fs.isDir(kitDir .. "/" .. folder)
@@ -83,9 +94,9 @@ function ModuleDiscovery.discover(fs: any): { any }
 			end
 		end
 	end
-	if fs.isDir(ModuleDiscovery.EXAMPLES_DIR) then
-		for _, folder in sorted(fs.readDir(ModuleDiscovery.EXAMPLES_DIR)) do
-			local dir = ModuleDiscovery.EXAMPLES_DIR .. "/" .. folder
+	if fs.isDir(examplesDir) then
+		for _, folder in sorted(fs.readDir(examplesDir)) do
+			local dir = examplesDir .. "/" .. folder
 			local entry = fs.isDir(dir) and entryAt(fs, dir, nil)
 			if entry then
 				table.insert(out, entry)

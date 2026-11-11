@@ -2,7 +2,7 @@
 
 React-lua (jsdotlua React 17.2.1 + ReactRoblox) components themed from the one merged theme
 (`GameConfig.theme`, module-api.md §13; `Framework/shared/Theme`). No component hardcodes a colour,
-font, size or sound id. Games require it and never edit it (requests go to `CORE_REQUESTS.md`).
+font, size or sound id. Games require it and never edit it (requests go to the games repo's `FRAMEWORK_REQUESTS.md`).
 
 ```lua
 local UI = require(ReplicatedStorage:WaitForChild("UI"))

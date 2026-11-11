@@ -2,4 +2,4 @@
 # tools/make-module: see tools/lune/make-module.luau (usage with no arguments).
 source "$(dirname "$0")/_common.sh"
 
-lune run tools/lune/make-module "$@"
+lune_tool make-module "$@"

@@ -5,7 +5,7 @@ Everything that can run offline is automated: `tools/test` runs the multi-server
 Economy, Inventory, Friends, Shop and Mail on a mock DataStore), and `tools/test-sim` adds the
 soak test. This list covers only what the simulation can't cover: the real engine (Players,
 remotes, replication, GUI layout, audio) and the real DataStore service. Run it after merging,
-on the `_sandbox` game (`rojo serve games/_sandbox/default.project.json`).
+on the sandbox example game (`rojo serve examples/sandbox/default.project.json`).
 
 Console commands below run in the Studio command bar in the **Server** context during a test:
 `game.ServerScriptService.CoreServer.CoreConsole:Invoke("<command>", ...)` (`"help"` lists them).

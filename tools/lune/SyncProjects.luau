@@ -8,8 +8,8 @@
 	  shared/     -> ReplicatedStorage.Modules.<Name>.shared   (when the folder exists)
 	  server/     -> ServerScriptService.Modules.<Name>        (when the folder exists)
 	Those entries are GENERATED: every kit module (packages/kits/*/*) in every project, and an
-	example module (examples/modules/<x>) only in projects inside its own folder (its fixture
-	games). Every other child of the two Modules folders is the project's own (the game module's
+	example module (examples/modules/<x>) in projects inside its own folder (its fixture games)
+	and (v1.4.0) in any project that maps it (ReplicatedStorage.Modules.<Name> present: opt-in). Every other child of the two Modules folders is the project's own (the game module's
 	server part, a game-local module) and is kept as written. The pre-v1.3.1 `Kits` folders are
 	removed.
 
@@ -281,11 +281,21 @@ local function pathNode(path: string): any
 	return node
 end
 
--- The generated entries a project gets: every kit module; an example module only inside its folder.
-function SyncProjects.entriesFor(projectPath: string, entries: { any }): { any }
+-- The generated entries a project gets: every kit module; an example module inside its folder, or
+-- (added in v1.4.0) in any project that already maps it under ReplicatedStorage.Modules.<Name>
+-- (`mapped[name]`: the project opts in; its entries are then generated like a kit's).
+function SyncProjects.entriesFor(
+	projectPath: string,
+	entries: { any },
+	mapped: { [string]: boolean }?
+): { any }
 	local out = {}
 	for _, entry in entries do
-		if entry.kit ~= nil or string.sub(projectPath, 1, #entry.dir + 1) == entry.dir .. "/" then
+		if
+			entry.kit ~= nil
+			or string.sub(projectPath, 1, #entry.dir + 1) == entry.dir .. "/"
+			or (mapped ~= nil and mapped[entry.name] == true)
+		then
 			table.insert(out, entry)
 		end
 	end
@@ -298,7 +308,15 @@ function SyncProjects.sync(projectPath: string, text: string, entries: { any }):
 	local changes = {}
 	local tree = project.vals.tree
 	assert(type(tree) == "table" and tree.__object, `{projectPath}: no "tree"`)
-	local generated = SyncProjects.entriesFor(projectPath, entries)
+	local mapped = {}
+	local rsNode = tree.vals.ReplicatedStorage
+	local rsModules = rsNode and rsNode.vals and rsNode.vals.Modules
+	if rsModules and rsModules.keys then
+		for _, key in rsModules.keys do
+			mapped[key] = true
+		end
+	end
+	local generated = SyncProjects.entriesFor(projectPath, entries, mapped)
 	-- names a generated entry may take (any discovered module: a project can't own a kit's name)
 	local reserved = {}
 	for _, entry in entries do

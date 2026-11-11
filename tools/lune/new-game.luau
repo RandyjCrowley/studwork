@@ -32,6 +32,11 @@ local KitModules = require("./KitModules")
 local NewGame = require("./NewGame")
 local ModuleDiscovery = require("./ModuleDiscovery")
 local SyncProjects = require("./SyncProjects")
+local Roots = require("./Roots")
+local Layout = require("./Layout")
+
+-- the template lives in the core (in a games repo: roblox-core/templates/new-game)
+local TEMPLATE = Roots.core("templates/new-game")
 
 local Modules = KitModules.load(fs)
 
@@ -60,17 +65,17 @@ if opts.modules then
 	chosenModules = order
 end
 
-local target = "games/" .. name
+local target = opts.into .. "/" .. name
 if fs.isDir(target) then
 	print("error: " .. target .. " already exists")
 	process.exit(1)
 end
-if not fs.isDir("templates/new-game") then
-	print("error: templates/new-game is missing")
+if not fs.isDir(TEMPLATE) then
+	print("error: " .. TEMPLATE .. " is missing")
 	process.exit(1)
 end
 
--- next free port (deploy.json and every *.project.json, e.g. _sandbox/foundation-only)
+-- next free port (deploy.json and every *.project.json of every game, e.g. sandbox/foundation-only)
 local highest = BASE_PORT - 1
 local function consider(path: string)
 	local ok, json = pcall(serde.decode, "json", fs.readFile(path))
@@ -78,13 +83,10 @@ local function consider(path: string)
 		highest = json.servePort
 	end
 end
-for _, entry in fs.readDir("games") do
-	local dir = "games/" .. entry
-	if fs.isDir(dir) then
-		for _, file in fs.readDir(dir) do
-			if file == "deploy.json" or string.match(file, "%.project%.json$") then
-				consider(dir .. "/" .. file)
-			end
+for _, dir in Roots.gameDirs(fs) do
+	for _, file in fs.readDir(dir) do
+		if file == "deploy.json" or string.match(file, "%.project%.json$") then
+			consider(dir .. "/" .. file)
 		end
 	end
 end
@@ -103,7 +105,10 @@ local function copyDir(src: string, dst: string)
 		end
 	end
 end
-copyDir("templates/new-game", target)
+if not fs.isDir(opts.into) then
+	fs.writeDir(opts.into)
+end
+copyDir(TEMPLATE, target)
 
 -- module markers: keep only the chosen modules' code in every .luau file (all when no --modules)
 local chosenSet: { [string]: boolean } = {}
@@ -158,6 +163,24 @@ local project = SyncProjects.decode(fs.readFile(projectPath))
 project.vals.name = name
 project.vals.servePort = port
 local tree = project.vals.tree
+-- $paths that leave the template (../../packages/..., ../../deps/...) point into the core: rewrite
+-- them relative to the new game (identical in the core repo; ../../roblox-core/... in a games repo)
+local function repoint(node: any)
+	if type(node) ~= "table" or not node.__object then
+		return
+	end
+	local p = node.vals["$path"]
+	if type(p) == "string" and string.sub(p, 1, 3) == "../" then
+		local corePath = Layout.normalize("templates/new-game/" .. p)
+		node.vals["$path"] = SyncProjects.relative(target, Roots.core(corePath))
+	end
+	for _, key in node.keys do
+		if string.sub(key, 1, 1) ~= "$" then
+			repoint(node.vals[key])
+		end
+	end
+end
+repoint(tree)
 tree.vals.ReplicatedStorage.vals.GameModule.vals.module.vals["$path"] = "modules/" .. name .. "/module.luau"
 local sssModules = tree.vals.ServerScriptService.vals.Modules
 local rebuilt = SyncProjects.newObject()
@@ -174,7 +197,11 @@ SyncProjects.set(own, "$path", "modules/" .. name .. "/server")
 SyncProjects.set(rebuilt, moduleName, own)
 tree.vals.ServerScriptService.vals.Modules = rebuilt
 -- the generated module entries in their canonical place (tools/sync-projects --check stays clean)
-local synced = SyncProjects.sync(projectPath, SyncProjects.encode(project), ModuleDiscovery.discover(fs))
+local synced = SyncProjects.sync(
+	projectPath,
+	SyncProjects.encode(project),
+	ModuleDiscovery.discover(fs, require("./Roots").CORE)
+)
 fs.writeFile(projectPath, synced)
 
 -- deploy.json
@@ -244,23 +271,31 @@ fs.writeFile(target .. "/README.md", NewGame.readme(name, port, opts.designDoc, 
 
 -- design doc
 local docPath = "docs/games/" .. name .. ".md"
-if opts.designDoc and not fs.isFile(docPath) and fs.isFile("templates/game-design.md") then
-	fs.writeDir("docs/games")
-	local doc = string.gsub(fs.readFile("templates/game-design.md"), "{{name}}", name)
+local designTemplate = Roots.core("templates/game-design.md")
+if opts.designDoc and not fs.isFile(docPath) and fs.isFile(designTemplate) then
+	if not fs.isDir("docs") then
+		fs.writeDir("docs")
+	end
+	if not fs.isDir("docs/games") then
+		fs.writeDir("docs/games")
+	end
+	local doc = string.gsub(fs.readFile(designTemplate), "{{name}}", name)
 	fs.writeFile(docPath, doc)
 end
 
--- GAMES.md row
-local games = fs.readFile("GAMES.md")
-local docCell = if opts.designDoc
-	then string.format("[docs/games/%s.md](docs/games/%s.md)", name, name)
-	else "—"
-local row = string.format("| %s | scaffolded | %d | 0 | 0 | 0 | — | %s |\n", name, port, docCell)
-if not string.find(games, "| " .. name .. " |", 1, true) then
-	if string.sub(games, -1) ~= "\n" then
-		games ..= "\n"
+-- GAMES.md row (the games repo's game list; skipped when the project has none, e.g. the core repo)
+if fs.isFile("GAMES.md") then
+	local games = fs.readFile("GAMES.md")
+	local docCell = if opts.designDoc
+		then string.format("[docs/games/%s.md](docs/games/%s.md)", name, name)
+		else "—"
+	local row = string.format("| %s | scaffolded | %d | 0 | 0 | 0 | — | %s |\n", name, port, docCell)
+	if not string.find(games, "| " .. name .. " |", 1, true) then
+		if string.sub(games, -1) ~= "\n" then
+			games ..= "\n"
+		end
+		fs.writeFile("GAMES.md", games .. row)
 	end
-	fs.writeFile("GAMES.md", games .. row)
 end
 
 print(
@@ -273,14 +308,15 @@ print(
 )
 
 -- Format what the markers left (stylua is part of the toolchain; skipped if it isn't installed).
-local okFormat, formatResult = pcall(process.exec, "stylua", { target })
+local okFormat, formatResult =
+	pcall(process.exec, "stylua", { "--config-path", Roots.core("stylua.toml"), target })
 if not okFormat or not formatResult.ok then
 	print("note: stylua did not run on " .. target .. "; run `stylua " .. target .. "` before tools/lint")
 end
 
 -- The generated game must pass the guardrails as written. If it doesn't, the template's markers
 -- missed something: say so now (tools/lint would fail on it later).
-local result = process.exec("lune", { "run", "tools/lune/guardrails", target })
+local result = process.exec("lune", { "run", Roots.core("tools/lune/guardrails"), target })
 if not result.ok then
 	print("warning: the generated game fails the guardrails (a template marker is missing; please report")
 	print("         it). Run `lune run tools/lune/guardrails " .. target .. "`:")

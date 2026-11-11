@@ -1,0 +1,13 @@
+{
+  "idsNote": "PLACEHOLDER ids (0): create the test and live experiences, paste their universe/place ids here (docs/publishing.md). tools/publish refuses 0 ids.",
+  "live": {
+    "placeId": 0,
+    "universeId": 0
+  },
+  "name": "ov-c",
+  "servePort": 34876,
+  "test": {
+    "placeId": 0,
+    "universeId": 0
+  }
+}

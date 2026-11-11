@@ -21,7 +21,11 @@ What it shows:
 
 ## Add it to a game
 
-1. Map it in the game's `default.project.json` (paths relative to `games/<game>/`):
+1. Map it in the game's `default.project.json` (paths relative to the project file; this is
+   `games/<game>/` in the core repo; in a games repo the module lives under `../../roblox-core/`).
+   Once a project maps it, `tools/sync-projects` keeps its entries canonical (v1.4.0); adding just
+   `"SessionLeaderboard": { "$className": "Folder" }` under `ReplicatedStorage.Modules` and running
+   `tools/sync-projects` writes the rest. `examples/overrides/ov-f` is a working example:
 
    ```json
    "ReplicatedStorage": {

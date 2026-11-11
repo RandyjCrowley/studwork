@@ -5,4 +5,4 @@
 # The project's own Modules entries (its game module) are kept. --check: exit 1 on drift (lint).
 source "$(dirname "$0")/_common.sh"
 
-lune run tools/lune/sync-projects "$@"
+lune_tool sync-projects "$@"

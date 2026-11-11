@@ -8,4 +8,4 @@
 # Exit 1 when a check FAILs (toolchain, packages, hook, layout); .env and ports are warnings only.
 source "$(dirname "$0")/_common.sh"
 
-lune run tools/lune/doctor
+lune_tool doctor

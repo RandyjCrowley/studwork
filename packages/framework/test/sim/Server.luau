@@ -186,13 +186,15 @@ function Server._buildEngine(self)
 		Workspace = Loader.folder({}),
 		ReplicatedStorage = Loader.folder({
 			-- wally packages the kit services require (Plot: Trove)
-			Packages = Loader.folder({ Trove = "deps/Packages/_Index/sleitnick_trove@1.8.0/trove" }),
-			Framework = "packages/framework/shared",
+			Packages = Loader.folder({
+				Trove = Loader.core("deps/Packages/_Index/sleitnick_trove@1.8.0/trove"),
+			}),
+			Framework = Loader.core("packages/framework/shared"),
 			Modules = moduleFolders.ReplicatedStorage,
 		}),
-		ServerStorage = Loader.folder({ ServerPackages = "deps/ServerPackages" }),
+		ServerStorage = Loader.folder({ ServerPackages = Loader.core("deps/ServerPackages") }),
 		ServerScriptService = Loader.folder({
-			Framework = "packages/framework/server",
+			Framework = Loader.core("packages/framework/server"),
 			Modules = moduleFolders.ServerScriptService,
 		}),
 	}
@@ -426,8 +428,8 @@ function Server._platform(self): any
 	local server = self
 	local scheduler = self.scheduler
 	local Players = self.Players
-	local Store = self.require("packages/framework/server/Store.luau")
-	local Net = self.require("packages/framework/server/Net")
+	local Store = self.require(Loader.core("packages/framework/server/Store.luau"))
+	local Net = self.require(Loader.core("packages/framework/server/Net"))
 	local events = {}
 	for _, name in Net.CLIENT_EVENTS do
 		events[name] = fakeEvent(server, name)
@@ -546,7 +548,7 @@ function Server._platform(self): any
 		-- ctx.data.shared on the World's mock DataStore: one store shared by every sim server
 		-- (failure injection: world:failNext / failFor with store "StudWorkShared_<gameId>")
 		makeShared = function(gameId: string)
-			local SharedStore = server.require("packages/framework/server/SharedStore.luau")
+			local SharedStore = server.require(Loader.core("packages/framework/server/SharedStore.luau"))
 			return SharedStore.dataStore(game:GetService("DataStoreService"), "StudWorkShared_" .. gameId, {
 				isStudio = server.isStudio,
 				log = function(msg)
@@ -632,8 +634,8 @@ end
 
 function Server._boot(self, opts: any)
 	local server = self
-	local StudWork = self.require("packages/framework/shared")
-	local FrameworkServer = self.require("packages/framework/server")
+	local StudWork = self.require(Loader.core("packages/framework/shared"))
+	local FrameworkServer = self.require(Loader.core("packages/framework/server"))
 
 	local gameConfig, gameModule, serverConfig
 	if self.project then
@@ -676,7 +678,7 @@ function Server._boot(self, opts: any)
 		local instance = folder and folder:FindFirstChild(ref.server or ref.name)
 		self.partPaths[ref.name] = instance and instance.__path
 		-- no Blink wire in the sim (a generated Net.luau needs the engine): Net children are not bound
-		return self.require("packages/framework/server/Loader.luau")
+		return self.require(Loader.core("packages/framework/server/Loader.luau"))
 			.defaultLoadServer(ref, nil, { bindNet = false })
 	end
 

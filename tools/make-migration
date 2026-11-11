@@ -2,4 +2,4 @@
 # tools/make-migration: see tools/lune/make-migration.luau (usage with no arguments).
 source "$(dirname "$0")/_common.sh"
 
-lune run tools/lune/make-migration "$@"
+lune_tool make-migration "$@"

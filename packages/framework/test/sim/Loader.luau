@@ -18,18 +18,33 @@ local luau = luneRequire("@lune/luau")
 
 local Loader = {}
 
+-- The core's folder relative to the working directory (StudWork v1.4.0, tools/lune/Roots.luau):
+-- "." in the core repo, "roblox-core" when a games repo runs its specs. Core paths go through
+-- Loader.core; game projects (games/, templates/, examples/) are relative to the working directory.
+local CORE_DIR = luneRequire("@lune/process").env.STUDWORK_CORE_DIR
+if CORE_DIR == nil or CORE_DIR == "" or CORE_DIR == "./" then
+	CORE_DIR = "."
+end
+CORE_DIR = string.gsub(CORE_DIR, "/+$", "")
+function Loader.core(path: string): string
+	return if CORE_DIR == "." then path else CORE_DIR .. "/" .. path
+end
+
 local ROOTS = {
-	"packages/framework/server",
-	"packages/framework/shared",
-	"packages/kits", -- every module folder (packages/kits/<kit>/<Module>, core-v1.3.1 R19)
-	"deps/ServerPackages",
-	"deps/Packages/_Index/sleitnick_trove@1.8.0/trove",
+	Loader.core("packages/framework/server"),
+	Loader.core("packages/framework/shared"),
+	Loader.core("packages/kits"), -- every module folder (packages/kits/<kit>/<Module>, core-v1.3.1 R19)
+	Loader.core("deps/ServerPackages"),
+	Loader.core("deps/Packages/_Index/sleitnick_trove@1.8.0/trove"),
 	-- game projects (Fixtures.gameServer boots a real game's Config through its Rojo project)
 	"games",
 	"templates",
-	-- example modules + their fixture games (examples/modules/*/tests; Phase 2)
+	-- example modules + their fixture games (examples/modules/*/tests; Phase 2), example games
 	"examples",
 }
+if CORE_DIR ~= "." then
+	table.insert(ROOTS, Loader.core("examples"))
+end
 
 local kinds: { [string]: "file" | "dir" } = {}
 local listing: { [string]: { string } } = {}
@@ -63,14 +78,17 @@ end
 -- The repo's module folders mapped like Rojo (ReplicatedStorage.Modules.<Name>.{module, client,
 -- shared}, ServerScriptService.Modules.<Name>): the same discovery as the Lune testkit and
 -- tools/sync-projects (tools/lune/ModuleDiscovery.luau), read once here on the main thread.
-local ModuleDiscovery = luau.load(fs.readFile("tools/lune/ModuleDiscovery.luau"), {
+local ModuleDiscovery = luau.load(fs.readFile(Loader.core("tools/lune/ModuleDiscovery.luau")), {
 	debugName = "tools/lune/ModuleDiscovery.luau",
 })()
-Loader.moduleChildren = ModuleDiscovery.children(ModuleDiscovery.discover(fs))
+Loader.moduleChildren =
+	ModuleDiscovery.children(ModuleDiscovery.discover(fs, if CORE_DIR == "." then nil else CORE_DIR))
 
 -- Rojo maps a wally package folder to its main file (default.project.json $path).
 local ALIASES = {
-	["deps/ServerPackages/ProfileStore"] = "deps/ServerPackages/_Index/lm-loleris_profilestore@1.0.3/profilestore/ProfileStore.luau",
+	[Loader.core("deps/ServerPackages/ProfileStore")] = Loader.core(
+		"deps/ServerPackages/_Index/lm-loleris_profilestore@1.0.3/profilestore/ProfileStore.luau"
+	),
 }
 
 local function basename(path: string): string
