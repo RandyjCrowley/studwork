@@ -67,6 +67,18 @@ local function installSideRuntime()
 end
 
 function StudWork.start(...: any): any
+	-- A second start must never replace (or poison) the runtime that is already running: v1.2
+	-- row 15 ("a second Core.start errors"). Found in the step 4b Gate 0 Studio run, where a
+	-- second StudWork.start with a bad config swapped the live runtime for a failed one.
+	if RuntimeSlot.runtime ~= nil then
+		error(
+			`[StudWork] StudWork.start called twice: the framework is already {if RuntimeSlot.runtime.state
+					== "failed"
+				then "failed (boot error above)"
+				else "started"}; call it once per side`,
+			2
+		)
+	end
 	if RuntimeSlot.starter == nil then
 		installSideRuntime()
 	end

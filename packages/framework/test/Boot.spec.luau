@@ -162,6 +162,26 @@ describe("fail closed (N7)", function()
 end)
 
 describe("StudWork.use (§4, C1)", function()
+	it(
+		"a second StudWork.start errors and leaves the running runtime untouched (Gate 0 regression)",
+		function()
+			Harness.new({
+				modules = { Base },
+				servers = { Base = { api = {
+					ping = function()
+						return "pong"
+					end,
+				} } },
+			})
+			expect(StudWork.use(Base).ping()).toBe("pong")
+			local ok, err = pcall(StudWork.start, { gameId = "bogus" }, {})
+			expect(ok).toBe(false)
+			expect(tostring(err)).toContain("StudWork.start called twice")
+			-- the live runtime is still the one that booted: no boot-failed poisoning
+			expect(StudWork.use(Base).ping()).toBe("pong")
+		end
+	)
+
 	it("returns the frozen API of an enabled module, an erroring proxy for a disabled one", function()
 		local h = Harness.new({
 			modules = { Base },
