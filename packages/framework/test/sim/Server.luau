@@ -618,6 +618,11 @@ function Server._boot(self, opts: any)
 	self.signals = signals
 
 	local function loadServer(ref: any): any
+		-- opts.serverParts[name]: a test's REAL server part for a kit module (Phase 1 adapters)
+		local injected = opts.serverParts and opts.serverParts[ref.name]
+		if injected ~= nil then
+			return injected
+		end
 		local part = projectModules and projectModules:FindFirstChild(ref.server or ref.name)
 		if part then
 			return self.require(part)
@@ -652,6 +657,8 @@ function Server._boot(self, opts: any)
 				signals = function()
 					return signals
 				end,
+				-- opts.compatAdapters[Kit]: overrides packages/kits/compat/adapters/<Kit>.luau
+				adapters = opts.compatAdapters,
 			},
 		})
 		local hasKits = false
