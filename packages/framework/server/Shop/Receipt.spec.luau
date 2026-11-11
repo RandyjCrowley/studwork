@@ -451,3 +451,177 @@ describe("Receipt.forgetPlayer (N9)", function()
 		expect(pending.p.currencySpent).toBe(25)
 	end)
 end)
+
+-- v1.6.0 purchase bridge (adopting.md §4.2, §4.3): the pure flow with the legacy deps.
+local function legacyWorld(opts: any?)
+	opts = opts or {}
+	local w = world(opts)
+	w.checks = 0
+	w.oldStore = opts.oldStore or {}
+	w.checkResult = nil -- forced result ("error") or nil = look in oldStore
+	local base = w.deps
+	function w.deps()
+		local d = base()
+		d.isRecorded = function(_, pid)
+			return w.memory ~= nil
+				and (w.memory.purchases[pid] ~= nil or (w.memory.legacyPurchases or {})[pid] ~= nil)
+		end
+		d.legacyCheck = function(_, pid)
+			w.checks += 1
+			if w.checkResult == "raise" then
+				error("old store down")
+			end
+			if w.checkResult then
+				return w.checkResult, "injected"
+			end
+			return if w.oldStore[pid] ~= nil then "found" else "none"
+		end
+		d.recordLegacy = function(p, pid)
+			return w.update(p, function(data)
+				data.legacyPurchases = data.legacyPurchases or {}
+				data.legacyPurchases[pid] = 77
+			end)
+		end
+		if opts.oldHandler then
+			d.commit = function(p, r)
+				return Receipt.legacyCommit(w.update, opts.oldHandler, p, r, 123)
+			end
+		end
+		return d
+	end
+	return w
+end
+
+describe("Shop.Receipt.process: legacy history check (v1.6.0)", function()
+	it("an id the old store has -> legacy_duplicate, handler never runs, record saved", function()
+		local w = legacyWorld({ oldStore = { p1 = true } })
+		local r = w.process()
+		expect(r.decision).toBe("PurchaseGranted")
+		expect(r.reason).toBe("legacy_duplicate")
+		expect(r.effects).toBeNil()
+		expect(w.handlerRuns).toBe(0)
+		expect(w.persisted.legacyPurchases.p1).toBe(77)
+		expect(w.persisted.currency.coins).toBe(0)
+		local again = w.process()
+		expect(again.reason).toBe("duplicate")
+		expect(w.checks).toBe(1)
+	end)
+
+	it("legacy record whose save fails -> NotProcessedYet, retry saves, no effects, no grant", function()
+		local w = legacyWorld({ oldStore = { p1 = true }, saveResults = { false } })
+		local r1 = w.process()
+		expect(r1.decision).toBe("NotProcessedYet")
+		expect(r1.reason).toBe("save_failed")
+		expect(w.pending.p1.kind).toBe("legacy_duplicate")
+		local r2 = w.process()
+		expect(r2.decision).toBe("PurchaseGranted")
+		expect(r2.reason).toBe("legacy_duplicate")
+		expect(r2.effects).toBeNil()
+		expect(w.checks).toBe(1)
+		expect(w.handlerRuns).toBe(0)
+		expect(w.effectsRun).toBe(0)
+		expect(w.persisted.legacyPurchases.p1).toBe(77)
+	end)
+
+	it(
+		"a failed old-store read -> NotProcessedYet legacy_check_failed, nothing written; then a normal grant",
+		function()
+			local w = legacyWorld()
+			w.checkResult = "error"
+			local r = w.process()
+			expect(r.decision).toBe("NotProcessedYet")
+			expect(r.reason).toBe("legacy_check_failed")
+			w.checkResult = "raise"
+			expect(w.process().reason).toBe("legacy_check_failed")
+			expect(w.handlerRuns).toBe(0)
+			expect(w.saves).toBe(0)
+			w.checkResult = nil
+			expect(w.process().reason).toBe("granted")
+			expect(w.process().reason).toBe("duplicate")
+			expect(w.handlerRuns).toBe(1)
+			expect(w.effectsRun).toBe(1)
+		end
+	)
+
+	it("skip and none run the normal flow; an unknown check result refuses", function()
+		local w = legacyWorld()
+		w.checkResult = "skip"
+		expect(w.process("s1").reason).toBe("granted")
+		w.checkResult = "maybe"
+		expect(w.process("s2").reason).toBe("legacy_check_failed")
+		expect(w.handlerRuns).toBe(1)
+	end)
+
+	it("data unloaded during the check -> not_loaded, nothing recorded", function()
+		local w = legacyWorld({ oldStore = { p1 = true } })
+		local d = w.deps()
+		local check = d.legacyCheck
+		d.legacyCheck = function(...)
+			w.loaded = false
+			return check(...)
+		end
+		local r = Receipt.process({ PlayerId = 1, PurchaseId = "p1", ProductId = 42 }, d)
+		expect(r.decision).toBe("NotProcessedYet")
+		expect(r.reason).toBe("not_loaded")
+		expect(w.memory.legacyPurchases).toBeNil()
+	end)
+end)
+
+describe("Receipt.legacyCommit (v1.6.0 onLegacyProduct)", function()
+	it("old handler runs once across a failed save + redelivery; only PurchaseGranted records", function()
+		local runs = 0
+		local w = legacyWorld({
+			saveResults = { false },
+			oldHandler = function(receipt, player)
+				runs += 1
+				expect(receipt.PurchaseId).toBe("p1")
+				expect(player.UserId).toBe(1)
+				return "PurchaseGranted"
+			end,
+		})
+		expect(w.process().reason).toBe("save_failed")
+		expect(w.memory.purchases.p1).toBe(123)
+		local r = w.process()
+		expect(r.decision).toBe("PurchaseGranted")
+		expect(r.reason).toBe("duplicate")
+		expect(runs).toBe(1)
+		expect(w.persisted.purchases.p1).toBe(123)
+	end)
+
+	it("NotProcessedYet / error / non-string -> legacy_not_granted, nothing written", function()
+		for _, answer in { "NotProcessedYet", 1, "raise" } do
+			local w = legacyWorld({
+				oldHandler = function()
+					if answer == "raise" then
+						error("old boom")
+					end
+					return answer
+				end,
+			})
+			local r = w.process()
+			expect(r.decision).toBe("NotProcessedYet")
+			expect(r.reason).toBe("legacy_not_granted")
+			expect(w.memory.purchases.p1).toBeNil()
+			expect(w.saves).toBe(0)
+		end
+	end)
+
+	it("the old handler may yield (it runs outside the transaction)", function()
+		local w = legacyWorld()
+		local co = coroutine.create(function()
+			return Receipt.legacyCommit(w.update, function()
+				coroutine.yield("waiting on the old DataStore")
+				return "PurchaseGranted"
+			end, { UserId = 1 }, { PurchaseId = "y1" }, 5)
+		end)
+		local ok1, first = coroutine.resume(co)
+		expect(ok1).toBe(true)
+		expect(first).toBe("waiting on the old DataStore")
+		expect(w.memory.purchases.y1).toBeNil()
+		local ok2, status = coroutine.resume(co)
+		expect(ok2).toBe(true)
+		expect(status).toBe("committed")
+		expect(w.memory.purchases.y1).toBe(5)
+		expect(w.tx.running).toBe(false)
+	end)
+end)

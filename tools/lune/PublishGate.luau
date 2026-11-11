@@ -15,6 +15,9 @@
 	    testEquivalent boolean?: the recorded test commit and HEAD have identical build inputs
 	                 (games/<name> minus deploy.json, packages/, deps/), e.g. only the stamp files
 	                 or tools/docs changed since; computed by the caller with `git diff --quiet`
+	    adopted      boolean?: (v1.6.0) studwork.json has "adopted": true (docs/framework/adopting.md)
+	    placeFile    string?: (v1.6.0) studwork.json "placeFile": a place-file game
+	    adoptVerify  boolean?: (v1.6.0) `tools/adopt --verify .` passed (exit 0); nil = not run
 	  }
 	Decision = { ok, errors, warnings, record = "published" | "dryRun" }
 
@@ -28,6 +31,10 @@
 	       real live    needs deploy.test.published.commit == head (or testEquivalent)
 	       live dry run accepts deploy.test.published OR deploy.test.dryRun with commit == head
 	     A test dry run never unlocks a real live publish.
+	  5. (v1.6.0, adopting.md §1, §2 cutover 6, §5) a project with studwork.json "placeFile" is
+	     never published by tools/publish (its build has no map; any target, dry run too): the
+	     error lists the Studio steps. In an adopted project, --live (dry run too) is refused
+	     unless `tools/adopt --verify .` passed (adoptVerify == true); --test is allowed.
 
 	Records written after a run (tools/lune/deploy-stamp):
 	  deploy[target].published = { commit, at, versionNumber }   real publish (HTTP 200)
@@ -187,12 +194,36 @@ function PublishGate.decide(input: Input): Decision
 		end
 	end
 
+	-- 5. adopted projects (v1.6.0)
+	if type(input.placeFile) == "string" and input.placeFile ~= "" then
+		table.insert(errors, PublishGate.placeFileMessage(input.placeFile))
+	end
+	if input.adopted == true and target == "live" and input.adoptVerify ~= true then
+		table.insert(
+			errors,
+			if input.adoptVerify == false
+				then "--live is refused in an adopted project while `tools/adopt --verify .` fails (see its output above: legacy purchases code, onLegacyProduct, critical risks or scripts left in the place); --test is allowed"
+				else "--live is refused in an adopted project until `tools/adopt --verify .` passes (it wasn't run)"
+		)
+	end
+
 	return {
 		ok = #errors == 0,
 		errors = errors,
 		warnings = warnings,
 		record = if real then "published" else "dryRun",
 	}
+end
+
+-- (v1.6.0) the refusal for a place-file game, with the Studio steps (adopting.md §1).
+function PublishGate.placeFileMessage(placeFile: string): string
+	return 'this project\'s studwork.json has "placeFile": "'
+		.. placeFile
+		.. '": a place-file game is published from Studio, not with tools/publish (a Rojo build has no map). '
+		.. "1. open "
+		.. placeFile
+		.. " in Studio; 2. run tools/dev and connect the Rojo plugin so the code syncs; 3. File > Publish to Roblox "
+		.. "(the test place first; live only after tools/adopt --verify . passes)"
 end
 
 -- One-cell summary for tools/core-status: ids placeholder? and is <target> in sync with HEAD?

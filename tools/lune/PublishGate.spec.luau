@@ -221,3 +221,64 @@ describe("PublishGate output never contains the key", function()
 		expect(PublishGate.redact("nothing", "")).toBe("nothing")
 	end)
 end)
+
+describe("PublishGate.decide: adopted projects (v1.6.0)", function()
+	local liveReady = function(extra)
+		local i = input({
+			target = "live",
+			deploy = deploy({ test = { universeId = 111, placeId = 222, published = { commit = HEAD } } }),
+		})
+		for k, v in extra do
+			i[k] = v
+		end
+		return i
+	end
+
+	it("--live refuses while tools/adopt --verify fails", function()
+		local d = PublishGate.decide(liveReady({ adopted = true, adoptVerify = false }))
+		expect(d.ok).toBe(false)
+		expect(hasMessage(d.errors, "tools/adopt --verify .")).toBe(true)
+	end)
+
+	it("--live refuses when --verify wasn't run", function()
+		local d = PublishGate.decide(liveReady({ adopted = true }))
+		expect(d.ok).toBe(false)
+		expect(hasMessage(d.errors, "it wasn't run")).toBe(true)
+	end)
+
+	it("--live --dry-run is refused too while --verify fails", function()
+		local d = PublishGate.decide(liveReady({ adopted = true, adoptVerify = false, dryRun = true }))
+		expect(d.ok).toBe(false)
+	end)
+
+	it("--live is allowed once --verify passes", function()
+		local d = PublishGate.decide(liveReady({ adopted = true, adoptVerify = true }))
+		expect(d.ok).toBe(true)
+	end)
+
+	it("--test is allowed in an adopted project whatever --verify says", function()
+		local d = PublishGate.decide(input({ adopted = true, adoptVerify = false }))
+		expect(d.ok).toBe(true)
+	end)
+
+	it("a project that isn't adopted is unaffected", function()
+		local d = PublishGate.decide(liveReady({ adopted = false, adoptVerify = false }))
+		expect(d.ok).toBe(true)
+	end)
+
+	it("a placeFile project refuses every publish (dry run too) and prints the Studio steps", function()
+		for _, i in
+			{
+				input({ adopted = true, placeFile = "Game.rbxl" }),
+				input({ adopted = true, placeFile = "Game.rbxl", dryRun = true }),
+				liveReady({ adopted = true, adoptVerify = true, placeFile = "Game.rbxl" }),
+			}
+		do
+			local d = PublishGate.decide(i)
+			expect(d.ok).toBe(false)
+			expect(hasMessage(d.errors, "published from Studio")).toBe(true)
+			expect(hasMessage(d.errors, "open Game.rbxl in Studio")).toBe(true)
+			expect(hasMessage(d.errors, "Publish to Roblox")).toBe(true)
+		end
+	end)
+end)

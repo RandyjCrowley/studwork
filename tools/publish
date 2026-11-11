@@ -17,6 +17,9 @@
 # Single-game project (v1.5.0, docs/framework/single-game-project.md): the name is optional
 # (tools/publish --test), the game is the project root, deploy.json is at the root, the clean-tree
 # gate covers the whole project + the studwork/ submodule, and there is no GAMES.md to update.
+# Adopted project (v1.6.0, docs/framework/adopting.md): the gate refuses --live while
+# `tools/adopt --verify .` fails, and refuses any publish for a studwork.json with "placeFile"
+# (published from Studio; the steps are printed).
 # --dry-run does 1-3 and 5 (recording <target>.dryRun {commit, at} instead of .published) and
 # prints the exact request with the key redacted; it never contacts Roblox. A placeholder id or a
 # missing key is only a warning in a dry run. `--live --dry-run` accepts a test dry run of HEAD;
