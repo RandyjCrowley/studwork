@@ -22,7 +22,19 @@
 	                                        ProfileStore re-delivers it next session.
 	Mailbox: pending(player) (copies, oldest heldAt first), claim(player, id) (re-runs handlers),
 	replay(player, id) (dead letter -> mailbox, console tool). deps.onBoxChanged(player, held) runs
-	after every committed box change. Tuning comes from deps.config() (GameConfig.mail).
+	after every committed box change. Tuning comes from deps.config() (config.Mail.mail).
+
+	core-v1.3.0 (R1 / R7):
+	  - a TRACKED message (raw.t == true: a gift kind sent through the escrow, Escrow.luau) first
+	    asks deps.take(player, msg) who owns it (may yield): "returned" = the sender took it back
+	    after returnAfter -> recorded as seen and consumed WITHOUT running the handlers; "error"
+	    = the store is unreachable -> retried after backoff (left queued if the player leaves);
+	    "mine" / "untracked" -> delivered as usual. deps.consumed(player, msg) runs once a tracked
+	    message is consumed (ok, held, dead-lettered, returned or duplicate) to free its escrow
+	    record.
+	  - seen keeps every id younger than SEEN_TTL up to MAX_SEEN (2x ProfileStore's 1000-message
+	    queue), and always the newest QUEUE_LIMIT ids, so any copy that can still be re-delivered
+	    from the queue is recognised (R7).
 ]]
 
 local MailValidate = require(script.Parent.MailValidate)
@@ -35,8 +47,10 @@ Delivery.BACKOFF_BASE = 30 -- seconds before the first retry
 Delivery.BACKOFF_FACTOR = 2 -- each retry waits FACTOR times longer
 Delivery.BACKOFF_MAX = 900 -- seconds, cap for a single wait
 Delivery.MAILBOX_CAP = 500 -- held messages per player (review R1: keeps gifts out of ProfileStore's 1000-message queue, which drops the oldest)
-Delivery.MAX_SEEN = 500 -- remembered processed ids per player
-Delivery.MAX_DEAD = 25 -- kept dead letters per player
+Delivery.QUEUE_LIMIT = 1000 -- ProfileStore MAX_MESSAGE_QUEUE: messages a store keeps per player
+Delivery.MAX_SEEN = 2 * Delivery.QUEUE_LIMIT -- remembered processed ids per player (R7; was 500)
+Delivery.SEEN_TTL = 60 * 86400 -- seconds a processed id is remembered beyond QUEUE_LIMIT (R7)
+Delivery.MAX_DEAD = 100 -- kept dead letters per player (R6; was 25)
 Delivery.MAX_ERROR_LENGTH = 200
 
 export type Info = { id: string, kind: string, sentAt: number, attempt: number }
@@ -58,8 +72,10 @@ export type Deps = {
 	update: (player: any, fn: (mail: any) -> ()) -> boolean, -- mutate MailState, commit
 	analytics: (player: any, name: string, value: number) -> (),
 	warn: (message: string) -> (),
-	config: (() -> any)?, -- GameConfig.mail (or nil)
+	config: (() -> any)?, -- config.Mail.mail (or nil)
 	onBoxChanged: ((player: any, held: boolean) -> ())?, -- after a committed box change
+	take: ((player: any, msg: any) -> string)?, -- tracked message owner (may yield), see header
+	consumed: ((player: any, msg: any) -> ())?, -- a tracked message was consumed
 }
 
 type Message = {
@@ -67,6 +83,8 @@ type Message = {
 	kind: string,
 	payload: { [string]: any },
 	sentAt: number,
+	tracked: boolean, -- escrowed gift (R1)
+	from: number?, -- sender userId (tracked messages)
 	waiters: { () -> () }, -- processed callbacks (several copies of the same id)
 }
 
@@ -129,13 +147,22 @@ function Delivery.listBox(mail: any): { any }
 	return list
 end
 
--- Removes the oldest entries of `seen` until at most `max` remain.
-function Delivery.pruneSeen(seen: { [string]: number }, max: number)
+-- Removes the oldest entries of `seen` until at most `max` remain. With `now` and `ttl`, also
+-- removes entries older than `ttl` seconds, but never below the newest `keep` ids (R7).
+function Delivery.pruneSeen(
+	seen: { [string]: number },
+	max: number,
+	now: number?,
+	ttl: number?,
+	keep: number?
+)
 	local list = {}
 	for id, at in seen do
 		table.insert(list, { id = id, at = at })
 	end
-	if #list <= max then
+	local floor = math.min(keep or max, max)
+	local expiring = now ~= nil and ttl ~= nil and #list > floor
+	if #list <= max and not expiring then
 		return
 	end
 	table.sort(list, function(a, b)
@@ -144,9 +171,22 @@ function Delivery.pruneSeen(seen: { [string]: number }, max: number)
 		end
 		return a.at < b.at
 	end)
-	for i = 1, #list - max do
+	local drop = math.max(0, #list - max)
+	if expiring then
+		local cutoff = (now :: number) - (ttl :: number)
+		local i = drop + 1
+		while i <= #list - floor and (tonumber(list[i].at) or 0) < cutoff do
+			drop = i
+			i += 1
+		end
+	end
+	for i = 1, drop do
 		seen[list[i].id] = nil
 	end
+end
+
+local function pruneSeenNow(seen: { [string]: number }, now: number)
+	Delivery.pruneSeen(seen, Delivery.MAX_SEEN, now, Delivery.SEEN_TTL, Delivery.QUEUE_LIMIT)
 end
 
 -- Deterministic text of a JSON-safe value (keys sorted), for legacy ids (review N6).
@@ -260,14 +300,28 @@ function Delivery.new(deps: Deps)
 		return not stopped and sessions[s.player] == s and deps.isActive(s.player)
 	end
 
+	local function consumed(player: any, msg: Message)
+		local fn = deps.consumed
+		if fn and msg.tracked then
+			local ok, err = pcall(function()
+				fn(player, msg)
+			end)
+			if not ok then
+				deps.warn("[Core.Mail] consumed hook failed: " .. tostring(err))
+			end
+		end
+	end
+
 	local function finish(s: Session, msg: Message)
 		s.inFlight[msg.id] = nil
 		for _, processed in msg.waiters do
 			processed()
 		end
+		consumed(s.player, msg)
 	end
 
 	local attempt: (s: Session, msg: Message) -> ()
+	local resolve: (s: Session, msg: Message, try: number) -> ()
 
 	local function hold(s: Session, msg: Message, mail: any)
 		local st = settings()
@@ -328,7 +382,7 @@ function Delivery.new(deps: Deps)
 				ensureMail(m)
 				m.seen[msg.id] = deps.now()
 				m.attempts[msg.id] = nil
-				Delivery.pruneSeen(m.seen, Delivery.MAX_SEEN)
+				pruneSeenNow(m.seen, deps.now())
 			end)
 			if committed then
 				finish(s, msg)
@@ -381,6 +435,41 @@ function Delivery.new(deps: Deps)
 		end)
 	end
 
+	-- Tracked (escrowed) message: who owns it? (R1) Yields in deps.take.
+	function resolve(s: Session, msg: Message, try: number)
+		local take = deps.take :: (any, any) -> string
+		local ok, owner = pcall(take, s.player, msg)
+		if not alive(s) then
+			s.inFlight[msg.id] = nil
+			return -- left meanwhile: re-delivered next session
+		end
+		if not ok or owner == "error" then
+			deps.warn(`[Core.Mail] escrow lookup for {msg.id} failed (try {try}): {tostring(owner)}`)
+			deps.delay(Delivery.backoff(try, if deps.config then deps.config() else nil), function()
+				if alive(s) and s.inFlight[msg.id] == msg then
+					resolve(s, msg, try + 1)
+				end
+			end)
+			return
+		end
+		if owner == "returned" then
+			-- the sender took it back after returnAfter: drop this copy without running handlers
+			local committed = deps.update(s.player, function(m: any)
+				ensureMail(m)
+				m.seen[msg.id] = deps.now()
+				m.attempts[msg.id] = nil
+				pruneSeenNow(m.seen, deps.now())
+			end)
+			if committed then
+				finish(s, msg)
+			else
+				s.inFlight[msg.id] = nil
+			end
+			return
+		end
+		attempt(s, msg)
+	end
+
 	-- Normalises a raw ProfileStore message. Returns nil when malformed.
 	local function parse(raw: any): Message?
 		if type(raw) ~= "table" or not MailValidate.kind(raw.kind) or type(raw.payload) ~= "table" then
@@ -395,7 +484,15 @@ function Delivery.new(deps: Deps)
 		if not MailValidate.key(id) then
 			return nil
 		end
-		return { id = id, kind = raw.kind, payload = raw.payload, sentAt = sentAt, waiters = {} }
+		return {
+			id = id,
+			kind = raw.kind,
+			payload = raw.payload,
+			sentAt = sentAt,
+			tracked = raw.t == true,
+			from = if type(raw.from) == "number" then raw.from else nil,
+			waiters = {},
+		}
 	end
 
 	function self.deliver(player: any, raw: any, processed: () -> ())
@@ -415,6 +512,7 @@ function Delivery.new(deps: Deps)
 		local mail = deps.getMail(player)
 		if inSet(mail, "seen", msg.id) or inSet(mail, "box", msg.id) then
 			processed() -- duplicate (already processed, or waiting in the mailbox)
+			consumed(player, msg)
 			return
 		end
 		local existing = s.inFlight[msg.id] or s.pending[msg.id]
@@ -424,7 +522,11 @@ function Delivery.new(deps: Deps)
 		end
 		table.insert(msg.waiters, processed)
 		s.inFlight[msg.id] = msg
-		attempt(s, msg)
+		if msg.tracked and deps.take then
+			resolve(s, msg, 1)
+		else
+			attempt(s, msg)
+		end
 	end
 
 	function self.register(kind: string, handler: Handler): () -> ()
@@ -507,7 +609,7 @@ function Delivery.new(deps: Deps)
 			end
 			m.seen[id] = deps.now()
 			m.attempts[id] = nil
-			Delivery.pruneSeen(m.seen, Delivery.MAX_SEEN)
+			pruneSeenNow(m.seen, deps.now())
 		end)
 		if not committed then
 			return false, "error"

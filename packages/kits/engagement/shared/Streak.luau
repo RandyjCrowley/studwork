@@ -1,27 +1,40 @@
 --!strict
 --[[
-	Streak module definition (kit: engagement). core-v1.3.0: still a WRAPPER around the unchanged v1.2
-	service at packages/kits/engagement/server/Streak, which now boots through StudWork.start: the
-	compat bridge (packages/kits/compat/Bridge.luau, via ../server/ModuleServers.luau) runs its
-	v1.2 init/start on a v1.2-shaped ctx (step 4b-IIa). Phase 1 replaces it with a real module.
-	config: the v1.2 `balance` keys this module owns, unchanged (compat/shared/V12Config.luau
-	maps them back for the v1.2 code). Loose schemas: the v1.2 ConfigValidate still validates
-	the values at boot.
-	data: section 'streak' = this module's v1.2 PlayerData fields with their v1.2 defaults
-	(FrameworkSection.V12_MAP); replicate = the fields v1.2 replicated to the owning client.
+	Streak module definition (kit: engagement). core-v1.3.0 Phase 1: a real module; the server
+	part is ../server/Streak. Save section "streak" = { streak = { day, lastDay } }: the v1.2
+	field, unchanged (FrameworkSection.V12_MAP), replicated to the owning client.
+
+	config (GameConfig.config.Streak.streak)
+	  graceHours       number     hours after a missed day ends in which the streak still
+	                              continues (default 6, the value every v1.2 game used)
+	  utcOffsetHours   number     time zone the days are counted in, -14..14 (default 0 = UTC,
+	                              the v1.2 behaviour)
+	  rewards          table?     { { day, amount, currency? } } granted through the optional
+	                              Economy module
+	  loopAfter        integer?   the rewards table wraps after this day
 ]]
 
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local StudWork = require(ReplicatedStorage:WaitForChild("Framework"))
+local Economy =
+	require(ReplicatedStorage:WaitForChild("Kits"):WaitForChild("Economy"):WaitForChild("Economy"))
 
 return StudWork.defineModule({
 	name = "Streak",
-	version = "1.2.0",
+	version = "1.3.0",
 	framework = "^1.3.0",
-	description = "v1.2 Streak service behind a defineModule wrapper (engagement kit, compat bridge)",
+	description = "Daily login streak with rewards (engagement kit)",
+	optional = { Economy },
 	config = {
-		schema = { streak = "table?" },
-		defaults = {},
+		schema = {
+			streak = {
+				graceHours = "number(0..)",
+				utcOffsetHours = "number(-14..14)",
+				rewards = "table?",
+				loopAfter = "integer(1..)?",
+			},
+		},
+		defaults = { streak = { graceHours = 6, utcOffsetHours = 0 } },
 	},
 	data = {
 		key = "streak",

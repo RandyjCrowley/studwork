@@ -277,3 +277,73 @@ describe("Mail.Outbox", function()
 		expect(w.memory.mail.outbox.k2).toBeNil()
 	end)
 end)
+
+describe("Outbox prepare / savedEntries (core-v1.3.0, R1 / R3)", function()
+	local function make(verdicts: { [string]: string })
+		local w: any = { sent = {}, removed = {}, timers = {}, active = true }
+		w.box = {
+			k1 = { toUserId = 2, kind = "core_gift", payload = {}, key = "k1", at = 1 },
+			k2 = { toUserId = 2, kind = "core_gift", payload = {}, key = "k2", at = 2 },
+			k3 = { toUserId = 2, kind = "core_gift", payload = {}, key = "k3", at = 3 },
+		}
+		w.o = Outbox.new({
+			now = function()
+				return 10
+			end,
+			delay = function(_seconds, fn)
+				table.insert(w.timers, fn)
+			end,
+			isActive = function()
+				return w.active
+			end,
+			getOutbox = function()
+				return w.box
+			end,
+			save = function()
+				return true
+			end,
+			send = function(entry)
+				table.insert(w.sent, entry.key)
+				return true
+			end,
+			remove = function(_, key)
+				w.box[key] = nil
+				table.insert(w.removed, key)
+				return true
+			end,
+			backoff = function()
+				return 1
+			end,
+			warn = function() end,
+			prepare = function(_, entry)
+				local v = verdicts[entry.key] or "send"
+				if v == "done" then
+					w.box[entry.key] = nil -- settled elsewhere (handed back)
+				end
+				return v
+			end,
+		})
+		return w
+	end
+
+	it("send -> sent; done -> skipped; retry -> kept and retried after backoff", function()
+		local w = make({ k2 = "done", k3 = "retry" })
+		w.o.flush("p")
+		expect(w.sent).toEqual({ "k1" })
+		expect(w.box.k2).toBeNil()
+		expect(w.box.k3 ~= nil).toBe(true)
+		expect(#w.timers).toBe(1)
+		expect(w.o.attempts("p")).toBe(1)
+	end)
+
+	it("savedEntries lists only entries known to be durable", function()
+		local w = make({ k1 = "retry", k2 = "retry", k3 = "retry" })
+		w.o.markLoaded("p")
+		w.box.k4 = { toUserId = 2, kind = "core_gift", payload = {}, key = "k4", at = 4 }
+		local keys = {}
+		for _, e in w.o.savedEntries("p") do
+			table.insert(keys, e.key)
+		end
+		expect(keys).toEqual({ "k1", "k2", "k3" })
+	end)
+end)

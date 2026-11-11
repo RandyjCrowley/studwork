@@ -599,3 +599,46 @@ describe("Mail.Delivery mailbox (N1)", function()
 		expect(w.d.claim(p, "d")).toBe(true)
 	end)
 end)
+
+describe("Delivery seen retention (R7, core-v1.3.0)", function()
+	it("covers ProfileStore's whole queue: MAX_SEEN >= 2x QUEUE_LIMIT", function()
+		expect(Delivery.QUEUE_LIMIT).toBe(1000)
+		expect(Delivery.MAX_SEEN >= 2 * Delivery.QUEUE_LIMIT).toBe(true)
+	end)
+
+	it("expires old ids by time but always keeps the newest QUEUE_LIMIT", function()
+		local seen = {}
+		local now = 10_000_000
+		for i = 1, 1500 do
+			seen["old" .. i] = now - Delivery.SEEN_TTL - 10 -- all expired
+		end
+		Delivery.pruneSeen(seen, Delivery.MAX_SEEN, now, Delivery.SEEN_TTL, Delivery.QUEUE_LIMIT)
+		local n = 0
+		for _ in seen do
+			n += 1
+		end
+		expect(n).toBe(Delivery.QUEUE_LIMIT)
+	end)
+
+	it("keeps every id younger than SEEN_TTL up to MAX_SEEN", function()
+		local seen = {}
+		local now = 10_000_000
+		for i = 1, 1800 do
+			seen["fresh" .. i] = now - 60
+		end
+		for i = 1, 300 do
+			seen["stale" .. i] = now - Delivery.SEEN_TTL - 1
+		end
+		Delivery.pruneSeen(seen, Delivery.MAX_SEEN, now, Delivery.SEEN_TTL, Delivery.QUEUE_LIMIT)
+		local fresh, stale = 0, 0
+		for id in seen do
+			if string.sub(id, 1, 5) == "fresh" then
+				fresh += 1
+			else
+				stale += 1
+			end
+		end
+		expect(fresh).toBe(1800)
+		expect(stale).toBe(0)
+	end)
+end)

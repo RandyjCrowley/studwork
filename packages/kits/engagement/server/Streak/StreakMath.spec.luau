@@ -117,3 +117,40 @@ describe("StreakMath.rewardFor", function()
 		expect(StreakMath.rewardFor(1, nil, 7)).toBeNil()
 	end)
 end)
+
+describe("StreakMath time zone (core-v1.3.0)", function()
+	local DAY = 86400
+	it("offset 0 / nil / invalid is UTC (the v1.2 days)", function()
+		local t = 100 * DAY + 3600
+		expect(StreakMath.dayIndex(t)).toBe(100)
+		expect(StreakMath.dayIndex(t, 0)).toBe(100)
+		expect(StreakMath.dayIndex(t, 0 / 0)).toBe(100)
+		expect(StreakMath.dayIndex(t, 99)).toBe(100)
+	end)
+
+	it("days roll over at local midnight", function()
+		-- 23:00 UTC on day 100 is already day 101 at UTC+2, still day 100 at UTC-5
+		local t = 100 * DAY + 23 * 3600
+		expect(StreakMath.dayIndex(t, 2)).toBe(101)
+		expect(StreakMath.dayIndex(t, -5)).toBe(100)
+		local state = { day = 3, lastDay = 100 }
+		local nextUtc, outcomeUtc = StreakMath.advance(state, t, 0, 0)
+		expect(outcomeUtc).toBe("same")
+		expect(nextUtc.day).toBe(3)
+		local nextLocal, outcomeLocal = StreakMath.advance(state, t, 0, 2)
+		expect(outcomeLocal).toBe("next")
+		expect(nextLocal.day).toBe(4)
+		expect(nextLocal.lastDay).toBe(101)
+	end)
+
+	it("the grace window ends graceHours after LOCAL midnight", function()
+		-- last counted local day 100 at UTC+3; day 101 missed; local day 102 starts at
+		-- 102*DAY - 3h UTC, so a 6 h grace lasts until 102*DAY + 3h UTC
+		local state = { day = 5, lastDay = 100 }
+		local inside = 102 * DAY + 3 * 3600 - 1
+		local _, a = StreakMath.advance(state, inside, 6, 3)
+		expect(a).toBe("grace")
+		local _, b = StreakMath.advance(state, inside + 2, 6, 3)
+		expect(b).toBe("reset")
+	end)
+end)

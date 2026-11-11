@@ -1,29 +1,65 @@
 --!strict
 --[[
-	COMPAT ADAPTER for the Social kit (Friends, Mail). Owned by Phase 1 agent C; DELETED IN PHASE 2 with
-	the rest of packages/kits/compat.
+	COMPAT ADAPTER for the Social kit (Friends, Mail). Owned by Phase 1 agent C; DELETED IN PHASE 2
+	with the rest of packages/kits/compat.
 
-	Once a module of this kit is REAL (its ModuleServers.loadServer returns a real server part,
-	not Bridge.serverPart), the compat bridge calls this function to build the v1.2-shaped
-	`services.<Module>` that the still-bridged v1.2 services (ctx.services.<Module> inside the
-	bridge) and the multi-server sim (Bridge.compatServices(rt)) use:
-
-	  adapter(name, rt, api, txApi, extensions) -> { [v1.2 function name]: fn }?
-
-	  name        the module name (one of: Friends, Mail)
-	  rt          the framework runtime (rt.data.runTx(player, fn(tx)) opens a tx)
-	  api         the real module's api as other modules see it (Extensions.wrapApi: no calls
-	              during init)
-	  txApi       its txApi (first argument must be an open tx)
-	  extensions  its extensions
-
-	Return the v1.2 functions siblings and the sim call (plain v1.2 names such as grant,
-	balance or get over `api`; the *Into ones take a v1.2 tx { player, data, after }, see the
-	guide). Return nil for a module with no v1.2 callers left.
-	Any v1.2 name not returned errors on use, naming this file. See the "Phase 1 kit agent
-	guide" in (internal build report, not public)
+	Friends and Mail are real: the compat bridge calls this once per module and uses the result as
+	`services.<Module>` for the still-bridged v1.2 services and the sim's
+	Bridge.compatServices(rt). Only the v1.2 names still called are returned (see
+	(internal build report, not public), "Filling your adapter"):
+	  Friends: onCoPlay, friendsInServer (sim CoPlay spec)
+	  Mail: send, onReceive, pending, claim, sendInto (bridged Inventory: core_gift onReceive +
+	  sendGift's outbox write; the sim specs: pending / claim)
+	Signals: the real module's api.signals are mirrored into the v1.2 signal table the runtime's
+	compat options provide (the sim's `server.signals.<Name>` history), when there is one.
 ]]
 
-return function(_name: string, _rt: any, _api: any, _txApi: any, _extensions: any): any
-	return nil -- no entries yet
+local ServerScriptService = game:GetService("ServerScriptService")
+
+local function kitChild(...: string): any
+	local node: any = ServerScriptService:WaitForChild("Kits"):WaitForChild("Social")
+	for _, name in { ... } do
+		node = node:WaitForChild(name)
+	end
+	return (require :: any)(node)
+end
+
+-- Mirrors every signal of a real module into the runtime's v1.2 signal table (sim only).
+local function mirrorSignals(rt: any, api: any)
+	local compat = rt and rt.compat
+	if type(compat) ~= "table" or type(compat.signals) ~= "function" or api == nil then
+		return
+	end
+	local target = compat.signals()
+	local signals = api.signals
+	if type(target) ~= "table" or type(signals) ~= "table" then
+		return
+	end
+	kitChild("SignalTable").watch(signals, function(name: string, signal: any)
+		signal:Connect(function(...: any)
+			target[name]:Fire(...)
+		end)
+	end)
+end
+
+return function(name: string, rt: any, api: any, _txApi: any, _extensions: any): any
+	mirrorSignals(rt, api)
+	if name == "Friends" then
+		return {
+			onCoPlay = api.onCoPlay,
+			friendsInServer = api.friendsInServer,
+		}
+	elseif name == "Mail" then
+		-- send / onReceive allow "core_" kinds here (the v1.2 internal surface Inventory used);
+		-- sendInto takes a v1.2 tx { player, data (flat view), after }.
+		local internal = kitChild("Mail")._compat
+		return {
+			send = internal.send,
+			onReceive = internal.onReceive,
+			pending = api.pending,
+			claim = api.claim,
+			sendInto = internal.sendInto,
+		}
+	end
+	return nil
 end

@@ -1,150 +1,169 @@
 --!strict
 --[[
-	Core.Streak. OWNED BY AGENT E (core/e-meta). Public API: Types.StreakAPI.
+	Streak: the engagement kit's server module (core-v1.3.0 module API). See README.md.
 
-	Daily login streak in UTC (day index = os.time() // 86400), see StreakMath.luau for the exact
-	rules: same day -> nothing; next day -> +1; one missed day is forgiven when the player returns
-	within balance.streak.graceHours after the missed day ended; otherwise reset to 1. Clock skew
-	(today < lastDay) never resets.
+	Daily login streak, see StreakMath.luau for the exact rules: same day -> nothing; next day ->
+	+1; one missed day is forgiven when the player returns within config.streak.graceHours after
+	the missed day ended; otherwise reset to 1. Clock skew never resets. Days are counted in the
+	configured time zone: config.streak.utcOffsetHours (default 0 = UTC, the v1.2 behaviour).
 
-	Evaluated when the player's data loads and again every CHECK_INTERVAL seconds for players who
-	stay online across UTC midnight. When a day counts:
-	  - PlayerData.streak = { day, lastDay } (Data.update)
-	  - reward from balance.streak.rewards for the streak day (wrapped by loopAfter; currency
-	    defaults to balance.primaryCurrency) through Economy.grant(reason "streak")
-	  - StreakAdvanced signal + onDaily handlers + "toast" feedback + Analytics.custom("StreakDay")
+	Evaluated when the player's data loads and again every CHECK_INTERVAL seconds (the shared
+	ticker) for players who stay online across midnight. When a day counts:
+	  - section "streak" = { streak = { day, lastDay } } (v1.2 shape), and in the SAME tx the
+	    reward for that day (config.streak.rewards, wrapped by loopAfter; currency defaults to
+	    Economy's primary currency) through the OPTIONAL Economy dependency
+	    (ctx.depsTx[Economy].grant(tx, amount, "streak", currency))
+	  - api.signals.StreakAdvanced(player, day) + onDaily handlers, a "toast" and
+	    analytics.custom("StreakDay", day) after the commit.
 
-	get(player) returns a copy of PlayerData.streak ({ day = 0, lastDay = 0 } when not loaded).
-	Studio console: `streak dump` / `streak advance` (pretend a day passed for the first player).
+	api: onDaily(handler) -> Connection, get(player) -> { day, lastDay } (a copy),
+	signals.StreakAdvanced. Console: `streak dump [userId]`, `streak advance [userId]` (Studio).
 ]]
 
 local Players = game:GetService("Players")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
-local Types = require(game:GetService("ReplicatedStorage"):WaitForChild("Core"):WaitForChild("Types"))
-local HandlerList =
-	require(game:GetService("ReplicatedStorage"):WaitForChild("Core"):WaitForChild("HandlerList"))
 local StreakMath = require(script.StreakMath)
+local SignalTable = require(script.Parent.SignalTable)
+local Economy =
+	require(ReplicatedStorage:WaitForChild("Kits"):WaitForChild("Economy"):WaitForChild("Economy"))
 
 local CHECK_INTERVAL = 60 -- seconds between midnight re-checks for online players
-local DAY = 86400
 
 local Streak = {}
 
 local ctx: any = nil
-local handlers = HandlerList.new()
+local signals = SignalTable.new()
 
-local function streakConfig(): Types.StreakConfig
-	return ctx.config.balance.streak
+local function streakConfig(): any
+	local cfg = ctx.config.streak
+	return if type(cfg) == "table" then cfg else {}
 end
 
-local function readState(player: Player): StreakMath.State?
-	local data: Types.PlayerData? = ctx.services.Data.get(player)
-	if data == nil then
+local function offsetHours(): number
+	local h = streakConfig().utcOffsetHours
+	return if type(h) == "number" and h == h then h else 0
+end
+
+local function readState(player: any): StreakMath.State?
+	if not ctx.data.isLoaded(player) then
 		return nil
 	end
-	local s = data.streak or { day = 0, lastDay = 0 }
-	return { day = s.day or 0, lastDay = s.lastDay or 0 }
+	local section = ctx.data.get(player)
+	local s = if section and type(section.streak) == "table" then section.streak else {}
+	return { day = tonumber(s.day) or 0, lastDay = tonumber(s.lastDay) or 0 }
 end
 
-local function grantReward(player: Player, day: number): (number?, string?)
-	local cfg = streakConfig()
-	local reward = StreakMath.rewardFor(day, cfg.rewards, cfg.loopAfter)
-	if reward == nil or type(reward.amount) ~= "number" or reward.amount <= 0 then
-		return nil, nil
-	end
-	local currency: string = reward.currency or ctx.config.balance.primaryCurrency
-	local ok, granted = pcall(ctx.services.Economy.grant, player, reward.amount, "streak", currency)
-	if ok and granted then
-		return reward.amount, currency
-	end
-	return nil, nil
-end
-
--- Evaluates the streak at time `now`. Returns the new streak day when the day counted.
-local function evaluate(player: Player, now: number): number?
+-- Evaluates the streak at unix time `now`. Returns the new streak day when the day counted.
+local function evaluate(player: any, now: number): number?
 	local state = readState(player)
 	if state == nil then
 		return nil
 	end
-	local nextState, outcome = StreakMath.advance(state, now, streakConfig().graceHours)
+	local cfg = streakConfig()
+	local nextState, outcome = StreakMath.advance(state, now, cfg.graceHours, offsetHours())
 	if not StreakMath.counts(outcome) then
 		return nil
 	end
-	local written = ctx.services.Data.update(player, function(d: Types.PlayerData)
-		d.streak = { day = nextState.day, lastDay = nextState.lastDay }
+	local day = nextState.day
+	local reward = StreakMath.rewardFor(day, cfg.rewards, cfg.loopAfter)
+	local granted: number? = nil
+	local grantedCurrency: string? = nil
+	local ok, committed = pcall(ctx.tx, player, function(tx: any)
+		local section = ctx.section(tx)
+		local current = if type(section.streak) == "table" then section.streak else {}
+		-- re-check inside the tx: another evaluation may have counted this day already
+		if (tonumber(current.lastDay) or 0) == nextState.lastDay and (tonumber(current.day) or 0) > 0 then
+			error("already counted", 0)
+		end
+		section.streak = { day = nextState.day, lastDay = nextState.lastDay }
+		if
+			reward ~= nil
+			and type(reward.amount) == "number"
+			and reward.amount > 0
+			and ctx.isEnabled(Economy)
+		then
+			if ctx.depsTx[Economy].grant(tx, reward.amount, "streak", reward.currency) then
+				granted = reward.amount
+				grantedCurrency = reward.currency
+			end
+		end
 	end)
-	if not written then
+	if not ok or committed ~= true then
 		return nil
 	end
-	local day = nextState.day
-	local amount, currency = grantReward(player, day)
-	ctx.signals.StreakAdvanced:Fire(player, day)
-	handlers:fire(player, day)
-	local text = if amount then `Day {day} streak! +{amount} {currency}` else `Day {day} streak!`
+	signals.StreakAdvanced:Fire(player, day)
+	-- (Economy's primary currency name isn't Streak's to read: a reward without `currency` shows
+	-- the amount only)
+	local suffix = if grantedCurrency then " " .. grantedCurrency else ""
+	local text = if granted then `Day {day} streak! +{granted}{suffix}` else `Day {day} streak!`
 	pcall(ctx.net.feedback, player, "toast", text)
-	pcall(ctx.services.Analytics.custom, player, "StreakDay", day)
+	pcall(ctx.analytics.custom, player, "StreakDay", day)
 	return day
+end
+
+local function targetPlayer(arg: any): any
+	local id = tonumber(arg)
+	return (id and Players:GetPlayerByUserId(id)) or Players:GetPlayers()[1]
 end
 
 function Streak.init(context: any)
 	ctx = context
+	signals.StreakAdvanced = ctx.signals.new("StreakAdvanced")
+	ctx.console.register("dump", function(_player: any, userId: any): string
+		local player = targetPlayer(userId)
+		local state = if player then readState(player) else nil
+		if state == nil then
+			return "no loaded player"
+		end
+		local today = StreakMath.dayIndex(os.time(), offsetHours())
+		return `day {state.day}, lastDay {state.lastDay} (today {today}, UTC{offsetHours()})`
+	end, "streak dump [userId]: show a player's streak")
+	ctx.console.register("advance", function(_player: any, userId: any): string
+		if not ctx.isStudio then
+			return "streak advance is Studio-only"
+		end
+		local player = targetPlayer(userId)
+		local state = if player then readState(player) else nil
+		if state == nil then
+			return "no loaded player"
+		end
+		local now = os.time()
+		-- pretend the last counted day was yesterday, then evaluate now
+		ctx.data.update(player, function(section: any)
+			section.streak = {
+				day = math.max(state.day, 1),
+				lastDay = StreakMath.dayIndex(now, offsetHours()) - 1,
+			}
+		end)
+		local day = evaluate(player, now)
+		return `advanced: day {day or "?"}`
+	end, "streak advance [userId]: pretend a day passed (Studio)")
 end
 
-function Streak.start()
-	ctx.services.Data.onLoaded(function(player: Player)
+function Streak.start(_context: any)
+	ctx.data.onLoaded(function(player: any)
 		evaluate(player, os.time())
 	end)
-
-	task.spawn(function()
-		while true do
-			task.wait(CHECK_INTERVAL)
-			local now = os.time()
-			for _, player in Players:GetPlayers() do
-				if ctx.services.Data.isLoaded(player) then
-					task.spawn(evaluate, player, now)
-				end
+	ctx.lifecycle.onTick(CHECK_INTERVAL, function()
+		local now = os.time()
+		for _, player in Players:GetPlayers() do
+			if ctx.data.isLoaded(player) then
+				task.spawn(evaluate, player, now)
 			end
 		end
 	end)
-
-	ctx.console.register(
-		"streak",
-		"streak <dump|advance> [userId]: show or advance a player's streak (Studio)",
-		function(...: any)
-			local args = { ... }
-			local last = tonumber(args[#args])
-			local player = (last and Players:GetPlayerByUserId(last)) or Players:GetPlayers()[1]
-			if player == nil then
-				return "no player in server"
-			end
-			local state = readState(player)
-			if state == nil then
-				return "data not loaded"
-			end
-			if args[1] == "advance" then
-				if not ctx.isStudio then
-					return "streak advance is Studio-only"
-				end
-				-- pretend the last counted day was yesterday, then evaluate now
-				local now = os.time()
-				ctx.services.Data.update(player, function(d: Types.PlayerData)
-					d.streak = { day = math.max(state.day, 1), lastDay = now // DAY - 1 }
-				end)
-				local day = evaluate(player, now)
-				return `advanced: day {day or "?"}`
-			end
-			return `day {state.day}, lastDay {state.lastDay} (today {os.time() // DAY})`
-		end
-	)
 end
 
-function Streak.onDaily(handler: (player: Player, streakDay: number) -> ()): Types.Connection
-	return handlers:add(handler)
-end
-
-function Streak.get(player: Player): Types.StreakState
-	local state = readState(player)
-	return if state then { day = state.day, lastDay = state.lastDay } else { day = 0, lastDay = 0 }
-end
+Streak.api = {
+	onDaily = function(handler: (player: any, streakDay: number) -> ()): any
+		return signals.StreakAdvanced:Connect(handler)
+	end,
+	get = function(player: any): { day: number, lastDay: number }
+		local state = readState(player)
+		return if state then { day = state.day, lastDay = state.lastDay } else { day = 0, lastDay = 0 }
+	end,
+	signals = signals,
+}
 
 return Streak

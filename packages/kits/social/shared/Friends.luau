@@ -1,24 +1,32 @@
 --!strict
 --[[
-	Friends module definition (kit: social). core-v1.3.0: still a WRAPPER around the unchanged v1.2
-	service at packages/kits/social/server/Friends, which now boots through StudWork.start: the
-	compat bridge (packages/kits/compat/Bridge.luau, via ../server/ModuleServers.luau) runs its
-	v1.2 init/start on a v1.2-shaped ctx (step 4b-IIa). Phase 1 replaces it with a real module.
-	config: the v1.2 `balance` keys this module owns, unchanged (compat/shared/V12Config.luau
-	maps them back for the v1.2 code). Loose schemas: the v1.2 ConfigValidate still validates
-	the values at boot.
+	Friends module definition (kit: social). core-v1.3.0 Phase 1: a real module; the server part
+	is ../server/Friends. No save data.
+
+	config (GameConfig.config.Friends.friends)
+	  checkIntervalSec   number    seconds between friend re-checks (default 30, floor 5)
+	  coPlayMultiplier   number?   income multiplier while a friend is in the server (needs the
+	                               optional Economy module)
 ]]
 
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local StudWork = require(ReplicatedStorage:WaitForChild("Framework"))
+local Economy =
+	require(ReplicatedStorage:WaitForChild("Kits"):WaitForChild("Economy"):WaitForChild("Economy"))
 
 return StudWork.defineModule({
 	name = "Friends",
-	version = "1.2.0",
+	version = "1.3.0",
 	framework = "^1.3.0",
-	description = "v1.2 Friends service behind a defineModule wrapper (social kit, compat bridge)",
+	description = "Detects friends in the same server: CoPlay signal + co-play multiplier (social kit)",
+	optional = { Economy },
 	config = {
-		schema = { friends = "table?" },
-		defaults = {},
+		schema = {
+			friends = {
+				checkIntervalSec = "number(0..)",
+				coPlayMultiplier = "number?",
+			},
+		},
+		defaults = { friends = { checkIntervalSec = 30 } },
 	},
 })
