@@ -19,29 +19,33 @@ local Collection = KitDefs:WaitForChild("Collection")
 local EconomyKit = KitDefs:WaitForChild("Economy")
 local Social = KitDefs:WaitForChild("Social")
 local Engagement = KitDefs:WaitForChild("Engagement")
-local Rarity = require(Collection:WaitForChild("Rarity"))
-local Inventory = require(Collection:WaitForChild("Inventory"))
-local Economy = require(EconomyKit:WaitForChild("Economy"))
-local Upgrades = require(EconomyKit:WaitForChild("Upgrades"))
-local Rebirth = require(EconomyKit:WaitForChild("Rebirth"))
-local Offline = require(EconomyKit:WaitForChild("Offline"))
-local Streak = require(Engagement:WaitForChild("Streak"))
-local Friends = require(Social:WaitForChild("Friends"))
-local Mail = require(Social:WaitForChild("Mail"))
-local Tuning = require(ReplicatedStorage:WaitForChild("Game"):WaitForChild("Config"):WaitForChild("Tuning"))
+local Rarity = require(Collection:WaitForChild("Rarity")) -- @if Rarity
+local Inventory = require(Collection:WaitForChild("Inventory")) -- @if Inventory
+local Economy = require(EconomyKit:WaitForChild("Economy")) -- @if Economy
+local Upgrades = require(EconomyKit:WaitForChild("Upgrades")) -- @if Upgrades
+local Rebirth = require(EconomyKit:WaitForChild("Rebirth")) -- @if Rebirth
+local Offline = require(EconomyKit:WaitForChild("Offline")) -- @if Offline
+local Streak = require(Engagement:WaitForChild("Streak")) -- @if Streak
+local Friends = require(Social:WaitForChild("Friends")) -- @if Friends
+local Mail = require(Social:WaitForChild("Mail")) -- @if Mail
+local Tuning = require(ReplicatedStorage:WaitForChild("Game"):WaitForChild("Config"):WaitForChild("Tuning")) -- @if Economy
 
 local TOUCH_COOLDOWN = 1.5 -- seconds between block rewards per player (sandbox-only feel number)
 
 local Sandbox = {}
 
+-- @if Inventory|Mail
 local function firstPlayer(): Player?
 	return Players:GetPlayers()[1]
 end
+-- @end
 
+-- @if Inventory|Economy|Mail
 function Sandbox.init(ctx: any)
 	-- Robux products: receipt-safe, data-only handlers. Everything goes through `tx` inside the
 	-- transaction that records the receipt; erroring (or tx.retryLater) grants nothing. An
 	-- unknown policy is retried by Compliance itself (M4).
+	-- @if Rarity,Inventory
 	ctx.shop.onProduct("EggRoll", function(tx: any)
 		local def, info = tx.use(Rarity).roll("Egg")
 		if info.reason == "restricted" then
@@ -52,6 +56,8 @@ function Sandbox.init(ctx: any)
 		end
 		assert(def and info.ok, info.reason or "roll failed") -- e.g. inventory full: retried later
 	end)
+	-- @end
+	-- @if Economy
 	ctx.shop.onProduct("CoinPack", function(tx: any)
 		assert(tx.use(Economy).grant(Tuning.coinPackCoins), "grant failed")
 	end)
@@ -66,6 +72,8 @@ function Sandbox.init(ctx: any)
 			ctx.deps[Economy].addMultiplier(player, "event:CoinRain", mult, event.endsAt)
 		end
 	end)
+	-- @end
+	-- @if Inventory
 	ctx.events.schedule("SecretDrop", nil, function(event: any)
 		for _, player in Players:GetPlayers() do
 			ctx.deps[Inventory].add(
@@ -75,9 +83,12 @@ function Sandbox.init(ctx: any)
 			)
 		end
 	end)
+	-- @end
 
+	-- @if Inventory|Mail
 	-- Studio-only test hooks (StudWorkConsole:Invoke("sandbox", "giftme", itemId?) and friends)
 	if ctx.isStudio then
+		-- @if Mail
 		ctx.console.register("giftme", function(_player: any, itemId: string?): string
 			local player = firstPlayer()
 			if player == nil then
@@ -86,6 +97,8 @@ function Sandbox.init(ctx: any)
 			local ok = ctx.deps[Mail].send(player.UserId, "gift", { itemId = itemId or "comet" })
 			return "sent=" .. tostring(ok)
 		end, "sandbox giftme [itemId]: mail yourself a gift (Studio)")
+		-- @end
+		-- @if Inventory
 		ctx.console.register("fill", function(): string
 			local player = firstPlayer()
 			if player == nil then
@@ -111,8 +124,11 @@ function Sandbox.init(ctx: any)
 			end
 			return `inventory {inventory.count(player)}/{inventory.cap(player)}`
 		end, "sandbox free: remove one item (Studio)")
+		-- @end
 	end
+	-- @end
 end
+-- @end
 
 function Sandbox.start(ctx: any)
 	-- Collect: touching the block rolls the free "Block" table.
@@ -132,8 +148,12 @@ function Sandbox.start(ctx: any)
 				return
 			end
 			lastTouch[player] = now
+			local collected = true
+			-- @if Rarity,Inventory
 			local def, info = ctx.deps[Rarity].roll("Block", player, nil, { grant = true, reason = "block" })
-			if def and info.ok then
+			collected = def ~= nil and info.ok
+			-- @end
+			if collected then
 				ctx.data.update(player, function(s: any)
 					s.blockTouches = (s.blockTouches or 0) + 1
 				end)
@@ -147,24 +167,35 @@ function Sandbox.start(ctx: any)
 		lastTouch[player] = nil
 	end)
 
+	-- @if Upgrades
 	ctx.deps[Upgrades].signals.UpgradePurchased:Connect(function(player: Player)
 		ctx.analytics.funnel(player, "FirstUpgrade")
 	end)
+	-- @end
+	-- @if Rebirth
 	ctx.deps[Rebirth].signals.Rebirthed:Connect(function(player: Player)
 		ctx.analytics.funnel(player, "FirstRebirth")
 	end)
+	-- @end
 
+	-- @if Offline
 	-- Offline: the kit auto-pays (Offline config autoPay); the game just tells the player.
 	ctx.deps[Offline].onReturn(function(player: Player, secondsAway: number)
 		print(string.format("[sandbox] %s was away %ds", player.Name, secondsAway))
 	end)
+	-- @end
+	-- @if Streak
 	ctx.deps[Streak].onDaily(function(player: Player, day: number)
 		print(string.format("[sandbox] %s streak day %d", player.Name, day))
 	end)
+	-- @end
+	-- @if Friends
 	ctx.deps[Friends].onCoPlay(function(player: Player, friends: { any }, kind: string)
 		print(string.format("[sandbox] %s co-play (%s) with %d friend(s)", player.Name, kind, #friends))
 	end)
+	-- @end
 
+	-- @if Mail,Inventory
 	-- Mail: a game gift kind. Idempotent by message id; a full inventory returns false, so the
 	-- gift waits in the player's mailbox (HUD badge) until they claim it with room to spare.
 	ctx.deps[Mail].onReceive("gift", function(player: Player, payload: any, info: any): boolean
@@ -184,6 +215,7 @@ function Sandbox.start(ctx: any)
 		local meta: { [string]: string | number | boolean } = { mail = key }
 		return inventory.add(player, payload.itemId, { source = "gift", meta = meta }) ~= nil
 	end)
+	-- @end
 end
 
 return Sandbox

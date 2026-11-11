@@ -15,8 +15,25 @@
 	                                    kitFolder(name) names the Kits folder for added ref lines
 	trimDependsOn(src, list)        -> (src?, error?)    the game module's `dependsOn = { ... }`:
 	                                    drops the refs of modules not in `list` (adds none)
-	pruneKitLocals(src)             -> src               drops `local X = KitDefs:WaitForChild("X")`
-	                                    lines nothing uses any more
+	pruneKitLocals(src)             -> src               drops the kit locals nothing uses any more:
+	                                    `local X = KitDefs:WaitForChild("X")`, `local KitDefs =
+	                                    ReplicatedStorage:WaitForChild("Kits")` and `local X =
+	                                    require(Y:WaitForChild("Z"))` (repeated until stable)
+	applyMarkers(src, chosen)       -> (src?, error?)    the template's module markers (below):
+	                                    keeps the code of the chosen modules, drops the rest and
+	                                    removes every marker
+	markerNames(src)                -> { string }        every module name a marker mentions
+
+	Module markers (templates/new-game, core-v1.3.0 Phase 1 agent E). Comments, so the template
+	stays a working game; tools/new-game strips them from every .luau file it writes:
+	  -- @if A,B      (own line) block start: kept when ALL of A, B are chosen
+	  -- @if A|B      (own line) block start: kept when ANY of A, B is chosen
+	  -- @if A,B|C    alternatives of all-of groups: (A and B) or C
+	  -- @else        (own line) the other branch
+	  -- @end         (own line) block end (blocks nest)
+	  <code> -- @if A (end of a code line) keep just this line when the condition holds
+	  -- @unless A: <code>   (own line) emit <code> (uncommented, same indent) when the
+	                         condition does NOT hold: the replacement for a dropped `-- @if A` line
 	moduleName(gameId)              -> string            "example-collector" -> "ExampleCollector"
 	deployJson(name, port)          -> table             ids 0 = placeholder (tools/publish refuses)
 	readme(name, port, designDoc)   -> string            README stub with a "Status: scaffolded" line
@@ -217,20 +234,177 @@ function NewGame.trimDependsOn(source: string, list: { string }): (string?, stri
 	return rewriteBlock(source, "dependsOn", list, nil)
 end
 
--- Drops `local X = KitDefs:WaitForChild("Y")` lines whose X isn't used anywhere else.
-function NewGame.pruneKitLocals(source: string): string
-	local out = {}
-	for line in string.gmatch(source .. "\n", "([^\n]*)\n") do
-		local name = string.match(line, '^local ([%w_]+) = KitDefs:WaitForChild%("[%w_]+"%)$')
+local KIT_LOCAL_PATTERNS = {
+	'^local ([%w_]+) = KitDefs:WaitForChild%("[%w_]+"%)$',
+	'^local ([%w_]+) = ReplicatedStorage:WaitForChild%("Kits"%)$',
+	'^local ([%w_]+) = require%([%w_]+:WaitForChild%("[%w_]+"%)%)$',
+	'^local ([%w_]+) = game:GetService%("%a+"%)$',
+}
+
+local function kitLocal(line: string): string?
+	local code = string.gsub(line, "%s*%-%-.*$", "")
+	for _, pattern in KIT_LOCAL_PATTERNS do
+		local name = string.match(code, pattern)
 		if name then
-			-- used = indexed or called somewhere (`Economy:WaitForChild(...)`, `Base.x`)
-			if string.find(source, "%f[%w_]" .. name .. "%s*[:%.%[]") == nil then
+			return name
+		end
+	end
+	return nil
+end
+
+-- Code without comments (so a name mentioned in a comment doesn't count as a use).
+local function stripComments(source: string): string
+	local noBlocks = string.gsub(source, "%-%-%[(=*)%[.-%]%1%]", "")
+	return (string.gsub(noBlocks, "%-%-[^\n]*", ""))
+end
+
+local function countWord(code: string, name: string): number
+	local n = 0
+	for _ in string.gmatch(code, "%f[%w_]" .. name .. "%f[^%w_]") do
+		n += 1
+	end
+	return n
+end
+
+-- Drops the kit locals (see the header) whose name isn't used anywhere else, until stable.
+function NewGame.pruneKitLocals(source: string): string
+	local current = source
+	while true do
+		local code = stripComments(current)
+		local out = {}
+		local dropped = false
+		for _, line in string.split(current, "\n") do
+			local name = kitLocal(line)
+			if name and countWord(code, name) - countWord(stripComments(line), name) <= 0 then
+				dropped = true
 				continue
 			end
+			table.insert(out, line)
 		end
-		table.insert(out, line)
+		current = table.concat(out, "\n")
+		if not dropped then
+			return current
+		end
 	end
-	return table.concat(out, "\n")
+end
+
+-- "A,B|C" -> { { "A", "B" }, { "C" } }: alternatives (|) of all-of groups (,), i.e. (A and B) or C
+local function parseCondition(text: string): { { string } }
+	local alternatives = {}
+	for alt in string.gmatch(text, "[^|]+") do
+		local group = {}
+		for name in string.gmatch(alt, "[^,%s]+") do
+			table.insert(group, name)
+		end
+		table.insert(alternatives, group)
+	end
+	return alternatives
+end
+
+local function holds(alternatives: { { string } }, chosen: { [string]: boolean }): boolean
+	for _, group in alternatives do
+		local all = true
+		for _, n in group do
+			if not chosen[n] then
+				all = false
+				break
+			end
+		end
+		if all then
+			return true
+		end
+	end
+	return false
+end
+
+function NewGame.markerNames(source: string): { string }
+	local seen: { [string]: boolean } = {}
+	local out: { string } = {}
+	local conds: { string } = {}
+	for cond in string.gmatch(source, "%-%- @if ([%w_,|]+)") do
+		table.insert(conds, cond)
+	end
+	for cond in string.gmatch(source, "%-%- @unless ([%w_,|]+):") do
+		table.insert(conds, cond)
+	end
+	for _, cond in conds do
+		for _, group in parseCondition(cond) do
+			for _, n in group do
+				if not seen[n] then
+					seen[n] = true
+					table.insert(out, n)
+				end
+			end
+		end
+	end
+	table.sort(out)
+	return out
+end
+
+-- `chosen` = set of enabled module names. Errors: unbalanced @if/@else/@end (with line numbers).
+function NewGame.applyMarkers(source: string, chosen: { [string]: boolean }): (string?, string?)
+	local out: { string } = {}
+	-- stack of { keep = this branch kept, parentKeep, cond = condition result, line }
+	local stack: { { keep: boolean, parent: boolean, cond: boolean, sawElse: boolean, line: number } } = {}
+	local function active(): boolean
+		local top = stack[#stack]
+		return top == nil or top.keep
+	end
+	local lineNo = 0
+	local lines = string.split(source, "\n")
+	for _, line in lines do
+		lineNo += 1
+		local blockIf = string.match(line, "^%s*%-%- @if ([%w_,|]+)%s*$")
+		if blockIf then
+			local parent = active()
+			local cond = holds(parseCondition(blockIf), chosen)
+			table.insert(
+				stack,
+				{ keep = parent and cond, parent = parent, cond = cond, sawElse = false, line = lineNo }
+			)
+			continue
+		end
+		if string.match(line, "^%s*%-%- @else%s*$") then
+			local top = stack[#stack]
+			if top == nil or top.sawElse then
+				return nil, `line {lineNo}: @else without a matching @if`
+			end
+			top.sawElse = true
+			top.keep = top.parent and not top.cond
+			continue
+		end
+		if string.match(line, "^%s*%-%- @end%s*$") then
+			if #stack == 0 then
+				return nil, `line {lineNo}: @end without a matching @if`
+			end
+			table.remove(stack)
+			continue
+		end
+		local indent, unlessCond, alt = string.match(line, "^(%s*)%-%- @unless ([%w_,|]+): (.*)$")
+		if indent then
+			if active() and not holds(parseCondition(unlessCond), chosen) then
+				table.insert(out, indent .. alt)
+			end
+			continue
+		end
+		if string.find(line, "-- @", 1, true) and string.match(line, "^%s*%-%- @") then
+			return nil, `line {lineNo}: unknown marker '{string.match(line, "@%S*")}'`
+		end
+		local code, inlineCond = string.match(line, "^(.-)%s*%-%- @if ([%w_,|]+)%s*$")
+		if code then
+			if active() and holds(parseCondition(inlineCond), chosen) then
+				table.insert(out, code)
+			end
+			continue
+		end
+		if active() then
+			table.insert(out, line)
+		end
+	end
+	if #stack > 0 then
+		return nil, `line {stack[#stack].line}: @if without @end`
+	end
+	return table.concat(out, "\n"), nil
 end
 
 function NewGame.moduleName(gameId: string): string

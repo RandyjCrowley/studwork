@@ -5,11 +5,12 @@
 	your plot -> it earns.
 
 	modules: kit module refs. The game's own module (modules/<gameId>: module.luau + server/) is
-	added by the framework; the game never lists itself. Delete the lines you don't need; a
-	module's hard dependencies must stay listed (StudWork.start names the missing one). Calling a
-	module that is not listed errors: "<Name> is not enabled in GameConfig.modules". When you
-	remove a module here, also remove it from modules/<gameId>/module.luau `dependsOn`, its
-	section in Balance.luau and the game code that uses it.
+	added by the framework; the game never lists itself. A module's hard dependencies must stay
+	listed (StudWork.start names the missing one). Calling a module that is not listed errors:
+	"<Name> is not enabled in GameConfig.modules". `tools/new-game <name> --modules A,B` writes
+	only the chosen modules' lines, config, items fields and game code; to drop a module later by
+	hand, also remove it from modules/<gameId>/module.luau `dependsOn`, its section in
+	Balance.luau and the game code that uses it.
 	config: each module's config (config.<Name>, Balance.luau); compliance.paidCurrencies: the
 	Robux-buyable currencies (framework, §14).
 ]]
@@ -38,14 +39,21 @@ local Config = {
 		require(Base:WaitForChild("Plot")), -- per-player plots with item display slots (needs Inventory)
 	} :: { any },
 	config = require(script.Balance),
+	-- @if Economy
 	-- Coins are sold for Robux (CoinPack), so the Coin-priced Chest is a paid random item too.
 	compliance = { paidCurrencies = { "Coins" } },
+	-- @end
 	items = require(script.Items),
 	products = require(script.Products),
 	events = require(script.Events),
 	client = { palette = require(script.Palette) },
 	analytics = {
-		funnel = { "Joined", "FirstCollect", "FirstUpgrade", "FirstRebirth" },
+		funnel = {
+			"Joined",
+			"FirstCollect",
+			"FirstUpgrade", -- @if Upgrades
+			"FirstRebirth", -- @if Rebirth
+		},
 		clientSteps = {},
 	},
 }

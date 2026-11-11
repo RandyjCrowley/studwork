@@ -233,3 +233,165 @@ return StudWork.defineModule({
 		expect(NewGame.moduleName("sandbox")).toBe("Sandbox")
 	end)
 end)
+
+describe("NewGame.applyMarkers (tools/new-game --modules, core-v1.3.0 Phase 1 E)", function()
+	local function set(list: { string }): { [string]: boolean }
+		local s = {}
+		for _, n in list do
+			s[n] = true
+		end
+		return s
+	end
+
+	local SRC = table.concat({
+		"local a = 1",
+		"local econ = 2 -- @if Economy",
+		"-- @if Rarity,Inventory",
+		"local both = 3",
+		"-- @if Economy",
+		"local nested = 4",
+		"-- @end",
+		"-- @else",
+		"local neither = 5",
+		"-- @end",
+		"-- @if Mail|Friends",
+		"local social = 6",
+		"-- @end",
+		'\tsource = "displayed", -- @if Plot',
+		'\t-- @unless Plot: source = "owned",',
+		"local z = 7",
+	}, "\n")
+
+	it("keeps chosen blocks and lines, drops the rest, and strips every marker", function()
+		local out = assert(NewGame.applyMarkers(SRC, set({ "Rarity", "Inventory", "Economy", "Plot" })))
+		expect(out).toBe(table.concat({
+			"local a = 1",
+			"local econ = 2",
+			"local both = 3",
+			"local nested = 4",
+			'\tsource = "displayed",',
+			"local z = 7",
+		}, "\n"))
+	end)
+
+	it("takes @else, any-of (|) and @unless replacements when modules are left out", function()
+		local out = assert(NewGame.applyMarkers(SRC, set({ "Friends" })))
+		expect(out).toBe(table.concat({
+			"local a = 1",
+			"local neither = 5",
+			"local social = 6",
+			'\tsource = "owned",',
+			"local z = 7",
+		}, "\n"))
+	end)
+
+	it("a nested block inside a dropped block stays dropped", function()
+		local out = assert(NewGame.applyMarkers(SRC, set({ "Economy" })))
+		expect(string.find(out, "nested", 1, true)).toBeNil()
+		expect(string.find(out, "neither", 1, true) ~= nil).toBe(true)
+	end)
+
+	it("alternatives of all-of groups: A,B|C", function()
+		local src = "x -- @if Economy,Rebirth|Upgrades"
+		expect(NewGame.applyMarkers(src, set({ "Economy" }))).toBe("")
+		expect(NewGame.applyMarkers(src, set({ "Economy", "Rebirth" }))).toBe("x")
+		expect(NewGame.applyMarkers(src, set({ "Upgrades" }))).toBe("x")
+	end)
+
+	it("reports unbalanced or unknown markers with the line number", function()
+		for src, needle in
+			{
+				["-- @if Economy\nx"] = "line 1: @if without @end",
+				["x\n-- @end"] = "line 2: @end without",
+				["-- @else"] = "line 1: @else without",
+				["-- @if A\n-- @else\n-- @else\n-- @end"] = "line 3: @else without",
+				["-- @frob"] = "line 1: unknown marker",
+			}
+		do
+			local out, err = NewGame.applyMarkers(src, {})
+			expect(out).toBeNil()
+			expect(string.find(tostring(err), needle, 1, true) ~= nil).toBe(true)
+		end
+	end)
+
+	it("markerNames lists every module a marker mentions", function()
+		expect(NewGame.markerNames(SRC)).toEqual({
+			"Economy",
+			"Friends",
+			"Inventory",
+			"Mail",
+			"Plot",
+			"Rarity",
+		})
+	end)
+
+	it("pruneKitLocals also drops unused kit requires, the Kits folder and services, until stable", function()
+		local src = table.concat({
+			'local ReplicatedStorage = game:GetService("ReplicatedStorage")',
+			'local Players = game:GetService("Players")',
+			'local KitDefs = ReplicatedStorage:WaitForChild("Kits")',
+			'local Collection = KitDefs:WaitForChild("Collection")',
+			'local Rarity = require(Collection:WaitForChild("Rarity")) -- Rarity is mentioned here only',
+			"print(Players)",
+		}, "\n")
+		expect(NewGame.pruneKitLocals(src)).toBe('local Players = game:GetService("Players")\nprint(Players)')
+	end)
+end)
+
+describe("templates/new-game module markers", function()
+	local files = {}
+	local function walk(dir: string)
+		for _, entry in fs.readDir(dir) do
+			local path = dir .. "/" .. entry
+			if fs.isDir(path) then
+				walk(path)
+			elseif string.match(entry, "%.luau$") then
+				files[path] = fs.readFile(path)
+			end
+		end
+	end
+	walk("templates/new-game")
+
+	it("only name real kit modules", function()
+		for path, source in files do
+			for _, n in NewGame.markerNames(source) do
+				expect(Modules.isModule(n) and n or (path .. ": unknown module '" .. n .. "' in a marker")).toBe(
+					n
+				)
+			end
+		end
+	end)
+
+	it("resolve for every module, for none and for each single module, leaving no marker behind", function()
+		local subsets = { Modules.ORDER, {} }
+		for _, n in Modules.ORDER do
+			table.insert(subsets, { n })
+		end
+		local luau = (getmetatable(getfenv(1)) :: any).__index.require("@lune/luau")
+		for _, subset in subsets do
+			local chosen = {}
+			for _, n in subset do
+				chosen[n] = true
+			end
+			for path, source in files do
+				local out, err = NewGame.applyMarkers(source, chosen)
+				if out == nil then
+					error(path .. ": " .. tostring(err))
+				end
+				expect(string.find(out, "-- @", 1, true) == nil and path or (path .. " still has a marker")).toBe(
+					path
+				)
+				local ok, compileErr = pcall(luau.compile, out)
+				if not ok then
+					error(
+						path
+							.. " with {"
+							.. table.concat(subset, ",")
+							.. "} does not compile: "
+							.. tostring(compileErr)
+					)
+				end
+			end
+		end
+	end)
+end)

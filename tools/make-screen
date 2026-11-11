@@ -1,0 +1,5 @@
+#!/usr/bin/env bash
+# tools/make-screen: see tools/lune/make-screen.luau (usage with no arguments).
+source "$(dirname "$0")/_common.sh"
+
+lune run tools/lune/make-screen "$@"
