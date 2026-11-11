@@ -1,0 +1,19 @@
+-- Inventory module network contract (Blink IDL, compiled with `tools/net`; module-api.md §1, §9).
+-- core-v1.3.1 (R19): moved out of framework.blink (was RequestGift). Backs the server part's
+-- `actions.gift` (rate 1/s, burst 3); the client part fires it via StudWork.use(Inventory).actions.gift.
+-- Blink checks the wire types on receive; the handler still checks target, ownership and cooldown.
+
+option RemoteScope = "STUDWORK_INVENTORY"
+option Casing = Pascal
+option ServerOutput = "server/Net.luau"
+option ClientOutput = "client/Net.luau"
+
+type Id = string(1..64)
+
+-- Gift an owned item to another player in the server. (toUserId, uid)
+event Gift {
+    From: Client,
+    Type: Reliable,
+    Call: SingleAsync,
+    Data: (f64, Id)
+}

@@ -94,8 +94,9 @@ function KitModules.parse(files: { [string]: string }): any
 				for action in string.gmatch(inner, "([%a_][%w_]*)%s*=") do
 					actions[action] = cfolder
 				end
-				for action in string.gmatch(inner, '^%s*"([%a_][%w_]*)"') do
-					actions[action] = cfolder
+				local first = string.match(inner, '^%s*"([%a_][%w_]*)"') -- gmatch can't anchor '^'
+				if first then
+					actions[first] = cfolder
 				end
 				for action in string.gmatch(inner, ',%s*"([%a_][%w_]*)"') do
 					actions[action] = cfolder

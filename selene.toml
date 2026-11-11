@@ -1,5 +1,5 @@
 std = "testkit"
-exclude = ["deps/*", "packages/vendor/*", "**/Generated*.luau", ".cache/*", "**/*.d.luau"]
+exclude = ["deps/*", "packages/vendor/*", "**/Generated*.luau", "packages/kits/*/*/server/Net.luau", "packages/kits/*/*/client/Net.luau", ".cache/*", "**/*.d.luau"]
 
 [rules]
 unused_variable = "warn"

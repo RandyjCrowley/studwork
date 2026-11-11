@@ -16,7 +16,7 @@ Automated coverage you don't need to repeat by hand:
 |---|---|
 | leave/rejoin on the same or another server, saved data intact, lastSeen stamped | `sim/Lifecycle.spec.luau` |
 | offline payout, `capSeconds`, `minSeconds`, `payoutFraction`, `autoPay = false` still fires handlers | `sim/Offline.spec.luau` |
-| `Inventory.transfer` and the `RequestGift` handler: ownership, restricted paid sources, full inventory, cooldown | `sim/Gifting.spec.luau` |
+| `Inventory.transfer` and the `gift` action handler: ownership, restricted paid sources, full inventory, cooldown | `sim/Gifting.spec.luau` |
 | friend detection, co-play multiplier on/off, invite kind, lookup failures | `sim/CoPlay.spec.luau` |
 | BindToClose with saves in flight, receipts across shutdown/crash never doubled or lost | `sim/Shutdown.spec.luau` |
 | session lock held by another server (release request, steal after 40 s, stale lock, outage, newer data) | `sim/SessionLock.spec.luau` |

@@ -19,3 +19,12 @@ property test in `Gift.spec.luau`). Integration tests: `../tests/Collection.spec
 - Gifts: `core_gift` via `ctx.depsExt[Mail].registerKind` (optional Mail); no `paid:`/`paidcur:`
   copies by mail; `transfer` refuses paid copies when either player is restricted.
 - `config.Inventory = { inventory = { cap = 50 }, starterItems = {} }` (defaults).
+
+## Actions and wire
+
+| Action | Wire (`net.blink`, RemoteScope `STUDWORK_INVENTORY`) | Limit |
+|---|---|---|
+| `gift(toUserId, uid)` | event `Gift`, `Data: (f64, Id)` (generated `server/Net.luau`, `client/Net.luau`) | 1/s, burst 3 |
+
+Client: `StudWork.use(Inventory).actions.gift(toUserId, uid)`. Tests: `h:action(p, Inventory, "gift", ...)`.
+core-v1.3.1 (R19): replaces the framework Blink event `RequestGift`.

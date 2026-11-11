@@ -43,7 +43,7 @@
 	ctx.depsExt[Mail].registerKind when Mail is enabled (claim: same instance, idempotent by uid,
 	false = full -> stays in the mailbox).
 	Starter items: on a player's first session (ctx.framework.sessions == 1) with an empty inventory.
-	RequestGift (client action `gift`): toUserId a positive integer, not self, receiver in THIS
+	Client action `gift(toUserId, uid)` (own net.blink event Gift, 1/s burst 3): toUserId a positive integer, not self, receiver in THIS
 	server; GIFT_COOLDOWN_SEC per sender on top of Net's rate limit; Mail on -> sendGift (crash-safe
 	outbox), off -> transfer.
 ]]
@@ -471,6 +471,45 @@ function Inventory.new(): any
 		end,
 	}
 
+	-- Client action `gift(toUserId, uid)` (own net.blink event Gift; core-v1.3.1 R19, was the framework
+	-- event RequestGift). Same rate limit as before (1/s, burst 3).
+	local function requestGift(player: any, toUserId: any, uid: any)
+		if not InventoryRules.validGiftTarget(player.UserId, toUserId) or not Util.isId(uid) then
+			return
+		end
+		local now = os.clock()
+		local last = lastGiftAt[player]
+		if last and now - last < Inventory.GIFT_COOLDOWN_SEC then
+			return
+		end
+		if api.get(player, uid) == nil then
+			return
+		end
+		local target = playerByUserId(toUserId)
+		if target == nil or target == player then
+			-- the client never mails an arbitrary user id (a typo would send the item into a
+			-- profile nobody loads); cross-server gifts are server decisions (sendGift)
+			return
+		end
+		local ok, why
+		if mailOn() then
+			ok, why = api.sendGift(player, toUserId, uid, "gift")
+		else
+			ok, why = api.transfer(player, target, uid, "gift")
+		end
+		if ok then
+			lastGiftAt[player] = now
+			ctx.net.feedback(player, "toast", "Gift sent")
+		elseif why == "restricted" or why == "restricted_source" then
+			ctx.net.feedback(player, "toast", "This item can't be gifted")
+		elseif why == "inventory_full" then
+			ctx.net.feedback(player, "toast", "Their inventory is full")
+		end
+	end
+	part.actions = {
+		gift = { limit = { rate = 1, burst = 3 }, handler = requestGift },
+	}
+
 	function part.init(context: any)
 		ctx = context
 		signals.ItemAdded = ctx.signals.new("ItemAdded")
@@ -506,40 +545,6 @@ function Inventory.new(): any
 			loaded[player] = nil
 			lastGiftAt[player] = nil
 			listCache[player] = nil
-		end)
-
-		ctx.net.handle("RequestGift", function(player: any, toUserId: any, uid: any)
-			if not InventoryRules.validGiftTarget(player.UserId, toUserId) or not Util.isId(uid) then
-				return
-			end
-			local now = os.clock()
-			local last = lastGiftAt[player]
-			if last and now - last < Inventory.GIFT_COOLDOWN_SEC then
-				return
-			end
-			if api.get(player, uid) == nil then
-				return
-			end
-			local target = playerByUserId(toUserId)
-			if target == nil or target == player then
-				-- the client never mails an arbitrary user id (a typo would send the item into a
-				-- profile nobody loads); cross-server gifts are server decisions (sendGift)
-				return
-			end
-			local ok, why
-			if mailOn() then
-				ok, why = api.sendGift(player, toUserId, uid, "gift")
-			else
-				ok, why = api.transfer(player, target, uid, "gift")
-			end
-			if ok then
-				lastGiftAt[player] = now
-				ctx.net.feedback(player, "toast", "Gift sent")
-			elseif why == "restricted" or why == "restricted_source" then
-				ctx.net.feedback(player, "toast", "This item can't be gifted")
-			elseif why == "inventory_full" then
-				ctx.net.feedback(player, "toast", "Their inventory is full")
-			end
 		end)
 	end
 

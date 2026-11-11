@@ -15,8 +15,8 @@
 	server-only). Version 1; migration 1 normalises a split v1.2 section, sanitize keeps only
 	non-negative integer counters.
 	theme: theme.rarity.tiers = the resolved config.Rarity.tiers (theme = function(config), Phase 2).
-	optional: Inventory (rolls that grant), Economy (coin-priced RequestRoll of a free currency).
-	client: the `roll` action (RequestRoll), served by ./client/init.luau.
+	optional: Inventory (rolls that grant), Economy (coin-priced `roll` action of a free currency).
+	client: the `roll` action (own net.blink event Roll), served by ./client/init.luau.
 ]]
 
 local ReplicatedStorage = game:GetService("ReplicatedStorage")

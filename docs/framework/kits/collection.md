@@ -59,7 +59,9 @@ A rarity table:
   purchase, through `compliance.roll`; the item is granted with a `paid:` source.
 - **txApi (contract):** `roll(tx, tableId, luck?) -> (def?, info)`: a free roll inside your tx.
 - **Client action:** `roll(tableId)` (tables with a `cost` and `paid ~= true`): capacity is checked
-  before spending, a coin-priced roll spends and rolls in one transaction.
+  before spending, a coin-priced roll spends and rolls in one transaction. Wire: Rarity's own
+  `net.blink` event `Roll` (`Data: Id`, RemoteScope `STUDWORK_RARITY`), rate limit 4/s, burst 8.
+  Client: `StudWork.use(Rarity).actions.roll(tableId)`; tests: `h:action(p, Rarity, "roll", tableId)`.
 - **Replicated `extra`:** `odds = { [tableId] = OddsDetail }` for every table with a `cost`,
   `paid = true` or `luckDisclosed = true`. Render it with `UI.OddsTable`; never compute odds on the
   client.
@@ -91,7 +93,10 @@ Owned item copies, capacity, transfers and gifts.
   its slot this way).
 - **Mail kind:** owns `"core_gift"`, registered with `Mail.registerKind` when Mail is enabled.
 - **Signals (contract):** `ItemAdded(player, instance)`, `ItemRemoved(player, instance)`.
-- **Client action:** `gift(toUserId, uid)` (same server: instant transfer).
+- **Client action:** `gift(toUserId, uid)` (same server: instant transfer). Wire: Inventory's own
+  `net.blink` event `Gift` (`Data: (f64, Id)`, RemoteScope `STUDWORK_INVENTORY`), rate limit 1/s,
+  burst 3, plus the per-sender gift cooldown. Client: `StudWork.use(Inventory).actions.gift(toUserId, uid)`;
+  tests: `h:action(p, Inventory, "gift", toUserId, uid)`.
 - **Replicated `data`:** `inventory`.
 - **Save data:** section `inventory`: `{ inventory = { [uid] = ItemInstance } }` where
   `ItemInstance = { uid, itemId, mutation?, acquiredAt, source?, meta? }`. A `source` starting with
