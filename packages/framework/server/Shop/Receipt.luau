@@ -1,6 +1,6 @@
 --!strict
 --[[
-	Pure developer-product receipt decision (no Roblox globals). OWNED BY AGENT A (M4).
+	Pure developer-product receipt decision (no Roblox globals).
 
 	Every side effect is injected so the flow is testable and safe to run twice for one
 	PurchaseId (Roblox retries NotProcessedYet receipts, possibly on another server):

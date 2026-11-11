@@ -1,7 +1,7 @@
 --!strict
 --[[
 	tools/lune/MakeGen: the StudWork generators behind tools/make-module, tools/make-migration and
-	tools/make-screen (core-v1.3.0 Phase 1 agent E). No requires: the Lune `fs` is passed in, so
+	tools/make-screen (v1.3.0). No requires: the Lune `fs` is passed in, so
 	the self-test (MakeGen.spec.luau) generates into a scratch folder and cleans up.
 
 	Names

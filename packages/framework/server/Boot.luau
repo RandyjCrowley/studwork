@@ -1,6 +1,6 @@
 --!strict
 --[[
-	Framework internal (decisions.md, core-v1.3.0 Phase 0 step 4, decision 3): installs the server
+	Framework internal (decisions.md, v1.3.0, decision 3): installs the server
 	runtime into the StudWork facade. Required only by the framework's own server/init.luau
 	(and a future client runtime), never by StudWork, kits or game code.
 ]]

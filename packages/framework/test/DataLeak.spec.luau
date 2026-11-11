@@ -1,6 +1,6 @@
 --!nocheck
 --[[
-	Final review finding 3 (core-v1.3.0 Phase 2, P2-F): a reference kept from ctx.section(tx)
+	a reference kept from ctx.section(tx)
 	(or any table reached through it) must not change committed data after the tx ends. Committed
 	section tables are frozen (they also back the read views), so a late write raises an error and
 	the save, the read view and the section version stay consistent.
@@ -26,7 +26,7 @@ local function newData()
 	return data, p, store
 end
 
-describe("writes after commit (final review 3)", function()
+describe("writes after commit", function()
 	it("a leaked working copy can't change the committed section", function()
 		local data, p, store = newData()
 		local leaked

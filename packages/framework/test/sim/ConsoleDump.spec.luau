@@ -1,5 +1,5 @@
 --[[
-	Studio console `data dump [userId]` (framework command, core-v1.3.0 step 4b-IIb). The live
+	Studio console `data dump [userId]` (framework command, v1.3.0). The live
 	Studio boot at 8e4175f printed "ok (no encoder)": the runtime asked platform.encode, which
 	the live Platform did not provide. The dump now encodes through the platform (live:
 	HttpService:JSONEncode; the sim's HttpService encodes with @lune/serde) and prints the

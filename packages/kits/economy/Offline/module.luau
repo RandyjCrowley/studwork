@@ -1,6 +1,6 @@
 --!strict
 --[[
-	Offline module definition (kit: economy). core-v1.3.0 Phase 1: a real StudWork module; the
+	Offline module definition (kit: economy). v1.3.0: a real StudWork module; the
 	server part is ../server/Offline.
 
 	config (config.Offline): offline = {

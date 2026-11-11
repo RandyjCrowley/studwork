@@ -26,7 +26,7 @@ local function RarityBadge(props: Props)
 		Text = string.upper(props.rarity),
 		FontFace = Theme.font("display"),
 		TextSize = Theme.text.small,
-		-- a fixed size fits its text for any theme font (Phase 2 P2-F, TextFit)
+		-- a fixed size fits its text for any theme font (v1.3.0, TextFit)
 		TextScaled = props.size ~= nil,
 		TextColor3 = Theme.color("outline"),
 		BackgroundColor3 = color,

@@ -1,5 +1,5 @@
 --!nocheck
--- Playtest finding (core-v1.3.0 Phase 2 P2-F): UI kit text fits its box for any theme font.
+-- Playtest finding (v1.3.0): UI kit text fits its box for any theme font.
 local TextFit = require(script.Parent.TextFit)
 local ThemeTokens = require(script.Parent.ThemeTokens)
 local SharedTheme = require(script.Parent.Parent.framework.shared.Theme)

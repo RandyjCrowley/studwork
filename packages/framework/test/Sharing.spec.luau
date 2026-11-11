@@ -1,6 +1,6 @@
 --!nocheck
 --[[
-	Structural sharing (core-v1.3.0 Phase 2 step 7, the benchmark fix): commits keep unchanged
+	Structural sharing (v1.3.0, the benchmark fix): commits keep unchanged
 	subtrees' identity (Freeze.share), read views are rebuilt only for replaced tables
 	(Freeze.freezeShared), the replicated wire copy reuses the last copy of unchanged subtrees
 	(Snapshot.copyShared), and framework writes to committed tables are copy-on-write so views

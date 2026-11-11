@@ -306,7 +306,7 @@ local fakeServices = servicesFrom(BASE_CHILDREN)
 
 -- A spec inside a game folder (games/<g>/, examples/sandbox/, examples/overrides/<g>/,
 -- templates/new-game/, an example module's tests/fixture-game/: the nearest folder above the spec
--- with a default.project.json; Phase 2, E R2): that game's Rojo project adds its own
+-- with a default.project.json; v1.3.0): that game's Rojo project adds its own
 -- ReplicatedStorage / ServerScriptService children (Game, GameModule, Modules, ...) next to the
 -- framework/kit mapping above (names the mapping already has keep the mapping's path), so a
 -- Config listing a game-local module (ReplicatedStorage.Modules.<X>.module) loads.

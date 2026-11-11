@@ -1,7 +1,7 @@
 --!nocheck
 -- tools/ is outside the harness index (packages, games, templates), so load by file path.
 local NewGame = require("tools/lune/NewGame.luau")
--- the kit module manifest, read from the kit module definitions (core-v1.3.0 step 4b-IIb; was
+-- the kit module manifest, read from the kit module definitions (v1.3.0; was
 -- the v1.2 module manifest)
 local fs = (getmetatable(getfenv(1)) :: any).__index.require("@lune/fs")
 local Modules = require("tools/lune/KitModules.luau").load(fs, require("tools/lune/ModuleDiscovery.luau"))
@@ -189,7 +189,7 @@ local Config = {
 }
 ]]
 
-describe("NewGame v1.3 module refs (core-v1.3.0 step 4b-IIb)", function()
+describe("NewGame v1.3 module refs", function()
 	it("the kit manifest comes from the kit definitions (hard deps from dependsOn)", function()
 		expect(Modules.isModule("Plot")).toBe(true)
 		expect(Modules.SPECS.Plot.requires).toEqual({ "Inventory" })
@@ -253,7 +253,7 @@ return StudWork.defineModule({
 	end)
 end)
 
-describe("NewGame.applyMarkers (tools/new-game --modules, core-v1.3.0 Phase 1 E)", function()
+describe("NewGame.applyMarkers (tools/new-game --modules)", function()
 	local function set(list: { string }): { [string]: boolean }
 		local s = {}
 		for _, n in list do

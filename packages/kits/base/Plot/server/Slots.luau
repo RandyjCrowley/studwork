@@ -1,7 +1,7 @@
 --!strict
 --[[
 	Pure slot / plot selection logic for Core.Plot. Zero Roblox dependencies (tables in, tables
-	out) so it runs under Lune. OWNED BY AGENT D (core/d-plot).
+	out) so it runs under Lune.
 
 	Vocabulary:
 		SlotRecord = { id = "slot01", tag = "Shelf"? }   -- one pad on a plot (attributes SlotId/SlotTag)
@@ -135,7 +135,7 @@ export type DisplayInput = {
 	itemTags: { string }?,
 }
 
--- Cheap checks that need no slot lookup (M5): run BEFORE building/reading the slot map so that
+-- Cheap checks that need no slot lookup: run BEFORE building/reading the slot map so that
 -- invalid / spammed requests never pay for it. Returns a reason or nil.
 function Slots.precheck(owned: { [string]: any }, displayed: { [string]: string }, uid: string): string?
 	if owned[uid] == nil then

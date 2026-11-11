@@ -60,7 +60,7 @@ local function Panel(props: Props)
 					Text = props.title,
 					FontFace = Theme.font("display"),
 					TextSize = Theme.text.title,
-					TextScaled = true, -- fits the panel width for any theme font (Phase 2 P2-F)
+					TextScaled = true, -- fits the panel width for any theme font (v1.3.0)
 					TextColor3 = Theme.color("text"),
 					TextXAlignment = Enum.TextXAlignment.Left,
 					BackgroundTransparency = 1,

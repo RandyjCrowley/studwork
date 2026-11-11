@@ -77,7 +77,7 @@ function Fixtures.server(world: any, opts: any?)
 	return world:server(o)
 end
 
--- A server that boots a REAL game (core-v1.3.0 step 4b-IIb boot tests): the game's own
+-- A server that boots a REAL game (v1.3.0 boot tests): the game's own
 -- Config, game module and ServerConfig, through its Rojo project (`projectPath`, e.g.
 -- "games/<g>/default.project.json"), with the real framework and kit modules. Call on
 -- the spec's main thread (the project file is read here).
@@ -203,7 +203,7 @@ end
 
 -- A real purchase of `product` (a fixture devProduct) by `player` whose handler adds `itemId`
 -- through Inventory's purchase ops, so the copy carries the "paid:<product>" source the framework
--- derives from the purchase (M5). Advances the world until ProcessReceipt answers; returns the
+-- derives from the purchase. Advances the world until ProcessReceipt answers; returns the
 -- player's instance.
 local purchaseSeq = 0
 function Fixtures.buyItem(world: any, server: any, player: any, product: string, itemId: string): any

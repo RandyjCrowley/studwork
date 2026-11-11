@@ -86,7 +86,7 @@ function Snapshot.copy(value: any): any
 end
 
 --[[
-	Snapshot.copyShared(view, prevView, prevCopy) (core-v1.3.0 Phase 2 step 7, benchmark fix): the
+	Snapshot.copyShared(view, prevView, prevCopy) (v1.3.0, benchmark fix): the
 	same wire-safe copy, for FROZEN read views (Data.view). A frozen table cannot change, so any
 	subtree of `view` that is the very same table as in `prevView` (the view the last copy was made
 	from) reuses prevCopy's subtree: views share every unchanged subtree with the last view

@@ -1,4 +1,4 @@
--- Boot test (core-v1.3.0 step 4b-IIb): ov-c's real Config, game module and ServerConfig
+-- Boot test (v1.3.0): ov-c's real Config, game module and ServerConfig
 -- boot through the StudWork server start (framework + real kit modules) in the
 -- multi-server sim, with exactly the expected modules and no errors; a player loads and leaves.
 local StudWork = require(game:GetService("ReplicatedStorage"):WaitForChild("Framework"))

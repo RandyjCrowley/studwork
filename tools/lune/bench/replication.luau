@@ -1,6 +1,6 @@
 --!nocheck
 --[[
-	Replication benchmark (M2). Not mapped into any Rojo project; run with `tools/bench`.
+	Replication benchmark. Not mapped into any Rojo project; run with `tools/bench`.
 
 	50 players x 100 items x 60 ticks. Each tick does what the Economy tick does: for every player
 	one committed Data.update that changes `currency` and `stats` (v1.1 contract: the working copy
@@ -8,7 +8,7 @@
 	Per player per tick we then do what Replication + charm-sync do on flush:
 	  BEFORE     = v1.0.0: Snapshot.build with a full Snapshot.copy of PlayerData + charm-sync diff
 	  AFTER      = SectionCache (per-section versions, only touched sections move) + diff
-	  AFTER-STUB = SectionCache with the Phase 0 sectionVersion stub (one counter for every
+	  AFTER-STUB = SectionCache with the v1.3.0 sectionVersion stub (one counter for every
 	               section, so every section is re-copied) + diff
 	The diff is charm-sync 0.4.1's real `patch.luau` (deps/Packages), loaded with its Charm /
 	validate requires stubbed (only `Charm.flags.strict` is read; strict = false so validate is
@@ -149,7 +149,7 @@ local function economyTick(p: FakePlayer, tick: number)
 	d.stats = stats
 	p.versions.currency = (p.versions.currency or 0) + 1
 	p.versions.stats = (p.versions.stats or 0) + 1
-	p.global += 1 -- what the Phase 0 stub returns for every section
+	p.global += 1 -- what the v1.3.0 stub returns for every section
 end
 
 --------------------------------------------------------------------------------
@@ -199,7 +199,7 @@ end
 variants.AFTER = cached(false)
 variants["AFTER-STUB"] = cached(true)
 
--- MERGED (core-v1.3.0 Phase 2: ported from the deleted v1.2 Data/Transaction.luau to the
+-- MERGED (v1.3.0: ported from the deleted v1.2 Data/Transaction.luau to the
 -- framework): the tick goes through the REAL framework Data.runTx (per-section working copies,
 -- deep-equal check, per-section versions) on a v1.2 save the framework split into sections on
 -- load, and the replicated snapshot is built from Data.view (the frozen per-section copy the
@@ -272,7 +272,7 @@ local tickFns = {
 	end,
 }
 
--- MERGED-V13 (core-v1.3.0 Phase 2 step 7): MERGED in the shape v1.3 code actually has. No kit
+-- MERGED-V13 (v1.3.0): MERGED in the shape v1.3 code actually has. No kit
 -- writes `_framework` on the income tick (v1.2's `stats` counter moved into `_framework` next to
 -- the 200 purchase receipts, and nothing ticks it), and Replication sends module sections only
 -- (never `_framework`). So the tick touches `economy` and the snapshot holds the module sections.
@@ -290,7 +290,7 @@ tickFns["MERGED-V13"] = function(p: FakePlayer, tick: number)
 	end)
 end
 
--- KITS (core-v1.3.0 Phase 2 step 7): the whole framework through the REAL kit modules, booted
+-- KITS (v1.3.0): the whole framework through the REAL kit modules, booted
 -- with StudWork.test.harness: Items + Rarity + Inventory + Economy (income.source = "owned", so
 -- the rate is summed over Inventory.list's frozen views) + Upgrades + Rebirth + Offline. Each
 -- player owns ITEMS items (Inventory.add). One tick = h:tick(1): the shared ticker pays income

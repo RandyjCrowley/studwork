@@ -1,9 +1,9 @@
 --!strict
 --[[
-	Offline (economy kit), server part. core-v1.3.0 Phase 1: a real StudWork module (no save
+	Offline (economy kit), server part. v1.3.0: a real StudWork module (no save
 	section). config.Offline.offline = { capSeconds, minSeconds, payoutFraction, autoPay }; every
 	key has a default (the values every shipped game uses: 8 h, 60 s, 0.5, true), so the cap other
-	modules coordinate with is config here (agent C: through the API, not by sharing files).
+	modules coordinate with is config here (through the API, not by sharing files).
 
 	api (v1.2): onReturn(fn(player, secondsAway)) -> Connection
 

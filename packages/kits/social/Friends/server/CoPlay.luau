@@ -1,6 +1,6 @@
 --!strict
 --[[
-	Pure co-play helpers (no Roblox globals). Owned by agent E.
+	Pure co-play helpers (no Roblox globals).
 
 	kind(referredBy, friendIds, isPrivate):
 	  "invite"  when the player joined through an invite/share link (GetJoinData().ReferredByPlayerId)

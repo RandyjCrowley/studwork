@@ -147,7 +147,7 @@ local function checkData(data: any, errors: { string })
 	if data.replicate == true then
 		table.insert(
 			errors,
-			'data.replicate = true is not supported (design review M6): list the fields the owning client sees, e.g. replicate = { "currency" }, or use false'
+			'data.replicate = true is not supported: list the fields the owning client sees, e.g. replicate = { "currency" }, or use false'
 		)
 	elseif data.replicate ~= nil and data.replicate ~= false then
 		if type(data.replicate) ~= "table" then
@@ -247,7 +247,7 @@ end
 
 local function checkTheme(theme: any, errors: { string })
 	if type(theme) == "function" then
-		return -- theme = function(config) -> table (Phase 2): checked at boot, with the merged config
+		return -- theme = function(config) -> table (v1.3.0): checked at boot, with the merged config
 	end
 	if type(theme) ~= "table" then
 		table.insert(errors, "theme must be a table of token groups, or a function(config) -> table")

@@ -1,7 +1,7 @@
 --!nocheck
 --[[
 	tools/lune/guardrails.luau: checks that keep game agents inside the rules (core-v1.2).
-	Run by tools/lint. LEAD-OWNED.
+	Run by tools/lint.
 
 	Usage (repo root):
 	  lune run tools/lune/guardrails              scan every game folder (tools/lune/Roots.luau:
@@ -27,12 +27,12 @@
 	  remotes   a remote that bypasses core's validated Net: OnServerEvent / OnServerInvoke,
 	            Instance.new("RemoteEvent"|"RemoteFunction"|"UnreliableRemoteEvent"), or a Blink
 	            `.On(` / `.SetCallback(` in server code (use Core.Net.handle).
-	  purchases (core-v1.3.0 step 4b, module-api.md §7.1) only the framework may assign
+	  purchases (v1.3.0, module-api.md §7.1) only the framework may assign
 	            MarketplaceService.ProcessReceipt or use Prompt*PurchaseFinished, and only framework
 	            Data (and its shared store) may touch DataStoreService / ProfileStore / MemoryStoreService. Checked in game code AND in
 	            packages/ (every file outside PURCHASES_ALLOWED: framework Shop/Data/Store/Platform,
 	            listed below with a reason).
-	  special   (core-v1.3.0 Phase 2, "nothing is special") a kit (packages/kits/**), an example
+	  special   (v1.3.0, "nothing is special") a kit (packages/kits/**), an example
 	            (examples/**) or a game module (games/*/modules/**) reaches framework internals:
 	            anything under ReplicatedStorage.Framework / FrameworkClient / FrameworkTest other
 	            than the public StudWork facade (require(...Framework) itself) and UI, the server
@@ -58,7 +58,7 @@ local fs = require("@lune/fs")
 local process = require("@lune/process")
 
 -- the kit module manifest, read from the kit module definitions (packages/kits/<kit>/<Module>/
--- module.luau since core-v1.3.1; core-v1.3.0 step 4b-IIb, was the v1.2 module manifest)
+-- module.luau since core-v1.3.1; v1.3.0, was the v1.2 module manifest)
 local Modules = require("./KitModules").load(fs)
 
 local Guard = {}
@@ -206,7 +206,7 @@ local function balanceAssignment(code: string): boolean
 	return false
 end
 
--- core-v1.3.0 Phase 2 (final review 2): the remotes and purchases checks run on a NORMALISED copy
+-- v1.3.0: the remotes and purchases checks run on a NORMALISED copy
 -- of the whole file, so layout can't hide a call: comments stripped, all whitespace and newlines
 -- removed (an assignment split across lines is one expression), adjacent string literals joined
 -- (`"Data" .. "StoreService"` -> `"DataStoreService"`), and `x["Name"]` read as `x.Name`. Each
@@ -513,12 +513,12 @@ function Guard.scanSource(source: string, ctx): { string }
 				code,
 				"%.Kits[%.:]"
 			))
-			-- core-v1.3.0 step 4b-IIa: ReplicatedStorage.Kits.<Kit>.<Module> are the kits' module
+			-- v1.3.0: ReplicatedStorage.Kits.<Kit>.<Module> are the kits' module
 			-- DEFINITIONS (ModuleRefs), which a game lists in GameConfig.modules and passes to
 			-- StudWork.use / dependsOn (module-api.md §3). Only the server internals are off limits.
 			and not string.find(code, "ReplicatedStorage")
 		then
-			-- core-v1.3.0 step 5: the v1.2 services now live in ServerScriptService.Kits.<Kit>
+			-- v1.3.0: the v1.2 services now live in ServerScriptService.Kits.<Kit>
 			add(
 				lineNo,
 				"modules",
@@ -552,7 +552,7 @@ function Guard.scanSource(source: string, ctx): { string }
 	return findings
 end
 
--- core-v1.3.0 Phase 2 (final review 1): which files the guardrails scan. Every `.luau` / `.lua`
+-- v1.3.0: which files the guardrails scan. Every `.luau` / `.lua`
 -- file Rojo would sync is scanned; specs (`*.spec.luau`, glob-ignored by every project) are not.
 -- The only exclusions are by EXACT path: the Wally dependency folders (Guard.DEPS_EXCLUDED) and
 -- the Blink output files the `.blink` IDL files declare (Guard.generatedFiles). No substring
@@ -746,7 +746,7 @@ function Guard.scanPackages(root: string): { string }
 end
 
 --------------------------------------------------------------------------------
--- special: "nothing is special" (core-v1.3.0 Phase 2). Kits, examples and game modules use only
+-- special: "nothing is special" (v1.3.0). Kits, examples and game modules use only
 -- the public StudWork facade, UI and module refs, like a third-party module would.
 --------------------------------------------------------------------------------
 
@@ -804,7 +804,7 @@ local function childAfter(code: string, i: number): (string?, string?)
 	if string.match(rest, "^%s*%[") then
 		return "dynamic", nil
 	end
-	-- (final review 5) enumerating the children finds the internals by name at run time
+	-- enumerating the children finds the internals by name at run time
 	if string.match(rest, "^%s*:%s*Get[CD]%a+%s*%(") then
 		return "dynamic", nil
 	end
@@ -1274,13 +1274,13 @@ local function codeLinesOf(source: string, isBlink: boolean?): ({ string }, { st
 end
 
 -- Scans one framework file. ctx = { path, names ({ [name] = reason }), isBlink? }. No allow-list:
--- the core-v1.3.1 Phase 1 transitional list (TRANSITIONAL_V131) was deleted in Phase 3.
+-- the v1.3.1 transitional list (TRANSITIONAL_V131) was deleted in v1.3.1.
 function Guard.scanFrameworkSpecial(source: string, ctx: any): { string }
 	local codeLines, _rawLines = codeLinesOf(source, ctx.isBlink)
 	local norm, lineOf = Guard.normalize(codeLines)
 	local findings, seen = {}, {}
 	local function add(line: number, message: string)
-		-- no `-- guard: allow special` here: the framework half has no allow-list (final review M3)
+		-- no `-- guard: allow special` here: the framework half has no allow-list
 		local key = `{line}|{message}`
 		if not seen[key] then
 			seen[key] = true
@@ -1511,7 +1511,7 @@ local function selfTest(): boolean
 		{ path = "games/x/src/client/Main.client.luau", modules = mods, isServer = false, isClient = true }
 
 	expectCheck("module off", Guard.scanSource("Core.Rebirth.rebirth(player)", server), "modules")
-	-- v1.3 module refs (core-v1.3.0 step 4b-IIb)
+	-- v1.3 module refs (v1.3.0)
 	local refMods = Guard.parseModules(
 		'modules = {\n\trequire(Collection:WaitForChild("Items")), -- "Rebirth" in a comment\n'
 			.. '\trequire(Economy:WaitForChild("Economy")),\n} :: { any },'
@@ -1567,7 +1567,7 @@ local function selfTest(): boolean
 	if not Guard.isPurchasesAllowed("packages/framework/server/Shop/init.luau") then
 		table.insert(failures, "purchases allow-list: framework Shop must be allowed")
 	end
-	-- Phase 2: MemoryStoreService is framework-only too, and Mail is off the allow-list
+	-- v1.3.0: MemoryStoreService is framework-only too, and Mail is off the allow-list
 	expectCheck(
 		"package MemoryStore",
 		Guard.scanSource('local MS = game:GetService("MemoryStoreService")', pkg),
@@ -1612,7 +1612,7 @@ local function selfTest(): boolean
 	expectCheck("dynamic new", Guard.scanSource("local r = Instance.new(cls)", server), "remotes")
 	expectClean("literal new", Guard.scanSource('local p = Instance.new("Part")', server))
 
-	-- final review 1: which files are scanned (exact-path exclusions only)
+	-- which files are scanned (exact-path exclusions only)
 	local gen = { ["packages/framework/server/Net/Generated.luau"] = true }
 	for _, f in
 		{
@@ -1651,7 +1651,7 @@ local function selfTest(): boolean
 	then
 		table.insert(failures, "blinkOutputs: " .. table.concat(outs, ", "))
 	end
-	-- final review 2: textual evasions of the purchases / remotes checks
+	-- textual evasions of the purchases / remotes checks
 	local gm = { path = "games/x/modules/x/server/init.luau", modules = mods, isServer = true }
 	expectCheck("bracket ProcessReceipt", Guard.scanSource('MS["ProcessReceipt"] = fn', gm), "purchases")
 	expectCheck("bracket ProcessReceipt sq", Guard.scanSource("MS[ 'ProcessReceipt' ]=fn", gm), "purchases")
@@ -1790,7 +1790,7 @@ local function selfTest(): boolean
 	)
 	expectCheck("core pin: not initialised", Guard.corePinFindings("roblox-core", nil, nil), "packages")
 
-	-- special ("nothing is special", Phase 2): planted violations and evasions are caught
+	-- special ("nothing is special", v1.3.0): planted violations and evasions are caught
 	local kitCtx = { path = "packages/kits/economy/server/X.luau", kit = "Economy" }
 	local exCtx = { path = "examples/modules/x/server/init.luau" }
 	local specialCases = {
@@ -1830,7 +1830,7 @@ local function selfTest(): boolean
 			'local SSS = game:GetService("ServerScriptService")\nlocal K = SSS:WaitForChild("Kits")\nlocal M = require(K.Social.Mail)',
 		},
 	}
-	-- final review 5: enumerating ServerScriptService / Framework children
+	-- enumerating ServerScriptService / Framework children
 	table.insert(specialCases, {
 		"GetChildren loop",
 		'local SSS = game:GetService("ServerScriptService")\nfor _, c in SSS:GetChildren() do\n\tif c.Name:sub(1, 5) == "Frame" then F = require(c) end\nend',
@@ -1969,7 +1969,7 @@ local function selfTest(): boolean
 			{ path = Guard.FRAMEWORK_BLINK, names = fwNames, isBlink = true }
 		)
 	)
-	-- the old v1.2 kit request events and the old `net = "framework"` marker (no allow-list since Phase 3)
+	-- the old v1.2 kit request events and the old `net = "framework"` marker (no allow-list since v1.3.1)
 	expectCheck(
 		"framework special ignores a guard: allow comment",
 		Guard.scanFrameworkSpecial("local m = Modules.Mail -- guard: allow special", fwCtx),

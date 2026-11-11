@@ -1,5 +1,5 @@
 --[[
-	core-v1.3.0 Phase 1 agent C: the REAL Mail and Streak modules (social / engagement kits) in
+	v1.3.0: the REAL Mail and Streak modules (social / engagement kits) in
 	the multi-server sim, through the framework's normal surfaces (runtime apis / txApis / exts /
 	console). Gifting, cross-server gifting and co-play are covered by the existing sim specs,
 	which now run against the real modules too.

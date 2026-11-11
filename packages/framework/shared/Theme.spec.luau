@@ -170,7 +170,7 @@ describe("Theme.merge custom themes", function()
 	end)
 end)
 
-describe("Theme unknown keys (final review 6)", function()
+describe("Theme unknown keys", function()
 	local function warnOf(order, gameTheme)
 		local errors, warnings = {}, {}
 		local t = Theme.merge(order, gameTheme, errors, nil, warnings)

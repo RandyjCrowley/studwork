@@ -1,6 +1,6 @@
 --!strict
 --[[
-	Core.Client.state. OWNED BY AGENT G (core/g-client).
+	Core.Client.state.
 
 	State.atom is a Charm atom (Types.Atom<Types.ReplicatedState>) with the same identity for the
 	whole session. The server (server/Replication) syncs it with charm-sync 0.4.1:
@@ -12,7 +12,7 @@
 	  * loaded becomes true once the server has PlayerData for us (it ships loaded = data ~= nil).
 	Client code should only READ the atom.
 
-	core-v1.3.0 (step 4b-IIa): charm-sync now patches State.raw, the replicated state as the
+	v1.3.0: charm-sync now patches State.raw, the replicated state as the
 	server sends it (StudWork.Client.state(), module-api.md §10: { loaded, framework, modules }).
 	State.atom is a read-only selector over it (Hud reads State.raw through Hud/Slices).
 ]]
@@ -43,7 +43,7 @@ local initial: Types.ReplicatedState = {
 State.raw = (Charm.atom(initial) :: any) :: Types.Atom<any>
 
 -- The replicated state (a read-only selector over State.raw; the v1.2 flat view and its
--- State.setView hook were deleted in core-v1.3.0 Phase 2).
+-- State.setView hook were deleted in v1.3.0).
 State.atom = (
 	Charm.computed(function(): any
 		return State.raw()

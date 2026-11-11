@@ -98,7 +98,7 @@ describe("Replication.Snapshot.build", function()
 	end)
 end)
 
-describe("Replication.Snapshot.build opts (M2)", function()
+describe("Replication.Snapshot.build opts", function()
 	it("uses dataCopy instead of copying data", function()
 		local data = { a = 1 }
 		local dataCopy = { a = 1 }

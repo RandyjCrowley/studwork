@@ -26,7 +26,7 @@
 
 	Load (all-or-nothing): framework migration on the whole root -> per enabled module: owner check
 	(H5) -> section default or Migrate.run(section, _versions[key], data.version) -> reconcile
-	missing top-level keys from data.default -> data.sanitize once (M3) -> record _owners/_versions.
+	missing top-level keys from data.default -> data.sanitize once -> record _owners/_versions.
 	Then _framework.stats.sessions += 1 (sessions == 1 = first join ever). While onLoaded handlers
 	run, _framework.lastSeen is still the PREVIOUS session's last save (Offline reads it); every
 	save stamps lastSeen = now and prunes _framework.purchases to PURCHASES_CAP.
@@ -45,8 +45,8 @@
 	Rules (kept from v1.1 Data.update):
 	  - commit only when fn returns without error; an error discards everything and re-raises
 	  - fn must not yield (YIELD_ERROR, discarded)
-	  - one tx open on the call stack at a time: same player -> NESTED_ERROR (L6); a DIFFERENT
-	    player -> CROSS_PLAYER_ERROR (M1): use tx.after to act on them once this one commits
+	  - one tx open on the call stack at a time: same player -> NESTED_ERROR; a DIFFERENT
+	    player -> CROSS_PLAYER_ERROR: use tx.after to act on them once this one commits
 	  - tx.after effects run, in order, only after commit (opts.deferAfter: returned instead, for
 	    Shop, which runs them once the save is confirmed); tx.retryLater() discards the tx and
 	    runTx returns (false, nil)
@@ -153,7 +153,7 @@ function Data.new(opts: any): any
 			for _, e in errs do
 				table.insert(bootErrors, `{ref.name}: data.{e}`)
 			end
-			-- final review 10: once a module has migrations, every version from its first
+			-- once a module has migrations, every version from its first
 			-- migration up to data.version needs one (a forgotten file would silently skip a step)
 			local missing = Migrate.gaps(migrations, ref.data.version)
 			if #missing > 0 then
@@ -206,7 +206,7 @@ function Data.new(opts: any): any
 					)
 				else
 					return nil,
-						`save section '{key}' belongs to module '{owner}', but module '{spec.name}' now claims it (data.key collision, design review H5). Rename {spec.name}'s data.key, or declare data.adopts = "{owner}" if it really takes over that data`
+						`save section '{key}' belongs to module '{owner}', but module '{spec.name}' now claims it (data.key collision). Rename {spec.name}'s data.key, or declare data.adopts = "{owner}" if it really takes over that data`
 				end
 			end
 			local section = root[key]
@@ -240,7 +240,7 @@ function Data.new(opts: any): any
 				end
 				section = out
 			end
-			-- committed section tables are frozen (final review 3): see runTx's commit
+			-- committed section tables are frozen: see runTx's commit
 			root[key] = Freeze.deepFreeze(section)
 			versions[key] = spec.data.version
 			owners[key] = spec.name
@@ -432,7 +432,7 @@ function Data.new(opts: any): any
 	-- H2: frozen read view of one section, in EVERY environment (v1.2 did this only in Studio).
 	-- Cost: a deep copy + freeze of the section, but only when its section version moved since
 	-- the last view (cached per player per section), so repeated reads between commits are free.
-	-- Re-check against the §17 Q6 budget (0.64 ms/tick at 50x100, +20% max) in Phase 2 step 7.
+	-- Re-check against the §17 Q6 budget (0.64 ms/tick at 50x100, +20% max) in v1.3.0.
 	function d.view(player: any, key: string): any
 		local record = records[player]
 		if record == nil then
@@ -633,7 +633,7 @@ function Data.new(opts: any): any
 			-- structural sharing: unchanged subtrees keep the committed tables (benchmark fix)
 			local merged, differs = Freeze.share(w, record.root[key])
 			if differs then
-				-- final review 3: freeze what the commit adds (shared subtrees already are), so a
+				-- freeze what the commit adds (shared subtrees already are), so a
 				-- reference kept from ctx.section(tx) can't change committed data after the tx
 				-- ends; a late write raises "attempt to modify a readonly table"
 				record.root[key] = Freeze.deepFreeze(merged)

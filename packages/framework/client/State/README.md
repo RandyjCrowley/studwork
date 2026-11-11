@@ -1,4 +1,4 @@
-# client/State (agent G)
+# client/State
 
 `Core.Client.state` = `State.atom`: a Charm atom of `Types.ReplicatedState`, same identity forever. Read it (`state()`, Charm `computed`, ReactCharm `useAtom`); never write it from game code.
 

@@ -24,7 +24,7 @@ declared dependency).
 3. The handler and `_framework.purchases[PurchaseId] = now` land in ONE non-yielding framework transaction.
    Handler error -> nothing written (`handler_error`, warned); yield -> nothing written (`handler_yielded`);
    `tx.retryLater` -> nothing written (`retry_later`, quiet; a flag decides, so a pcall-swallowed retry still
-   aborts). Compliance calls `tx.retryLater` itself when a paid roll meets an unknown policy (M4).
+   aborts). Compliance calls `tx.retryLater` itself when a paid roll meets an unknown policy.
 4. Then `Data.saveAsync`: confirmed -> `PurchaseGranted`; not confirmed -> `NotProcessedYet` (`save_failed`),
    the record stays in memory and the effects are parked until a confirmed save.
 5. `tx.after` effects, the framework signal `ProductGranted`, a toast and analytics `ProductPurchased` run

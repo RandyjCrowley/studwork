@@ -1,6 +1,6 @@
 --!strict
 --[[
-	Core.Client.Feedback. OWNED BY AGENT G (core/g-client). Public API: Types.FeedbackAPI
+	Core.Client.Feedback. Public API: Types.FeedbackAPI
 	(+ Feedback.onFeedbackEvent, Feedback.start(ctx)). See README.md.
 
 	pop(text, position?, rarity?)  number pop with squash-and-stretch + float + fade.

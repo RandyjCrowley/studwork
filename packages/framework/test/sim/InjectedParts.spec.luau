@@ -2,8 +2,8 @@
 	A test's own server part for a kit module (the sim's opts.serverParts, e.g. a test double)
 	boots next to the real kit modules and is reached through the normal surfaces
 	(server:use / the runtime's txApis / extensions).
-	core-v1.3.0 Phase 2: was Adapters.spec.luau (the v1.2 adapter hook); the adapter-only
-	assertions went with the adapters ((internal build report, not public) lists them).
+	v1.3.0: was Adapters.spec.luau (the v1.2 adapter hook); the adapter-only
+	assertions went with the adapters.
 ]]
 
 local F = require(script.Parent.Fixtures)

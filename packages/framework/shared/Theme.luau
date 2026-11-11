@@ -210,7 +210,7 @@ local function finish(merged: any): any
 end
 
 -- A module's contribution: its `theme` table, or theme(config) for a config-driven theme
--- (core-v1.3.0 Phase 2: e.g. Rarity's tiers from config.Rarity.tiers). nil = nothing.
+-- (v1.3.0: e.g. Rarity's tiers from config.Rarity.tiers). nil = nothing.
 local function contribution(ref: any, configs: { [string]: any }?, errors: { string }): any
 	local theme = ref.theme
 	if type(theme) ~= "function" then
@@ -233,7 +233,7 @@ local TOP_LEVEL =
 	{ preset = true, name = true, colors = true, fonts = true, metrics = true, sounds = true, rarity = true }
 local CHECKED_GROUPS = { "colors", "fonts", "metrics" }
 
--- Final review 6 (Phase 2 P2-F): a key in the game's theme (or preset table) that no layer below
+-- a key in the game's theme (or preset table) that no layer below
 -- defines is almost always a typo (`metrics.minTouch` for `minTouchTarget`), and an unknown token
 -- is never read by any UI, so it would silently do nothing. Warn, naming the key (like config's
 -- unknown keys). `known` is the merged theme below the game's layer.
@@ -277,7 +277,7 @@ local function warnUnknown(layer: any, known: any, where: string, warnings: { st
 end
 
 -- configs (optional): { [moduleName]: merged config }, passed to a function `theme`.
--- warnings (optional, added in Phase 2: final review 6): unknown game theme keys, named.
+-- warnings (optional, added in v1.3.0): unknown game theme keys, named.
 function Theme.merge(
 	order: { any },
 	gameTheme: any,

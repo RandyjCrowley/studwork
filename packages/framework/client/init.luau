@@ -1,6 +1,6 @@
 --!strict
 --[[
-	Framework client bootstrap. LEAD-OWNED. Requiring it installs the StudWork CLIENT
+	Framework client bootstrap. Requiring it installs the StudWork CLIENT
 	runtime (Runtime.luau) into the StudWork facade, so a game's client is one line:
 	StudWork.start(Config). That boots the client modules (StudWork.use(X) = X's ClientAPI with
 	its actions, §9) and this framework client UI, exposed as StudWork.Client:
@@ -8,10 +8,10 @@
 	  Hud, Feedback, Input, onFeedbackEvent   the client UI on theme tokens + HUD slots
 	                     (core-v1.3.1: onMailbox moved to the mail module's client API)
 	  Hud.addWidget(id, spec | false)   the one call a module or game uses to contribute (or
-	                     remove) a HUD widget (= UI.registerWidget; Phase 2)
+	                     remove) a HUD widget (= UI.registerWidget; v1.3.0)
 	The UI reads the replicated state as sent (State.raw through Hud/Slices).
 
-	v1.2 path (kept until step 4b-IIb converts the scaffolds): the Core facade requires this file
+	v1.2 path (kept until v1.3.0 converts the scaffolds): the Core facade requires this file
 	on the client and calls Client.start(core, config, serverConfig, moduleOrder).
 	Builds Core.Client (Types.ClientAPI) and starts the client modules in order (Actions learns
 	the enabled modules first, so module-owned actions error when their module is off):

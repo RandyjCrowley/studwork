@@ -1,7 +1,7 @@
 --!strict
 --[[
 	Pure token-bucket rate limiter, keyed by (player key, event name). Clock is injected so it is
-	testable under Lune. LEAD-OWNED (core/server/Net).
+	testable under Lune.
 ]]
 
 export type Limit = { rate: number, burst: number } -- tokens per second, bucket size

@@ -92,7 +92,7 @@ for G in $GAMES; do
 done
 
 # The example modules (examples/modules/<m>), each against its fixture game's Rojo project
-# (tests/fixture-game/default.project.json); specs are Lune-only (Phase 2). Core repo only.
+# (tests/fixture-game/default.project.json); specs are Lune-only (v1.3.0). Core repo only.
 if ! is_games_repo; then
 	for FIXTURE in examples/modules/*/tests/fixture-game/default.project.json; do
 		[ -f "$FIXTURE" ] || continue

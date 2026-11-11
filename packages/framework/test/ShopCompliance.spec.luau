@@ -1,5 +1,5 @@
 --!nocheck
--- core-v1.3.0 step 4b: framework Shop (receipts, purchase tx, passes) and Compliance (random
+-- v1.3.0: framework Shop (receipts, purchase tx, passes) and Compliance (random
 -- sources, paid rolls, paid currencies, luck rule) behind ctx (module-api.md §7, §7.1, §14).
 local StudWork = require(script.Parent.Parent.shared)
 local Harness = require(script.Parent.harness)

@@ -1,6 +1,6 @@
 --!strict
 --[[
-	Upgrades (economy kit), server part. core-v1.3.0 Phase 1: a real StudWork module. Section
+	Upgrades (economy kit), server part. v1.3.0: a real StudWork module. Section
 	`upgrades` = { upgrades = { [upgradeId]: level } }; config.Upgrades.upgrades[id] = { baseCost,
 	costGrowth, currency? (default Economy's primary), maxLevel, effect, perLevel,
 	resetsOnRebirth? }.
@@ -15,7 +15,7 @@
 	- cost(level) = floor(baseCost * costGrowth ^ level); nil when maxed or unknown.
 	- purchase is ONE transaction: re-reads the level, pays through Economy.txApi.spend, or
 	  through the public ctx.compliance.spendPaid when the currency is a paid one (an upgrade is a
-	  non-random good; Phase 2 final review 5/7, any module can do the same) and bumps the
+	  non-random good; v1.3.0 any module can do the same) and bumps the
 	  level, so the spend and the level commit together (v1.2 spent, then wrote, then refunded on
 	  failure).
 	- Effects: "incomeMultiplier" -> an Economy rateFactor (1 + level * perLevel per upgrade);
@@ -178,7 +178,7 @@ function Upgrades.new(): any
 			end
 			return out
 		end)
-		-- "inventoryCap" upgrades: Inventory.cap = base + Σ capBonus (Phase 1 integration glue;
+		-- "inventoryCap" upgrades: Inventory.cap = base + Σ capBonus (v1.3.0 integration glue;
 		-- replaces the Collection compat adapter's shim over the bridged Upgrades)
 		if ctx.isEnabled(InventoryRef) then
 			ctx.depsExt[InventoryRef].capBonus("Upgrades", function(player: any): number

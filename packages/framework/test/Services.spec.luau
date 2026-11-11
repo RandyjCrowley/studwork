@@ -1,5 +1,5 @@
 --!nocheck
--- core-v1.3.0 step 4b (builder 4b-I): every framework service behind ctx is real. Module
+-- v1.3.0: every framework service behind ctx is real. Module
 -- actions (§9), Replication's per-section cache (§10, M2), Policy, Analytics, Events, and the
 -- framework Shop keeping the v1.1/v1.2 receipt guarantees (§7), the exclusive ProcessReceipt
 -- owner (§7.1) and N9 (after-purchase effects when the player has left).
@@ -170,7 +170,7 @@ end)
 
 -- ===================================================================== replicate
 
-describe("ctx.replicate: per-section cache (M2)", function()
+describe("ctx.replicate: per-section cache", function()
 	it("an unrelated section's commit does not re-copy this module's replicated data", function()
 		local A = mod("A", { data = { key = "a", version = 1, default = { n = 0 }, replicate = { "n" } } })
 		local B = mod("B", { data = { key = "b", version = 1, default = { m = 0 }, replicate = { "m" } } })

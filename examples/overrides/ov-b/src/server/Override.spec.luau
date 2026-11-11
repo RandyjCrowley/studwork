@@ -1,5 +1,5 @@
 --!nocheck
--- Override case (b) scratch game (core-v1.3.0 Phase 2, P2-C): a custom 4-tier rarity preset with a custom theme and sounds.
+-- Override case (b) example game: a custom 4-tier rarity preset with a custom theme and sounds.
 -- The game's real project boots in the multi-server sim (StudWork.test.sim); the client side is
 -- the client runtime started with the same Config (merged theme, GameConfig.client).
 local ReplicatedStorage = game:GetService("ReplicatedStorage")

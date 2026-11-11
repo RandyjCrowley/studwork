@@ -1,6 +1,6 @@
 --!strict
 --[[
-	Framework shared store (core-v1.3.0 Phase 2): `ctx.data.shared`, a small durable key-value
+	Framework shared store (v1.3.0): `ctx.data.shared`, a small durable key-value
 	store every server of the experience shares. One framework-owned DataStore
 	("StudWorkShared_<gameId>", "_Studio" suffix in Studio); every key is prefixed with the owning
 	module's name, so a module can only read or write its own keys.

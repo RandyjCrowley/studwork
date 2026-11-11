@@ -1,6 +1,6 @@
 --!nocheck
 --[[
-	TEST FIXTURE (core-v1.3.0 Phase 2): a v1.2 PlayerData save (Types.PlayerData, contract v1.2)
+	TEST FIXTURE (v1.3.0): a v1.2 PlayerData save (Types.PlayerData, contract v1.2)
 	with every field, for the _sandbox game (gameId "sandbox"), as a live v1.2 server wrote it to
 	ProfileStore's `Data`. MigrationV12.spec.luau loads it through the framework with every real
 	kit module and checks each value lands in its v1.3 section unchanged.

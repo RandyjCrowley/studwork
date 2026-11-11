@@ -1,4 +1,4 @@
-# Core.Events (agent E)
+# Core.Events
 
 Public API (`Types.EventsAPI`): `schedule(id, schedule?, handler)`, `trigger(id, by?)`, `isActive(id)`, `onEnded(id, handler)`.
 

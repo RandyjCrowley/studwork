@@ -2,7 +2,7 @@
 --[[
 	The v1.2 Core public types (FROZEN at tag core-contract-v1.2), still used by the framework
 	client UI (Hud, Feedback, Input, State). Moved from the deleted v1.2 shared folder in
-	core-v1.3.0 Phase 2; the v1.3 module API is docs/framework/module-api.md.
+	v1.3.0; the v1.3 module API is docs/framework/module-api.md.
 
 	ADDITIVE ONLY: new fields/functions/types may be added; nothing is ever renamed or removed.
 	Deprecate instead (keep it working, mark it `-- @deprecated <why, replacement>`).
@@ -46,7 +46,7 @@ export type ItemDef = {
 	model: string?, -- name of a Model under the game's assets folder (ReplicatedStorage.Game.Assets); nil = placeholder
 	icon: string?, -- "rbxassetid://..." image
 	source: string?, -- where it comes from: "drop" | "roll" | "shop" | "event" | "gift" | game-defined
-	tags: { string }?, -- free-form, e.g. {"Shelf"} for Example Shop evidence, {"Plant"}
+	tags: { string }?, -- free-form, e.g. {"Shelf"} for items a shop game displays, {"Plant"}
 	-- Rebirth with keepInventory = false: is a copy of this item kept? nil (default) = kept only
 	-- when the copy came from a paid source (ItemInstance.source starts with "paid:"), wiped
 	-- otherwise. true = always kept, false = always wiped (even when bought with Robux).
@@ -546,7 +546,7 @@ export type PurchaseTx = {
 	after: (fn: () -> ()) -> (),
 }
 
--- Receipt-safe developer product handler (M4). Runs inside ONE Data.update together with the
+-- Receipt-safe developer product handler. Runs inside ONE Data.update together with the
 -- receipt record: it must only change `data` (directly or through `tx`), must not yield (core
 -- rejects it) and must not call other services' mutating APIs (Economy.grant, Inventory.add ...:
 -- nested Data.update errors). Erroring = nothing granted, nothing recorded, NotProcessedYet.
@@ -708,7 +708,7 @@ export type HudOptions = {
 export type HudAPI = {
 	mount: (opts: HudOptions?) -> (),
 	unmount: () -> (),
-	-- core-v1.3.0 Phase 2 (additive): contribute (spec) or remove (false) a HUD widget by id
+	-- v1.3.0 (additive): contribute (spec) or remove (false) a HUD widget by id
 	-- ("<Module>.<widget>", spec = { slot, order?, component }); = UI.registerWidget
 	addWidget: (id: string, spec: any) -> (),
 }

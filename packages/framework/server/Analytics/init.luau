@@ -10,12 +10,12 @@
 	                        once per player (_framework.funnel[step] = now, in its own tx). "Joined"
 	                        is logged automatically when a player's data loads, if it's a step.
 	  economy(player, flow, currency, amount, endingBalance, transactionType, sku?)
-	                        (revised in step 4b: the CALLER passes endingBalance. v1.2 looked it up
+	                        (revised in v1.3.0: the CALLER passes endingBalance. v1.2 looked it up
 	                        through Economy.balance, i.e. the framework calling a kit; nothing in the
 	                        framework may depend on a kit, so the currency's owner supplies it.)
 	                        amount finite and > 0; strings sanitized (control chars, length).
 	  custom(player, name, value?, fields?)  value defaults to 1; non-finite values are dropped.
-	                        fields (step 4b, additive): { [string]: string } -> customFields.
+	                        fields (v1.3.0, additive): { [string]: string } -> customFields.
 	  ClientFunnel (framework Blink event): only GameConfig.analytics.clientSteps are accepted.
 
 	Analytics.new(opts): opts.config (GameConfig.analytics or nil), opts.service ({ funnel, economy,

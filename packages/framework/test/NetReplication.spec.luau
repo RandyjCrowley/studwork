@@ -1,5 +1,5 @@
 --!nocheck
--- core-v1.3.0 step 4b: framework Net and Replication behind ctx (module-api.md §9, §10).
+-- v1.3.0: framework Net and Replication behind ctx (module-api.md §9, §10).
 local StudWork = require(script.Parent.Parent.shared)
 local Harness = require(script.Parent.harness)
 
@@ -211,7 +211,7 @@ describe("ctx.replicate (Replication)", function()
 		expect(c.replicate.sent(b, "rate")).toBeNil()
 	end)
 
-	it("unchanged sections keep their table reference between sends (M2)", function()
+	it("unchanged sections keep their table reference between sends", function()
 		local c
 		local h = Harness.new({
 			modules = { Wallet },

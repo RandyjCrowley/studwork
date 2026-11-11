@@ -1,6 +1,6 @@
 --!strict
 --[[
-	Rebirth (economy kit), server part. core-v1.3.0 Phase 1: a real StudWork module. Section
+	Rebirth (economy kit), server part. v1.3.0: a real StudWork module. Section
 	`rebirth` = { rebirths }; config.Rebirth.rebirth = { baseCost, costGrowth, currency? (default
 	Economy's primary), multiplierPerRebirth, keepInventory, keepDisplayed?, resetCurrencies?
 	(default { primary }), maxRebirths? } and config.Rebirth.onRebirth (the inventory rules, below).
@@ -166,7 +166,7 @@ function Rebirth.new(): any
 		local unknownItems: { string } = {}
 
 		-- a paid currency (GameConfig.compliance.paidCurrencies) is spent through the public
-		-- ctx.compliance.spendPaid, any other through Economy (Phase 2 final review 5/7)
+		-- ctx.compliance.spendPaid, any other through Economy (v1.3.0 )
 		local function spend(tx: any, amount: number, currency: string): boolean
 			if ctx.compliance.isPaidCurrency(currency) then
 				return (ctx.compliance.spendPaid(tx, currency, amount, "rebirth"))

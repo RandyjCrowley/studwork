@@ -3,14 +3,14 @@
 	tools/lune/Layout: pure checks of the core v1.3.0 repo layout, shared by tools/doctor and
 	tools/core-status (zero requires; callers read the files). Specs: Layout.spec.luau.
 
-	The layout (core-v1.3.0 Phase 2; kits one folder per module since core-v1.3.1, R19):
+	The layout (v1.3.0; kits one folder per module since core-v1.3.1, R19):
 	  packages/framework/{shared,server,client}   the StudWork runtime (StudWork.VERSION in
 	                                              shared/init.luau)
 	  packages/kits/<kit>/<Module>/module.luau    the built-in kits' modules (collection, economy,
 	                                              ...), each with server/, client/, shared/ parts
 	  packages/kits/<kit>/{shared,server}         GONE (the pre-v1.3.1 kit layout)
 	  packages/ui                                 the UI kit
-	  packages/core                               GONE (the v1.2 facade, deleted in Phase 2)
+	  packages/core                               GONE (the v1.2 facade, deleted in v1.3.0)
 
 	Layout.repoIssues(exists, kits, kitModules?)  -> { string }  exists(path) -> boolean;
 	    kitModules = { [kit] = { <Module folder> } } (a kit with none is reported)

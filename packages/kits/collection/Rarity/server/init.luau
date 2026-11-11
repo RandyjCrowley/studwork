@@ -6,7 +6,7 @@
 	Tiers: config.Rarity.tiers ("standard7" or a custom ordered list, shared/Tiers.luau). Every
 	item's `rarity` must be a tier of that list (boot error otherwise). Luck and pity compare
 	tiers by list order (RollMath.withTiers). The definition contributes theme.rarity.tiers =
-	the resolved config.Rarity.tiers (theme = function(config), framework Phase 2), so a custom
+	the resolved config.Rarity.tiers (theme = function(config), v1.3.0), so a custom
 	list is written once, in config; it is also replicated as extra `tiers`.
 
 	Compliance (§14): every rarity table is a random source (ctx.compliance.registerRandomSource,
@@ -222,7 +222,7 @@ function Rarity.new(): any
 			local forced, mutation = result.forced, result.mutation
 			local info: any = { ok = true, pity = forced, mutation = mutation }
 			if o.grant == true then
-				-- source: "paid:<product>" / "paidcur:<tableId>" derived by Inventory from the tx (M5)
+				-- source: "paid:<product>" / "paidcur:<tableId>" derived by Inventory from the tx
 				local instance = ctx.depsTx[InventoryRef].add(tx, def.id, {
 					mutation = mutation,
 					source = if type(o.reason) == "string" then o.reason else "roll",

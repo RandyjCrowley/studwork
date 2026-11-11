@@ -1,10 +1,10 @@
 --!strict
 --[[
-	Economy (economy kit), server part. core-v1.3.0 Phase 1: a real StudWork module (module-api.md
+	Economy (economy kit), server part. v1.3.0: a real StudWork module (module-api.md
 	§3-§8): its own save section (`economy` = { currency, multipliers }), its own config
 	(config.Economy), ctx only. Built per runtime by Economy.new() (the framework loader calls it, module-api.md §19.9).
 
-	api (PHASE1-CONTRACT "Economy"; v1.2 names and meanings)
+	api (kit contract, docs/framework/kit-contract.md "Economy"; v1.2 names and meanings)
 	  grant(player, amount, reason, currency?) -> boolean
 	  spend(player, amount, reason, currency?) -> boolean   ERRORS for a currency listed in
 	      GameConfig.compliance.paidCurrencies (§14 C3: "spend a paid currency only through
@@ -19,7 +19,7 @@
 	  grant(tx, amount, reason, currency?) -> boolean
 	  spend(tx, amount, reason, currency?) -> boolean       same paid-currency refusal (a
 	      non-random good priced in a paid currency goes through ctx.compliance.spendPaid, which
-	      any module can call; Phase 2 final review 5/7)
+	      any module can call; v1.3.0 )
 	  balance(tx, currency?) -> number                      (addition: the tx working copy)
 	purchaseOps.grant(tx, amount, currency?) -> boolean     reason "product:<product>"
 	extensions

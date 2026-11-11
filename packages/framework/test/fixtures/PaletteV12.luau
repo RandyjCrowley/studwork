@@ -1,6 +1,6 @@
 --!strict
 --[[
-	TEST FIXTURE (core-v1.3.0 Phase 2): kept from the deleted v1.2 shared Palette.luau: the v1.2 palette Theme.spec compares the framework's
+	TEST FIXTURE (v1.3.0): kept from the deleted v1.2 shared Palette.luau: the v1.2 palette Theme.spec compares the framework's
 	default theme against.
 	Never required by game or kit code.
 	Shared palette (docs/research/art-direction.md: one locked palette of ~12-16 colours for models,

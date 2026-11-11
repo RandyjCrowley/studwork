@@ -11,8 +11,8 @@
 	  (d) Collection on, Economy off: items with no income
 	  (e) foundation only (no modules)
 	  (f) examples/modules/session-leaderboard next to the built-in kits
-	Every case also exists as a scratch game generated with tools/new-game (core-v1.3.0 Phase 2,
-	P2-C report); the React-mounted HUD / screen path needs the engine and is checked in Studio.
+	Every case also exists as an example game generated with tools/new-game
+	(examples/overrides/ov-a .. ov-f); the React-mounted HUD / screen path needs the engine and is checked in Studio.
 ]]
 
 local ReplicatedStorage = game:GetService("ReplicatedStorage")

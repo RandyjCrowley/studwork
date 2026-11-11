@@ -510,7 +510,7 @@ end)
 
 describe("Inventory gifting end to end (simulated servers)", function()
 	it(
-		"Example Gifts: stranger in another server with a full inventory claims after freeing a slot",
+		"gifting game: stranger in another server with a full inventory claims after freeing a slot",
 		function()
 			local w = newWorld()
 			w.addUser(1, { "wish" }, 10)

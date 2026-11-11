@@ -1,4 +1,4 @@
-# client/Feedback (agent G)
+# client/Feedback
 
 `Types.FeedbackAPI` + `onFeedbackEvent` + `start(ctx)`.
 

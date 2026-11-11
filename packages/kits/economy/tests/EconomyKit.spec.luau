@@ -1,6 +1,6 @@
 --!nocheck
 --[[
-	Economy kit (core-v1.3.0 Phase 1): the REAL Economy / Upgrades / Rebirth / Offline modules in
+	Economy kit (v1.3.0): the REAL Economy / Upgrades / Rebirth / Offline modules in
 	the multi-server sim (StudWork.test.sim), next to the other real kit modules.
 ]]
 
@@ -265,7 +265,7 @@ describe("Economy kit: Upgrades and Rebirth", function()
 			Inventory.remove(p, item.uid, "test") -- start from an empty inventory
 		end
 		-- Seed the save directly (a copy bought / rolled earlier): the real Inventory refuses a
-		-- caller-supplied paid:/paidcur: source outside a purchase or Compliance roll (M5), and the
+		-- caller-supplied paid:/paidcur: source outside a purchase or Compliance roll, and the
 		-- sandbox's product ids are 0, so the sim can't route a receipt to EggRoll.
 		local now = os.time()
 		local paid = { uid = "seed-paid", itemId = "crystal", source = "paid:EggRoll", acquiredAt = now }

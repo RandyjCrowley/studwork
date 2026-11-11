@@ -1,6 +1,6 @@
 --!nocheck
 --[[
-	Frozen read view benchmark (core-v1.3.0 Phase 2 step 7, design review H2). Not mapped into any
+	Frozen read view benchmark (v1.3.0). Not mapped into any
 	Rojo project; run with `tools/bench views` (or `lune run tools/lune/bench/views [runs]`).
 
 	Setup: the real kit modules booted with StudWork.test.harness (Items, Rarity, Inventory,

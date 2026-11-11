@@ -2,7 +2,7 @@
 
 Layout (core-v1.3.1, one folder per module, module-api.md §1): `module.luau` (definition), `server/` (server part; the code files named below live there), `client/` (client part). Rojo: `ReplicatedStorage.Modules.Rebirth` (module, client, shared), `ServerScriptService.Modules.Rebirth` (server).
 
-A real StudWork module (core-v1.3.0 Phase 1). Definition: `module.luau`. Pure math:
+A real StudWork module (v1.3.0). Definition: `module.luau`. Pure math:
 `RebirthMath.luau`; the inventory rules: `Rebirth.keeps` (`RebirthRules.spec.luau`).
 
 ## Config (`config.Rebirth`)

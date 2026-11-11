@@ -1,6 +1,6 @@
 --!strict
 --[[
-	Economy module definition (kit: economy). core-v1.3.0 Phase 1: a real StudWork module; the
+	Economy module definition (kit: economy). v1.3.0: a real StudWork module; the
 	server part is ../server/Economy (README there: api, txApi, extensions, income rules).
 
 	config (config.Economy; keys unchanged from v1.2 `balance`):

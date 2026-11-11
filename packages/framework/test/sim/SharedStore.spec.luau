@@ -1,5 +1,5 @@
 --[[
-	ctx.data.shared (framework shared store, core-v1.3.0 Phase 2) in the multi-server sim: the
+	ctx.data.shared (framework shared store, v1.3.0) in the multi-server sim: the
 	runtime's SharedStore on the World's mock DataStore, so every sim server shares one store.
 	Atomicity under concurrent updates from 2 servers, per-module namespacing, retry / failure,
 	delete.

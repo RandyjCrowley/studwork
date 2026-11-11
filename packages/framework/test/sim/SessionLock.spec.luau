@@ -111,7 +111,7 @@ describe("session lock held by another server", function()
 		end, 400, 0.5)).toBe(true)
 		-- ProfileStore ends a session it finds stolen during a normal save with OnSessionEnd but
 		-- WITHOUT OnLastSave("External"); the framework treats that as a lost session too and
-		-- kicks at once (core-v1.3.0 step 4b-IIb closed the old no-kick gap). Safety below.
+		-- kicks at once (v1.3.0 closed the old no-kick gap). Safety below.
 		expect(kickedWith(a, 73, "another server")).toBe(true)
 		expect(a:update(p, function() end)).toBe(false)
 		save(world, b, q)

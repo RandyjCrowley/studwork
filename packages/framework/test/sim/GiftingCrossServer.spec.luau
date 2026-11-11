@@ -1,7 +1,7 @@
 --[[
 	Cross-server gifting through the real Mail module (Inventory.sendGift, Mail.pending/claim,
-	the sender's outbox). Written by agent C against the contract while
-	agent A built it; enabled by the lead after merging A (it was gifting_crossserver.pending.luau).
+	the sender's outbox). Written against the kit contract before the gifting path existed;
+	the PENDING errors below explain a failure if that path regresses to the old stub.
 ]]
 
 local F = require(script.Parent.Fixtures)
@@ -27,12 +27,15 @@ end
 local function gift(s, from, toUserId: number, uid: string)
 	local ok, result, why = pcall(s:use("Inventory").sendGift, from, toUserId, uid, "gift")
 	if not ok then
-		error("PENDING: Inventory.sendGift raised (" .. tostring(result) .. "). Merge agent A first.", 2)
+		error(
+			"PENDING: Inventory.sendGift raised (" .. tostring(result) .. "). The gifting path is missing.",
+			2
+		)
 	end
 	if result ~= true and why == "failed" then
 		error(
 			"PENDING: Inventory.sendGift returned (false, 'failed') - this is the core-contract-v1.2 "
-				.. "stub. Run this file only after agent A's mail/gifting branch is merged.",
+				.. "stub; the Mail gifting path is missing.",
 			2
 		)
 	end
@@ -43,7 +46,7 @@ local function hasUid(data, uid: string): boolean
 	return data ~= nil and data.inventory ~= nil and data.inventory[uid] ~= nil
 end
 
-describe("cross-server gifting through Mail (PENDING agent A)", function()
+describe("cross-server gifting through Mail", function()
 	it(
 		"gift to an OFFLINE user: leaves the sender at once, arrives on the receiver's next join elsewhere",
 		function()

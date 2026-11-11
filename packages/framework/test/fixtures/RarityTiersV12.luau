@@ -1,6 +1,6 @@
 --!strict
 --[[
-	TEST FIXTURE (core-v1.3.0 Phase 2: the v1.2 shared RarityTiers.luau, kept only
+	TEST FIXTURE (v1.3.0: the v1.2 shared RarityTiers.luau, kept only
 	as the reference Theme.spec compares the framework's default rarity theme against).
 	Shared rarity tiers (from docs/research/art-direction.md: rarity reads through colour, glow and
 	particles, not detail; a distinct sound per rarity). Pure module.

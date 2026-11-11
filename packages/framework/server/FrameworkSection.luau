@@ -10,7 +10,7 @@
 
 	Framework migrations run on the WHOLE profile root (they're the only ones allowed to move data
 	between sections). Version 1 is "a v1.2 flat PlayerData"; migration 2 splits it into sections,
-	one per FINER kit module (decisions.md "Phase 0 step 4", decision 2; retargeted in step 4b-IIa
+	one per FINER kit module (decisions.md "v1.3.0", decision 2; v1.3.0
 	to the keys the kit wrappers declare):
 	  firstJoin, lastSeen, purchases, funnel, stats  -> _framework
 	  currency, multipliers                          -> economy    (Economy)

@@ -1,5 +1,5 @@
 --[[
-	R1 soak (known issue R1, core-v1.3.0 agent C): 2000+ gifts to one recipient, driven through the
+	R1 soak (known issue R1, v1.3.0): 2000+ gifts to one recipient, driven through the
 	REAL pure Mail parts (Outbox, Gifts, Escrow, Delivery) with a fake ProfileStore message queue
 	that keeps at most 1000 messages per user and DROPS THE OLDEST beyond that, exactly like
 	ProfileStore's MAX_MESSAGE_QUEUE. Every item is tracked by uid; after every step each uid must

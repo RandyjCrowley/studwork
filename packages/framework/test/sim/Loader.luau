@@ -39,7 +39,7 @@ local ROOTS = {
 	-- game projects (Fixtures.gameServer boots a real game's Config through its Rojo project)
 	"games",
 	"templates",
-	-- example modules + their fixture games (examples/modules/*/tests; Phase 2), example games
+	-- example modules + their fixture games (examples/modules/*/tests; v1.3.0), example games
 	"examples",
 }
 if CORE_DIR ~= "." then

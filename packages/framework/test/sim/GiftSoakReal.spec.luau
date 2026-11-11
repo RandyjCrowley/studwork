@@ -1,5 +1,5 @@
 --[[
-	R1 soak on the REAL path (core-v1.3.0 Phase 2): agent C's 2400-gift scenario
+	R1 soak on the REAL path (v1.3.0): the 2400-gift scenario
 	(packages/kits/social/Mail/server/GiftSoak.spec.luau drives the pure parts with fakes) re-run
 	through the real modules in the multi-server sim:
 	  - 24 senders on 3 servers, 100 gems each, gifting everything to one user who never logs in;
