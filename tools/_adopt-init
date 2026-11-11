@@ -1,5 +1,279 @@
 #!/usr/bin/env bash
-# tools/_adopt-init: the implementation of `tools/adopt --init` (docs/framework/adopting.md §2).
-# v1.6.0 contract stub: agent B replaces this file.
+# tools/_adopt-init: `tools/adopt --init <project> [--name <gameId>] [--modules A,B] [--tag vX.Y.Z]
+#                    [--url <u>] [--dry-run] [--no-install]` (StudWork v1.6.0,
+# docs/framework/adopting.md §2). Adds StudWork to an EXISTING game (a git repo with a Rojo
+# project, or a tools/adopt --from-place output) without overwriting anything it didn't create:
+#   1. checks: a git repo at <project> (its own top level), not this StudWork checkout or inside
+#      it; a clean tree for every path init writes (skipped on a re-run of an adopted project); no
+#      clash in the project file (an entry StudWork needs, taken by something else); no old store
+#      named like StudWork's own (PlayerData_<gameId>[_Studio], from studwork-adopt-report.json)
+#   2. the studwork/ submodule pinned at --tag (default v<StudWork.VERSION>), like tools/new-project
+#      (a local --url gets -c protocol.file.allow=always; a missing tag is refused, nothing kept)
+#   3. the files (tools/lune/adopt-init plan): studwork.json (adopted), the tool wrappers and
+#      .githooks/pre-commit (missing ones only), the game module modules/<gameId>/ (module.luau,
+#      server/init.luau, module.spec.luau, README.md with the save map) from templates/adopt,
+#      src/shared/Config/ if missing, the merged project file (StudWork entries
+#      added after the existing ones) and .gitignore; then the project's tools/sync-projects
+#   4. Wally packages: tools/install, or with --no-install a copy of this checkout's deps/
+#   5. studwork-legacy.json + legacyBaseline from the guardrails' findings (only on the run that
+#      creates studwork.json: a baseline is never rewritten)
+# No commit: review `git status`, then commit (the hook runs lint + tests). A second run changes
+# nothing. --dry-run prints every file it would create or change (a diff for merged files) and
+# writes nothing, not even the submodule. Every write target is checked to be inside <project>
+# after resolving symlinks. Never writes an absolute path into a project file (the submodule URL
+# is --url as given; a relative local --url is made absolute because git needs one).
 source "$(dirname "$0")/_common.sh"
-die "tools/adopt --init: not implemented yet"
+
+ADOPT_LUNE="$CORE_ROOT/tools/lune/adopt-init.luau"
+PARSED="$(lune run "$ADOPT_LUNE" parse "$@")" || {
+	echo "$PARSED" >&2
+	exit 1
+}
+P_PATH="" P_NAME="" P_MODULES="" P_URL="" P_TAG="" P_DRY="0" P_INSTALL="1"
+while IFS="$(printf '\t')" read -r key value; do
+	case "$key" in
+	path) P_PATH="$value" ;;
+	name) P_NAME="$value" ;;
+	modules) P_MODULES="$value" ;;
+	url) P_URL="$value" ;;
+	tag) P_TAG="$value" ;;
+	dryRun) P_DRY="$value" ;;
+	install) P_INSTALL="$value" ;;
+	esac
+done <<EOF
+$PARSED
+EOF
+echo "$PARSED" | grep '^note:' || true
+
+VERSION="$(sed -n 's/^StudWork\.VERSION = "\(.*\)"$/\1/p' "$CORE_ROOT/packages/framework/shared/init.luau")"
+[ -n "$VERSION" ] || die "could not read StudWork.VERSION"
+[ -n "$P_TAG" ] || P_TAG="v$VERSION"
+
+case "$P_PATH" in
+/*) TARGET="$P_PATH" ;;
+*) TARGET="$STUDWORK_CALLER_PWD/$P_PATH" ;;
+esac
+[ -d "$TARGET" ] || die "$P_PATH is not a folder"
+TARGET="$(cd "$TARGET" && pwd -P)"
+CORE_PHYS="$(cd "$CORE_ROOT" && pwd -P)"
+case "$TARGET/" in
+"$CORE_PHYS"/*) die "the project can't be this StudWork checkout or live inside it ($P_PATH)" ;;
+esac
+TOP="$(git -C "$TARGET" rev-parse --show-toplevel 2>/dev/null)" ||
+	die "$P_PATH is not a git repo (git init it and commit the game first)"
+[ "$(cd "$TOP" && pwd -P)" = "$TARGET" ] || die "$P_PATH is not the top level of its git repo ($TOP is)"
+
+TAB="$(printf '\t')"
+# contained <rel>: the target resolves inside the project (no symlink leads out of it)
+contained() {
+	local rel="$1" path dir
+	case "$rel" in
+	"" | /* | .. | ../* | */.. | */../*) return 1 ;;
+	esac
+	path="$TARGET/$rel"
+	[ -L "$path" ] && return 1
+	dir="$(dirname "$path")"
+	while [ ! -d "$dir" ]; do
+		[ -L "$dir" ] && return 1
+		dir="$(dirname "$dir")"
+	done
+	case "$(cd "$dir" && pwd -P)/" in
+	"$TARGET"/*) return 0 ;;
+	esac
+	return 1
+}
+
+# plan <templates> <dry|apply>: tools/lune/adopt-init plan on the project
+# (Lune runs from this checkout: rokit picks the pinned version from its rokit.toml)
+plan() {
+	(cd "$CORE_ROOT" && lune run "$ADOPT_LUNE" plan "$TARGET" "$1" "$P_NAME" "$P_TAG" "${P_MODULES:--}" "$2")
+}
+# targets <plan output>: the paths the plan creates or changes, one per line
+targets() {
+	echo "$1" | while IFS="$TAB" read -r kind rel _; do
+		case "$kind" in
+		create | merge) echo "$rel" ;;
+		esac
+	done
+}
+# check_plan <plan output> <exit code>: refuse clashes, collisions and any target outside the project
+check_plan() {
+	local out="$1" code="$2"
+	if [ "$code" -eq 3 ]; then
+		echo "$out" | sed -n "s/^clash$TAB/  - /p" >&2
+		die "the project file has entries StudWork needs (above), mapped to something else. Rename or move them, then rerun. Nothing was written."
+	elif [ "$code" -eq 4 ]; then
+		die "the audit found an old store named $(echo "$out" | sed -n "s/^collision$TAB//p"): that is StudWork's own save store for game id '$P_NAME'. Pick another id with --name <gameId>. Nothing was written."
+	elif [ "$code" -ne 0 ]; then
+		echo "$out" >&2
+		die "tools/adopt --init: planning failed. Nothing was written."
+	fi
+	local rel bad=""
+	while IFS= read -r rel; do
+		[ -n "$rel" ] || continue
+		contained "$rel" || bad="$bad $rel"
+	done <<EOF
+$(targets "$out")
+EOF
+	[ -z "$bad" ] || die "refusing to write outside $P_PATH (a symlink leads out):$bad. Nothing was written."
+}
+show_plan() {
+	echo "$1" | grep -v "^same$TAB" | sed -e "s/^create$TAB/$2 /" -e "s/^merge$TAB/$3 /" \
+		-e "s/^skip$TAB\([^$TAB]*\)$TAB/left alone \1: /" -e "s/^note$TAB/note: /"
+}
+
+ADOPTED=0
+if [ -f "$TARGET/studwork.json" ] && grep -q '"adopted"[[:space:]]*:[[:space:]]*true' "$TARGET/studwork.json"; then
+	ADOPTED=1
+fi
+echo "== tools/adopt --init $P_PATH (game id $P_NAME, StudWork $P_TAG)$([ "$P_DRY" = 1 ] && echo ' --dry-run' || true)"
+
+# 1. the plan, from the submodule's templates once it's there, else this checkout's
+TEMPLATES="$CORE_ROOT/templates"
+[ -d "$TARGET/studwork/templates/adopt" ] && TEMPLATES="$TARGET/studwork/templates"
+set +e
+PLAN="$(plan "$TEMPLATES" dry)"
+CODE=$?
+set -e
+check_plan "$PLAN" "$CODE"
+
+# a clean tree for every path init writes (a re-run of an adopted project only fills in what's missing)
+if [ "$ADOPTED" -eq 0 ]; then
+	PATHS=(.gitmodules studwork)
+	while IFS= read -r rel; do
+		[ -n "$rel" ] && PATHS+=("$rel")
+	done <<EOF
+$(targets "$PLAN")
+EOF
+	DIRTY="$(git -C "$TARGET" status --porcelain -- "${PATHS[@]}")"
+	[ -z "$DIRTY" ] || die "uncommitted changes in paths init writes; commit or stash them first:
+$DIRTY"
+fi
+
+if [ "$P_DRY" = "1" ]; then
+	show_plan "$PLAN" "would create" "would change"
+	if [ ! -e "$TARGET/studwork/.git" ]; then
+		echo "would add the submodule studwork/ ($P_URL at $P_TAG), run tools/sync-projects (kit Modules"
+		echo "  entries), install the Wally packages, and fill studwork-legacy.json + legacyBaseline from the guardrails"
+	elif [ "$ADOPTED" -eq 0 ]; then
+		echo "would fill studwork-legacy.json + legacyBaseline from the guardrails"
+	fi
+	echo "adopt --init: dry run, nothing written"
+	exit 0
+fi
+
+cd "$TARGET"
+# 2. the submodule
+if [ ! -e studwork/.git ]; then
+	[ ! -e studwork ] || die "studwork/ exists and is not a git checkout: move it away first"
+	SUBMODULE_GIT=(git)
+	case "$P_URL" in
+	http://* | https://* | ssh://* | git://* | *@*:*) ;;
+	*) SUBMODULE_GIT=(git -c protocol.file.allow=always) ;;
+	esac
+	SUB_URL="$P_URL"
+	case "$P_URL" in
+	http://* | https://* | ssh://* | git://* | file://* | *@*:* | /*) ;;
+	*)
+		if [ -d "$STUDWORK_CALLER_PWD/$P_URL" ]; then
+			SUB_URL="$(cd "$STUDWORK_CALLER_PWD/$P_URL" && pwd)"
+		fi
+		;;
+	esac
+	echo "== git submodule add $SUB_URL studwork"
+	HAD_GITMODULES=0
+	[ -f .gitmodules ] && HAD_GITMODULES=1
+	"${SUBMODULE_GIT[@]}" submodule add -q "$SUB_URL" studwork || die "git submodule add failed ($SUB_URL)"
+	git -C studwork fetch -q --tags origin 2>/dev/null || true
+	if ! git -C studwork rev-parse -q --verify "refs/tags/$P_TAG" >/dev/null; then
+		TAGS="$(git -C studwork tag -l 'v*' | tail -5 | tr '\n' ' ')"
+		# undo the submodule add (only what it created; the tree was clean for these paths)
+		git rm -q -f --cached studwork >/dev/null 2>&1 || true
+		rm -rf studwork "$(git rev-parse --git-dir)/modules/studwork"
+		if [ "$HAD_GITMODULES" -eq 1 ]; then
+			git checkout -q -- .gitmodules 2>/dev/null || true
+		else
+			git rm -q -f --cached .gitmodules >/dev/null 2>&1 || true
+			rm -f .gitmodules
+		fi
+		git config --remove-section submodule.studwork 2>/dev/null || true
+		die "tag $P_TAG does not exist in $SUB_URL (tags: $TAGS). Nothing was kept."
+	fi
+	git -C studwork checkout -q "$P_TAG" || die "could not check out $P_TAG"
+	git add studwork
+fi
+[ -d studwork/templates/adopt ] || die "StudWork at studwork/ predates tools/adopt (v1.6.0): pick a newer --tag"
+
+# 3. the files, from the submodule's templates (the same checks again, then the writes)
+set +e
+PLAN="$(plan "$TARGET/studwork/templates" dry)"
+CODE=$?
+set -e
+check_plan "$PLAN" "$CODE"
+plan "$TARGET/studwork/templates" apply >/dev/null
+show_plan "$(echo "$PLAN" | grep -v "^  ")" "created" "merged"
+EXEC_FILES=() LUAU_FILES=()
+while IFS="$TAB" read -r kind rel _; do
+	case "$kind:$rel" in
+	create:tools/* | create:.githooks/*) EXEC_FILES+=("$rel") ;;
+	create:*.luau) LUAU_FILES+=("$TARGET/$rel") ;;
+	esac
+done <<EOF
+$PLAN
+EOF
+[ ${#EXEC_FILES[@]} -eq 0 ] || chmod +x "${EXEC_FILES[@]}"
+if [ ${#LUAU_FILES[@]} -gt 0 ]; then
+	# stylua from this checkout (rokit picks the pinned version from its rokit.toml)
+	(cd "$CORE_ROOT" && stylua --config-path stylua.toml "${LUAU_FILES[@]}") >/dev/null 2>&1 ||
+		echo "note: stylua did not run on the generated files; run it before tools/lint"
+fi
+echo "== tools/sync-projects"
+tools/sync-projects
+
+# 4. Wally packages
+if [ ! -d studwork/deps/Packages ] || [ ! -d studwork/deps/ServerPackages ]; then
+	if [ "$P_INSTALL" = "1" ]; then
+		echo "== tools/install"
+		tools/install
+	else
+		echo "== --no-install: Wally packages copied from $CORE_ROOT/deps"
+		for d in Packages ServerPackages; do
+			[ -d "$CORE_ROOT/deps/$d" ] ||
+				die "deps/$d is missing in this StudWork checkout: run tools/install there, or drop --no-install"
+			rm -rf "studwork/deps/$d"
+			cp -R "$CORE_ROOT/deps/$d" "studwork/deps/$d"
+		done
+		tools/install --hooks-only
+	fi
+fi
+# the type definitions tools/typecheck downloads: reuse this checkout's copy when it has one
+if [ -d "$CORE_ROOT/.cache" ]; then
+	mkdir -p .cache
+	for f in "$CORE_ROOT"/.cache/globalTypes-*.d.luau; do
+		[ -f "$f" ] && [ ! -f ".cache/$(basename "$f")" ] && cp "$f" .cache/
+	done
+fi
+
+# 5. the legacy list and the baseline (only on the run that created studwork.json)
+if [ "$ADOPTED" -eq 0 ]; then
+	echo "== guardrails (every finding, no legacy list) -> studwork-legacy.json + legacyBaseline"
+	mkdir -p .cache
+	FINDINGS="$TARGET/.cache/adopt-init-findings.txt"
+	RAW=""
+	grep -q -- '--raw' studwork/tools/lune/guardrails.luau && RAW="--raw"
+	set +e
+	STUDWORK_PROJECT_ROOT="$TARGET" STUDWORK_GUARD_RAW="$RAW" bash -c \
+		'source studwork/tools/_common.sh; lune run "$(core_path tools/lune/guardrails)" $STUDWORK_GUARD_RAW' \
+		>"$FINDINGS" 2>&1
+	set -e
+	(cd "$CORE_ROOT" && lune run "$ADOPT_LUNE" legacy "$TARGET" "$FINDINGS" apply)
+	rm -f "$FINDINGS"
+fi
+
+echo "adopt --init: done ($P_NAME, StudWork $P_TAG). Nothing is committed. Next:"
+echo "  1. review: git status, git diff (the merged project file), studwork-legacy.json"
+echo "  2. commit the files listed above (never git add -A on the old game's files by habit);"
+echo "     the hook runs tools/lint + tools/test"
+echo "  3. follow studwork-adopt-report.md (tools/adopt --audit .): the save map in"
+echo "     modules/$P_NAME/README.md, importLegacy + tools/test-migration, purchases, remotes,"
+echo "     then tools/adopt --verify"

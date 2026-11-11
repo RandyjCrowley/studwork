@@ -1,0 +1,15 @@
+# {{Module}} (game module, adopted)
+
+The game's own StudWork module, added by `tools/adopt --init` (StudWork {{tag}}). Its save section
+key is `{{gameId}}`. The migration plan is `studwork-adopt-report.md` at the project root (from
+`tools/adopt --audit`); the design is `studwork/docs/framework/adopting.md`.
+
+## Save map
+
+Every field of the old save, and where it lives in StudWork (a kit section through the kit's
+`txApi`, or this module's own section). A field a product sold maps to a currency listed in
+`compliance.paidCurrencies` (or to items, tagged paid by the import). A field that is dropped says
+why. `tools/test-migration` checks the fixtures in `tests/legacy/` against this map.
+
+| Old store | Old field | New home | Notes |
+|---|---|---|---|
