@@ -1,5 +1,23 @@
 # FAQ
 
+**Can I move my existing game to StudWork?**
+Yes. Give a coding agent the [migrate prompt](../agents/migrate-prompt.md); it follows the
+[playbook](../agents/adopt-existing-game.md): `tools/adopt --audit`, `--init`, port the game system
+by system, `tools/adopt --verify`. Studio-only games first get their code extracted with
+`tools/adopt --from-place`. You do the cutover yourself ([adopting.md](adopting.md) §2).
+
+**Will my players lose their saves?**
+No. Each player's old save is read once when they join (`ctx.data.importLegacy`) and copied into
+StudWork in one transaction with a marker, so it's never imported twice. StudWork never writes the
+old store. If the read fails, the player is asked to rejoin and no data changes. `tools/test-migration`
+checks every old field arrives or is dropped on purpose.
+
+**What about purchases made before the switch?**
+They're granted exactly once. PurchaseIds from the old save (`importLegacy.receipts`) or an old
+purchase-history store (`ctx.shop.legacyReceipts`) are treated as already granted when Roblox
+re-delivers them; anything else goes through the normal receipt-safe path. Items imported from the
+old save are tagged paid (`paid:legacy`) unless the old game sold no items.
+
 **Do I have to use every kit?**
 No. List only the modules you want (`tools/new-game <name> --modules ...`). A module's hard
 dependencies must be listed too; boot names the missing one. `--modules ""` is a foundation-only

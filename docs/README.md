@@ -23,10 +23,19 @@ offline tests. Start with the philosophy, then follow the framework pages in ord
 | [Theme guide](framework/theme.md) | Theme tree, presets, rarity look, HUD slots and widgets, screens |
 | [Guardrails](framework/guardrails.md) | What you can't turn off, why, and where enforcement stops |
 | [Single-game projects](framework/single-game-project.md) | `tools/new-project`: one repository per game with StudWork as its `studwork/` submodule |
+| [Adopting StudWork](framework/adopting.md) | Moving an existing game to StudWork: audit, init, the legacy save import, the purchase bridge, transitional guardrails, cutover |
 | [Games repo](framework/games-repo.md) | Using StudWork as a submodule of your own games repo |
 | [Publishing](framework/publishing.md) | Publishing a game from your games repo to Roblox: Open Cloud key, test and live experiences, launch checklist |
 | [FAQ](framework/faq.md) | Short answers to common questions |
 | [Module API design](framework/module-api.md) | The design behind the module API, with the reasoning for each rule |
+
+## For coding agents
+
+| Page | What's in it |
+|---|---|
+| [AGENTS.md](../AGENTS.md) | Where any coding agent starts: which doc for which task, the hard rules |
+| [Adopt an existing game](agents/adopt-existing-game.md) | The step-by-step migration playbook |
+| [The migrate prompt](agents/migrate-prompt.md) | The copy-paste prompt to give your agent |
 
 ## Kits
 
