@@ -62,9 +62,12 @@ attributes `ItemUid`, `ItemId`, `Rarity`, `DisplaySlotId`. All parts are anchore
   `ItemRemoved` always clears the item's slot.
 - **owner(plot)**: the Player who owns the plot, or nil. Use it in touch/prompt handlers:
   `if Core.Plot.owner(plotModel) ~= player then return end`.
-- **Remotes**: `RequestDisplay(uid, slotId?)` and `RequestClearDisplay(uid)` check that the
-  strings are 1..64 chars and that the uid is in the sender's inventory. They always act on the
-  sender's own plot (the wire has no plot argument).
+- **Actions** (core-v1.3.1, Plot's own `net.blink`, `RemoteScope = "STUDWORK_PLOT"`):
+  `display(uid, slotId?)` (event `Display`, `(Id, Id?)`) and `clearDisplay(uid)` (event
+  `ClearDisplay`, `Id`), each 8/s burst 16, replacing the framework's `RequestDisplay` /
+  `RequestClearDisplay`. Client: `StudWork.use(Plot).actions.display(uid)`. The handlers check that
+  the strings are 1..64 chars and that the uid is in the sender's inventory, and always act on the
+  sender's own plot (the wire has no plot argument). Tests: `h:action(p, Plot, "display", uid)`.
 - **Visuals**: a clone of the item model, or a 2-stud placeholder Part in the rarity colour (Neon
   from glowStrength 0.5 up); a PointLight in the tier glow colour (brightness scales with
   `glowStrength`, none for Common); a BillboardGui with the item name in the tier colour

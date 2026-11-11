@@ -938,3 +938,20 @@ client part and `"Social.mailbox"` (plus `StudWork.use(Mail).onMailbox`, the mai
 claim) by the Mail client part, both with `UI.registerWidget` under the same ids, so
 `client.hud.widgets[id] = false`, replacement specs and custom layouts work as before; a widget
 registered after the HUD mounted renders at once.
+
+### 19.10 Every paid currency has a spender at boot (added in core-v1.3.1: R20)
+
+`GameConfig.compliance.paidCurrencies` lists the currencies bought with Robux; §19.6 says they are
+spent only through `ctx.compliance.spendForRoll` / `spendPaid`, which call the spender the
+currency's owner registered with `ctx.compliance.registerCurrencySpender(currency, fn)`. Boot step
+5 (every module's `init`, then every `start`) is followed by a check: each listed currency must
+have a spender by then, or boot fails closed like every other boot error:
+
+```
+compliance.paidCurrencies lists 'Gems', but no enabled module registered a spender for it
+(ctx.compliance.registerCurrencySpender); enable the module that owns 'Gems' or remove it from the list
+```
+
+Register in `init` (Economy does, for every listed currency) or in `start`. An empty or missing
+list needs nothing. The check runs before the framework starts (step 6: queued requests, the
+receipt handler), so no request or purchase ever meets a paid currency nobody can spend.

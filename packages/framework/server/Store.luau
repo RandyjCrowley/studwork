@@ -17,8 +17,10 @@
 	    found the lock taken) -> hooks.sessionLost: another server owns the save; the framework
 	    drops the record at once (no more writes from here) and kicks. "Manual"/"Shutdown" ->
 	    hooks.sessionEnded (drop the record, no kick).
-	  - saveNow (saveAsync): stamps a sequence number into _framework.stats._saveSeq, Save(), and
-	    waits until a SUCCESSFUL save's payload carries it (OnAfterSave), up to SAVE_TIMEOUT.
+	  - saveNow (saveAsync): stamps a sequence number into _framework.stats._saveSeq (a new
+	    _framework table, copy-on-write; hooks.frameworkReplaced() right after, so Data bumps the
+	    _framework section version at once — R22, core-v1.3.1), Save(), and waits until a
+	    SUCCESSFUL save's payload carries it (OnAfterSave), up to SAVE_TIMEOUT.
 	  - release: EndSession (OnSave stamps lastSeen right before the final write).
 	  - send/onMessage/nudge: ProfileStore MessageAsync / MessageHandler / an early Save() so
 	    in-server messages land fast.
@@ -100,7 +102,7 @@ function Store.profileStore(opts: any): any
 	local ready = false
 	local failedChoose = false
 	local profiles: { [any]: any } = {}
-	local entries: { [any]: { saveSeq: number, committedSeq: number, root: any } } = {}
+	local entries: { [any]: { saveSeq: number, committedSeq: number, root: any, hooks: any } } = {}
 
 	local function choose()
 		local ok, err = pcall(function()
@@ -179,7 +181,7 @@ function Store.profileStore(opts: any): any
 		local stats = type(root._framework) == "table" and root._framework.stats
 		local stored = type(stats) == "table" and stats[Store.SAVE_SEQ_KEY]
 		local seq = if type(stored) == "number" and stored == stored then stored else 0
-		local entry = { saveSeq = seq, committedSeq = seq, root = root }
+		local entry = { saveSeq = seq, committedSeq = seq, root = root, hooks = hooks }
 		entries[userId] = entry
 		profile.Data = root
 		profile:AddUserId(userId)
@@ -238,6 +240,10 @@ function Store.profileStore(opts: any): any
 		fw.stats = if type(fw.stats) == "table" then table.clone(fw.stats) else {}
 		fw.stats[Store.SAVE_SEQ_KEY] = target
 		root._framework = fw
+		-- R22: the section changed; Data bumps record.versions._framework (read views, replication)
+		if entry.hooks and entry.hooks.frameworkReplaced then
+			entry.hooks.frameworkReplaced()
+		end
 		profile:Save()
 		local deadline = clock() + Store.SAVE_TIMEOUT
 		while entry.committedSeq < target do
