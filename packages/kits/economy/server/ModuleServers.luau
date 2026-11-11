@@ -1,47 +1,50 @@
 --!strict
 --[[
-	Server parts of the economy kit's modules for the framework loader (loadServer(ref) -> impl).
-	core-v1.3.0 step 4b-IIa: each part is built by the COMPAT BRIDGE (packages/kits/compat/
-	Bridge.luau; deleted in Phase 2): the UNCHANGED v1.2 service runs behind the module's
-	defineModule wrapper, with a real init(ctx)/start(ctx) that runs the v1.2 service's
-	init/start on a v1.2-shaped ctx built from the framework, its v1.2 public functions as `api`
-	(+ `signals`), and its purchase operations as `purchaseOps` (Economy.grant,
-	Inventory.addItem, Rarity.roll). The framework's default loader finds this file in the Phase 0
-	kit layout (ServerScriptService.Kits.<Kit>.ModuleServers). Service requires are lazy, so
-	loading this file never boots or requires a service. Phase 1 replaces this file with real
-	server/init.luau parts.
-]]
+	Server parts of the economy kit's modules for the framework loader (loadServer(ref) -> part).
+	core-v1.3.0 Phase 1: Economy, Upgrades, Rebirth and Offline are REAL StudWork modules
+	(module-api.md §3-§8); each call builds a fresh part (<Module>.new()), so two runtimes in one
+	process (tests, the multi-server sim) never share module state. The framework's default loader
+	finds this file in the kit layout (ServerScriptService.Kits.Economy.ModuleServers).
 
-local ServerScriptService = game:GetService("ServerScriptService")
+	isReal(ref) -> boolean: whether `ref`'s part came from here (the compat adapter,
+	packages/kits/compat/adapters/Economy.luau, adapts only this kit's own parts; Phase 2 deletes
+	it with compat).
+]]
 
 local ModuleServers = {}
 
-local SERVICES: { [string]: () -> any } = {
+local PARTS: { [string]: () -> any } = {
 	Economy = function()
-		return require(script.Parent.Economy)
+		return require(script.Parent.Economy).new()
 	end,
 	Upgrades = function()
-		return require(script.Parent.Upgrades)
+		return require(script.Parent.Upgrades).new()
 	end,
 	Rebirth = function()
-		return require(script.Parent.Rebirth)
+		return require(script.Parent.Rebirth).new()
 	end,
 	Offline = function()
-		return require(script.Parent.Offline)
+		return require(script.Parent.Offline).new()
 	end,
 }
 
 ModuleServers.names = table.freeze({ "Economy", "Upgrades", "Rebirth", "Offline" })
 
+local built: { [any]: boolean } = setmetatable({}, { __mode = "k" }) :: any
+
 -- loadServer(ref) for StudWork server boot opts; nil when the module is not part of this kit.
 function ModuleServers.loadServer(ref: any): any
 	local name = ref.server or ref.name
-	local load = SERVICES[name]
-	if load == nil then
+	local make = PARTS[name]
+	if make == nil then
 		return nil
 	end
-	local Bridge = (require :: any)(ServerScriptService:WaitForChild("Compat"):WaitForChild("Bridge"))
-	return Bridge.serverPart(name, load)
+	built[ref] = true
+	return make()
+end
+
+function ModuleServers.isReal(ref: any): boolean
+	return built[ref] == true
 end
 
 return ModuleServers
