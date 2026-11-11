@@ -199,6 +199,13 @@ function Net.new(opts: any): any
 		handlers[eventName] = { owner = owner, fn = fn }
 	end
 
+	-- Test-only (the multi-server sim drives a framework event's handler directly, as v1.2's sim
+	-- did, so scenario specs test the module's own validation, not Net's rate limit).
+	function net.handlerFor(eventName: string): Handler?
+		local h = handlers[eventName]
+		return if h then h.fn else nil
+	end
+
 	function net.owner(eventName: string): string?
 		local h = handlers[eventName]
 		return if h then h.owner else nil

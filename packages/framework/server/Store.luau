@@ -203,6 +203,10 @@ function Store.profileStore(opts: any): any
 			end
 			if lastSaveReason == "External" then
 				hooks.sessionLost()
+			elseif hooks.sessionEnded then
+				-- ended without "External" (e.g. a normal save found the lock stolen): stop using
+				-- the record, as v1.2 Data did (no kick yet: known gap, step 4b-IIb's fix)
+				hooks.sessionEnded()
 			end
 		end)
 	end

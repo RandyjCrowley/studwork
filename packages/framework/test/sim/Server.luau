@@ -1,20 +1,22 @@
 --!nocheck
 --[[
-	One simulated Roblox server. Boots the REAL core services named in opts.real (default:
-	Data, Items, Economy, Inventory, Offline, Friends, Shop, Mail) with the REAL vendored
-	ProfileStore 1.0.3 against the World's mock DataStore/MessagingService, and small recorded
-	fakes for everything else (Policy, Plot, Upgrades, Rebirth, Analytics, Net, Replication).
+	One simulated Roblox server, booted through StudWork.start (core-v1.3.0 step 4b-IIa): the REAL
+	framework server runtime (packages/framework/server: Data + Store.profileStore, Net, Shop,
+	Policy, Compliance, Replication, ...) with the REAL vendored ProfileStore 1.0.3 against the
+	World's mock DataStore/MessagingService, and the REAL kit modules: their defineModule wrappers
+	and the unchanged v1.2 services behind the compat bridge (packages/kits/compat/Bridge.luau).
 
 	What is real vs modelled (see also README.md in this folder):
-	  real      packages/kits/<kit>/server/<Service>/init.luau for every name in opts.real, their
-	            private modules (Load, Schema, Transaction, Receipt, OfflineMath, CoPlay, ...),
-	            packages/core/shared (Types, Validate, HandlerList), ProfileStore.luau, and
-	            packages/core/server/Tx.luau.
+	  real      packages/framework/{shared,server}, packages/kits/*/{shared,server} (every module
+	            in the config's `modules`), packages/kits/compat, packages/core/shared (Types,
+	            Validate, HandlerList, ConfigValidate), ProfileStore.luau.
 	  modelled  Roblox engine services (Players, RunService, DataStoreService, MessagingService,
-	            HttpService, MarketplaceService), Context wiring (ctx.signals, ctx.net,
-	            ctx.setReplicated, console), and the services not in opts.real.
-	The boot order mirrors server/init.luau's contract (init all, then start all) but is NOT
-	server/init.luau itself (that needs Blink remotes and Instances).
+	            HttpService, MarketplaceService), the framework's engine adapter (a sim Platform:
+	            fake Blink events, policy answers from world.restricted, recorded analytics and
+	            replication). A module that is not in `modules` is not running (the v1.2 sim
+	            booted fakes of Policy/Plot/Upgrades/Rebirth; v1.3 boots exactly what is listed).
+	The fixtures stay v1.2-shaped (Fixtures.config): V12Config.fromV12 turns them into a v1.3
+	GameConfig + the game's own module (data = the v1.2 game table).
 
 	API used by specs:
 	  server:join(userId, opts?) -> player     PlayerAdded (opts.referredBy, opts.name)
@@ -23,14 +25,19 @@
 	  server:purchase(receipt) -> handle        MarketplaceService.ProcessReceipt in a thread
 	  server:shutdown(opts?) -> handle          BindToClose (players kicked first by default)
 	  server:crash()                            the process dies: no saves, no BindToClose
-	  server:remote(name, player, ...)          a client -> server event through ctx.net.handle
-	  server.services.<Name>                    the loaded service modules
+	  server:remote(name, player, ...)          a client -> server framework event: its handler
+	                                            (the v1.2 service's), like v1.2's sim (no Net limiter)
+	  server.services.<Name>                    the v1.2 services as ctx.services saw them (Data =
+	                                            the compat flat Data, Shop = v1.2 Shop over the
+	                                            framework Shop)
+	  server.signals.<Name>                     the v1.2 signals (with .history)
+	  server.runtime                            the framework server runtime
 	  server:data(player)                       Data.get(player)
 ]]
 
 local Loader = require(script.Parent.Loader)
 
--- core-v1.3.0 Phase 0 step 5: the optional services live in packages/kits/<kit>/server.
+-- Kit of each v1.2 module (packages/kits/<kit>/{shared,server}).
 local KIT_OF = {
 	Items = "collection",
 	Inventory = "collection",
@@ -44,60 +51,11 @@ local KIT_OF = {
 	Mail = "social",
 	Streak = "engagement",
 }
-
-local function servicePath(name: string): string
-	local kit = KIT_OF[name]
-	return if kit then `packages/kits/{kit}/server/{name}` else "packages/core/server/" .. name
-end
-
-local function kitFolder(kit: string): { [string]: string }
-	local out = {}
-	for name, k in KIT_OF do
-		if k == kit then
-			out[name] = `packages/kits/{kit}/server/{name}`
-		end
-	end
-	return out
-end
+local KITS = { "collection", "economy", "base", "social", "engagement" }
 local Signal = require(script.Parent.Signal)
 
 local Server = {}
 Server.__index = Server
-
-local FOUNDATION = { Data = true, Policy = true, Analytics = true, Events = true, Shop = true, Net = true }
-local DEFAULT_REAL = { "Items", "Data", "Economy", "Inventory", "Offline", "Friends", "Shop", "Mail" }
-local DEFAULT_MODULES = { "Items", "Inventory", "Economy", "Offline", "Friends", "Mail" }
--- Boot order: foundation first (Data before its users), then modules in Modules.MODULE_ORDER.
-local BOOT_ORDER = {
-	"Policy",
-	"Analytics",
-	"Data",
-	"Events",
-	"Shop",
-	"Net",
-	"Items",
-	"Inventory",
-	"Rarity",
-	"Economy",
-	"Upgrades",
-	"Rebirth",
-	"Offline",
-	"Streak",
-	"Friends",
-	"Mail",
-	"Plot",
-}
-
-local function recorder(log: { any }, name: string)
-	return setmetatable({}, {
-		__index = function(_, fnName)
-			return function(...)
-				table.insert(log, { service = name, fn = fnName, args = table.pack(...) })
-				return nil
-			end
-		end,
-	})
-end
 
 local guidCounter = 0
 local function guid(jobId: string): string
@@ -116,17 +74,13 @@ function Server.new(world: any, jobId: string, opts: any)
 	self.alive = true
 	assert(opts.config, "sim: server needs opts.config")
 	self.config = world.deepCopy(opts.config)
-	self.modules = opts.modules or DEFAULT_MODULES
-	self.real = {}
-	for _, n in opts.real or DEFAULT_REAL do
-		self.real[n] = true
-	end
+	self.modules = opts.modules or self.config.modules
 	self.warnings = {}
 	self.feedback = {} -- { { player, kind, text } }
 	self.replicated = {} -- player -> key -> value
 	self.calls = {} -- recorded fake-service calls
 	self.kicks = {} -- { { userId, message } }
-	self.netHandlers = {}
+	self.synced = {} -- player -> last replicated state handed to the transport
 	self.closers = {}
 	self.players = {}
 	self.isStudio = opts.isStudio == true
@@ -205,15 +159,36 @@ function Server._buildEngine(self)
 	}
 	self.MarketplaceService = MarketplaceService
 
+	self.RunService = RunService
 	local services = {
 		Players = Players,
 		RunService = RunService,
+		CollectionService = {
+			GetInstanceAddedSignal = function()
+				return self:_signal("CollectionAdded")
+			end,
+			GetInstanceRemovedSignal = function()
+				return self:_signal("CollectionRemoved")
+			end,
+			GetTagged = function()
+				return {}
+			end,
+		},
 		HttpService = HttpService,
 		MarketplaceService = MarketplaceService,
 		DataStoreService = self.world:dataStoreService(self),
 		MessagingService = self.world:messagingService(self),
 		ReplicatedStorage = Loader.folder({
 			Core = "packages/core/shared",
+			Framework = "packages/framework/shared",
+			CompatShared = "packages/kits/compat/shared",
+			Kits = Loader.folder({
+				Collection = "packages/kits/collection/shared",
+				Economy = "packages/kits/economy/shared",
+				Base = "packages/kits/base/shared",
+				Social = "packages/kits/social/shared",
+				Engagement = "packages/kits/engagement/shared",
+			}),
 		}),
 		ServerStorage = Loader.folder({ ServerPackages = "deps/ServerPackages" }),
 		ServerScriptService = Loader.folder({
@@ -221,11 +196,11 @@ function Server._buildEngine(self)
 			Compat = "packages/kits/compat",
 			Framework = "packages/framework/server",
 			Kits = Loader.folder({
-				Collection = Loader.folder(kitFolder("collection")),
-				Economy = Loader.folder(kitFolder("economy")),
-				Base = Loader.folder(kitFolder("base")),
-				Social = Loader.folder(kitFolder("social")),
-				Engagement = Loader.folder(kitFolder("engagement")),
+				Collection = "packages/kits/collection/server",
+				Economy = "packages/kits/economy/server",
+				Base = "packages/kits/base/server",
+				Social = "packages/kits/social/server",
+				Engagement = "packages/kits/engagement/server",
 			}),
 		}),
 	}
@@ -320,8 +295,34 @@ function Server._buildEngine(self)
 	simDebug.profilebegin = function() end
 	simDebug.profileend = function() end
 
+	-- Roblox's Random, deterministic per server (the kit Rarity service rolls with it)
+	local seed = 0
+	local SimRandom = {
+		new = function(_seed: number?)
+			seed += 1
+			local state = (seed * 2654435761) % 4294967296
+			local function nextUnit(): number
+				state = (1103515245 * state + 12345) % 2147483648
+				return state / 2147483648
+			end
+			return {
+				NextNumber = function(_self, lo: number?, hi: number?): number
+					local u = nextUnit()
+					if lo ~= nil and hi ~= nil then
+						return lo + (hi - lo) * u
+					end
+					return u
+				end,
+				NextInteger = function(_self, lo: number, hi: number): number
+					return lo + math.floor(nextUnit() * (hi - lo + 1))
+				end,
+			}
+		end,
+	}
+
 	self.globals = {
 		game = game,
+		Random = SimRandom,
 		task = taskLib,
 		os = osLib,
 		typeof = simTypeof,
@@ -361,54 +362,191 @@ function Server._buildEngine(self)
 end
 
 --------------------------------------------------------------------------------
--- Core boot (init all, then start all)
+-- StudWork boot (the framework server runtime on a sim Platform)
 --------------------------------------------------------------------------------
 
-function Server._fakeService(self, name: string): any
-	local server = self
-	local world = self.world
-	if name == "Policy" then
-		return {
-			paidRandomRestricted = function(player)
-				return world.restricted[player.UserId] == true
-			end,
-			isKnown = function()
-				return true
-			end,
-			init = function() end,
-			start = function() end,
-		}
-	elseif name == "Upgrades" then
-		return {
-			level = function()
-				return 0
-			end,
-		}
-	elseif name == "Rebirth" then
-		return {
-			multiplier = function()
-				return 1
-			end,
-			addResetStep = function() end,
-		}
-	elseif name == "Plot" then
-		return {
-			clearDisplay = function() end,
-		}
+-- A fake framework Blink event: client -> server listeners (On), server -> client recorded.
+local function fakeEvent(server: any, name: string): any
+	local ev = { name = name, listeners = {} }
+	function ev.On(fn)
+		table.insert(ev.listeners, fn)
 	end
-	return recorder(server.calls, name)
+	function ev.Fire(player, ...)
+		if name == "Feedback" then
+			local msg = ...
+			table.insert(server.feedback, { player = player, kind = msg.Kind, text = msg.Text })
+		end
+		table.insert(server.calls, { service = "Net", fn = name, args = table.pack(player, ...) })
+	end
+	function ev.FireAll(...)
+		table.insert(server.calls, { service = "Net", fn = name .. ":all", args = table.pack(...) })
+	end
+	return ev
+end
+
+-- The engine adapter (packages/framework/server/Platform.luau) on this server's fakes.
+function Server._platform(self): any
+	local server = self
+	local scheduler = self.scheduler
+	local Players = self.Players
+	local Store = self.require("packages/framework/server/Store.luau")
+	local Net = self.require("packages/framework/server/Net")
+	local events = {}
+	for _, name in Net.CLIENT_EVENTS do
+		events[name] = fakeEvent(server, name)
+	end
+	for _, name in Net.FRAMEWORK_SERVER_EVENTS do
+		events[name] = fakeEvent(server, name)
+	end
+	self.events = events
+	local function isPlayer(p: any): boolean
+		return type(p) == "table" and rawget(p, "__simInstance") == true and p.Parent == Players
+	end
+	local game = self.game
+	local function analytics(kind: string)
+		return function(...)
+			table.insert(server.calls, { service = "Analytics", fn = kind, args = table.pack(...) })
+		end
+	end
+	return {
+		isStudio = self.isStudio,
+		now = function()
+			return scheduler:time()
+		end,
+		clock = function()
+			return scheduler.now
+		end,
+		spawn = function(fn, ...)
+			return scheduler:spawn(server, fn, ...)
+		end,
+		delay = function(seconds, fn)
+			return scheduler:delay(server, seconds, fn)
+		end,
+		wait = function(seconds)
+			return scheduler:wait(seconds)
+		end,
+		guid = function()
+			return game:GetService("HttpService"):GenerateGUID(false)
+		end,
+		isPlayer = isPlayer,
+		players = {
+			list = function()
+				return Players:GetPlayers()
+			end,
+			byUserId = function(id: number)
+				return Players:GetPlayerByUserId(id)
+			end,
+		},
+		kick = function(player: any, msg: string)
+			if isPlayer(player) then
+				player:Kick(msg)
+			end
+		end,
+		events = events,
+		marketplace = {
+			setProcessReceipt = function(fn)
+				server.MarketplaceService.ProcessReceipt = fn
+			end,
+			getProcessReceipt = function()
+				return true, server.MarketplaceService.ProcessReceipt
+			end,
+			decision = function(name: string)
+				return name
+			end,
+			ownsPass = function(userId: number, id: number)
+				return server.MarketplaceService:UserOwnsGamePassAsync(userId, id)
+			end,
+			onPassPurchaseFinished = function(fn)
+				server.MarketplaceService.PromptGamePassPurchaseFinished:Connect(fn)
+			end,
+		},
+		policyLookup = function(player: any)
+			return { ArePaidRandomItemsRestricted = server.world.restricted[player.UserId] == true }
+		end,
+		analytics = {
+			funnel = analytics("funnel"),
+			economy = analytics("economy"),
+			custom = analytics("custom"),
+		},
+		makeSync = function(hooks: any)
+			return {
+				subscribe = function(player, state)
+					server.synced[player] = state
+				end,
+				set = function(player, state)
+					server.synced[player] = state
+				end,
+				remove = function(player)
+					server.synced[player] = nil
+				end,
+				flush = function()
+					for player in server.synced do
+						hooks.sent(player)
+					end
+				end,
+			}
+		end,
+		makeStore = function(gameId: string)
+			return Store.profileStore({
+				gameId = gameId,
+				isStudio = server.isStudio,
+				serverPackages = game:GetService("ServerStorage"):WaitForChild("ServerPackages"),
+				wait = function(seconds)
+					return scheduler:wait(seconds)
+				end,
+				clock = function()
+					return scheduler.now
+				end,
+				spawn = function(fn, ...)
+					return scheduler:spawn(server, fn, ...)
+				end,
+				log = function(msg)
+					server.globals.warn(msg)
+				end,
+				isPlayer = isPlayer,
+			})
+		end,
+		installConsole = function(run)
+			server.console = run
+		end,
+		bind = function(rt: any)
+			Players.PlayerAdded:Connect(function(player)
+				rt.playerAdded(player)
+			end)
+			Players.PlayerRemoving:Connect(function(player)
+				rt.playerRemoving(player)
+			end)
+			server.RunService.Heartbeat:Connect(function(dt)
+				rt.tick(dt)
+			end)
+			game:BindToClose(function()
+				rt.shutdown()
+			end)
+			server.MarketplaceService.PromptGamePassPurchaseFinished:Connect(function(player, id, purchased)
+				rt.passPurchased(player, id, purchased)
+			end)
+		end,
+	}
 end
 
 function Server._boot(self, opts: any)
 	local server = self
-	local enabled = {}
-	for name in FOUNDATION do
-		enabled[name] = true
-	end
-	for _, name in self.modules do
-		enabled[name] = true
-	end
-	self.enabled = enabled
+	local StudWork = self.require("packages/framework/shared")
+	local V12Config = self.require("packages/kits/compat/shared/V12Config.luau")
+	local FrameworkServer = self.require("packages/framework/server")
+	local Bridge = self.require("packages/kits/compat/Bridge.luau")
+
+	local v12 = table.clone(self.config)
+	v12.modules = self.modules
+	local gameConfig, gameData = V12Config.fromV12(v12, function(name: string)
+		return self.require(`packages/kits/{KIT_OF[name]}/shared/{name}.luau`)
+	end)
+	local gameModule = StudWork.defineModule({
+		name = "SimGame",
+		version = "1.0.0",
+		framework = "^1.3.0",
+		data = { key = gameConfig.gameId, version = gameData.version, default = gameData.defaults },
+	})
 
 	local signals = setmetatable({}, {
 		__index = function(t, key)
@@ -419,75 +557,59 @@ function Server._boot(self, opts: any)
 	})
 	self.signals = signals
 
-	local services = {}
-	self.services = services
-	local ctx = {
-		config = self.config,
-		services = services,
-		signals = signals,
-		net = {
-			handle = function(eventName: string, handler)
-				server.netHandlers[eventName] = handler
-			end,
-			events = {},
-			feedback = function(player, kind, text)
-				table.insert(server.feedback, { player = player, kind = kind, text = text })
-			end,
-			handleGame = function() end,
-		},
-		setReplicated = function(player, key, value)
-			server.replicated[player] = server.replicated[player] or {}
-			server.replicated[player][key] = value
-		end,
-		setReplicatedAll = function() end,
-		sentReplicated = function()
-			return nil
-		end,
-		console = { register = function() end },
-		isStudio = self.isStudio,
-		serverConfig = {},
-		modules = self.modules,
-		isEnabled = function(name: string): boolean
-			return enabled[name] == true
-		end,
-	}
-	self.ctx = ctx
+	local function loadServer(ref: any): any
+		for _, kit in KITS do
+			local impl = self.require(`packages/kits/{kit}/server/ModuleServers.luau`).loadServer(ref)
+			if impl ~= nil then
+				return impl
+			end
+		end
+		return nil
+	end
 
-	local order = {}
-	for _, name in BOOT_ORDER do
-		if enabled[name] or name == "Upgrades" or name == "Rebirth" or name == "Plot" then
-			table.insert(order, name)
-		end
-	end
-	for _, name in order do
-		if self.real[name] and enabled[name] then
-			services[name] = self.require(servicePath(name))
-		else
-			services[name] = self:_fakeService(name)
-		end
-	end
 	if opts.beforeStart then
 		opts.beforeStart(self)
 	end
-	-- init must not yield; start may spawn. Both run inside a server thread like Core.start.
 	local booted = false
 	self.scheduler:spawn(self, function()
-		for _, name in order do
-			local s = services[name]
-			if self.real[name] and enabled[name] and s.init then
-				s.init(ctx)
-			end
+		self.runtime = FrameworkServer.start(gameConfig, opts.serverConfig or {}, {
+			platform = self:_platform(),
+			loadServer = loadServer,
+			gameModule = gameModule,
+			isStudio = self.isStudio,
+			logSink = function(level: string, msg: string)
+				if level == "warn" then
+					server.globals.warn(msg)
+				else
+					server.globals.print(msg)
+				end
+			end,
+			compat = {
+				signals = function()
+					return signals
+				end,
+			},
+		})
+		local hasKits = false
+		for _ in self.modules do
+			hasKits = true
 		end
-		for _, name in order do
-			local s = services[name]
-			if self.real[name] and enabled[name] and s.start then
-				s.start()
-			end
+		if hasKits then
+			self.services = Bridge.compatServices(self.runtime)
+		else
+			self.services = {}
 		end
+		-- world.restricted changes reach this server's Policy (it caches the answer per session)
+		table.insert(self.world.restrictedListeners, function(userId: number, value: any)
+			local player = self.Players:GetPlayerByUserId(userId)
+			if player and self.alive then
+				self.runtime.policy.override(player, if value == true then true else nil)
+			end
+		end)
 		booted = true
 	end)
 	self.scheduler:_runDeferred()
-	assert(booted, "sim: core boot yielded or errored: " .. table.concat(self.world:errors(), "\n"))
+	assert(booted, "sim: StudWork boot yielded or errored: " .. table.concat(self.world:errors(), "\n"))
 end
 
 --------------------------------------------------------------------------------
@@ -558,7 +680,7 @@ function Server.data(self, player: any)
 end
 
 function Server.isLoaded(self, player: any): boolean
-	return self.services.Data.isLoaded(player)
+	return self.runtime.data.isLoaded(player)
 end
 
 -- Runs fn(...) in a server thread; the handle fills in when it returns.
@@ -586,7 +708,7 @@ function Server.purchase(self, receipt: any)
 end
 
 function Server.remote(self, eventName: string, player: any, ...)
-	local handler = self.netHandlers[eventName]
+	local handler = self.runtime.net.handlerFor(eventName)
 	assert(handler, "sim: no net handler for " .. eventName)
 	return self:spawn(handler, player, ...)
 end

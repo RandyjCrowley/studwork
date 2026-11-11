@@ -30,6 +30,13 @@
 	  kick(player, msg)            default platform.kick
 	  bindPlatform                 false = don't connect Players/Heartbeat/BindToClose
 	  require                      used for migrations folders (default require)
+	  gameModule                   the game's implicit module (§7, C4); default platform.gameModule()
+	                               (live: ReplicatedStorage.GameModule.module). It is appended to
+	                               GameConfig.modules unless already listed; the game never lists
+	                               itself. Its data.key must be the gameId (the v1.2 game[gameId]
+	                               table splits into that section).
+	  compat                       opaque options for the compat bridge (packages/kits/compat; the
+	                               multi-server sim injects its signal factory). Deleted in Phase 2.
 ]]
 
 local Shared = require(script.Shared)
@@ -42,6 +49,7 @@ local StudWork = requireShared(Shared)
 local Admins = require(script.Events.Admins)
 local Analytics = require(script.Analytics)
 local Boot = require(script.Boot)
+local CompatDoor = require(script.CompatDoor)
 local Compliance = require(script.Compliance)
 local Context = require(script.Context)
 local Data = require(script.Data)
@@ -125,6 +133,8 @@ function Server.start(gameConfig: any, serverConfig: any?, opts: any?): any
 		serverConfig = serverConfig,
 		order = {},
 		platform = platform,
+		compat = o.compat, -- compat bridge options (Phase 2: delete)
+		gameModule = nil,
 	}
 
 	function rt.assertUsable()
@@ -172,6 +182,7 @@ function Server.start(gameConfig: any, serverConfig: any?, opts: any?): any
 	end
 
 	Boot.attach(rt)
+	CompatDoor.attach(rt) -- compat bridge only (deleted in Phase 2)
 
 	local impls: { [any]: any } = {}
 	local ctxs: { [any]: any } = {}
@@ -284,7 +295,47 @@ function Server.start(gameConfig: any, serverConfig: any?, opts: any?): any
 		)
 	end
 
+	-- The game's implicit module (§7, C4) joins GameConfig.modules here; the game doesn't list it.
+	local function withGameModule(config: any): any
+		if type(config) ~= "table" then
+			return config
+		end
+		local gm = o.gameModule
+		if gm == nil and platform.gameModule then
+			gm = platform.gameModule()
+		end
+		if gm == nil then
+			return config
+		end
+		if not StudWork.isModuleRef(gm) then
+			error("the game module (GameModule.module) must return StudWork.defineModule(...)", 0)
+		end
+		if gm.data ~= nil and gm.data.key ~= config.gameId then
+			error(
+				`the game module '{gm.name}' must use data.key = gameId ('{tostring(config.gameId)}'), got '{gm.data.key}'`,
+				0
+			)
+		end
+		rt.gameModule = gm
+		local list = {}
+		local listed = false
+		for i, ref in (if type(config.modules) == "table" then config.modules else {}) :: { any } do
+			list[i] = ref
+			if ref == gm then
+				listed = true
+			end
+		end
+		if not listed then
+			table.insert(list, gm)
+		end
+		local out = table.clone(config)
+		out.modules = list
+		return out
+	end
+
 	local function boot()
+		gameConfig = withGameModule(gameConfig)
+		rt.gameConfig = gameConfig -- framework-internal (the compat bridge reads it; Phase 2: drop)
 		-- 1. resolve
 		local order, found = Loader.load(gameConfig, StudWork.VERSION, o.loadServer)
 		impls = found

@@ -64,11 +64,25 @@ function World.new(opts: { dt: number?, verbose: boolean?, epoch: number? }?)
 		friends = {}, -- userId -> { [userId]: true }
 		friendLatency = 0.05,
 		friendFailures = 0, -- next N IsFriendsWithAsync calls error
-		restricted = {}, -- userId -> true (PolicyService paid random items restricted)
+		-- userId -> true (PolicyService paid random items restricted). Reactive (core-v1.3.0):
+		-- the framework Policy caches the PolicyService answer per session, so a change here is
+		-- pushed to every server's Policy (restrictedListeners), like v1.2's live-read fake.
+		restricted = nil :: any,
+		restrictedListeners = {},
 		passes = {}, -- userId -> { [passId]: true }
 		servers = {},
 		nextJob = 0,
 	}, World)
+	local answers: { [number]: any } = {}
+	self.restricted = setmetatable({}, {
+		__index = answers,
+		__newindex = function(_, userId, value)
+			answers[userId] = value
+			for _, fn in self.restrictedListeners do
+				fn(userId, value)
+			end
+		end,
+	})
 	return self
 end
 

@@ -1,18 +1,18 @@
 --!nocheck
 --[[
 	Runner for the simulation files tools/test does NOT pick up (tools/test-sim):
-	  lune run packages/core/tests/sim/run              every sim *.spec.luau + *.slow.luau
-	  lune run packages/core/tests/sim/run --pending    ... plus *.pending.luau (fails on stubs)
-	  lune run packages/core/tests/sim/run <file> ...   just these files
+	  lune run packages/framework/test/sim/run              every sim *.spec.luau + *.slow.luau
+	  lune run packages/framework/test/sim/run --pending    ... plus *.pending.luau (fails on stubs)
+	  lune run packages/framework/test/sim/run <file> ...   just these files
 	Uses the same harness as tools/test (Harness.runSpec), so the files get the same globals.
 ]]
 
 local fs = require("@lune/fs")
 local process = require("@lune/process")
 
-local Harness = require("../harness")
+local Harness = require("../../../../tools/lune/testkit/harness")
 
-local DIR = "packages/core/tests/sim"
+local DIR = "packages/framework/test/sim"
 
 local pending = false
 local files = {}

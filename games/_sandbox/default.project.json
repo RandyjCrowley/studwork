@@ -11,49 +11,114 @@
   "tree": {
     "$className": "DataModel",
     "ReplicatedStorage": {
-      "Packages": { "$path": "../../deps/Packages" },
-      "Core": { "$path": "../../packages/core/shared" },
-      "FrameworkClient": { "$path": "../../packages/framework/client" },
-      "Framework": { "$path": "../../packages/framework/shared" },
+      "Packages": {
+        "$path": "../../deps/Packages"
+      },
+      "Core": {
+        "$path": "../../packages/core/shared"
+      },
+      "FrameworkClient": {
+        "$path": "../../packages/framework/client"
+      },
+      "Framework": {
+        "$path": "../../packages/framework/shared"
+      },
       "Kits": {
         "$className": "Folder",
-        "Collection": { "$path": "../../packages/kits/collection/shared" },
-        "Economy": { "$path": "../../packages/kits/economy/shared" },
-        "Base": { "$path": "../../packages/kits/base/shared" },
-        "Social": { "$path": "../../packages/kits/social/shared" },
-        "Engagement": { "$path": "../../packages/kits/engagement/shared" }
+        "Collection": {
+          "$path": "../../packages/kits/collection/shared"
+        },
+        "Economy": {
+          "$path": "../../packages/kits/economy/shared"
+        },
+        "Base": {
+          "$path": "../../packages/kits/base/shared"
+        },
+        "Social": {
+          "$path": "../../packages/kits/social/shared"
+        },
+        "Engagement": {
+          "$path": "../../packages/kits/engagement/shared"
+        }
       },
-      "UI": { "$path": "../../packages/ui" },
-      "Game": { "$path": "src/shared" }
+      "UI": {
+        "$path": "../../packages/ui"
+      },
+      "Game": {
+        "$path": "src/shared"
+      },
+      "CompatShared": {
+        "$path": "../../packages/kits/compat/shared"
+      },
+      "GameModule": {
+        "$className": "Folder",
+        "module": {
+          "$path": "modules/sandbox/module.luau"
+        }
+      }
     },
     "ServerScriptService": {
-      "CoreServer": { "$path": "../../packages/core/server" },
-      "Compat": { "$path": "../../packages/kits/compat" },
-      "Framework": { "$path": "../../packages/framework/server" },
+      "CoreServer": {
+        "$path": "../../packages/core/server"
+      },
+      "Compat": {
+        "$path": "../../packages/kits/compat"
+      },
+      "Framework": {
+        "$path": "../../packages/framework/server"
+      },
       "Kits": {
         "$className": "Folder",
-        "Collection": { "$path": "../../packages/kits/collection/server" },
-        "Economy": { "$path": "../../packages/kits/economy/server" },
-        "Base": { "$path": "../../packages/kits/base/server" },
-        "Social": { "$path": "../../packages/kits/social/server" },
-        "Engagement": { "$path": "../../packages/kits/engagement/server" }
+        "Collection": {
+          "$path": "../../packages/kits/collection/server"
+        },
+        "Economy": {
+          "$path": "../../packages/kits/economy/server"
+        },
+        "Base": {
+          "$path": "../../packages/kits/base/server"
+        },
+        "Social": {
+          "$path": "../../packages/kits/social/server"
+        },
+        "Engagement": {
+          "$path": "../../packages/kits/engagement/server"
+        }
       },
-      "Game": { "$path": "src/server" }
+      "Game": {
+        "$path": "src/server"
+      },
+      "Modules": {
+        "$className": "Folder",
+        "Sandbox": {
+          "$path": "modules/sandbox/server"
+        }
+      }
     },
     "ServerStorage": {
-      "ServerPackages": { "$path": "../../deps/ServerPackages" },
-      "Vendor": { "$path": "../../packages/vendor" }
+      "ServerPackages": {
+        "$path": "../../deps/ServerPackages"
+      },
+      "Vendor": {
+        "$path": "../../packages/vendor"
+      }
     },
     "StarterPlayer": {
       "StarterPlayerScripts": {
-        "Game": { "$path": "src/client" }
+        "Game": {
+          "$path": "src/client"
+        }
       }
     },
     "Workspace": {
-      "$properties": { "StreamingEnabled": true }
+      "$properties": {
+        "StreamingEnabled": true
+      }
     },
     "Lighting": {
-      "$properties": { "Technology": "Future" }
+      "$properties": {
+        "Technology": "Future"
+      }
     }
   }
 }

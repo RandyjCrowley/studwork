@@ -1,6 +1,17 @@
 --!strict
 --[[
-	Core client bootstrap. LEAD-OWNED. Required by the Core facade on the client.
+	Framework client bootstrap. LEAD-OWNED. Requiring it installs the StudWork CLIENT
+	runtime (Runtime.luau) into the StudWork facade, so a game's client is one line:
+	StudWork.start(Config). That boots the client modules (StudWork.use(X) = X's ClientAPI with
+	its actions, §9) and this framework client UI, exposed as StudWork.Client:
+	  state()            the replicated state, as sent (§10: { loaded, framework, modules })
+	  Hud, Feedback, Input, onFeedbackEvent, onMailbox   the v1.2 client UI (agent D rebuilds it
+	                     on theme tokens + HUD slots in Phase 1)
+	The v1.2 UI reads the flat v1.2 ReplicatedState through the compat selector
+	(ReplicatedStorage.CompatShared.FlatState; deleted in Phase 2).
+
+	v1.2 path (kept until step 4b-IIb converts the scaffolds): the Core facade requires this file
+	on the client and calls Client.start(core, config, serverConfig, moduleOrder).
 	Builds Core.Client (Types.ClientAPI) and starts the client modules in order (Actions learns
 	the enabled modules first, so module-owned actions error when their module is off):
 	State -> Input -> Feedback -> (game calls Core.Client.Hud.mount when it wants the HUD).
@@ -11,9 +22,11 @@ local Charm = require(ReplicatedStorage:WaitForChild("Packages"):WaitForChild("C
 local Types = require(ReplicatedStorage:WaitForChild("Core"):WaitForChild("Types"))
 
 local Actions = require(script.Actions)
+local Boot = require(script.Boot)
 local Feedback = require(script.Feedback)
 local Hud = require(script.Hud)
 local Input = require(script.Input)
+local Runtime = require(script.Runtime)
 local State = require(script.State)
 local Visibility = require(script.Hud.Visibility)
 
@@ -89,5 +102,51 @@ function Client.start(
 	Feedback.start(ctx)
 	Hud.init(ctx)
 end
+
+-- StudWork.Client (client only).
+Client.studWork = table.freeze({
+	state = State.raw,
+	Feedback = Client.api.Feedback,
+	Input = Client.api.Input,
+	Hud = Client.api.Hud,
+	onFeedbackEvent = Feedback.onFeedbackEvent,
+	onMailbox = onMailbox,
+})
+
+local function compat(name: string): any
+	local folder = ReplicatedStorage:FindFirstChild("CompatShared")
+	local m = folder and folder:FindFirstChild(name)
+	return if m and m:IsA("ModuleScript") then (require :: any)(m) else nil
+end
+
+-- Step 4 of the client boot: the framework client UI on the v1.2 config view + flat state.
+local function startUi(info: any): any
+	local V12Config = compat("V12Config")
+	local FlatState = compat("FlatState")
+	local view = if V12Config
+		then V12Config.view(info.gameConfig, info.configs, info.gameModule)
+		else { gameId = info.gameConfig.gameId, balance = { primaryCurrency = "Coins" }, modules = {} }
+	if FlatState then
+		local gameModuleName = if info.gameModule then info.gameModule.name else nil
+		local gameId = info.gameConfig.gameId
+		State.setView(function(raw: any): any
+			return FlatState.flatten(raw, gameModuleName, gameId)
+		end)
+	end
+	local names: { string } = {}
+	for _, ref in info.order do
+		table.insert(names, ref.name)
+	end
+	Client.start((nil :: any) :: Types.CoreAPI, view, {}, names)
+	return Client.studWork
+end
+
+Boot.installStarter(function(gameConfig: any, serverConfig: any?): any
+	return Runtime.start(gameConfig, serverConfig, {
+		ui = startUi,
+		state = State.raw,
+		computed = Charm.computed,
+	})
+end)
 
 return Client

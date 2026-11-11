@@ -11,6 +11,13 @@
 	    every changed table, so React/Charm selectors see new references only where data changed);
 	  * loaded becomes true once the server has PlayerData for us (it ships loaded = data ~= nil).
 	Client code should only READ the atom.
+
+	core-v1.3.0 (step 4b-IIa): charm-sync now patches State.raw, the replicated state as the
+	server sends it (StudWork.Client.state(), module-api.md §10: { loaded, framework, modules }).
+	State.atom is a selector over it through State.setView: the COMPAT client selector
+	(packages/kits/compat/shared/FlatState.luau, installed by the client bootstrap; deleted in
+	Phase 2) derives the v1.2 flat ReplicatedState the v1.2 UI here (Hud, Visibility, onMailbox)
+	still reads. A v1.2 server's flat state passes through it unchanged.
 ]]
 
 local Players = game:GetService("Players")
@@ -35,7 +42,24 @@ local initial: Types.ReplicatedState = {
 	plotName = nil,
 }
 
-State.atom = (Charm.atom(initial) :: any) :: Types.Atom<Types.ReplicatedState>
+-- What charm-sync patches: the server's replicated state, unchanged.
+State.raw = (Charm.atom(initial) :: any) :: Types.Atom<any>
+
+local view: (raw: any) -> any = function(raw: any): any
+	return raw
+end
+
+-- The flat v1.2 view the v1.2 UI reads (identity until the bootstrap installs a view).
+State.atom = (
+	Charm.computed(function(): any
+		return view(State.raw())
+	end) :: any
+) :: Types.Atom<Types.ReplicatedState>
+
+-- Installed by the client bootstrap before State.start (the compat FlatState selector).
+function State.setView(fn: (raw: any) -> any)
+	view = fn
+end
 
 local started = false
 
@@ -45,7 +69,7 @@ function State.start(ctx: any)
 	end
 	started = true
 	local key = tostring(Players.LocalPlayer.UserId)
-	CharmSync.client.addSignals({ [key] = State.atom })
+	CharmSync.client.addSignals({ [key] = State.raw })
 	ctx.net.StateSync.On(function(payloads: any)
 		local ok, reason = PayloadCheck.check(payloads, key)
 		if not ok then

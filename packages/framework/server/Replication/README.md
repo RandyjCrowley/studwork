@@ -29,4 +29,4 @@ Now each player has a `SectionCache`: per top-level PlayerData key it keeps the 
 String keys or dense arrays only (sparse/mixed numeric keys -> strings; charm-sync `fixArrays` stays on), NaN/inf -> 0, functions/Instances/userdata dropped, depth cap 16. Blink `unknown` = normal Roblox remote serialisation.
 
 ## Tests
-`Snapshot.spec.luau` (copy isolation, sanitisation, build defaults/precedence, build opts), `SectionCache.spec.luau` (identity reuse, fresh copies on version/reference change, excluded sections, stub behaviour). Benchmark: `tools/bench [runs]` -> `packages/core/bench/replication.luau`.
+`Snapshot.spec.luau` (copy isolation, sanitisation, build defaults/precedence, build opts), `SectionCache.spec.luau` (identity reuse, fresh copies on version/reference change, excluded sections, stub behaviour). Benchmark: `tools/bench [runs]` -> `tools/lune/bench/replication.luau`.

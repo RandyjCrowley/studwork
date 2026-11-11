@@ -1,14 +1,18 @@
 --!strict
--- Foundation-only client: starts Core, mounts the HUD (no currency/goal without Economy/Rebirth)
--- and shows that module actions error clearly.
+-- Foundation-only client: starts StudWork, mounts the HUD (no currency/goal without Economy/Rebirth)
+-- and shows that a module's client action errors clearly when the module is off.
 
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
-local Core = require(ReplicatedStorage:WaitForChild("Core"))
+local StudWork = require(ReplicatedStorage:WaitForChild("Framework"))
 local Config = require(ReplicatedStorage:WaitForChild("Game"):WaitForChild("Config"))
+local Rebirth =
+	require(ReplicatedStorage:WaitForChild("Kits"):WaitForChild("Economy"):WaitForChild("Rebirth"))
 
-Core.start(Config)
-Core.Client.Hud.mount()
+StudWork.start(Config)
+StudWork.Client.Hud.mount()
 
-local result = table.pack(pcall(Core.Client.Actions.rebirth))
-print(`[foundation-only] client Actions.rebirth -> ok={result[1]} {tostring(result[2])}`)
+local result = table.pack(pcall(function()
+	StudWork.use(Rebirth).actions.rebirth()
+end))
+print(`[foundation-only] client Rebirth.actions.rebirth -> ok={result[1]} {tostring(result[2])}`)

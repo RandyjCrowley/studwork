@@ -177,7 +177,7 @@ describe("session lock held by another server", function()
 			return F.lockHolder(world, 76) == nil
 		end, 30)
 		local raw = world:peek(F.STORE, F.key(76))
-		raw.Data.schemaVersion = 99
+		raw.Data._framework.schemaVersion = 99 -- v1.3: the framework section's version (§6)
 		world:seed(F.STORE, F.key(76), raw)
 
 		local b = F.server(world)
@@ -193,6 +193,6 @@ describe("session lock held by another server", function()
 		local stored = F.stored(world, 76)
 		expect(stored.schemaVersion).toBe(99)
 		expect(stored.currency.Coins).toBe(66)
-		expect(F.sameValue(stored, raw.Data)).toBe(true)
+		expect(F.sameValue(F.storedRaw(world, 76), raw.Data)).toBe(true)
 	end)
 end)

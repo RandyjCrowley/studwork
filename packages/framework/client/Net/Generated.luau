@@ -9,15 +9,15 @@
 -- This file is not meant to be edited
 
 _G._BLINK = _G._BLINK or {}
-if _G._BLINK["CORE"] then
-	error("[Blink]: An instance of blink is already running with the remote scope \"CORE\". Change the remote scope of either instance to avoid conflicts.")
+if _G._BLINK["STUDWORK"] then
+	error("[Blink]: An instance of blink is already running with the remote scope \"STUDWORK\". Change the remote scope of either instance to avoid conflicts.")
 end
-_G._BLINK["CORE"] = true
+_G._BLINK["STUDWORK"] = true
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local RunService = game:GetService("RunService")
 
 local SerdesFunctions = {}
-local BASE_EVENT_NAME = "CORE_BLINK"
+local BASE_EVENT_NAME = "STUDWORK_BLINK"
 local Invocations = 0
 
 local SendSize = 64

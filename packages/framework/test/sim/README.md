@@ -1,4 +1,4 @@
-# Multi-server simulation (packages/core/tests/sim)
+# Multi-server simulation (packages/framework/test/sim)
 
 Lune-only test code (not in the Rojo tree, not type-checked by `tools/typecheck`, like
 `../harness.luau`). It boots the **real** core services and the **real** vendored ProfileStore

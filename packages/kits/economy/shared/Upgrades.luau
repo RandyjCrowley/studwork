@@ -1,11 +1,15 @@
 --!strict
 --[[
-	Upgrades module definition (kit: economy). core-v1.3.0 Phase 0 step 5: a THIN wrapper, not a rewrite
-	(module-api.md §5 step 5). The implementation is still the unchanged v1.2 service at
-	packages/kits/economy/server/Upgrades, booted by the v1.2 packages/core facade (Core.start) during this
-	step; ../server/ModuleServers.luau exposes it as this module's server.api for the framework
-	loader. Config schema, the real data section (default, migrations, replicate) and optional
-	dependencies are Phase 1 work; data.key follows decisions.md (Phase 0 step 4, decision 2).
+	Upgrades module definition (kit: economy). core-v1.3.0: still a WRAPPER around the unchanged v1.2
+	service at packages/kits/economy/server/Upgrades, which now boots through StudWork.start: the
+	compat bridge (packages/kits/compat/Bridge.luau, via ../server/ModuleServers.luau) runs its
+	v1.2 init/start on a v1.2-shaped ctx (step 4b-IIa). Phase 1 replaces it with a real module.
+	config: the v1.2 `balance` keys this module owns, unchanged (compat/shared/V12Config.luau
+	maps them back for the v1.2 code). Loose schemas: the v1.2 ConfigValidate still validates
+	the values at boot.
+	data: section 'upgrades' = this module's v1.2 PlayerData fields with their v1.2 defaults
+	(FrameworkSection.V12_MAP); replicate = the fields v1.2 replicated to the owning client.
+	client: its v1.2 client action(s), served by ../shared/ModuleClients.luau.
 ]]
 
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
@@ -16,7 +20,12 @@ return StudWork.defineModule({
 	name = "Upgrades",
 	version = "1.2.0",
 	framework = "^1.3.0",
-	description = "v1.2 Upgrades service behind a thin defineModule wrapper (economy kit)",
+	description = "v1.2 Upgrades service behind a defineModule wrapper (economy kit, compat bridge)",
 	dependsOn = { Economy },
-	data = { key = "upgrades", version = 1, default = {}, replicate = false },
+	config = {
+		schema = { upgrades = "table?" },
+		defaults = {},
+	},
+	data = { key = "upgrades", version = 1, default = { upgrades = {} }, replicate = { "upgrades" } },
+	client = "Upgrades",
 })

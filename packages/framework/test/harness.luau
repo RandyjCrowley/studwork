@@ -1,7 +1,7 @@
 --!strict
 --[[
 	StudWork module test harness (module-api.md §15), pure Lune, no Studio. Modeled on §15's
-	sketch and packages/core/tests/harness.luau; this is what StudWork.test.harness will expose.
+	sketch and tools/lune/testkit/harness.luau; this is what StudWork.test.harness will expose.
 
 	local h = Harness.new({ modules = { A, B }, servers = { A = implA, B = implB },
 	                        config = { B = { ... } }, items = { ... }, serverConfig = { ... } })

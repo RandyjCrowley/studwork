@@ -1,4 +1,4 @@
-# Selene std for *.spec.luau globals injected by packages/core/tests/harness.luau
+# Selene std for *.spec.luau globals injected by tools/lune/testkit/harness.luau
 ---
 base: roblox
 name: testkit

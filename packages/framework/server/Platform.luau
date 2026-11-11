@@ -17,6 +17,8 @@
 	  makeSync(hooks) -> replication transport (Replication.luau)
 	  makeStore(gameId) -> Data store (Store.luau)
 	  installConsole(run(...) -> string)
+	  gameModule() -> ModuleRef?       the game's implicit module (§7, C4): live, the definition at
+	                                   ReplicatedStorage.GameModule.module (games/<g>/modules/<gameId>)
 	  bind(rt)                         PlayerAdded/Removing, Heartbeat, BindToClose
 	}
 ]]
@@ -273,6 +275,14 @@ function Platform.live(): any
 				log = warn,
 				isPlayer = isPlayer,
 			})
+		end,
+		gameModule = function(): any
+			local folder = ReplicatedStorage:FindFirstChild("GameModule")
+			local def = folder and folder:FindFirstChild("module")
+			if def == nil or not def:IsA("ModuleScript") then
+				return nil
+			end
+			return (require :: any)(def)
 		end,
 		installConsole = function(run: (...any) -> string)
 			local bindable = Instance.new("BindableFunction")

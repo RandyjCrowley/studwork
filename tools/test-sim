@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
-# tools/test-sim [--pending] [file ...]: the multi-server simulation suite (packages/core/tests/sim).
+# tools/test-sim [--pending] [file ...]: the multi-server simulation suite (packages/framework/test/sim).
 # Runs every sim *.spec.luau (also part of tools/test) plus the slow *.slow.luau soak tests.
 # --pending also runs *.pending.luau (written against unmerged contract work; fails on stubs).
 source "$(dirname "$0")/_common.sh"
 
-lune run packages/core/tests/sim/run "$@"
+lune run packages/framework/test/sim/run "$@"

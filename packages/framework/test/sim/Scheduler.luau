@@ -1,7 +1,7 @@
 --!nocheck
 --[[
 	Virtual clock + cooperative task scheduler for the multi-server simulation (agent C, core v1.2).
-	Not part of the Rojo tree (packages/core/tests is test-only) and not type-checked by
+	Not part of the Rojo tree (packages/framework/test is test-only) and not type-checked by
 	tools/typecheck (like harness.luau).
 
 	One Scheduler is shared by every simulated server of a World, so all servers see ONE clock.

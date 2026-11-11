@@ -255,11 +255,14 @@ function Guard.scanSource(source: string, ctx): { string }
 		end
 		if
 			not allowed(raw, "modules")
-			and (
-				string.find(code, 'Child%(%s*"Kits"')
-				or string.find(code, "Child%(%s*'Kits'")
-				or string.find(code, "%.Kits[%.:]")
-			)
+			and (string.find(code, 'Child%(%s*"Kits"') or string.find(code, "Child%(%s*'Kits'") or string.find(
+				code,
+				"%.Kits[%.:]"
+			))
+			-- core-v1.3.0 step 4b-IIa: ReplicatedStorage.Kits.<Kit>.<Module> are the kits' module
+			-- DEFINITIONS (ModuleRefs), which a game lists in GameConfig.modules and passes to
+			-- StudWork.use / dependsOn (module-api.md §3). Only the server internals are off limits.
+			and not string.find(code, "ReplicatedStorage")
 		then
 			-- core-v1.3.0 step 5: the v1.2 services now live in ServerScriptService.Kits.<Kit>
 			add(
@@ -565,6 +568,10 @@ local function selfTest(): boolean
 		"modules"
 	)
 	expectCheck("kit internals dot", Guard.scanSource("require(SSS.Kits.Economy.Economy)", server), "modules")
+	expectClean(
+		"kit module definitions",
+		Guard.scanSource('local Kits = ReplicatedStorage:WaitForChild("Kits")', server)
+	)
 	expectClean("module on", Guard.scanSource("Core.Economy.grant(player, Balance.reward, 'x')", server))
 	expectClean("comment", Guard.scanSource("-- Core.Rebirth.rebirth(player)", server))
 	expectClean(

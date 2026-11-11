@@ -24,16 +24,16 @@
 	    step overlaps a sync; same method for all variants. Samples cost ~50 calls/tick and are
 	    inside the timed region for every variant.
 
-	Usage: lune run packages/core/bench/replication [runs]   (default 5 runs; prints a markdown table)
+	Usage: lune run tools/lune/bench/replication [runs]   (default 5 runs; prints a markdown table)
 ]]
 
 local fs = require("@lune/fs")
 local luau = require("@lune/luau")
 local process = require("@lune/process")
 
-local Harness = require("../tests/harness")
-local Snapshot = Harness.require("packages/core/server/Replication/Snapshot.luau")
-local SectionCache = Harness.require("packages/core/server/Replication/SectionCache.luau")
+local Harness = require("../testkit/harness")
+local Snapshot = Harness.require("packages/framework/server/Replication/Snapshot.luau")
+local SectionCache = Harness.require("packages/kits/compat/SectionCache.luau")
 local Transaction = Harness.require("packages/core/server/Data/Transaction.luau")
 
 local PLAYERS = 50

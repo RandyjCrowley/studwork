@@ -115,6 +115,7 @@ type Record = {
 	root: { [string]: any },
 	versions: { [string]: number },
 	views: { [string]: { version: number, view: any } },
+	lastSeenOverride: number?, -- Studio `lastseen` console (compat bridge): stamped instead of now()
 }
 
 type TxState = {
@@ -241,7 +242,7 @@ function Data.new(opts: any): any
 	-- Stamped right before every write of this record (memory save, ProfileStore OnSave).
 	local function beforeSave(record: Record)
 		local fw = record.root._framework
-		fw.lastSeen = now()
+		fw.lastSeen = record.lastSeenOverride or now()
 		prunePurchases(fw.purchases, Data.PURCHASES_CAP)
 		record.versions._framework = nextVersion()
 	end
@@ -277,6 +278,12 @@ function Data.new(opts: any): any
 				beforeSave = function()
 					if records[player] == loadedRecord then
 						beforeSave(loadedRecord)
+					end
+				end,
+				sessionEnded = function()
+					if records[player] == loadedRecord then
+						records[player] = nil -- the session is over: never write from this server again
+						log(`[StudWork] save session of {playerLabel(player)} ended`)
 					end
 				end,
 				sessionLost = function()
@@ -607,6 +614,37 @@ function Data.new(opts: any): any
 
 	function d.hasSection(key: string): boolean
 		return byKey[key] ~= nil
+	end
+
+	-- ===== COMPAT-ONLY (packages/kits/compat via CompatDoor; deleted in Phase 2) =====
+	-- The v1.2 services behind the compat bridge read one flat PlayerData that spans sections.
+
+	-- The LIVE save root of a loaded player (never handed to a module).
+	function d.compatLive(player: any): { [string]: any }?
+		local record = records[player]
+		return if record then record.root else nil
+	end
+
+	-- A write made outside a tx (Studio console) to section `key`: new section version + change.
+	function d.compatTouch(player: any, key: string)
+		local record = records[player]
+		if record then
+			record.versions[key] = nextVersion()
+			changed(player)
+		end
+	end
+
+	-- Studio `lastseen` console: lastSeen is stamped with this value on every save (nil = now()).
+	function d.compatSetLastSeen(player: any, at: number?)
+		local record = records[player]
+		if record then
+			record.lastSeenOverride = at
+			if at ~= nil then
+				record.root._framework.lastSeen = at
+				record.versions._framework = nextVersion()
+				changed(player)
+			end
+		end
 	end
 
 	return d

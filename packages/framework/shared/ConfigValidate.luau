@@ -31,6 +31,7 @@ ConfigValidate.TOP_LEVEL = table.freeze({
 	client = true,
 	data = true,
 	compliance = true,
+	analytics = true, -- framework Analytics' funnel/clientSteps (read by server/Analytics)
 })
 
 export type Result = {

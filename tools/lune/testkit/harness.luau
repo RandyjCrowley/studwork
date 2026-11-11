@@ -211,6 +211,7 @@ end
 -- Fake `game` exposing only the Rojo mapping of core (see games/_sandbox/default.project.json):
 --   ReplicatedStorage.Core -> packages/core/shared, .FrameworkClient -> packages/framework/client,
 --   .UI -> packages/ui, .Packages -> Packages, .Framework -> packages/framework/shared,
+--   .CompatShared -> packages/kits/compat/shared (COMPAT, deleted in Phase 2),
 --   .Kits.<Kit> -> packages/kits/<kit>/shared; ServerScriptService.CoreServer -> packages/core/server,
 --   .Framework -> packages/framework/server, .Kits.<Kit> -> packages/kits/<kit>/server.
 -- Any other service errors, so a spec cannot silently depend on the engine.
@@ -256,6 +257,7 @@ local fakeServices = {
 		UI = "packages/ui",
 		Packages = "deps/Packages",
 		Framework = "packages/framework/shared",
+		CompatShared = "packages/kits/compat/shared",
 		Kits = {
 			Collection = "packages/kits/collection/shared",
 			Economy = "packages/kits/economy/shared",
@@ -268,6 +270,7 @@ local fakeServices = {
 		CoreServer = "packages/core/server",
 		Compat = "packages/kits/compat",
 		Framework = "packages/framework/server",
+		FrameworkTest = "packages/framework/test", -- the StudWork module harness (specs only)
 		Kits = {
 			Collection = "packages/kits/collection/server",
 			Economy = "packages/kits/economy/server",

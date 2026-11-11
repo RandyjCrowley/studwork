@@ -22,13 +22,34 @@ local Loader = {}
 -- net (step 4b): the module's own generated Blink server module; its events back `actions`
 local SURFACES = { "api", "txApi", "extensions", "purchaseOps", "actions", "net" }
 
+-- The Phase 0 kit layout (core-v1.3.0 step 4b-IIa, TEMPORARY until the Phase 1 kit rewrite moves
+-- each kit module to ServerScriptService.Modules): the eleven v1.2 services sit in
+-- ServerScriptService.Kits.<Kit>, and each kit's ModuleServers.loadServer(ref) returns the
+-- wrapper's server part (packages/kits/<kit>/server/ModuleServers.luau, compat bridge).
+local function kitLoadServer(ref: any): any
+	local kits = game:GetService("ServerScriptService"):FindFirstChild("Kits")
+	if kits == nil then
+		return nil
+	end
+	for _, kit in kits:GetChildren() do
+		local servers = kit:FindFirstChild("ModuleServers")
+		if servers and servers:IsA("ModuleScript") then
+			local impl = (require :: any)(servers).loadServer(ref)
+			if impl ~= nil then
+				return impl
+			end
+		end
+	end
+	return nil
+end
+
 -- ServerScriptService.Modules.<server>, or one level down in a kit folder
 -- (ServerScriptService.Modules.<Kit>.<server>), so a game's Rojo project can map each kit's
--- server/modules folder as a whole.
+-- server/modules folder as a whole; then the Phase 0 kit layout (kitLoadServer).
 local function defaultLoadServer(ref: any): any
 	local folder = game:GetService("ServerScriptService"):FindFirstChild("Modules")
 	if folder == nil then
-		return nil
+		return kitLoadServer(ref)
 	end
 	local part = folder:FindFirstChild(ref.server)
 	if part == nil then
@@ -42,7 +63,7 @@ local function defaultLoadServer(ref: any): any
 		end
 	end
 	if part == nil or not part:IsA("ModuleScript") then
-		return nil
+		return kitLoadServer(ref)
 	end
 	return (require :: any)(part)
 end

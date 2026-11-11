@@ -3,7 +3,7 @@
 	Test runner: finds every *.spec.luau under packages/ and games/ (or the paths given as args)
 	and runs it through the harness. Exit code 1 on any failure.
 
-	Usage (from repo root): lune run packages/core/tests/run [path ...]
+	Usage (from repo root): lune run tools/lune/testkit/run [path ...]
 ]]
 
 local fs = require("@lune/fs")

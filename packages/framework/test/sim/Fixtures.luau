@@ -72,11 +72,45 @@ function Fixtures.server(world: any, opts: any?)
 	return world:server(o)
 end
 
--- The saved PlayerData of a user as it is in the mock DataStore right now (ProfileStore's
--- `Data` field), or nil.
-function Fixtures.stored(world: any, userId: number): any
+-- The v1.3 save root of a user as it is in the mock DataStore right now (ProfileStore's `Data`
+-- field: _framework, _versions and one section per module), or nil.
+function Fixtures.storedRaw(world: any, userId: number): any
 	local raw = world:peek(Fixtures.STORE, Fixtures.key(userId))
 	return raw and raw.Data
+end
+
+-- A sectioned save as the flat v1.2 PlayerData the scenarios assert on (the inverse of
+-- FrameworkSection.splitV12): every section's fields at the top level, the _framework fields,
+-- schemaVersion = _framework.schemaVersion, game[gameId] = the game module's section.
+-- core-v1.3.0 step 4b-IIa: the save layout changed (module-api.md §6), the assertions didn't.
+function Fixtures.flatten(root: any): any
+	if type(root) ~= "table" or type(root._framework) ~= "table" then
+		return root -- empty template (never saved) or not a v1.3 save
+	end
+	local flat: { [string]: any } = {}
+	for key, section in root do
+		if key == "_framework" then
+			for k, v in section do
+				if k == "schemaVersion" then
+					flat.schemaVersion = v
+				elseif k ~= "_owners" then
+					flat[k] = v
+				end
+			end
+		elseif key == Fixtures.GAME_ID then
+			flat.game = { [Fixtures.GAME_ID] = section }
+		elseif key ~= "_versions" and type(section) == "table" then
+			for k, v in section do
+				flat[k] = v
+			end
+		end
+	end
+	return flat
+end
+
+-- The saved PlayerData of a user as it is in the mock DataStore right now, flattened, or nil.
+function Fixtures.stored(world: any, userId: number): any
+	return Fixtures.flatten(Fixtures.storedRaw(world, userId))
 end
 
 -- The ProfileStore session holder (JobId) recorded in the DataStore, or nil.
