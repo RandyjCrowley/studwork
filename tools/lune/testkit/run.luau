@@ -1,6 +1,6 @@
 --!nocheck
 --[[
-	Test runner: finds every *.spec.luau under packages/ and games/ (or the paths given as args)
+	Test runner: finds every *.spec.luau under packages/, games/, templates/ and tools/ (or the paths given)
 	and runs it through the harness. Exit code 1 on any failure.
 
 	Usage (from repo root): lune run tools/lune/testkit/run [path ...]
@@ -38,7 +38,7 @@ end
 
 local roots = process.args
 if #roots == 0 then
-	roots = { "packages", "games", "tools" }
+	roots = { "packages", "games", "templates", "tools" }
 end
 
 local specs = {}

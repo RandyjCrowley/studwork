@@ -414,9 +414,7 @@ end
 
 local function wireMail(st: State)
 	local rt = st.rt
-	local Internal = (require :: any)(
-		ServerScriptService:WaitForChild("CoreServer"):WaitForChild("Data"):WaitForChild("Internal")
-	)
+	local Internal = require(script.Parent.MailInternal) :: any
 	Internal.isMock = false
 	Internal.store = {
 		MessageAsync = function(_self: any, key: string, message: any): boolean
@@ -577,10 +575,7 @@ local function buildV12(st: State, firstCtx: any)
 	local gameConfig = rt.gameConfig
 	local gm = rt.gameModule
 	local view = V12Config.view(gameConfig, rt.configs, gm)
-	local CoreValidate = (require :: any)(
-		ReplicatedStorage:WaitForChild("Core"):WaitForChild("ConfigValidate")
-	)
-	local errors = CoreValidate.validate(view)
+	local errors = V12Config.validateView(view)
 	if #errors > 0 then
 		error(
 			"invalid GameConfig for the v1.2 kit services (compat bridge):\n  - "

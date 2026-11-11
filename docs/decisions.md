@@ -449,3 +449,39 @@ lead re-running lint, typecheck (6 games), tests (582), test-sim (51) and 8 rojo
    `isPaidCurrency` / `paidCurrencies`; `tagPaid(tx, reason)` alongside the frozen
    `tagPaid(sourceId)`; `sample(player, luck, tx)`; `analytics.custom(..., fields?)`; server parts
    may declare `net`.
+
+### Step 4b-IIa/IIb decisions (live boot switched to StudWork.start)
+
+1. **The compat bridge:** `packages/kits/compat/Bridge.luau` runs the 11 unchanged v1.2 services
+   behind their wrappers. It reaches the runtime through `packages/framework/server/CompatDoor.luau`,
+   which nothing in ctx, StudWork or the kits exposes. Every roll goes through Compliance, and a
+   coin-priced roll uses `spendForRoll`. Everything compat-era is listed in
+   `(internal build report, not public)`.
+2. **`FrameworkSection.V12_MAP` was retargeted to the finer per-module keys in step 4b, not Phase 1.**
+   The bridge needs every v1.2 field to land in a section that an enabled module owns. Phase 1 kit
+   agents still own their rows and may change them along with their `data.key`.
+3. **The game is its own module (§7 C4):** `games/<g>/modules/<id>/`. The framework adds it itself,
+   and `Main.server.luau` only builds the world and calls `StudWork.start`. Game module names:
+   `Sandbox`, `FoundationOnly`, `ExampleGifts`, `ExampleCourier`, `ExampleCollector`, `ExampleShop`,
+   `ExampleGarden`.
+4. **The console lives at `ServerScriptService.Framework.StudWorkConsole`.** The v1.2 command names
+   are kept as they were (unprefixed). Module commands are prefixed, for example `sandbox giftme`.
+5. **The test infrastructure lives outside `packages/core`:** the runner is in `tools/lune/testkit/`,
+   the bench in `tools/lune/bench/`, and the multi-server sim in `packages/framework/test/sim/` (it
+   boots the real framework). Each game has a `Boot.spec.luau` that boots its real Config in the sim
+   and pins its module list.
+6. **A stolen save session now kicks at once.** The session ending as "External", or a save finding
+   the lock gone, drops the record and kicks with `KICK_SESSION_ENDED`. After that, every save path
+   on the old server writes nothing: update, autosave, leave, BindToClose, the Shop settle and late
+   `OnAfterSave`. Covered by `test/sim/StolenSession.spec.luau`; the SessionLock gap assertion is
+   now real.
+7. **`ReplicatedStorage.Core` stays mapped to `packages/core/shared`** until Phase 1. The kits, the
+   framework client and the UI still read Types/Validate/HandlerList/RarityTiers/Palette/Sounds/
+   Modules from it. `packages/core/shared/init.luau` (the `Core` facade) is deleted, and
+   `Data/Internal` moved to `compat/MailInternal.luau`.
+8. **`tools/lune/KitModules.luau` reads the kit definitions.** NewGame and guardrails no longer
+   read `Modules.luau`. A guardrail now flags game code that requires a kit module the Config
+   doesn't enable. A `Kits` reference is allowed on `ReplicatedStorage` lines, since those are the
+   kit definitions.
+9. **Open:** the bench's `MERGED` variant still times the v1.2 `Data/Transaction.luau`. It gets
+   ported in Phase 2 step 7.

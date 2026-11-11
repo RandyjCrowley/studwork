@@ -2,8 +2,9 @@
 --[[
 	Sandbox client: StudWork.start(Config), the framework HUD (StudWork.Client.Hud), and a small
 	action bar built from the UI kit (upgrade, chest roll, Robux egg roll with its odds table,
-	rebirth), driving the kit modules' client actions (StudWork.use(X).actions.y, §9) and reading
-	their replicated slices (StudWork.use(X).state(), §10).
+	rebirth), driving the kit modules'
+	client actions (StudWork.use(X).actions.y, §9) and reading their replicated slices
+	(StudWork.use(X).state(), §10).
 
 	Paid random items: the odds the server discloses (Rarity's replicated `odds`) are shown for
 	both the Chest and the Robux egg before rolling/buying, and players whose policy restricts

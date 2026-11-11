@@ -31,8 +31,10 @@
 	save stamps lastSeen = now and prunes _framework.purchases to PURCHASES_CAP.
 	Any failure: the player isn't loaded, nothing is ever saved for them (Decision 1, v1.1) and
 	the caller kicks them. Sections of modules that aren't enabled are carried through untouched.
-	A session taken by another server (ProfileStore "External") drops the record at once: nothing
-	is written from this server again, and the runtime kicks the player (opts.onSessionLost).
+	A session taken by another server (ProfileStore "External", or a save that finds the lock
+	gone) drops the record at once: nothing is written from this server again (autosave, leave,
+	BindToClose, saveAsync / Shop settle and late tx.after all see no record), and the runtime
+	kicks the player (opts.onSessionLost).
 
 	Transactions (sealed handle, H1): runTx(player, fn, opts?) gives fn an opaque, frozen `tx` whose
 	only readable keys are player / after / retryLater (+ opts.extras, used by Shop for the

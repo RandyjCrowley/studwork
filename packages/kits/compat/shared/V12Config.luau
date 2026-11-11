@@ -153,6 +153,16 @@ end
 -- `mail`, `assetsFolderName`, `palette`, `data`, items with a top-level incomePerSec -> the v1.3
 -- shape. refFor(name) returns the kit module's ModuleRef. The v1.2 game table (`data`) is not a
 -- GameConfig key any more: it becomes the game module's data (returned second).
+-- The v1.2 validator's errors for a view (core's ConfigValidate, which still lives in
+-- ReplicatedStorage.Core until Phase 2). The bridge refuses to boot on any; game Config specs
+-- call it so they never require Core themselves.
+function V12Config.validateView(view: any): { string }
+	local CoreValidate = (require :: any)(
+		game:GetService("ReplicatedStorage"):WaitForChild("Core"):WaitForChild("ConfigValidate")
+	)
+	return CoreValidate.validate(view)
+end
+
 function V12Config.fromV12(v12: any, refFor: (name: string) -> any): (any, any)
 	local enabled: { [string]: boolean } = {}
 	local modules = {}

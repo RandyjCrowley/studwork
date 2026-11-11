@@ -1,10 +1,10 @@
 --!strict
 --[[
-	Private bridge between Core.Data and Core.Mail (both owned by agent A). NOT a public API:
-	other services must use ctx.services.Data / ctx.services.Mail.
-
-	Data publishes the ProfileStore it chose (real or Mock) and calls Internal.deliver for every
-	ProfileStore message of a loaded profile; Mail installs Internal.deliver and uses getStore().
+	COMPAT (Phase 2 deletes it). Was packages/core/server/Data/Internal.luau; moved here in
+	core-v1.3.0 step 4b-IIb so nothing needs ServerScriptService.CoreServer any more.
+	Private bridge between the v1.2 Mail kit service and its store: the compat Bridge (wireMail)
+	installs `store` / `nudgeSave` over framework Data messages; Mail installs `deliver`.
+	NOT a public API.
 ]]
 
 local Internal = {}

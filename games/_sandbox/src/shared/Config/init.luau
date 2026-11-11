@@ -7,7 +7,7 @@
 	modules: kit module refs (the game's own module, games/_sandbox/modules/sandbox, is added by
 	the framework; the game never lists itself). Listed in the v1.2 boot order, which the
 	framework keeps (ties = list order), so the v1.2 services behind the compat bridge start in
-	the same order as under Core.start.
+	the same order as under the v1.2 boot.
 	config: each module's config (config.<Name>, Balance.luau); compliance.paidCurrencies: the
 	Robux-buyable currencies (framework, §14).
 ]]

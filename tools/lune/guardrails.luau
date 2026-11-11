@@ -34,7 +34,9 @@
 local fs = require("@lune/fs")
 local process = require("@lune/process")
 
-local Modules = require("../../packages/core/shared/Modules")
+-- the kit module manifest, read from the kit module definitions (packages/kits/*/shared;
+-- core-v1.3.0 step 4b-IIb, was packages/core/shared/Modules.luau)
+local Modules = require("./KitModules").load(fs)
 
 local Guard = {}
 
@@ -45,7 +47,7 @@ Guard.PURCHASES_ALLOWED = {
 	"packages/framework/server/Store.luau", -- framework Data's ProfileStore store
 	"packages/framework/server/Data.luau",
 	"packages/framework/test/", -- fakes
-	"packages/core/", -- v1.2 Core facade + its tests, the live boot path until step 4b-II; Phase 2 deletes it
+	"packages/core/", -- v1.2 Core facade + its tests (no game boots it since step 4b-IIb); Phase 2 deletes it
 	"packages/kits/social/server/Mail/", -- v1.2 Mail's cross-server DataStore (Phase 1 kit work: move to ctx.data.messages)
 }
 
@@ -63,19 +65,29 @@ local function purchasesViolation(code: string): string?
 end
 
 local MODULE_SET = {}
-for _, name in Modules.MODULE_ORDER do
+for _, name in Modules.ORDER do
 	MODULE_SET[name] = true
 end
 
--- Extracts the module names from a Config init.luau source (`modules = { "A", "B" }`).
+-- Extracts the module names from a Config init.luau source: v1.3 module refs
+-- (`modules = { require(Collection:WaitForChild("Items")), ... }`) or v1.2 names
+-- (`modules = { "A", "B" }`). Comments inside the block are ignored.
 function Guard.parseModules(source: string): { [string]: boolean }?
 	local body = string.match(source, "modules%s*=%s*(%b{})")
 	if body == nil then
 		return nil
 	end
 	local set = {}
-	for name in string.gmatch(body, '"([%w_]+)"') do
-		set[name] = true
+	for line in string.gmatch(body, "[^\n]+") do
+		local code = string.gsub(line, "%-%-.*$", "")
+		local ref = string.match(code, 'WaitForChild%("([%w_]+)"%)%)')
+		if ref then
+			set[ref] = true
+		else
+			for name in string.gmatch(code, '"([%w_]+)"') do
+				set[name] = true
+			end
+		end
 	end
 	return set
 end
@@ -227,8 +239,21 @@ function Guard.scanSource(source: string, ctx): { string }
 					add(lineNo, "modules", `Core.{ns} is used but "{ns}" is not in GameConfig.modules`)
 				end
 			end
+			-- v1.3: a kit module ref required in game code (`require(Economy:WaitForChild("Rebirth"))`
+			-- for ctx.deps / StudWork.use / dependsOn) must be enabled. Config/ itself is the list.
+			if not ctx.inConfig then
+				for ref in string.gmatch(code, 'require%([%w_]+:WaitForChild%("([%w_]+)"%)%)') do
+					if MODULE_SET[ref] and not ctx.modules[ref] then
+						add(
+							lineNo,
+							"modules",
+							`module {ref} is used but "{ref}" is not in GameConfig.modules`
+						)
+					end
+				end
+			end
 			for action in string.gmatch(code, "Actions%.([%a_][%w_]*)%s*%(") do
-				local owner = Modules.CLIENT_ACTIONS[action]
+				local owner = Modules.ACTIONS[action]
 				if owner and not ctx.modules[owner] then
 					add(
 						lineNo,
@@ -519,6 +544,24 @@ local function selfTest(): boolean
 		{ path = "games/x/src/client/Main.client.luau", modules = mods, isServer = false, isClient = true }
 
 	expectCheck("module off", Guard.scanSource("Core.Rebirth.rebirth(player)", server), "modules")
+	-- v1.3 module refs (core-v1.3.0 step 4b-IIb)
+	local refMods = Guard.parseModules(
+		'modules = {\n\trequire(Collection:WaitForChild("Items")), -- "Rebirth" in a comment\n'
+			.. '\trequire(Economy:WaitForChild("Economy")),\n} :: { any },'
+	)
+	if not (refMods and refMods.Items and refMods.Economy and not refMods.Rebirth) then
+		table.insert(failures, "parseModules: v1.3 ref lines not read (or a comment was)")
+	end
+	local refServer = { path = "games/x/modules/x/server/init.luau", modules = refMods, isServer = true }
+	expectCheck(
+		"ref off",
+		Guard.scanSource('local Rebirth = require(EconomyKit:WaitForChild("Rebirth"))', refServer),
+		"modules"
+	)
+	expectClean(
+		"ref on",
+		Guard.scanSource('local Economy = require(EconomyKit:WaitForChild("Economy"))', refServer)
+	)
 	expectCheck("action off", Guard.scanSource("Core.Client.Actions.rebirth()", client), "modules")
 	expectCheck("internals", Guard.scanSource('require(SSS:WaitForChild("CoreServer"))', server), "modules")
 	expectCheck(

@@ -84,6 +84,7 @@ function Server.new(world: any, jobId: string, opts: any)
 	self.closers = {}
 	self.players = {}
 	self.isStudio = opts.isStudio == true
+	self.project = opts.project -- Loader.readProject(...) for a real game boot (Fixtures.gameServer)
 	self:_buildEngine()
 	self:_boot(opts)
 	return self
@@ -178,7 +179,10 @@ function Server._buildEngine(self)
 		MarketplaceService = MarketplaceService,
 		DataStoreService = self.world:dataStoreService(self),
 		MessagingService = self.world:messagingService(self),
+		Workspace = Loader.folder({}),
 		ReplicatedStorage = Loader.folder({
+			-- wally packages the kit services require (Plot: Trove)
+			Packages = Loader.folder({ Trove = "deps/Packages/_Index/sleitnick_trove@1.8.0/trove" }),
 			Core = "packages/core/shared",
 			Framework = "packages/framework/shared",
 			CompatShared = "packages/kits/compat/shared",
@@ -192,7 +196,6 @@ function Server._buildEngine(self)
 		}),
 		ServerStorage = Loader.folder({ ServerPackages = "deps/ServerPackages" }),
 		ServerScriptService = Loader.folder({
-			CoreServer = "packages/core/server",
 			Compat = "packages/kits/compat",
 			Framework = "packages/framework/server",
 			Kits = Loader.folder({
@@ -204,6 +207,41 @@ function Server._buildEngine(self)
 			}),
 		}),
 	}
+
+	-- Fixtures.gameServer: a real game's Rojo project adds its own children (Game, GameModule,
+	-- Modules, ...) next to the framework/kit mapping above (paths outside the game are the same).
+	if self.project then
+		local function children(node: any): { [string]: any }
+			local out: { [string]: any } = {}
+			for name, child in node do
+				if string.sub(name, 1, 1) ~= "$" and type(child) == "table" then
+					if child["$path"] then
+						out[name] = Loader.normalize(self.project.dir .. "/" .. child["$path"])
+					else
+						out[name] = Loader.folder(children(child))
+					end
+				end
+			end
+			return out
+		end
+		for _, serviceName in { "ReplicatedStorage", "ServerScriptService" } do
+			local tree = self.project.tree[serviceName]
+			if tree then
+				local base = services[serviceName]
+				local extra = children(tree)
+				for name in table.clone(extra) do
+					if base:FindFirstChild(name) ~= nil then
+						extra[name] = nil -- framework/kit/package mapping: the sim's own (same paths)
+					end
+				end
+				services[serviceName] = Loader.folder(setmetatable(extra, {
+					__index = function(_, key)
+						return base:FindFirstChild(key)
+					end,
+				}))
+			end
+		end
+	end
 
 	local game = {
 		JobId = self.jobId,
@@ -509,6 +547,9 @@ function Server._platform(self): any
 		installConsole = function(run)
 			server.console = run
 		end,
+		encode = function(value: any): string
+			return game:GetService("HttpService"):JSONEncode(value)
+		end,
 		bind = function(rt: any)
 			Players.PlayerAdded:Connect(function(player)
 				rt.playerAdded(player)
@@ -536,17 +577,36 @@ function Server._boot(self, opts: any)
 	local FrameworkServer = self.require("packages/framework/server")
 	local Bridge = self.require("packages/kits/compat/Bridge.luau")
 
-	local v12 = table.clone(self.config)
-	v12.modules = self.modules
-	local gameConfig, gameData = V12Config.fromV12(v12, function(name: string)
-		return self.require(`packages/kits/{KIT_OF[name]}/shared/{name}.luau`)
-	end)
-	local gameModule = StudWork.defineModule({
-		name = "SimGame",
-		version = "1.0.0",
-		framework = "^1.3.0",
-		data = { key = gameConfig.gameId, version = gameData.version, default = gameData.defaults },
-	})
+	local gameConfig, gameModule, serverConfig
+	local projectModules: any = nil
+	if self.project then
+		-- a real game (Fixtures.gameServer): its own Config, game module and ServerConfig, required
+		-- inside this server through its Rojo project mapping, exactly what StudWork.start gets live
+		local RS = self.game:GetService("ReplicatedStorage")
+		local SSS = self.game:GetService("ServerScriptService")
+		gameConfig = self.require(RS:WaitForChild("Game"):WaitForChild("Config"))
+		gameModule = self.require(RS:WaitForChild("GameModule"):WaitForChild("module"))
+		local gameServer = SSS:FindFirstChild("Game")
+		local serverConfigNode = gameServer and gameServer:FindFirstChild("ServerConfig")
+		serverConfig = if serverConfigNode then self.require(serverConfigNode) else {}
+		projectModules = SSS:FindFirstChild("Modules")
+		self.modules = gameConfig.modules
+		self.config = { gameId = gameConfig.gameId, modules = gameConfig.modules }
+	else
+		local v12 = table.clone(self.config)
+		v12.modules = self.modules
+		local gameData
+		gameConfig, gameData = V12Config.fromV12(v12, function(name: string)
+			return self.require(`packages/kits/{KIT_OF[name]}/shared/{name}.luau`)
+		end)
+		gameModule = StudWork.defineModule({
+			name = "SimGame",
+			version = "1.0.0",
+			framework = "^1.3.0",
+			data = { key = gameConfig.gameId, version = gameData.version, default = gameData.defaults },
+		})
+		serverConfig = opts.serverConfig or {}
+	end
 
 	local signals = setmetatable({}, {
 		__index = function(t, key)
@@ -558,6 +618,10 @@ function Server._boot(self, opts: any)
 	self.signals = signals
 
 	local function loadServer(ref: any): any
+		local part = projectModules and projectModules:FindFirstChild(ref.server or ref.name)
+		if part then
+			return self.require(part)
+		end
 		for _, kit in KITS do
 			local impl = self.require(`packages/kits/{kit}/server/ModuleServers.luau`).loadServer(ref)
 			if impl ~= nil then
@@ -572,7 +636,7 @@ function Server._boot(self, opts: any)
 	end
 	local booted = false
 	self.scheduler:spawn(self, function()
-		self.runtime = FrameworkServer.start(gameConfig, opts.serverConfig or {}, {
+		self.runtime = FrameworkServer.start(gameConfig, serverConfig, {
 			platform = self:_platform(),
 			loadServer = loadServer,
 			gameModule = gameModule,

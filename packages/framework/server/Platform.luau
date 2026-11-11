@@ -6,6 +6,7 @@
 
 	platform = {
 	  isStudio, now() (unix s), clock() (os.clock), spawn(fn, ...), delay(s, fn), wait(s?), guid(),
+	  encode(value) -> string          JSON (live: HttpService:JSONEncode; console `data dump`),
 	  isPlayer(p) (in the game), players = { list(), byUserId(id) }, kick(p, msg),
 	  events                           generated Blink server module (framework.blink), or nil
 	  marketplace = { setProcessReceipt(fn), getProcessReceipt() -> (readable, fn?) (optional; the
@@ -127,6 +128,10 @@ function Platform.live(): any
 		wait = task.wait,
 		guid = function(): string
 			return HttpService:GenerateGUID(false)
+		end,
+		-- JSON for the Studio console (`data dump`): the engine's encoder
+		encode = function(value: any): string
+			return HttpService:JSONEncode(value)
 		end,
 		isPlayer = isPlayer,
 		players = {

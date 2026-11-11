@@ -243,7 +243,14 @@ function Server.start(gameConfig: any, serverConfig: any?, opts: any?): any
 				funnel = rt.data.frameworkField(player, "funnel"),
 				purchases = rt.data.frameworkField(player, "purchases"),
 			}
-			return platform.encode and platform.encode(out) or "ok (no encoder)"
+			if platform.encode == nil then
+				return "data dump: this platform has no JSON encoder (platform.encode)"
+			end
+			local ok, text = pcall(platform.encode, out)
+			if not ok then
+				return "data dump: could not encode the save: " .. tostring(text)
+			end
+			return text
 		end)
 		cmd(
 			"policy restrict",

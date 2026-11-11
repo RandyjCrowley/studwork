@@ -13,8 +13,10 @@
 	    profile.Data, so the closing save writes back exactly what was loaded.
 	  - attach: profile.Data = the framework's live root (commits replace sections in place, so
 	    every autosave carries them). OnSave -> hooks.beforeSave (lastSeen, purchases cap).
-	    OnSessionEnd after OnLastSave("External") -> hooks.sessionLost: the save was opened by
-	    another server; the framework drops the record (no more writes) and kicks.
+	    OnSessionEnd after OnLastSave("External"), or with no OnLastSave at all (a normal save
+	    found the lock taken) -> hooks.sessionLost: another server owns the save; the framework
+	    drops the record at once (no more writes from here) and kicks. "Manual"/"Shutdown" ->
+	    hooks.sessionEnded (drop the record, no kick).
 	  - saveNow (saveAsync): stamps a sequence number into _framework.stats._saveSeq, Save(), and
 	    waits until a SUCCESSFUL save's payload carries it (OnAfterSave), up to SAVE_TIMEOUT.
 	  - release: EndSession (OnSave stamps lastSeen right before the final write).
@@ -185,6 +187,11 @@ function Store.profileStore(opts: any): any
 			hooks.beforeSave()
 		end)
 		profile.OnAfterSave:Connect(function(lastSaved: any)
+			if profiles[userId] ~= profile then
+				-- the session already ended (e.g. this save found the lock taken by another
+				-- server): lastSaved is that server's data, never a confirmation of ours
+				return
+			end
 			local fw = type(lastSaved) == "table" and lastSaved._framework
 			local st = type(fw) == "table" and fw.stats
 			local n = type(st) == "table" and st[Store.SAVE_SEQ_KEY]
@@ -201,11 +208,14 @@ function Store.profileStore(opts: any): any
 				profiles[userId] = nil
 				entries[userId] = nil
 			end
-			if lastSaveReason == "External" then
+			-- Every EndSession route fires OnLastSave first ("Manual" = our release/reject,
+			-- "Shutdown" = BindToClose, "External" = another server asked us to let go). A session
+			-- that ends with NO OnLastSave was found taken during a normal save (autosave,
+			-- saveNow, nudge): ProfileStore wrote nothing, and the other server owns the save.
+			-- Both "External" and that case are a lost session: drop the record and kick at once.
+			if lastSaveReason == "External" or lastSaveReason == nil then
 				hooks.sessionLost()
 			elseif hooks.sessionEnded then
-				-- ended without "External" (e.g. a normal save found the lock stolen): stop using
-				-- the record, as v1.2 Data did (no kick yet: known gap, step 4b-IIb's fix)
 				hooks.sessionEnded()
 			end
 		end)

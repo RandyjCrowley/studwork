@@ -58,9 +58,6 @@
       }
     },
     "ServerScriptService": {
-      "CoreServer": {
-        "$path": "../../packages/core/server"
-      },
       "Compat": {
         "$path": "../../packages/kits/compat"
       },

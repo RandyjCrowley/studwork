@@ -37,13 +37,12 @@ and what to do until it is fixed.
   files, so it misses a `packages/` commit made on its own on a branch not named `game*`, and
   anything already merged.
   - Until fixed: review merges of game branches.
-- **A session stolen during an autosave doesn't kick the player** (found by agent C,
-  `Data/init.luau:251-262`).
-  - ProfileStore ends the session without `OnLastSave`, so Data never kicks. The player stays in the
-    old server with nothing loaded and nothing saving. No stale write lands.
-  - Repro: `tests/sim/SessionLock.spec`, "holder alive but MessagingService down", which asserts the
-    current gap.
-  - Fix: kick on any session end that isn't a leave or a shutdown.
+- **FIXED in core-v1.3.0 step 4b-IIb: a session stolen during an autosave now kicks the player.**
+  ProfileStore ends such a session without `OnLastSave`; framework Store treats that (and
+  "External") as a lost session: Data drops the record at once (no autosave, leave, BindToClose,
+  saveAsync / Shop settle or late `tx.after` write from the old server) and the runtime kicks with
+  `Server.KICK_SESSION_ENDED`. Proven by `packages/framework/test/sim/StolenSession.spec.luau`
+  and the SessionLock "holder alive but MessagingService down" case, which now asserts the kick.
 - **A long DataStore outage at join leaves the player waiting.** `Data/init.luau:171` passes `Cancel`,
   so ProfileStore's 120 s load timeout is off. The player waits unloaded, with no kick, until the
   outage ends. Defaults are never written over a profile (tested).

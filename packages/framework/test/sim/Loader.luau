@@ -35,6 +35,10 @@ local ROOTS = {
 	"packages/kits/social/server",
 	"packages/kits/engagement/server",
 	"deps/ServerPackages",
+	"deps/Packages/_Index/sleitnick_trove@1.8.0/trove",
+	-- game projects (Fixtures.gameServer boots a real game's Config through its Rojo project)
+	"games",
+	"templates",
 }
 
 local kinds: { [string]: "file" | "dir" } = {}
@@ -155,6 +159,26 @@ local function makeNode(path: string)
 end
 
 Loader.node = makeNode
+
+-- "games/x/../../packages/core/shared" -> "packages/core/shared"
+function Loader.normalize(path: string): string
+	local out: { string } = {}
+	for part in string.gmatch(path, "[^/]+") do
+		if part == ".." and #out > 0 and out[#out] ~= ".." then
+			table.remove(out)
+		elseif part ~= "." then
+			table.insert(out, part)
+		end
+	end
+	return table.concat(out, "/")
+end
+
+-- A Rojo project file, decoded (call on the main thread: Lune's fs yields). Returns
+-- { dir, tree } where dir is the project's folder.
+function Loader.readProject(projectPath: string): any
+	local serde = luneRequire("@lune/serde")
+	return { dir = dirname(projectPath), tree = serde.decode("json", fs.readFile(projectPath)).tree }
+end
 
 -- A folder whose children are named nodes (ReplicatedStorage.Core, ServerStorage.ServerPackages).
 function Loader.folder(children: { [string]: any })

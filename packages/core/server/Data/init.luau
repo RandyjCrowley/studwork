@@ -39,7 +39,8 @@ local RunService = game:GetService("RunService")
 local ServerStorage = game:GetService("ServerStorage")
 
 local Types = require(game:GetService("ReplicatedStorage"):WaitForChild("Core"):WaitForChild("Types"))
-local Internal = require(script.Internal)
+local Internal =
+	require(game:GetService("ServerScriptService"):WaitForChild("Compat"):WaitForChild("MailInternal"))
 local Load = require(script.Load)
 local Transaction = require(script.Transaction)
 local ReadOnlyView = require(script.ReadOnlyView)

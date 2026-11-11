@@ -109,10 +109,10 @@ describe("session lock held by another server", function()
 		expect(world:advanceUntil(function()
 			return not a:isLoaded(p)
 		end, 400, 0.5)).toBe(true)
-		-- KNOWN GAP (REPORT_C.md): ProfileStore ends a session it finds stolen during a normal
-		-- save with OnSessionEnd but WITHOUT OnLastSave("External"), so Data does not kick here;
-		-- the player stays in server A with no loaded data. Safety holds (asserted below).
-		expect(kickedWith(a, 73, "another server")).toBe(false)
+		-- ProfileStore ends a session it finds stolen during a normal save with OnSessionEnd but
+		-- WITHOUT OnLastSave("External"); the framework treats that as a lost session too and
+		-- kicks at once (core-v1.3.0 step 4b-IIb closed the old no-kick gap). Safety below.
+		expect(kickedWith(a, 73, "another server")).toBe(true)
 		expect(a.services.Data.update(p, function() end)).toBe(false)
 		save(world, b, q)
 		expect(F.stored(world, 73).currency.Coins).toBe(15) -- A's 999 never landed

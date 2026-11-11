@@ -72,6 +72,52 @@ function Fixtures.server(world: any, opts: any?)
 	return world:server(o)
 end
 
+-- A server that boots a REAL game (core-v1.3.0 step 4b-IIb boot tests): the game's own
+-- Config, game module and ServerConfig, through its Rojo project (`projectPath`, e.g.
+-- "games/example-collector/default.project.json"), with the real framework, kit wrappers and the
+-- compat bridge. Call on the spec's main thread (the project file is read here).
+function Fixtures.gameServer(world: any, projectPath: string, opts: any?)
+	local Loader = require(script.Parent.Loader)
+	local o = table.clone(opts or {})
+	o.project = Loader.readProject(projectPath)
+	o.config = { modules = {} } -- replaced by the game's own Config at boot
+	return world:server(o)
+end
+
+-- Boots the game's real project (Fixtures.gameServer), joins one player, plays a few seconds and
+-- leaves. Returns { names = module names in boot order, server, world, loaded, errors, bootWarnings }.
+-- Used by each game's Boot.spec.luau.
+function Fixtures.bootGame(projectPath: string, opts: any?): any
+	local world = Fixtures.world()
+	local server = Fixtures.gameServer(world, projectPath, opts)
+	local names = {}
+	for _, ref in server.runtime.order do
+		table.insert(names, ref.name)
+	end
+	local p = server:join(1)
+	local loaded = world:advanceUntil(function()
+		return server:isLoaded(p)
+	end, 30)
+	world:advance(5)
+	server:leave(p)
+	world:advance(10)
+	local bootWarnings = {}
+	for _, w in server.warnings do
+		if string.find(w, "failed", 1, true) or string.find(w, "invalid", 1, true) then
+			table.insert(bootWarnings, w)
+		end
+	end
+	return {
+		names = names,
+		server = server,
+		world = world,
+		loaded = loaded,
+		errors = world:errors(),
+		bootWarnings = bootWarnings,
+		state = server.runtime.state,
+	}
+end
+
 -- The v1.3 save root of a user as it is in the mock DataStore right now (ProfileStore's `Data`
 -- field: _framework, _versions and one section per module), or nil.
 function Fixtures.storedRaw(world: any, userId: number): any
