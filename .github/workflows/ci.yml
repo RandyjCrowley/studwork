@@ -20,6 +20,10 @@ jobs:
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
+          # Full history and tags: tools/lune/MakeGen.spec.luau compares the templates
+          # against the v1.3.1 tag (git show v1.3.1:...), which a shallow clone lacks.
+          fetch-depth: 0
+          fetch-tags: true
 
       # Installs Rokit, puts ~/.rokit/bin on PATH and runs `rokit install` for rokit.toml.
       - name: Set up Rokit (toolchain from rokit.toml)
