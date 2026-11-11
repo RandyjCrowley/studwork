@@ -1,159 +1,168 @@
 # Known issues
 
-core-v1.3.1: R19, R20 and R22 are closed (see their entries below); R21, R23 and R24 stay open; the
-v1.3.1 final review (`(internal build report, not public)`) adds R25-R27.
+Open problems in StudWork that are known, understood and not yet fixed. Each entry says where the
+problem is, what fails, and what to do until it is fixed. Fixed issues are not listed here; see
+`CHANGELOG.md` for those.
 
-Open findings after `core-v1.2.0`. The v1.1.0 review findings N1–N10 are fixed (N8 and N9 within
-the limits listed under Low). The v1.2.0 review (`(internal build report, not public)`) found
-0 Critical, 2 High, 7 Medium and 8 Low. Fixed before the tag: R2, R4, R5, R8, R15, most of R9 and
-part of R14. R1 is mitigated, not fixed. Each entry gives the severity, where it is, how it fails,
-and what to do until it is fixed.
+**Ids.** `R<n>` ids come from the framework's code reviews and keep their original numbers, so gaps
+in the sequence are issues that have since been fixed. `V<n>` ids are issues that only show up when
+StudWork is used from a games repo (as a submodule). `O<n>` ids are smaller limits that were noted
+without a review id.
 
-## High (residual)
+**Severity.**
+- **High:** can lose or duplicate player data or purchases in realistic use.
+- **Medium:** wrong behaviour or a guardrail gap that needs care from game code or reviewers.
+- **Low:** an edge case, a cosmetic problem, or a limit that is unlikely to matter in practice.
 
-### R1. ProfileStore keeps at most 1000 queued messages per player and drops the oldest
-
-**Fixed in core-v1.3.0 (Phase 2):** Mail caps undelivered gifts per recipient (100) through the framework
-shared store and returns uncollected gifts to the sender after 14 days; the 2400-gift test passes on the
-real path (`packages/framework/test/sim/GiftSoakReal.spec.luau`). The text below is the v1.2 record.
-- Where: `ProfileStore.luau:181,1683` (`MAX_MESSAGE_QUEUE`).
-- What protects it now: Mail takes a message out of that queue as soon as the receiver loads it. It
-  is either delivered or held in `PlayerData.mail.box`, which now holds up to 500 messages.
-- Still exposed: a receiver who **never logs in**, or who already has 500 held messages, while more
-  than 1000 messages pile up. The sender has already given the item up, so the oldest gifts are lost.
-- Until fixed: game code must not mail items to users who may never return. Pick recipients from
-  recently active players and cap undelivered gifts per recipient per day.
-- Possible fix: a per-recipient counter (MemoryStore or DataStore) that `sendGift` checks, or keep the
-  outbox entry until the receiver acknowledges.
+There are no open Critical or High issues.
 
 ## Medium
 
-- **R3. An unsent gift waits for its sender.** If the sender leaves or the server shuts down before
-  `saveAsync` and `MessageAsync` finish, the gift stays in the sender's outbox until they rejoin.
-  - Fix: flush once more in PlayerRemoving or BindToClose, or let any server flush the outboxes of
-    users who left.
-- **R6. Dead letters can't be replayed on live servers.** Only the Studio console can replay them
-  (`mailreplay`), and live servers keep only the newest 25.
-  - Fix: an admin-gated live replay. Consider holding "unknown item" gifts in the mailbox instead of
-    throwing.
-- **R7. Duplicate detection only covers the last 500 ids.** A resend older than that can grant an
-  item again if the receiver no longer owns it. This needs a crash between the send and the outbox
-  removal, and the sender returning much later.
-  - Fix: time-based dedupe for `core_gift`, or expire old outbox entries.
-- **R9 (remaining). The packages/ guardrail is a convention.** It works on branch names and staged
-  files, so it misses a `packages/` commit made on its own on a branch not named `game*`, and
-  anything already merged.
-  - Until fixed: review merges of game branches.
-- **FIXED in core-v1.3.0 step 4b-IIb: a session stolen during an autosave now kicks the player.**
-  ProfileStore ends such a session without `OnLastSave`; framework Store treats that (and
-  "External") as a lost session: Data drops the record at once (no autosave, leave, BindToClose,
-  saveAsync / Shop settle or late `tx.after` write from the old server) and the runtime kicks with
-  `Server.KICK_SESSION_ENDED`. Proven by `packages/framework/test/sim/StolenSession.spec.luau`
-  and the SessionLock "holder alive but MessagingService down" case, which now asserts the kick.
-- **A long DataStore outage at join leaves the player waiting.** `Data/init.luau:171` passes `Cancel`,
-  so ProfileStore's 120 s load timeout is off. The player waits unloaded, with no kick, until the
-  outage ends. Defaults are never written over a profile (tested).
+### R3. An unsent gift waits for its sender
+- **Where:** `packages/kits/social/Mail/server/Outbox.luau`.
+- **What fails:** a gift is written to the sender's outbox and saved before it is sent. If the server
+  shuts down or the sender leaves before the send succeeds, the outbox is retried once more on leave
+  and again at the sender's next login, but not from any other server (that would need the sender's
+  save session). A sender who never returns leaves the gift undelivered. The item is never lost or
+  duplicated, only delayed.
+- **Workaround:** none needed for correctness; tell players that gifts can take until the sender's
+  next visit if a server closes mid-send.
+
+### R9. The "games don't edit the framework" guardrail is a convention in the framework repo
+- **Where:** `tools/lune/guardrails.luau` (`packages` check).
+- **What fails:** inside this repo the check works on branch names (`game/*` branches may not change
+  `packages/`) and on staged changes that mix `packages/` with game files. A `packages/` change
+  committed on its own on a branch with another name, or anything already merged, is not caught. (In
+  a games repo the check is strict: the framework submodule must sit exactly on a release tag.)
+- **Workaround:** review merges of game branches.
+
+### R25. The framework still carries v1.2-shaped kit data
+- **Where:** `packages/framework/shared/Types.luau` (`BalanceConfig` sections such as `income`,
+  `inventory`, `rarityTables`, `upgrades`, `rebirth`, `offline`, `streak`, `friends`, `plot`, and
+  `PlayerData.mail`), the flat `ReplicatedState` fields (`ratePerSec`, `multiplier`, `plotName`,
+  `odds`, `mailbox`) filled by `Replication/Snapshot.build` and the client `State`,
+  `FrameworkSection.V12_MAP`, and the default theme's `rebirth`/`streak` sounds.
+- **What fails:** nothing at runtime, and no kit gets a capability a third-party module lacks (module
+  state lives under `state.modules.<Name>`, config under `config.<Name>`). But the framework still
+  knows these lower-case kit shapes, which the `special` guardrail does not flag. Removing them would
+  break the v1.2-compatible client surface and saves made before v1.3.
+- **Workaround:** new modules should use their own section, config and `state.modules.<Name>`, never
+  the flat fields. Planned fix for a major version: move the kit types into each kit's
+  `module.luau`, drop the flat view, and let the scan derive each kit's `data.key`.
 
 ## Low
 
-- **R10 (rest of N8).** Read-only views cover `Core.Data.get/getGame` in Studio only.
-  `Core.Inventory.get/list` still return live instances, and `Data.onLoaded` handlers get the live table.
-- **R11 (rest of N9).** If the player leaves before the receipt's save is confirmed, only the
-  analytics are logged. Game `tx.after` effects, `ProductGranted` and the toast are dropped. Never put
-  grant logic in `tx.after`.
-  *core-v1.3.0 (framework Shop, step 4b):* settled. On leave, the framework makes one more confirmed
-  save and then runs the parked `tx.after` effects even though the buyer is gone; only if that save
-  can't be confirmed either are they dropped (warned). `tx.after` effects must not assume the buyer is
-  still in the server. See `packages/framework/server/Shop/README.md` (N9). The v1.2 `Core.start` path
-  keeps the old behaviour until the boot switch (step 4b-II).
-- **R12.** `tools/publish` trusts `deploy.json`: hand-editing `test.published.commit` unlocks `--live`.
-- **R13 / rest of R14.** The modules and numbers guardrails miss aliases (`local C = Core`,
-  `Core["Mail"]`, `local E = Core.Economy`) and neutral names (`local k = 750`). The facade still
-  errors at runtime for a disabled module, and the numbers check is only a heuristic.
-- **R16 (fixed in core-v1.3.0, Phase 1 E).** `tools/new-game --modules <subset>` copies the full template loop, so lint fails until the
-  game code is trimmed (new-game prints the findings).
-- **R17.** When one handler of a kind returns `false`, the handlers before it have already run, and
-  they run again on claim. This is documented: handlers must be safe to run twice.
-- Net's pre-start queue cap (`PENDING_CAP = 256`) is shared by all players and events.
-- `OddsDetail` has no long-run effective rate that includes pity.
-- ProfileStore's `EndSession()` always writes once. On a migration failure the session ends with a
-  save of the untouched loaded data (never defaults). Documented in `Data/README.md`.
-- The Studio console shows `rbxassetid://203785492 … Asset type does not match`. This id is not
-  in core; it is probably a Studio or default asset.
+### R11. Purchase effects are dropped if the final save fails after the buyer leaves
+- **Where:** `packages/framework/server/Shop/` (see its README).
+- **What fails:** if the buyer leaves while a grant's save is unconfirmed, the framework makes one
+  more confirmed save and then runs the `tx.after` effects. If that save also fails, the effects are
+  dropped with a warning. The grant itself is safe: it is in the save, or the receipt is retried.
+- **Workaround:** never put grant logic in `tx.after`; it is for effects (toasts, sounds,
+  analytics), and must not assume the buyer is still in the server.
 
-## Not verified live (needs a human in Studio)
+### R12. `tools/publish` trusts `deploy.json`
+- **Where:** `tools/lune/PublishGate.luau`.
+- **What fails:** the "tested before live" gate reads `test.published.commit` from `deploy.json`;
+  hand-editing it unlocks `--live` without a test publish.
+- **Workaround:** don't edit the publish stamps by hand; review `deploy.json` changes.
 
-`docs/manual-qa.md` covers these: Local Server with 1 and 2 clients, Device Emulator presets,
-listening to the sounds, and the real DataStore on a published test place. The automated cover is in
-`packages/framework/test/sim/`.
-- **R18 (core-v1.3.0, §7.1; was numbered R16 by mistake). On live servers ProcessReceipt replacement can't be detected at
-  runtime.** `MarketplaceService.ProcessReceipt` is a write-only callback in the engine, so the
-  framework's Heartbeat check (which works with the fake platform in tests) is inert live; see
-  `receiptCheck().status`. Enforcement is the `purchases` lint guardrail plus Shop claiming the
-  callback as the very last boot step. Workaround: never assign ProcessReceipt anywhere; vendored
-  packages that do must be patched.
+### R17. Mail handlers before a `false` run again on claim
+- **Where:** `packages/kits/social/Mail/server/Delivery.luau`.
+- **What fails:** when one handler of a mail kind returns `false` ("can't accept now"), the handlers
+  before it have already run, and they run again when the message is claimed from the mailbox.
+- **Workaround:** documented contract: mail handlers must be safe to run twice.
 
-## core-v1.3.0 (StudWork) open items
+### R18. ProcessReceipt replacement can't be detected on live servers
+- **Where:** `packages/framework/server/Shop/`, `packages/framework/server/Platform.luau`.
+- **What fails:** `MarketplaceService.ProcessReceipt` is write-only in the engine, so the framework's
+  runtime check (warn, analytics event, reclaim) only works with the test platform. Live,
+  `receiptCheck().status` reports the check as unavailable.
+- **Workaround:** enforcement is the `purchases` lint guardrail plus Shop claiming the callback as
+  the very last boot step. Never assign ProcessReceipt yourself; patch vendored packages that do.
 
-From the final review (`(internal build report, not public)`); both Highs and the in-scope
-Mediums/Lows were fixed before the tag (`P2F-REPORT.md`).
-- **R19 (Medium, final review 5). Fixed in core-v1.3.1.** Each kit module is one folder (§1 mapping,
-  `ServerScriptService.Modules.<Name>` / `ReplicatedStorage.Modules.<Name>`) with its own `net.blink`
-  and module actions; `framework.blink` holds only framework events; `kitLoadServer`, `ModuleServers`,
-  `ModuleClients`, the kit-named client actions and the kit HUD defaults are gone from the framework.
-  The `special` guardrail fails on any kit name in framework code or `framework.blink` (no allow-list).
-- **R20 (Medium, final review 7). Enforced in core-v1.3.1** (module-api §19.10): boot fails if a currency
-  in `compliance.paidCurrencies` has no registered spender, so every paid currency has an owner whose
-  spends Compliance sees. Residual (Low, guided): the owning module itself could still debit its paid
-  currency straight from its own section, bypassing its own spender, and then roll in the same tx;
-  Economy never does (`guardrails.md`, "Paid-random compliance").
-- **R21 (Low).** `_framework.purchases` keeps the last 200 receipts (as v1.2); a lost receipt older than
-  that could be granted twice. Moving receipts into their own section is a contract change, left for later.
-- **R22 (Low). Fixed in core-v1.3.1:** `Store.saveNow` / `Data.saveAsync` bump the `_framework` section
-  version when the save replaces it (`SaveNowVersion.spec`).
-- **R23 (Low, perf).** A module that writes `_framework` every tick costs ~1.6-1.9 ms/tick at 50 players
-  (it re-walks the receipts). Rule: per-tick stats live in a module's own section. The real kits do this
-  (0.60-0.65 ms/tick vs v1.2 0.64).
-- **R24 (Low, cosmetic).** With a wider theme display font, auto-widened action-bar buttons can touch the
-  top-centre HUD in a small viewport.
-- **R3 (rest).** Unsent gift outboxes are retried on leave and at the sender's next login, not from any
-  server (that would need the sender's session).
+### R21. Only the last 200 receipts are remembered
+- **Where:** `_framework.purchases` (`packages/framework/server/Data.luau`, `PURCHASES_CAP`).
+- **What fails:** a receipt that Roblox re-delivers after more than 200 newer purchases by the same
+  player could be granted twice.
+- **Workaround:** none needed in practice. The fix (receipts in their own section) is a data-contract
+  change, left for a later version.
 
-## core-v1.3.1 open items (final review)
+### R23. Writing `_framework` every tick is slow
+- **Where:** framework data commits.
+- **What fails:** a module that writes into `_framework` every tick costs about 1.6–1.9 ms per tick
+  at 50 players, because each commit re-walks the stored receipts. The shipped kits don't do this
+  (0.60–0.65 ms per tick).
+- **Workaround:** keep per-tick stats in your module's own data section.
 
-- **R25 (Medium, review 4). The framework still carries v1.2 kit-shaped legacy data shapes.** No kit
-  code path, event, loader, widget or PascalCase kit name is left in `packages/framework` (the
-  `special` scan enforces that), but lower-case v1.2 shapes are: `Types.luau` `BalanceConfig` kit
-  sections (`income`, `inventory`, `rarityTables`, `upgrades`, `rebirth`, `offline`, `streak`,
-  `friends`, `plot`), `PlayerData.mail`, the flat `ReplicatedState` fields (`ratePerSec`,
-  `multiplier`, `plotName`, `odds`, `mailbox`) with `Replication/Snapshot.build` and the client
-  `State` initial value that fill them, `FrameworkSection.V12_MAP` (the v1.2 save split), and the
-  default theme's kit sounds (`rebirth`, `streak`). The scan doesn't flag lower-case keys. None of it
-  gives a kit a capability a third-party module lacks (module state is namespaced under
-  `state.modules.<Name>`, config under `config.<Name>`), and removing the v1.2 flat view and types
-  would break the v1.2-compatible client surface, so it waits for a major version.
-  Fix then: move the kit types into each kit's `module.luau`, drop the flat view, and let the scan
-  also derive each kit's `data.key`.
-- **R26 (Low, review 5). Runtime-built names evade the framework scan** (`string.char`, `format`,
-  `reverse`, `table.concat`, `gsub`): lint is a guardrail against mistakes, not against deliberate
-  obfuscation in the core owner's own code; review merges.
-- **R27 (Low, review 7). The sim R22 spec passes without the R22 bumps** (ProfileStore's `beforeSave`
-  bumps the version during the save). The unit spec `SaveNowVersion.spec` is the regression guard.
+### R24. Wide display fonts can crowd the HUD
+- **Where:** framework HUD (action bar).
+- **What fails:** with a wider theme display font, auto-widened action-bar buttons can touch the
+  top-centre HUD in a small viewport. Cosmetic.
+- **Workaround:** pick a narrower display font or shorter action labels.
 
+### R26. Runtime-built names evade the framework scan
+- **Where:** `tools/lune/guardrails.luau` (`special` check).
+- **What fails:** names built at runtime (`string.char`, `string.format`, `string.reverse`,
+  `table.concat`, `gsub`) are not seen. Lint guards against mistakes, not deliberate obfuscation.
+- **Workaround:** review framework merges.
 
-## v1.4.0 open items (games-repo mode)
+### R27. One sim spec doesn't guard the save-version bump
+- **Where:** `packages/framework/test/sim/` (the stolen-save / `saveNow` version case).
+- **What fails:** the sim spec passes even without the `_framework` version bump on `saveNow`,
+  because ProfileStore's own `beforeSave` bumps it during the save.
+- **Workaround:** the unit spec `packages/framework/test/SaveNowVersion.spec.luau` is the regression
+  guard; keep it.
 
-- **V1 (Medium). The games-repo pre-commit hook template trips the pin check.** Git runs hooks with
-  `GIT_INDEX_FILE=.git/index` (relative), so `templates/games-repo/.githooks/pre-commit` -> `tools/lint`
-  -> the pin check's `git -C roblox-core ...` fails with "not a git checkout" on every commit.
-  `tools/test-games-repo` doesn't commit through the hook, so it didn't catch it. Workaround (in
-  the games repo's own hook): unset the default `GIT_INDEX_FILE` and refuse partial commits
-  (`git commit <paths>`). Fix: clear `GIT_INDEX_FILE`/`GIT_DIR` in `_common.sh` games mode and run the
-  hook in `test-games-repo`. Filed in the games repo `FRAMEWORK_REQUESTS.md`.
-- **V2 (Low). The module README that `make-module` writes links `../../../../docs/framework/...`**,
-  wrong inside a games repo (kept byte-identical to v1.3.1 output). Filed in FRAMEWORK_REQUESTS.md.
-- **V3 (Low). Games mode links Rokit's tool storage** (`~/.rokit/tool-storage/<owner>/<repo>/<version>`)
-  into `.cache/studwork-bin/`, because Rokit can't be pointed at the core's `rokit.toml`. A Rokit
-  storage-layout change breaks it (one place: `tools/_common.sh`).
-- **V4 (Low). The pin guardrail runs from the pinned core**, so pinning a tag older than v1.4.0 disables
-  it. Bump only forward.
+### O1. A long DataStore outage at join leaves the player waiting
+- **Where:** `packages/framework/server/Store.luau` (`StartSessionAsync` with `Cancel`).
+- **What fails:** the load cancels only when the player leaves, so ProfileStore's own load timeout is
+  off and a player waits unloaded, without a kick, until the outage ends. Defaults are never written
+  over an existing save (tested).
+- **Workaround:** none; the loading screen stays up.
+
+### O2. Net's pre-start queue is shared
+- **Where:** `packages/framework/server/Net/init.luau` (`PENDING_CAP = 256`).
+- **What fails:** requests that arrive before boot finishes are queued in one buffer for all players
+  and events; past 256 they are dropped.
+- **Workaround:** none needed; boot is short.
+
+### O3. Odds don't show a pity-adjusted long-run rate
+- **Where:** `OddsDetail` (Rarity kit).
+- **What fails:** disclosed odds are per roll; the effective rate including pity is not computed.
+- **Workaround:** describe pity in the game's own UI text if you use it.
+
+### O4. ProfileStore always writes once when a session ends
+- **Where:** framework Data/Store.
+- **What fails:** on a migration failure the player is kicked and the session ends with one save of
+  the untouched loaded data (never defaults). Harmless, but it is a write.
+- **Workaround:** none needed.
+
+## Games-repo mode
+
+### V2. Generated module READMEs have a wrong docs link in a games repo
+- **Where:** `templates/module/README.md.tmpl` (written by `tools/make-module`).
+- **What fails:** the README links `../../../../docs/framework/...`, which is right inside this repo
+  but not inside a games repo (the output was kept byte-identical to v1.3.1).
+- **Workaround:** fix the link by hand, or point it at the framework's docs online.
+
+### V3. Games mode depends on Rokit's storage layout
+- **Where:** `tools/_common.sh`.
+- **What fails:** in a games repo the tools link Rokit's tool storage
+  (`~/.rokit/tool-storage/<owner>/<repo>/<version>`) into `.cache/studwork-bin/`, because Rokit can't
+  be pointed at the core's `rokit.toml`. A change to Rokit's storage layout breaks this.
+- **Workaround:** if tools aren't found, check that path; the fix is in one place.
+
+### V4. The pin guardrail runs from the pinned framework
+- **Where:** the `packages` guardrail, run from the submodule.
+- **What fails:** pinning a tag older than v1.4.0 disables the pin check, because older releases
+  don't have it.
+- **Workaround:** only move the pin forward.
+
+Fixed in v1.4.1: **V1**, the games-repo pre-commit hook failing the pin check on every commit (git's
+hook environment broke the check's `git -C` calls).
+
+## Not verified live
+
+Some behaviour needs a person in Studio: Local Server with one and two clients, Device Emulator
+presets, listening to the sounds, and the real DataStore on a published test place.
+`docs/manual-qa.md` has the checklist; the automated cover is in `packages/framework/test/sim/`.
