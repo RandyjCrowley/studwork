@@ -1,6 +1,9 @@
 #!/usr/bin/env bash
 # .githooks/pre-commit (games repo): lint (incl. the framework pin) + the games' tests before every
 # commit. Enabled by tools/install (git config core.hooksPath .githooks). bash 3.2 compatible.
+# v1.4.1: git runs hooks with GIT_INDEX_FILE (relative) etc. set; roblox-core/tools/_common.sh
+# keeps them for this repo's staged-file checks (normal and partial commits) and clears them for
+# the `git -C roblox-core` pin check (v1.4.0 blocked every commit with "not a git checkout").
 set -u
 ROOT="$(git rev-parse --show-toplevel)" || exit 1
 cd "$ROOT" || exit 1
