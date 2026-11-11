@@ -28,8 +28,8 @@ roblox.yaml
 .vscode/
 *.swp
 
-# Agent handoff reports (never committed)
+# Local handoff reports (never committed)
 REPORT_*.md
 
-# Parallel agent worktrees (local only)
+# Local git worktrees
 /.worktrees/

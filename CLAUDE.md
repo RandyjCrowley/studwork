@@ -1,4 +1,4 @@
-# CLAUDE.md — rules for agents working ON the framework
+# CLAUDE.md — rules for contributors and AI coding agents working ON the framework
 
 This repo is **StudWork** (roblox-core), an opinionated Roblox game framework: a small foundation
 (`packages/framework`), optional kit modules (`packages/kits`), a UI kit (`packages/ui`), example
@@ -9,18 +9,19 @@ Read `docs/philosophy.md` (why it is opinionated), `docs/framework/` (how to use
 
 Games do **not** live here. They live in a games repo that has this repo as its `roblox-core/`
 git submodule, pinned at a release tag (`docs/framework/games-repo.md`). **Games and game agents
-never edit this repo**; they file an entry in the games repo's `FRAMEWORK_REQUESTS.md`, and the core
-owner picks it up here.
+never edit this repo**; they file an entry in the games repo's `FRAMEWORK_REQUESTS.md` (or open an issue here), and the
+change is made here.
 
 ## Hard rules
 
-1. **Only the core owner changes this repo**, following "Changing the framework" below. A games
+1. **Framework changes come through reviewed pull requests**, following "Changing the framework"
+   below (see also CONTRIBUTING.md); a game never patches its copy. A games
    repo's lint refuses local edits to its `roblox-core/` submodule and an untagged submodule HEAD.
 2. **The module API is additive only.** `docs/framework/module-api.md`, `packages/framework/shared/`
    (the `StudWork` facade and `Types.luau`) and `framework.blink` gain things; nothing is renamed or
    removed. Mark old calls `-- @deprecated <replacement>` and keep them working. Record every change in
-   `packages/framework/CHANGELOG.md`; module-api.md additions go in §19+ marked `(added in ...)`.
-   (core-v1.3.0 was the last round allowed to break things; listed under "Breaking".) Never weaken a
+   `CHANGELOG.md` (root, under `[Unreleased]`); module-api.md additions go in §19+ marked `(added in ...)`.
+   (v1.3.0 was the last release allowed to break things; listed under "Breaking".) Never weaken a
    test assertion; a moved spec keeps its test count.
 3. **The server is authoritative.** Clients only send requests (module actions, §9). The server validates
    every argument (type, range, ownership) and every action is rate-limited by the framework's Net. Never
@@ -59,8 +60,9 @@ owner picks it up here.
     exact versions (`=x.y.z` in `deps/wally.toml`, `@x.y.z` in `rokit.toml`), record the choice in
     `docs/decisions.md`. Not on Wally → vendor into `packages/vendor/<name>/` with its LICENSE and a
     SOURCE.md (url, commit/version, why). Pins live only here: games repos use this repo's `deps/`.
-11. **Git: local only.** Feature branches + worktrees, local commits. Never push, never add remotes,
-    never `--no-verify`, never rewrite history, never move or delete a release tag. Commit only your
+11. **Git hygiene.** Feature branches; never commit to `main` directly, never `--no-verify`, never
+    rewrite published history, never move or delete a release tag. Agents don't push or add remotes
+    unless asked. Commit only your
     own paths (no `git add -A` in shared trees).
 12. **Ask the user** before installing anything outside the repo or with sudo, spending money,
     publishing to Roblox, or touching files outside the repo root.
@@ -80,7 +82,7 @@ packages/framework/server/  ServerScriptService.Framework      boot + module loa
                                                                Console (internal: never require it)
 packages/framework/client/  ReplicatedStorage.FrameworkClient  client boot, state, Feedback, Input, Hud
 packages/framework/test/    (not in the place)                 Lune harness, specs, sim/ (multi-server)
-packages/framework/CHANGELOG.md                                every release
+packages/framework/CHANGELOG.md                                pointer to the root CHANGELOG.md
 packages/kits/<kit>/<Module>/  one folder per module: module.luau -> ReplicatedStorage.Modules.<Name>.module,
                             server/ -> ServerScriptService.Modules.<Name>, client/, shared/, net.blink
                             collection: Items Rarity Inventory    economy: Economy Upgrades Rebirth Offline
@@ -97,8 +99,13 @@ templates/                  new-game/ (tools/new-game), game-design.md, module/,
                             (tools/make-module, make-migration, make-screen; *.tmpl), games-repo/
                             (the games-repo skeleton: tools/ wrappers, hook, .gitignore, GAMES.md)
 tools/                      see Commands; tools/lune/ holds the Lune side (Roots.luau: core vs games repo)
-docs/                       philosophy.md, framework/, decisions.md, known-issues.md, manual-qa.md,
-                            (internal build report, not public), prompts/core-*
+docs/                       README.md (index), philosophy.md, framework/, decisions.md, known-issues.md,
+                            manual-qa.md
+.github/                    CI workflow (ci.yml), issue and pull request templates
+README.md CHANGELOG.md CONTRIBUTING.md SECURITY.md CODE_OF_CONDUCT.md LICENSE (MIT)
+wally.toml                  publish-only package manifest (not published); NEVER `wally install` at the
+                            root (case-insensitive file systems: Packages/ == packages/); use tools/install
+.gitattributes .editorconfig LF everywhere; tabs for Luau (stylua.toml)
 ```
 
 ## The API (summary — `docs/framework/module-api.md` is the source of truth)
@@ -160,10 +167,10 @@ Go only as deep as you need:
 (Server context during Play). Commands are module-prefixed: `economy grant 100 Coins <userId>`,
 `rarity roll Block <userId>`, `shop receipt EggRoll <purchaseId> <userId>`, `data dump <userId>`.
 
-## Changing the framework (core owner only)
+## Changing the framework
 
 Games and game agents never do this (hard rule 1): they file an entry in the games repo's
-`FRAMEWORK_REQUESTS.md`. For the core owner, every change to the module API is **additive** (hard
+`FRAMEWORK_REQUESTS.md` (or an issue here). Every change to the module API is **additive** (hard
 rule 2):
 
 1. **Design it in `docs/framework/module-api.md` first**, as a new numbered subsection at the end of §19
@@ -180,7 +187,7 @@ rule 2):
    the change; a guardrail self-test if it adds or changes a lint rule; `tools/test-sim` if it touches
    data, purchases or cross-server behaviour. Never weaken an existing assertion.
 6. **Docs:** the user-facing page (`docs/framework/*.md` or the kit page under `docs/framework/kits/`)
-   and the folder README; an entry in `packages/framework/CHANGELOG.md`; the reason in `docs/decisions.md`.
+   and the folder README; an entry in `CHANGELOG.md` (root, `[Unreleased]`); the reason in `docs/decisions.md`.
 7. **Check:** the definition of done below (every example game, `tools/test-games-repo`, and
    `tools/bench` if it runs per tick or per player: ≤ +20% vs the last release).
 
@@ -228,9 +235,10 @@ both modes, with relative paths only.
 
 1. Finish the change (definition of done), bump `StudWork.VERSION` in
    `packages/framework/shared/init.luau` (and `Runtime.VERSION` in the client) for the release.
-2. `packages/framework/CHANGELOG.md`: `## vX.Y.Z (date)` with Added / Changed / Fixed (Breaking only
-   in a major); `docs/decisions.md`: why.
-3. Commit, then tag the commit `vX.Y.Z` (the core owner tags after verifying; tags never move).
+2. `CHANGELOG.md` (root, Keep a Changelog): move `[Unreleased]` to `## [X.Y.Z] - YYYY-MM-DD` with
+   Added / Changed / Fixed (Breaking only in a major) and add its compare link at the bottom;
+   bump `version` in the root `wally.toml`; `docs/decisions.md`: why.
+3. Commit, then tag the commit `vX.Y.Z` (the maintainer tags after verifying; tags never move).
 4. Games repos bump their submodule to the new tag in their own commit
    (`git -C roblox-core fetch --tags && git -C roblox-core checkout vX.Y.Z`, then commit the
    pointer), run their checks, and `framework-status` shows each game against the new tag.
