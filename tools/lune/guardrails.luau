@@ -61,22 +61,6 @@ Guard.PURCHASES_ALLOWED = {
 	"packages/framework/test/", -- fakes
 }
 
-local function purchasesViolation(code: string): string?
-	if string.find(code, "ProcessReceipt%s*=[^=]") or string.find(code, "ProcessReceipt%s*=$") then
-		return "only the framework Shop assigns MarketplaceService.ProcessReceipt: use ctx.shop.onProduct"
-	end
-	if string.find(code, "Prompt%a*PurchaseFinished") then
-		return "Prompt*PurchaseFinished belongs to the framework Shop: use ctx.shop.onPassOwned / onProduct"
-	end
-	if string.find(code, "DataStoreService", 1, true) or string.find(code, "ProfileStore", 1, true) then
-		return "DataStoreService / ProfileStore only inside framework Data: use ctx.data (shared state: ctx.data.shared)"
-	end
-	if string.find(code, "MemoryStoreService", 1, true) then
-		return "MemoryStoreService only inside the framework: use ctx.data.shared"
-	end
-	return nil
-end
-
 local MODULE_SET = {}
 for _, name in Modules.ORDER do
 	MODULE_SET[name] = true
@@ -207,12 +191,222 @@ local function balanceAssignment(code: string): boolean
 	return false
 end
 
+-- core-v1.3.0 Phase 2 (final review 2): the remotes and purchases checks run on a NORMALISED copy
+-- of the whole file, so layout can't hide a call: comments stripped, all whitespace and newlines
+-- removed (an assignment split across lines is one expression), adjacent string literals joined
+-- (`"Data" .. "StoreService"` -> `"DataStoreService"`), and `x["Name"]` read as `x.Name`. Each
+-- character keeps its source line for the finding (and `-- guard: allow <check>` on that line).
+function Guard.normalize(codeLines: { string }): (string, { number })
+	-- tokens: { kind = "str" | "ch", val, line }
+	local tokens = {}
+	for lineNo, code in codeLines do
+		local i = 1
+		while i <= #code do
+			local c = string.sub(code, i, i)
+			if c == '"' or c == "'" or c == "`" then
+				local j = i + 1
+				local buf = {}
+				while j <= #code do
+					local d = string.sub(code, j, j)
+					if d == "\\" then
+						table.insert(buf, string.sub(code, j + 1, j + 1))
+						j += 2
+						continue
+					elseif d == c then
+						break
+					end
+					table.insert(buf, d)
+					j += 1
+				end
+				table.insert(tokens, { kind = "str", val = table.concat(buf), line = lineNo })
+				i = j + 1
+			elseif string.match(c, "%s") then
+				i += 1
+			else
+				table.insert(tokens, { kind = "ch", val = c, line = lineNo })
+				i += 1
+			end
+		end
+	end
+	-- join "a" .. "b" (repeatedly)
+	local folded = {}
+	local k = 1
+	while k <= #tokens do
+		local t = tokens[k]
+		if t.kind == "str" then
+			local val = t.val
+			while
+				tokens[k + 1]
+				and tokens[k + 1].val == "."
+				and tokens[k + 2]
+				and tokens[k + 2].val == "."
+				and tokens[k + 3]
+				and tokens[k + 3].kind == "str"
+			do
+				val ..= tokens[k + 3].val
+				k += 3
+			end
+			table.insert(folded, { kind = "str", val = val, line = t.line })
+		else
+			table.insert(folded, t)
+		end
+		k += 1
+	end
+	-- emit, reading ["Name"] as .Name
+	local chars, lines = {}, {}
+	local function emit(text: string, line: number)
+		for n = 1, #text do
+			table.insert(chars, string.sub(text, n, n))
+			table.insert(lines, line)
+		end
+	end
+	k = 1
+	while k <= #folded do
+		local t = folded[k]
+		local nextT, after = folded[k + 1], folded[k + 2]
+		if
+			t.val == "["
+			and t.kind == "ch"
+			and nextT
+			and nextT.kind == "str"
+			and string.match(nextT.val, "^[%a_][%w_]*$")
+			and after
+			and after.kind == "ch"
+			and after.val == "]"
+		then
+			emit("." .. nextT.val, t.line)
+			k += 3
+		elseif t.kind == "str" then
+			emit('"' .. t.val .. '"', t.line)
+			k += 1
+		else
+			emit(t.val, t.line)
+			k += 1
+		end
+	end
+	return table.concat(chars), lines
+end
+
+-- (pattern, check, message, plain?) checked on the normalised file.
+local NORMALIZED_RULES = {
+	{
+		"ProcessReceipt=[^=]",
+		"purchases",
+		"only the framework Shop assigns MarketplaceService.ProcessReceipt: use ctx.shop.onProduct",
+	},
+	{
+		"ProcessReceipt=$",
+		"purchases",
+		"only the framework Shop assigns MarketplaceService.ProcessReceipt: use ctx.shop.onProduct",
+	},
+	{
+		'"ProcessReceipt"',
+		"purchases",
+		"only the framework Shop assigns MarketplaceService.ProcessReceipt: use ctx.shop.onProduct",
+		true,
+	},
+	{
+		"Prompt%a*PurchaseFinished",
+		"purchases",
+		"Prompt*PurchaseFinished belongs to the framework Shop: use ctx.shop.onPassOwned / onProduct",
+	},
+	{
+		"DataStoreService",
+		"purchases",
+		"DataStoreService / ProfileStore only inside framework Data: use ctx.data (shared state: ctx.data.shared)",
+		true,
+	},
+	{
+		"ProfileStore",
+		"purchases",
+		"DataStoreService / ProfileStore only inside framework Data: use ctx.data (shared state: ctx.data.shared)",
+		true,
+	},
+	{
+		"MemoryStoreService",
+		"purchases",
+		"MemoryStoreService only inside the framework: use ctx.data.shared",
+		true,
+	},
+	{ "OnServerEvent", "remotes", "raw remote handler: route game remotes through Core.Net.handle", true },
+	{ "OnServerInvoke", "remotes", "raw remote handler: route game remotes through Core.Net.handle", true },
+	{
+		"RemoteEvent",
+		"remotes",
+		"RemoteEvent/RemoteFunction in game code: define remotes in game.blink",
+		true,
+	},
+	{
+		"RemoteFunction",
+		"remotes",
+		"RemoteEvent/RemoteFunction in game code: define remotes in game.blink",
+		true,
+	},
+	{ '"OnServer', "remotes", "RemoteEvent/RemoteFunction in game code: define remotes in game.blink", true },
+}
+
+function Guard.normalizedFindings(codeLines: { string }, rawLines: { string }, ctx): { any }
+	local norm, lines = Guard.normalize(codeLines)
+	local out = {}
+	local seen = {}
+	local function hit(pos: number, check: string, message: string)
+		local line = lines[pos] or lines[#lines] or 1
+		if ctx.onlyPurchases and check ~= "purchases" then
+			return
+		end
+		if allowed(rawLines[line] or "", check) then
+			return
+		end
+		local key = `{line}|{check}|{message}`
+		if not seen[key] then
+			seen[key] = true
+			table.insert(out, { line = line, check = check, message = message })
+		end
+	end
+	for _, rule in NORMALIZED_RULES do
+		local init = 1
+		while true do
+			local s, e = string.find(norm, rule[1], init, rule[4] == true)
+			if s == nil then
+				break
+			end
+			hit(s, rule[2], rule[3])
+			init = (e or s) + 1
+		end
+	end
+	-- GetService / Instance.new need a single literal name (a computed name can be anything)
+	for pos, arg in string.gmatch(norm, "()GetService%(([^%)]*)%)") do
+		if not string.match(arg, '^"[%w_]*"$') then
+			hit(pos, "purchases", "GetService with a computed service name: use a string literal")
+		end
+	end
+	for pos in string.gmatch(norm, "Instance%.new%(()") do
+		if not string.match(string.sub(norm, pos), '^"[^"]*"[,%)]') then
+			hit(pos, "remotes", "Instance.new with a dynamic class name: use a string literal")
+		end
+	end
+	-- Blink listeners anywhere outside client code: shared modules run on the server too
+	if not ctx.isClient then
+		for _, pattern in { "()%.On%(", "()%.SetCallback%(" } do
+			for pos in string.gmatch(norm, pattern) do
+				hit(
+					pos,
+					"remotes",
+					"Blink listener outside client code: use Core.Net.handle(name, event, limit, fn)"
+				)
+			end
+		end
+	end
+	return out
+end
+
 -- Scans one file's source. `ctx = { path, modules (set or nil), isServer, isClient, inConfig }`.
 function Guard.scanSource(source: string, ctx): { string }
 	local findings = {}
 	local function add(lineNo: number, check: string, message: string)
 		table.insert(findings, `{ctx.path}:{lineNo}: [{check}] {message}`)
 	end
+	local codeLines, rawLines = {}, {}
 	local lineNo = 0
 	local inBlock = false
 	for raw in string.gmatch(source .. "\n", "([^\n]*)\n") do
@@ -221,6 +415,8 @@ function Guard.scanSource(source: string, ctx): { string }
 		if inBlock then
 			local close = string.find(text, "]]", 1, true)
 			if close == nil then
+				table.insert(codeLines, "")
+				table.insert(rawLines, raw)
 				continue
 			end
 			inBlock = false
@@ -237,11 +433,9 @@ function Guard.scanSource(source: string, ctx): { string }
 			end
 		end
 		local code = stripComment(text)
+		table.insert(codeLines, code)
+		table.insert(rawLines, raw)
 		if ctx.onlyPurchases then
-			local why = not allowed(raw, "purchases") and purchasesViolation(code) or nil
-			if why then
-				add(lineNo, "purchases", why)
-			end
 			continue
 		end
 
@@ -309,48 +503,7 @@ function Guard.scanSource(source: string, ctx): { string }
 			)
 		end
 
-		-- remotes
-		if not allowed(raw, "remotes") then
-			if string.find(code, "OnServerEvent") or string.find(code, "OnServerInvoke") then
-				add(lineNo, "remotes", "raw remote handler: route game remotes through Core.Net.handle")
-			end
-			if
-				string.find(code, "RemoteEvent", 1, true)
-				or string.find(code, "RemoteFunction", 1, true)
-				or string.find(code, '"OnServer', 1, true)
-				or string.find(code, "'OnServer", 1, true)
-			then
-				add(
-					lineNo,
-					"remotes",
-					"RemoteEvent/RemoteFunction in game code: define remotes in game.blink"
-				)
-			end
-			-- Instance.new with a non-literal class name could create a remote (review R8)
-			local newArg = string.match(code, "Instance%.new%s*%(%s*(.)")
-			if newArg and newArg ~= '"' and newArg ~= "'" then
-				add(lineNo, "remotes", "Instance.new with a dynamic class name: use a string literal")
-			end
-			-- Blink listeners anywhere outside client code: shared modules run on the server too
-			if
-				not ctx.isClient
-				and (string.find(code, "%.On%s*%(") or string.find(code, "%.SetCallback%s*%("))
-			then
-				add(
-					lineNo,
-					"remotes",
-					"Blink listener outside client code: use Core.Net.handle(name, event, limit, fn)"
-				)
-			end
-		end
-
-		-- purchases (§7.1)
-		if not allowed(raw, "purchases") then
-			local why = purchasesViolation(code)
-			if why then
-				add(lineNo, "purchases", why)
-			end
-		end
+		-- remotes and purchases: checked on the whole normalised file below (normalizedFindings)
 
 		-- numbers (outside Config)
 		if not ctx.inConfig and not allowed(raw, "numbers") then
@@ -370,23 +523,129 @@ function Guard.scanSource(source: string, ctx): { string }
 			end
 		end
 	end
+	for _, f in Guard.normalizedFindings(codeLines, rawLines, ctx) do
+		add(f.line, f.check, f.message)
+	end
 	return findings
 end
 
-local function walk(dir: string, out: { string })
+-- core-v1.3.0 Phase 2 (final review 1): which files the guardrails scan. Every `.luau` / `.lua`
+-- file Rojo would sync is scanned; specs (`*.spec.luau`, glob-ignored by every project) are not.
+-- The only exclusions are by EXACT path: the Wally dependency folders (Guard.DEPS_EXCLUDED) and
+-- the Blink output files the `.blink` IDL files declare (Guard.generatedFiles). No substring
+-- ("Generated"), extension (".lua") or folder-name ("Packages") exclusions: those shipped files.
+Guard.DEPS_EXCLUDED = { "deps/Packages", "deps/ServerPackages", "deps/DevPackages" }
+
+local function normalizePath(path: string): string
+	local parts = {}
+	for _, part in string.split(path, "/") do
+		if part == ".." and #parts > 0 and parts[#parts] ~= ".." then
+			table.remove(parts)
+		elseif part ~= "." and part ~= "" then
+			table.insert(parts, part)
+		end
+	end
+	return table.concat(parts, "/")
+end
+
+-- The Blink outputs one `.blink` source declares (ServerOutput / ClientOutput / TypesOutput),
+-- resolved against the blink file's folder. Pure (testable).
+function Guard.blinkOutputs(blinkPath: string, source: string): { string }
+	local dir = string.match(blinkPath, "^(.*)/[^/]+$") or "."
+	local out = {}
+	for _, key in { "ServerOutput", "ClientOutput", "TypesOutput" } do
+		local rel = string.match(source, "option%s+" .. key .. '%s*=%s*"([^"]+)"')
+		if rel then
+			table.insert(out, normalizePath(dir .. "/" .. rel))
+		end
+	end
+	return out
+end
+
+local function findBlink(dir: string, out: { string })
 	if not fs.isDir(dir) then
 		return
 	end
 	for _, entry in fs.readDir(dir) do
 		local path = dir .. "/" .. entry
 		if fs.isDir(path) then
-			if entry ~= "Packages" and entry ~= "ServerPackages" then
-				walk(path, out)
+			if not table.find(Guard.DEPS_EXCLUDED, normalizePath(path)) then
+				findBlink(path, out)
 			end
-		elseif string.match(entry, "%.luau$") and not string.match(entry, "%.spec%.luau$") then
+		elseif string.match(entry, "%.blink$") then
 			table.insert(out, path)
 		end
 	end
+end
+
+local generatedCache: { [string]: boolean }? = nil
+-- Set of the exact generated (Blink output) file paths in the repo.
+function Guard.generatedFiles(): { [string]: boolean }
+	if generatedCache then
+		return generatedCache
+	end
+	local set = {}
+	local blinks = {}
+	for _, root in { "packages", "games", "templates", "examples" } do
+		findBlink(root, blinks)
+	end
+	for _, b in blinks do
+		for _, f in Guard.blinkOutputs(b, fs.readFile(b)) do
+			set[f] = true
+		end
+	end
+	generatedCache = set
+	return set
+end
+
+-- Whether a file found under a scan root is scanned. Pure (testable): `generated` is the set of
+-- exact Blink output paths.
+function Guard.isScannedFile(path: string, generated: { [string]: boolean }): boolean
+	local norm = normalizePath(path)
+	if not (string.match(norm, "%.luau$") or string.match(norm, "%.lua$")) then
+		return false
+	end
+	if string.match(norm, "%.spec%.luau$") or string.match(norm, "%.spec%.lua$") then
+		return false
+	end
+	if generated[norm] then
+		return false
+	end
+	for _, dep in Guard.DEPS_EXCLUDED do
+		if string.sub(norm, 1, #dep + 1) == dep .. "/" then
+			return false
+		end
+	end
+	return true
+end
+
+local function walk(dir: string, out: { string })
+	if not fs.isDir(dir) then
+		return
+	end
+	local generated = Guard.generatedFiles()
+	for _, entry in fs.readDir(dir) do
+		local path = dir .. "/" .. entry
+		if fs.isDir(path) then
+			if not table.find(Guard.DEPS_EXCLUDED, normalizePath(path)) then
+				walk(path, out)
+			end
+		elseif Guard.isScannedFile(path, generated) then
+			table.insert(out, path)
+		end
+	end
+end
+
+-- A path's folder segments (relative to a game folder): client / server code is classified by an
+-- exact `client` / `server` folder segment, never by a substring (`server/netclient/` is server).
+function Guard.hasSegment(rel: string, segment: string): boolean
+	local parts = string.split(rel, "/")
+	for i = 1, #parts - 1 do
+		if parts[i] == segment then
+			return true
+		end
+	end
+	return false
 end
 
 -- Scans a game folder (games/<name> or templates/new-game).
@@ -419,10 +678,9 @@ function Guard.scanGame(dir: string): { string }
 		local rel = string.sub(path, #dir + 2)
 		local inConfig = string.find(rel, "/shared/Config/", 1, true) ~= nil
 			or string.match(rel, "/shared/Config%.luau$") ~= nil
-		local isServer = string.find(rel, "server/", 1, true) ~= nil
-		local isClient = string.find(rel, "client/", 1, true) ~= nil
-		local isGenerated = string.find(rel, "Generated", 1, true) ~= nil
-		if not isGenerated then
+		local isServer = Guard.hasSegment(rel, "server")
+		local isClient = Guard.hasSegment(rel, "client") and not isServer
+		do -- generated files never reach here (walk excludes them by exact path)
 			for _, f in
 				Guard.scanSource(fs.readFile(path), {
 					path = path,
@@ -455,7 +713,7 @@ function Guard.scanPackages(root: string): { string }
 	walk(root, files)
 	table.sort(files)
 	for _, path in files do
-		if not Guard.isPurchasesAllowed(path) and not string.find(path, "Generated", 1, true) then
+		if not Guard.isPurchasesAllowed(path) then
 			for _, f in Guard.scanSource(fs.readFile(path), { path = path, onlyPurchases = true }) do
 				table.insert(findings, f)
 			end
@@ -515,6 +773,10 @@ local function childAfter(code: string, i: number): (string?, string?)
 		return "dynamic", nil
 	end
 	if string.match(rest, "^%s*%[") then
+		return "dynamic", nil
+	end
+	-- (final review 5) enumerating the children finds the internals by name at run time
+	if string.match(rest, "^%s*:%s*Get[CD]%a+%s*%(") then
 		return "dynamic", nil
 	end
 	local dot = string.match(rest, "^%.([%a_][%w_]*)")
@@ -798,7 +1060,12 @@ local function moduleFiles(roots: { string }): { string }
 			local found = {}
 			walk(dir, found)
 			for _, f in found do
-				if not string.find(f, "/tests/", 1, true) and not string.find(f, "Generated", 1, true) then
+				-- kits' and examples' tests/ folders are not synced by any project (only shared/,
+				-- server/, client/ are); games/*/modules sync only module.luau + server/.
+				if
+					not string.match(f, "^packages/kits/[^/]+/tests/")
+					and not string.match(f, "^examples/.-/tests/")
+				then
 					table.insert(files, f)
 				end
 			end
@@ -1019,6 +1286,103 @@ local function selfTest(): boolean
 	)
 	expectCheck("dynamic new", Guard.scanSource("local r = Instance.new(cls)", server), "remotes")
 	expectClean("literal new", Guard.scanSource('local p = Instance.new("Part")', server))
+
+	-- final review 1: which files are scanned (exact-path exclusions only)
+	local gen = { ["packages/framework/server/Net/Generated.luau"] = true }
+	for _, f in
+		{
+			"games/my-game/modules/my-game/server/EvilGenerated.luau",
+			"games/my-game/modules/my-game/server/Generated/Evil.luau",
+			"games/my-game/modules/my-game/server/Evil.lua",
+			"games/my-game/modules/my-game/server/Packages/Evil.luau",
+			"games/my-game/src/server/ServerPackages/Evil.luau",
+			"packages/kits/economy/server/Generated.luau",
+		}
+	do
+		if not Guard.isScannedFile(f, gen) then
+			table.insert(failures, "scan set: " .. f .. " is shipped by Rojo and must be scanned")
+		end
+	end
+	for _, f in
+		{
+			"packages/framework/server/Net/Generated.luau",
+			"deps/Packages/Promise.lua",
+			"deps/ServerPackages/x/init.luau",
+			"games/x/src/server/Thing.spec.luau",
+			"games/x/README.md",
+		}
+	do
+		if Guard.isScannedFile(f, gen) then
+			table.insert(failures, "scan set: " .. f .. " must not be scanned")
+		end
+	end
+	local outs = Guard.blinkOutputs(
+		"packages/framework/shared/net/framework.blink",
+		'option ServerOutput = "../../server/Net/Generated.luau"\noption TypesOutput = "Generated.Types.luau"'
+	)
+	if
+		not table.find(outs, "packages/framework/server/Net/Generated.luau")
+		or not table.find(outs, "packages/framework/shared/net/Generated.Types.luau")
+	then
+		table.insert(failures, "blinkOutputs: " .. table.concat(outs, ", "))
+	end
+	-- final review 2: textual evasions of the purchases / remotes checks
+	local gm = { path = "games/x/modules/x/server/init.luau", modules = mods, isServer = true }
+	expectCheck("bracket ProcessReceipt", Guard.scanSource('MS["ProcessReceipt"] = fn', gm), "purchases")
+	expectCheck("bracket ProcessReceipt sq", Guard.scanSource("MS[ 'ProcessReceipt' ]=fn", gm), "purchases")
+	expectCheck("split ProcessReceipt", Guard.scanSource("MS.ProcessReceipt\n\t= fn", gm), "purchases")
+	expectCheck(
+		"split ProcessReceipt comment",
+		Guard.scanSource("MS.ProcessReceipt -- later\n-- more\n= fn", gm),
+		"purchases"
+	)
+	expectCheck(
+		"rawset ProcessReceipt",
+		Guard.scanSource('rawset(MS, "Process" .. "Receipt", fn)', gm),
+		"purchases"
+	)
+	expectCheck(
+		"concat DataStore",
+		Guard.scanSource('local ds = game:GetService("Data" .. "StoreService")', gm),
+		"purchases"
+	)
+	expectCheck(
+		"concat DataStore lines",
+		Guard.scanSource('local ds = game:GetService(\n\t"Data"\n\t.. "StoreService"\n)', gm),
+		"purchases"
+	)
+	expectCheck("computed GetService", Guard.scanSource("local s = game:GetService(name)", gm), "purchases")
+	expectCheck("concat new remote", Guard.scanSource('Instance.new("Remote" .. "Function")', gm), "remotes")
+	expectCheck("bracket new", Guard.scanSource('Instance["new"](cls)', gm), "remotes")
+	expectCheck("bracket OnServerEvent", Guard.scanSource('r["OnServerEvent"]:Connect(fn)', gm), "remotes")
+	expectCheck(
+		"blink On in server/netclient",
+		Guard.scanSource(
+			"GameNet.Cheat.On(fn)",
+			{ path = "games/x/modules/x/server/netclient/Handlers.luau", modules = mods, isServer = true }
+		),
+		"remotes"
+	)
+	if Guard.hasSegment("modules/x/server/netclient/Handlers.luau", "client") then
+		table.insert(failures, "hasSegment: server/netclient/ is not a client folder")
+	end
+	if not Guard.hasSegment("src/client/Main.client.luau", "client") then
+		table.insert(failures, "hasSegment: src/client/ is a client folder")
+	end
+	expectCheck(
+		"package concat DataStore",
+		Guard.scanSource('local d = game:GetService("DataStore" .. "Service")', pkg),
+		"purchases"
+	)
+	expectClean("literal GetService", Guard.scanSource('local P = game:GetService("Players")', gm))
+	expectClean(
+		"ProcessReceipt compare split",
+		Guard.scanSource("if MPS.ProcessReceipt\n== mine then end", gm)
+	)
+	expectClean(
+		"allowed normalised",
+		Guard.scanSource('local d = game:GetService("DataStoreService") -- guard: allow purchases', gm)
+	)
 	expectCheck("exp literal", Guard.scanSource("Core.Economy.grant(player, 1e3, 'q')", server), "numbers")
 	expectCheck("hex literal", Guard.scanSource("Core.Economy.grant(player, 0xFF, 'q')", server), "numbers")
 
@@ -1103,6 +1467,16 @@ local function selfTest(): boolean
 			'local SSS = game:GetService("ServerScriptService")\nlocal K = SSS:WaitForChild("Kits")\nlocal M = require(K.Social.Mail)',
 		},
 	}
+	-- final review 5: enumerating ServerScriptService / Framework children
+	table.insert(specialCases, {
+		"GetChildren loop",
+		'local SSS = game:GetService("ServerScriptService")\nfor _, c in SSS:GetChildren() do\n\tif c.Name:sub(1, 5) == "Frame" then F = require(c) end\nend',
+	})
+	table.insert(specialCases, {
+		"GetDescendants direct",
+		'for _, c in game:GetService("ServerScriptService"):GetDescendants() do end',
+	})
+	table.insert(specialCases, { "Framework GetChildren", "for _, m in RS.Framework:GetChildren() do end" })
 	for _, case in specialCases do
 		expectCheck("special " .. case[1], Guard.scanSpecial(case[2], kitCtx), "special")
 	end

@@ -169,3 +169,47 @@ describe("Theme.merge custom themes", function()
 		expect(Theme.sound(t, "ui_click")).toBeNil()
 	end)
 end)
+
+describe("Theme unknown keys (final review 6)", function()
+	local function warnOf(order, gameTheme)
+		local errors, warnings = {}, {}
+		local t = Theme.merge(order, gameTheme, errors, nil, warnings)
+		return t, errors, table.concat(warnings, "\n")
+	end
+
+	it("warns, naming the key, for a token no layer defines (the old doc names)", function()
+		local t, errors, w = warnOf({}, {
+			colors = { panel = "#101010", accent = "#FF5DA2" },
+			metrics = { minTouch = 60, outline = 3, text = { huge = 40 } },
+			fonts = { headline = "rbxasset://fonts/families/LuckiestGuy.json" },
+			colours = {},
+		})
+		expect(#errors).toBe(0)
+		expect(w).toContain("theme.colors.panel")
+		expect(w).toContain("theme.metrics.minTouch")
+		expect(w).toContain("theme.metrics.outline")
+		expect(w).toContain("theme.metrics.text.huge")
+		expect(w).toContain("theme.fonts.headline")
+		expect(w).toContain("theme.colours")
+		expect((string.find(w, "accent", 1, true))).toBeNil()
+		expect(t.colors.accent).toBe("#FF5DA2")
+	end)
+
+	it("knows the real tokens and module-contributed ones (no warning)", function()
+		local mod = { name = "Quests", theme = { colors = { questGold = "#FFD23F" } } }
+		local _, _, w = warnOf({ mod }, {
+			colors = { surface = "#222222", accentAlt = "#00FF00", questGold = "#FFFFFF" },
+			metrics = { strokeThickness = 3, minTouchTarget = 48, text = { body = 20 } },
+			fonts = { display = "rbxasset://fonts/families/LuckiestGuy.json" },
+			sounds = { coin_tick = { id = 1 } },
+			rarity = { preset = "standard7" },
+		})
+		expect(w).toBe("")
+	end)
+
+	it("reaches boot: ConfigValidate passes the warnings through", function()
+		local ConfigValidate = require(script.Parent.ConfigValidate)
+		local result = ConfigValidate.validate({}, { theme = { metrics = { minTouch = 60 } } })
+		expect(table.concat(result.warnings, "\n")).toContain("theme.metrics.minTouch")
+	end)
+end)

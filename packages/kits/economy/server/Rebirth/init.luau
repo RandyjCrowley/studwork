@@ -16,7 +16,7 @@
 	rebirth(): ONE ctx.tx:
 	  1. re-checks maxRebirths and the balance (Economy.txApi.balance);
 	  2. pays the cost through Economy.txApi.spend when the cost currency is not reset anyway (a
-	     paid currency is allowed: a rebirth is a non-random sink, KitAccess.luau);
+	     paid currency goes through the public ctx.compliance.spendPaid: a rebirth is a non-random good);
 	  3. resets every resetCurrencies currency to config.Economy.startingCurrency[id] or 0
 	     (Economy.txApi.spend / grant, reason "rebirth");
 	  4. unless rebirth.keepInventory, removes the wiped copies with Inventory.txApi.remove
@@ -45,7 +45,6 @@
 
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
-local KitAccess = require(script.Parent.KitAccess)
 local RebirthMath = require(script.RebirthMath)
 
 local Kits = ReplicatedStorage:WaitForChild("Kits")
@@ -165,6 +164,15 @@ function Rebirth.new(): any
 		local newCount = 0
 		local unknownItems: { string } = {}
 
+		-- a paid currency (GameConfig.compliance.paidCurrencies) is spent through the public
+		-- ctx.compliance.spendPaid, any other through Economy (Phase 2 final review 5/7)
+		local function spend(tx: any, amount: number, currency: string): boolean
+			if ctx.compliance.isPaidCurrency(currency) then
+				return (ctx.compliance.spendPaid(tx, currency, amount, "rebirth"))
+			end
+			return economy.spend(tx, amount, "rebirth", currency)
+		end
+
 		local committed = ctx.tx(player, function(tx: any)
 			local s = ctx.section(tx)
 			local rebirths = s.rebirths or 0
@@ -173,16 +181,13 @@ function Rebirth.new(): any
 				return
 			end
 			if cost > 0 and not table.find(resets, payWith) then
-				assert(
-					economy.spend(tx, cost, "rebirth", payWith, KitAccess.TOKEN),
-					"[Rebirth] cost spend refused after the balance check"
-				)
+				assert(spend(tx, cost, payWith), "[Rebirth] cost spend refused after the balance check")
 			end
 			for _, id in resets do
 				local current = economy.balance(tx, id)
 				local target = ctx.deps[EconomyRef].startingBalance(id)
 				if current > target then
-					economy.spend(tx, current - target, "rebirth", id, KitAccess.TOKEN)
+					spend(tx, current - target, id)
 				elseif current < target then
 					economy.grant(tx, target - current, "rebirth", id)
 				end

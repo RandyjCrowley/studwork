@@ -229,13 +229,70 @@ local function contribution(ref: any, configs: { [string]: any }?, errors: { str
 	return result
 end
 
+local TOP_LEVEL =
+	{ preset = true, name = true, colors = true, fonts = true, metrics = true, sounds = true, rarity = true }
+local CHECKED_GROUPS = { "colors", "fonts", "metrics" }
+
+-- Final review 6 (Phase 2 P2-F): a key in the game's theme (or preset table) that no layer below
+-- defines is almost always a typo (`metrics.minTouch` for `minTouchTarget`), and an unknown token
+-- is never read by any UI, so it would silently do nothing. Warn, naming the key (like config's
+-- unknown keys). `known` is the merged theme below the game's layer.
+local function warnUnknown(layer: any, known: any, where: string, warnings: { string })
+	if type(layer) ~= "table" then
+		return
+	end
+	for key in layer do
+		if not TOP_LEVEL[key] then
+			table.insert(warnings, `{where}.{tostring(key)}: unknown theme group (typo?), ignored`)
+		end
+	end
+	for _, group in CHECKED_GROUPS do
+		local values = layer[group]
+		local have = if type(known[group]) == "table" then known[group] else {}
+		if type(values) == "table" then
+			for key, v in values do
+				if have[key] == nil then
+					table.insert(
+						warnings,
+						`{where}.{group}.{tostring(key)}: unknown theme token (typo?); no UI reads it`
+					)
+				elseif
+					group == "metrics"
+					and key == "text"
+					and type(v) == "table"
+					and type(have.text) == "table"
+				then
+					for size in v do
+						if have.text[size] == nil then
+							table.insert(
+								warnings,
+								`{where}.metrics.text.{tostring(size)}: unknown theme token (typo?); no UI reads it`
+							)
+						end
+					end
+				end
+			end
+		end
+	end
+end
+
 -- configs (optional): { [moduleName]: merged config }, passed to a function `theme`.
-function Theme.merge(order: { any }, gameTheme: any, errors: { string }, configs: { [string]: any }?): any
+-- warnings (optional, added in Phase 2: final review 6): unknown game theme keys, named.
+function Theme.merge(
+	order: { any },
+	gameTheme: any,
+	errors: { string },
+	configs: { [string]: any }?,
+	warnings: { string }?
+): any
 	local base: any = FRAMEWORK_DEFAULT
 	local presetName = "framework-default"
 	if type(gameTheme) == "table" and gameTheme.preset ~= nil then
 		if type(gameTheme.preset) == "table" then
 			check(gameTheme.preset, "theme.preset", errors)
+			if warnings then
+				warnUnknown(gameTheme.preset, FRAMEWORK_DEFAULT, "theme.preset", warnings)
+			end
 			base = apply(Freeze.deepCopy(FRAMEWORK_DEFAULT), gameTheme.preset)
 			presetName = if type(gameTheme.preset.name) == "string" then gameTheme.preset.name else "custom"
 		elseif Theme.PRESETS[gameTheme.preset] ~= nil then
@@ -259,6 +316,9 @@ function Theme.merge(order: { any }, gameTheme: any, errors: { string }, configs
 			table.insert(errors, "theme must be a table")
 		else
 			check(gameTheme, "theme", errors)
+			if warnings then
+				warnUnknown(gameTheme, merged, "theme", warnings)
+			end
 			local layer = table.clone(gameTheme)
 			layer.preset = nil
 			merged = apply(merged, layer)

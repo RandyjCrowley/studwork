@@ -13,8 +13,9 @@
 	  .actions.upgrade(id) on the client).
 
 	- cost(level) = floor(baseCost * costGrowth ^ level); nil when maxed or unknown.
-	- purchase is ONE transaction: re-reads the level, pays through Economy.txApi.spend (a paid
-	  currency is allowed here: an upgrade is a non-random sink, KitAccess.luau) and bumps the
+	- purchase is ONE transaction: re-reads the level, pays through Economy.txApi.spend, or
+	  through the public ctx.compliance.spendPaid when the currency is a paid one (an upgrade is a
+	  non-random good; Phase 2 final review 5/7, any module can do the same) and bumps the
 	  level, so the spend and the level commit together (v1.2 spent, then wrote, then refunded on
 	  failure).
 	- Effects: "incomeMultiplier" -> an Economy rateFactor (1 + level * perLevel per upgrade);
@@ -25,7 +26,6 @@
 
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
-local KitAccess = require(script.Parent.KitAccess)
 local UpgradeMath = require(script.UpgradeMath)
 
 local EconomyKit = ReplicatedStorage:WaitForChild("Kits"):WaitForChild("Economy")
@@ -116,16 +116,13 @@ function Upgrades.new(): any
 				failure = "maxed"
 				return
 			end
-			if
-				cost > 0
-				and not ctx.depsTx[EconomyRef].spend(
-					tx,
-					cost,
-					"upgrade:" .. upgradeId,
-					upgrade.currency,
-					KitAccess.TOKEN
-				)
-			then
+			local currency: string = upgrade.currency or ctx.deps[EconomyRef].primaryCurrency()
+			local reason = "upgrade:" .. upgradeId
+			local paid = cost > 0
+				and if ctx.compliance.isPaidCurrency(currency)
+					then ctx.compliance.spendPaid(tx, currency, cost, reason)
+					else ctx.depsTx[EconomyRef].spend(tx, cost, reason, currency)
+			if cost > 0 and not paid then
 				failure = "cannot_afford"
 				return
 			end

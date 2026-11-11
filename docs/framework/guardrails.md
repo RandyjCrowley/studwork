@@ -86,10 +86,12 @@ What can **only be guided**:
 
 ## Nothing in core is special
 
-The built-in kits use only the public module API. A lint rule that fails any kit or example
-importing framework internals is planned for Phase 2 (`CompatDoor`, `RuntimeSlot`,
-`packages/framework/server/*`, `packages/core`, other kits' internals). Until it lands this is a
-review rule.
+The built-in kits use only the public module API. The `special` lint check fails any kit, example
+or game module that reaches framework internals (`CompatDoor`, `RuntimeSlot`,
+`ServerScriptService.Framework`, other kits' server internals), including by enumerating
+`ServerScriptService` / `Framework` children (`GetChildren` / `GetDescendants`). A paid currency
+spent on a non-random good goes through the public `ctx.compliance.spendPaid`, which any module
+can call (module-api.md §19.6); the kits hold no private token.
 
 ## Game-code guardrails (lint)
 
@@ -102,6 +104,14 @@ review rule.
 | `remotes` | raw remotes and handlers that bypass the framework's Net |
 | `purchases` | `ProcessReceipt =`, `Prompt*PurchaseFinished`, `DataStoreService`/`ProfileStore` |
 | `packages` | game branches editing `packages/` |
+
+Every `.luau` / `.lua` file Rojo would sync is scanned, whatever its name or folder; the only
+exclusions are the Blink output files the `.blink` files declare and the Wally folders
+(`deps/Packages`, `deps/ServerPackages`), by exact path. The `remotes` and `purchases` checks read a
+normalised copy of each file (comments and whitespace removed, so a statement split across lines
+is one expression; `"a" .. "b"` joined; `x["Name"]` read as `x.Name`), and `GetService` /
+`Instance.new` need a single string literal. Client code is decided by a `client` folder segment,
+not a substring.
 
 A line ending in `-- guard: allow <check>` skips that check for that line; say why on the line
 above, and use it rarely.

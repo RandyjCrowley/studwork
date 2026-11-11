@@ -174,6 +174,32 @@ describe("Economy kit: paid currencies (§14 C3)", function()
 		expect(#world:errors()).toBe(0)
 	end)
 
+	it("Upgrades and Rebirth pay paid-currency Coins through the public compliance.spendPaid", function()
+		local world, server, p = sandbox(713)
+		local Economy = api(server, "Economy")
+		local changed = record(Economy.signals.CurrencyChanged)
+		Economy.grant(p, 10000, "test")
+		local before = Economy.balance(p)
+		local ok, why = api(server, "Upgrades").purchase(p, "IncomeBoost")
+		expect(ok).toBe(true)
+		expect(why).toBeNil()
+		expect(Economy.balance(p)).toBe(before - 50)
+		expect(api(server, "Upgrades").level(p, "IncomeBoost")).toBe(1)
+		expect(api(server, "Rebirth").rebirth(p)).toBe(true)
+		expect(Economy.balance(p)).toBe(Economy.startingBalance("Coins"))
+		local upgradeSink, rebirthSink = false, false
+		for _, c in changed do
+			if c[4] == -50 and c[5] == "upgrade:IncomeBoost" then
+				upgradeSink = true
+			elseif c[4] < 0 and c[5] == "rebirth" then
+				rebirthSink = true
+			end
+		end
+		expect(upgradeSink).toBe(true)
+		expect(rebirthSink).toBe(true)
+		expect(#world:errors()).toBe(0)
+	end)
+
 	it("Economy is the Compliance spender: a Coins-priced roll spends and rolls in one tx", function()
 		local world, server, p = sandbox(712)
 		local Economy = api(server, "Economy")

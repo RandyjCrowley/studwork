@@ -99,7 +99,7 @@ function ConfigValidate.validate(order: { any }, gameConfig: any): Result
 	local itemNs = ItemFields.collect(order, errors)
 	ItemFields.validateItems(gameConfig.items, itemNs, errors)
 	result.items = ItemFields.catalog(if type(gameConfig.items) == "table" then gameConfig.items else {})
-	result.theme = Theme.merge(order, gameConfig.theme, errors, configs)
+	result.theme = Theme.merge(order, gameConfig.theme, errors, configs, warnings)
 	return result
 end
 

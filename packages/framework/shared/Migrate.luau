@@ -5,7 +5,8 @@
 
 	Migration list shape: { [toVersion]: fn(old) -> new }. Migration N turns version N-1 into N.
 	Migrate.run(data, from, to, migrations) -> (data, status, applied, err)
-	  "ok"    every migration from+1..to ran in order (missing numbers are skipped)
+	  "ok"    every migration from+1..to ran in order (numbers below the first migration are
+	          skipped; a gap above it is a boot error, Migrate.gaps / Data.new)
 	  "newer" from > to: written by newer code; returned untouched, never saved over
 	  "error" a migration errored or returned a non-table; the caller must not save
 ]]
@@ -48,6 +49,30 @@ function Migrate.run(
 		end
 	end
 	return current, "ok", applied, nil
+end
+
+-- The missing migration numbers between a module's first migration and `toVersion` (inclusive).
+-- No migrations at all = none missing (a section that only reconciles defaults). Pure.
+function Migrate.gaps(migrations: { [number]: MigrationFn }?, toVersion: any): { number }
+	local missing: { number } = {}
+	if migrations == nil or not isInteger(toVersion) then
+		return missing
+	end
+	local first: number? = nil
+	for k in migrations do
+		if isInteger(k) and (first == nil or k < first) then
+			first = k
+		end
+	end
+	if first == nil then
+		return missing
+	end
+	for version = first :: number, toVersion do
+		if migrations[version] == nil then
+			table.insert(missing, version)
+		end
+	end
+	return missing
 end
 
 function Migrate.readVersion(value: any, fallback: number): number

@@ -89,6 +89,31 @@ describe("HudLayout.resolve (slots and widgets)", function()
 		expect(#placed.topCenter).toBe(2)
 	end)
 
+	it(
+		"replaces a widget with a bare component, keeping its slot, order and module (final review 6)",
+		function()
+			local placed = HudLayout.resolve(defaults, {}, { ["Economy.currency"] = X }, function(name)
+				return name == "Economy"
+			end)
+			expect(placed.topCenter[1].id).toBe("Economy.currency")
+			expect(placed.topCenter[1].spec.component).toBe(X)
+			expect(placed.topCenter[1].spec.order).toBe(1)
+			expect(defaults["Economy.currency"].component).toBe(W) -- the default is not mutated
+			local gated = HudLayout.resolve(defaults, {}, { ["Economy.currency"] = X }, function()
+				return false
+			end)
+			for _, w in gated.topCenter do
+				expect(w.id).never.toBe("Economy.currency")
+			end
+			local memo = { ["$$typeof"] = "memo", type = X }
+			local m = HudLayout.resolve(defaults, {}, { ["Social.mailbox"] = memo }, all)
+			expect(m.topCenter[3].spec.component).toBe(memo)
+			expect(function()
+				HudLayout.resolve(defaults, {}, { ["Game.brandNew"] = X }, all)
+			end).toThrow("bare component can only replace an existing widget")
+		end
+	)
+
 	it("validates override specs", function()
 		expect(function()
 			HudLayout.resolve(defaults, {}, { ["A.b"] = { slot = "middle", component = W } }, all)
