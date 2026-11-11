@@ -1233,12 +1233,41 @@ end
 function Bridge.compatServices(rt: any): any
 	local st = states[rt]
 	if st == nil or st.v12 == nil then
-		-- every kit module is real: only their adapters (no v1.2 Data / Shop to offer)
+		-- Every kit module is real (Phase 1 merged): no bridged v1.2 ctx was built, so build the
+		-- same v1.2 Data view and v1.2 Shop the bridge would have, plus the adapters, for the sim
+		-- specs that still drive the v1.2 surface (Phase 2 moves them to StudWork.use / h:use).
 		local only = stateFor(rt)
-		local out: { [string]: any } = { Policy = rt.policy.api, Analytics = rt.analytics.api }
+		if only.data == nil then
+			local gm = rt.gameModule
+			only.data = V12Data.new({
+				rt = rt,
+				gameId = rt.gameConfig.gameId,
+				gameKey = if gm and gm.data then gm.data.key else nil,
+				spawn = rt.platform.spawn,
+				log = function(msg: string)
+					rt.logSink("warn", msg)
+				end,
+				signals = only.signals,
+			})
+			-- the v1.2 signals buildV12 would have fed from the framework
+			rt.data.onChange(function(player: any)
+				only.signals.DataChanged:Fire(player)
+			end)
+			for _, name in { "ProductGranted", "EventStarted", "EventEnded" } do
+				rt.frameworkSignals[name]:Connect(function(...: any)
+					only.signals[name]:Fire(...)
+				end)
+			end
+			rt.frameworkSignals.PlayerLoaded:Connect(function(player: any)
+				only.data.fireLoaded(player)
+			end)
+		end
+		local out: { [string]: any } =
+			{ Data = only.data, Policy = rt.policy.api, Analytics = rt.analytics.api }
 		for name in Bridge.API do
 			out[name] = adapted(only, name)
 		end
+		out.Shop = v12Shop(only)
 		return out, only.signals
 	end
 	local out = table.clone(st.v12.services)

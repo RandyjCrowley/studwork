@@ -23,6 +23,7 @@ local Inventory = require(Kits:WaitForChild("Collection"):WaitForChild("Inventor
 local Items = require(Kits:WaitForChild("Collection"):WaitForChild("Items"))
 local Rarity = require(Kits:WaitForChild("Collection"):WaitForChild("Rarity"))
 local Rebirth = require(Kits:WaitForChild("Economy"):WaitForChild("Rebirth"))
+local Economy = require(Kits:WaitForChild("Economy"):WaitForChild("Economy"))
 
 return StudWork.defineModule({
 	name = "Plot",
@@ -30,7 +31,7 @@ return StudWork.defineModule({
 	framework = "^1.3.0",
 	description = "Assigns plots, shows displayed items on them (base kit)",
 	dependsOn = { Inventory },
-	optional = { Items, Rarity, Rebirth },
+	optional = { Items, Rarity, Rebirth, Economy },
 	config = {
 		schema = {
 			plot = {

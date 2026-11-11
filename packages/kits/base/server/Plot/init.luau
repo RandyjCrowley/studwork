@@ -34,6 +34,7 @@ local Inventory = require(Kits:WaitForChild("Collection"):WaitForChild("Inventor
 local Items = require(Kits:WaitForChild("Collection"):WaitForChild("Items"))
 local Rarity = require(Kits:WaitForChild("Collection"):WaitForChild("Rarity"))
 local Rebirth = require(Kits:WaitForChild("Economy"):WaitForChild("Rebirth"))
+local Economy = require(Kits:WaitForChild("Economy"):WaitForChild("Economy"))
 local SignalTable = require(script.Parent.SignalTable)
 local Slots = require(script.Slots)
 local SlotCache = require(script.SlotCache)
@@ -698,6 +699,21 @@ function Plot.init(context: any)
 	signals.ItemUndisplayed:Connect(function(player: any, _uid: any, slotId: any)
 		signals.DisplayCleared:Fire(player, slotId)
 	end)
+
+	-- Economy (optional) earns from displayed items when config.Economy.income.source =
+	-- "displayed": Plot is the provider (Economy.extensions.displayedSource, §8 direction: Plot
+	-- optional = { Economy }), and invalidates Economy's cached rate on every display change.
+	-- Phase 1 integration glue; replaces the Economy compat adapter's shim over the bridged Plot.
+	if ctx.isEnabled(Economy) then
+		local invalidate = ctx.depsExt[Economy].displayedSource(function(player: any): any
+			return displayedOf(player) or table.freeze({})
+		end)
+		for _, name in { "ItemDisplayed", "ItemUndisplayed", "DisplayCleared" } do
+			signals[name]:Connect(function(player: any)
+				invalidate(player)
+			end)
+		end
+	end
 
 	-- An item left the inventory: clear its slot inside the removing tx (§8, inverted).
 	ctx.depsExt[Inventory].onItemRemoved(function(tx: any, player: any, instance: any)

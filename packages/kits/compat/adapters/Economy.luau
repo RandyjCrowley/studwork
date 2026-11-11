@@ -99,24 +99,9 @@ local function flatOf(rt: any, tx: any): any
 	return services.Data.txView(tx)
 end
 
-local function economy(rt: any, api: any, txApi: any, extensions: any): any
+local function economy(rt: any, api: any, txApi: any, _extensions: any): any
 	forward(rt, api, "CurrencyChanged")
-	local plotRef = refNamed(rt, "Plot")
-	if plotRef ~= nil then
-		local plot = rt.apis[plotRef]
-		local invalidate = extensions.displayedSource(function(player: any): any
-			return plot.displayed(player)
-		end)
-		local signals = plot.signals
-		for _, name in { "ItemDisplayed", "ItemUndisplayed", "DisplayCleared" } do
-			local signal = signals and signals[name]
-			if signal ~= nil then
-				signal:Connect(function(player: any)
-					invalidate(player)
-				end)
-			end
-		end
-	end
+	-- (Plot registers Economy.extensions.displayedSource itself since Phase 1 integration)
 	local out: { [string]: any } = {}
 	for _, fn in
 		{
