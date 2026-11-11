@@ -172,6 +172,29 @@ Go only as deep as you need:
 - UI: render inside `UI.ScaledRoot`, use theme tokens (no colour/asset literals: `theme` guardrail),
   `docs/framework/theme.md`, `packages/ui/README.md` (mobile checklist).
 
+## Changing the framework (core owner only)
+
+Games and game agents never do this (hard rule 1): they file a `CORE_REQUESTS.md` entry. For the core
+owner, every change to the module API is **additive** (hard rule 2):
+
+1. **Design it in `docs/framework/module-api.md` first**, as a new numbered subsection at the end of §19
+   (or a later section), titled `(added in <version>: <why>)`. Never edit earlier sections' meaning;
+   point to the addition from them if needed.
+2. **Types:** add the new fields/functions to `packages/framework/shared/Types.luau` (and the `ctx` type
+   if it is a ctx service). Optional fields only; no renames, no removals, no narrowed types.
+3. **Network:** new framework events go in `packages/framework/shared/net/framework.blink`; run
+   `tools/net`, add the rate limit in `packages/framework/server/Net/init.luau`, validate every argument
+   on the server. Modules declare their own actions (§9) instead whenever they can.
+4. **Implement it through the public surface:** kits must be able to use it exactly as a third-party
+   module would (no kit-only tokens or internal requires: the `special` guardrail checks this).
+5. **Tests:** a `*.spec.luau` for the new behaviour, written against `StudWork.test`, that fails without
+   the change; a guardrail self-test if it adds or changes a lint rule; `tools/test-sim` if it touches
+   data, purchases or cross-server behaviour. Never weaken an existing assertion.
+6. **Docs:** the user-facing page (`docs/framework/*.md` or the kit page under `docs/framework/kits/`)
+   and the folder README; an entry in `packages/framework/CHANGELOG.md`; the reason in `docs/decisions.md`.
+7. **Check:** `tools/lint`, `tools/typecheck` for every game, `tools/test`, `tools/test-sim`, a rojo build
+   of every game, and `tools/bench` if it runs per tick or per player (≤ +20% vs the last release).
+
 ## Commands (from the repo root)
 
 ```sh
