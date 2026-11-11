@@ -93,6 +93,31 @@ To build a place file instead: `tools/build sandbox` (writes `build/sandbox.rbxl
 More examples: `examples/overrides/ov-a` … `ov-f` (one override case each) and
 `examples/modules/session-leaderboard` (a third-party-style module).
 
+## Adopt StudWork in an existing game
+
+Already have a Roblox game (a Rojo repo or a Studio place file)? StudWork can take it over without
+losing a save or a Robux purchase: each player's old save is read once, on join, and never written;
+old receipts are never granted twice. A coding agent does the work; you do the cutover. Give your
+agent this ([the full prompt](docs/agents/migrate-prompt.md)):
+
+```text
+Here's StudWork at <studwork>. Here's my game at <game>. Migrate it to StudWork following
+<studwork>/docs/agents/adopt-existing-game.md.
+```
+
+The tools it uses, from a StudWork checkout:
+
+```sh
+tools/adopt --from-place my-game/Place.rbxl --out my-game   # Studio-only games: extract the code
+tools/adopt --audit my-game        # read-only report + migration plan
+tools/adopt --init my-game --name my-game --modules Items,Inventory,Economy
+tools/test-migration               # in the game: sample old saves through the import
+tools/adopt --verify my-game       # nothing unsafe for going live is left
+```
+
+The agent playbook: [docs/agents/adopt-existing-game.md](docs/agents/adopt-existing-game.md). The
+design: [docs/framework/adopting.md](docs/framework/adopting.md). Agents start at [AGENTS.md](AGENTS.md).
+
 ## Using StudWork in your games
 
 Games don't live in this repo. The simplest setup is one repository per game made by
@@ -138,6 +163,8 @@ Start at the docs index, [docs/README.md](docs/README.md). Main pages:
 - [Guardrails](docs/framework/guardrails.md)
 - [Single-game projects](docs/framework/single-game-project.md) (`tools/new-project`)
 - [Games repo](docs/framework/games-repo.md) (several games in one repo)
+- [Adopting StudWork in an existing game](docs/framework/adopting.md) and the agent playbook,
+  [docs/agents/adopt-existing-game.md](docs/agents/adopt-existing-game.md) ([AGENTS.md](AGENTS.md) for coding agents)
 - [Theme](docs/framework/theme.md)
 - [Kits](docs/framework/kits/)
 - [Decisions](docs/decisions.md): why things are the way they are.

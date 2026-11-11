@@ -8,6 +8,8 @@ without a game name ([single-game-project.md](single-game-project.md)). The step
 **games repo** (several games in one repo, [games-repo.md](games-repo.md)): run them from its root,
 that is where real games live. You can also try it inside a StudWork clone to experiment: `games/` there is git-ignored
 scratch space (see "Removing a scratch game" at the end), never committed to the framework.
+Moving an existing game instead? See [adopting.md](adopting.md) and the agent playbook
+[adopt-existing-game.md](../agents/adopt-existing-game.md).
 The checks (`tools/lint`, `tools/typecheck`, `tools/test`) run offline in Lune, without Studio.
 
 ## 0. Once per machine

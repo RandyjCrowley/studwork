@@ -157,6 +157,28 @@ tools/framework-status                # the pinned tag; deploy.json is restamped
   excepted): commit everything before a real publish.
 - The place file is `build/<name>-<target>.rbxl`.
 
+## Adopted projects
+
+A project made from an existing game by `tools/adopt --init` ([adopting.md](adopting.md); the agent
+playbook is [adopt-existing-game.md](../agents/adopt-existing-game.md)) is a single-game project with
+a few differences:
+
+- `studwork.json` has `"adopted": true`, a `legacyBaseline` (guardrail findings per old file at
+  init, fixed by the first commit that added `studwork.json`) and, for a Studio-only game,
+  `"placeFile"`.
+- `studwork-legacy.json` lists old files that still break guardrails; their findings are warnings
+  with a reason. The list may only shrink: more findings than the baseline, a new file or check, a
+  missing reason or a deleted file fails lint. `ProcessReceipt`, `special` and `packages` are never
+  downgraded. Non-adopted projects may not have this file.
+- The game module imports old saves on join with `ctx.data.importLegacy`, tested by
+  `tools/test-migration` against synthetic fixtures in `modules/<gameId>/tests/legacy/`.
+- `tools/adopt --verify .` fails while a critical audit risk, an `ctx.shop.onLegacyProduct`, a
+  legacy entry listing `purchases`, or (place-file games) a place script using DataStores or
+  purchases is left.
+- Publish: `tools/publish --test` works as usual; `tools/publish --live` refuses while
+  `tools/adopt --verify` fails. A place-file game is published from Studio, and `tools/publish`
+  says so. Go live with "Shut down all servers" (the cutover checklist in adopting.md §2).
+
 ## A fresh clone
 
 ```sh
