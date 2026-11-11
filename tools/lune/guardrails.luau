@@ -10,6 +10,15 @@
 	  lune run tools/lune/guardrails --self-test  plant one violation of each kind in memory and
 	                                              prove every check catches it (also run by lint)
 	  lune run tools/lune/guardrails <dir> ...    scan only these game folders (no git checks)
+	  lune run tools/lune/guardrails --raw [<dir> ...]   (v1.6.0) every finding, ignoring an
+	                                              adopted project's studwork-legacy.json
+	  lune run tools/lune/guardrails --legacy-check <dir>  (v1.6.0) scan the project at <dir> as a
+	                                              root game and apply its studwork-legacy.json
+	(v1.6.0) Transitional guardrails (docs/framework/adopting.md §5): in an adopted project
+	(studwork.json "adopted": true) a finding of a check listed for a file in studwork-legacy.json
+	is a warning `warning: [legacy] <finding> (legacy: <reason>)`, within the per-file per-check
+	baseline (studwork.json legacyBaseline, anchored to the first commit that added studwork.json).
+	ProcessReceipt assignments, special and packages are never downgraded. See Guard.applyLegacy.
 
 	Checks (each finding: path:line: [check] message):
 	  modules   game code uses a core module that is not in its GameConfig.modules:
@@ -1569,6 +1578,390 @@ function Guard.gitFindings(): { string }
 	return findings
 end
 
+--------------------------------------------------------------------------------
+-- (v1.6.0) Transitional guardrails for an adopted project (docs/framework/adopting.md §5):
+-- studwork-legacy.json downgrades listed (file, check) findings to warnings, never more than the
+-- per-file per-check baseline anchored in git (studwork.json's legacyBaseline in the FIRST
+-- commit that added studwork.json).
+--------------------------------------------------------------------------------
+
+Guard.LEGACY_LIST = "studwork-legacy.json"
+-- checks a legacy entry may list (the scanGame checks); special and packages are never downgraded
+Guard.LEGACY_CHECKS = { modules = true, numbers = true, remotes = true, purchases = true, theme = true }
+Guard.LEGACY_NEVER = { special = true, packages = true }
+
+-- "<path>:<line>: [<check>] <message>" -> (path, line, check, message); nil for other shapes
+function Guard.parseFinding(f: string): (string?, number?, string?, string?)
+	local path, line, check, msg = string.match(f, "^(.-):(%d+): %[([%w_]+)%] (.*)$")
+	if path == nil then
+		return nil, nil, nil, nil
+	end
+	return path, tonumber(line), check, msg
+end
+
+-- A finding that is never downgraded, even in a listed file.
+function Guard.neverDowngraded(check: string, message: string): boolean
+	if Guard.LEGACY_NEVER[check] then
+		return true
+	end
+	return check == "purchases" and string.find(message, "ProcessReceipt", 1, true) ~= nil
+end
+
+local function canonicalJson(v: any): string
+	if type(v) ~= "table" then
+		return if type(v) == "string" then string.format("%q", v) else tostring(v)
+	end
+	local keys = {}
+	for k in v do
+		table.insert(keys, tostring(k))
+	end
+	table.sort(keys)
+	local parts = {}
+	for _, k in keys do
+		local val = v[k]
+		if val == nil then
+			val = v[tonumber(k)]
+		end
+		table.insert(parts, string.format("%q", k) .. ":" .. canonicalJson(val))
+	end
+	return "{" .. table.concat(parts, ",") .. "}"
+end
+Guard.canonicalJson = canonicalJson
+
+--[[
+	Pure evaluation (specs and --self-test plant every rule here). input:
+	  adopted      boolean: studwork.json has "adopted": true
+	  list         the decoded studwork-legacy.json (nil = no list), or listError (a parse error)
+	  baseline     studwork.json's legacyBaseline (the working copy), may be nil
+	  anchor       { status = "ok", baseline = <first-commit legacyBaseline>, commit = hash }
+	               | { status = "no-commit" } | { status = "shallow" } | { status = "unavailable", detail }
+	  inspect      fn(path) -> "file" | "missing" | "symlink" | "case" | "not-canonical"
+	findings: every raw finding (root-relative paths).
+	-> (failures, warnings, notes): failures fail lint; warnings and notes are printed only.
+]]
+function Guard.applyLegacy(findings: { string }, input: any): ({ string }, { string }, { string })
+	local failures, warnings, notes = {}, {}, {}
+	local L = Guard.LEGACY_LIST
+	if input.list == nil and input.listError == nil then
+		for _, f in findings do
+			table.insert(failures, f)
+		end
+		return failures, warnings, notes
+	end
+	local function fail(msg: string)
+		table.insert(failures, `{L}: [legacy] {msg}`)
+	end
+	if not input.adopted then
+		fail('only adopted projects may have a legacy list (studwork.json has no "adopted": true)')
+		for _, f in findings do
+			table.insert(failures, f)
+		end
+		return failures, warnings, notes
+	end
+	if input.listError ~= nil then
+		fail("can't read the list: " .. tostring(input.listError))
+		for _, f in findings do
+			table.insert(failures, f)
+		end
+		return failures, warnings, notes
+	end
+
+	-- the entries
+	local entries: { [string]: { checks: { [string]: boolean }, reason: string } } = {}
+	local count = 0
+	local files = if type(input.list) == "table" then input.list.files else nil
+	if type(files) ~= "table" then
+		fail('expects { "files": [ { "path", "checks", "reason" } ] }')
+		files = {}
+	end
+	for i, e in files do
+		local label = `entry {i}`
+		if type(e) ~= "table" or type(e.path) ~= "string" or e.path == "" then
+			fail(`{label}: needs a "path" (relative to the project root)`)
+			continue
+		end
+		label = `entry {i} ({e.path})`
+		local path = e.path
+		if type(e.reason) ~= "string" or string.match(e.reason, "^%s*$") then
+			fail(`{label}: every entry needs a reason (a non-empty string)`)
+		end
+		local kind = input.inspect(path)
+		if kind == "not-canonical" then
+			fail(
+				`{label}: write the path exactly as it is on disk, relative to the project root (no ./, .., \\ or leading /)`
+			)
+			continue
+		elseif kind == "case" then
+			fail(`{label}: the path's case doesn't match the file on disk`)
+			continue
+		elseif kind == "symlink" then
+			fail(`{label}: a symlink can't be listed (list the real file)`)
+			continue
+		elseif kind == "missing" then
+			fail(`{label}: the file no longer exists; remove it from {L}`)
+			continue
+		end
+		if entries[path] ~= nil then
+			fail(`{label}: listed twice`)
+			continue
+		end
+		local checks = {}
+		if type(e.checks) ~= "table" or #e.checks == 0 then
+			fail(`{label}: needs "checks" (a non-empty list)`)
+		else
+			for _, c in e.checks do
+				if Guard.LEGACY_NEVER[c] then
+					fail(`{label}: the {tostring(c)} check is never downgraded; it can't be listed`)
+				elseif not Guard.LEGACY_CHECKS[c] then
+					fail(`{label}: unknown check {tostring(c)}`)
+				else
+					checks[c] = true
+				end
+			end
+		end
+		count += 1
+		entries[path] = { checks = checks, reason = if type(e.reason) == "string" then e.reason else "" }
+	end
+
+	-- the baseline, anchored in git
+	local baseline = input.baseline
+	local baseFiles = if type(baseline) == "table" and type(baseline.files) == "table"
+		then baseline.files
+		else nil
+	if baseFiles == nil then
+		fail("studwork.json has no legacyBaseline (tools/adopt --init writes it); a list needs one")
+		baseFiles = {}
+	end
+	local anchor = input.anchor or { status = "unavailable" }
+	if anchor.status == "shallow" then
+		fail(
+			"this is a shallow clone: the baseline can't be checked against the commit that added studwork.json; fetch the full history (git fetch --unshallow), as CI does"
+		)
+	elseif anchor.status == "no-commit" then
+		table.insert(
+			notes,
+			"guardrails: studwork.json isn't committed yet: nothing to anchor the legacy baseline to (checked from the first commit on)"
+		)
+	elseif anchor.status == "ok" then
+		if canonicalJson(anchor.baseline) ~= canonicalJson(baseline) then
+			fail(
+				`studwork.json's legacyBaseline differs from the one in the commit that first added studwork.json ({string.sub(
+					tostring(anchor.commit),
+					1,
+					12
+				)}); the baseline may only come from tools/adopt --init`
+			)
+		end
+	else
+		fail(
+			`the git history isn't available to check the legacy baseline ({tostring(
+				anchor.detail or "no git"
+			)}); lint fails closed`
+		)
+	end
+	local baseCount = 0
+	for _ in baseFiles do
+		baseCount += 1
+	end
+	if count > baseCount then
+		fail(`the list has {count} entries, more than the baseline's {baseCount}; it may only shrink`)
+	end
+
+	-- classify the findings
+	local seen: { [string]: { [string]: number } } = {}
+	for _, f in findings do
+		local path, _, check, msg = Guard.parseFinding(f)
+		local entry = if path then entries[path] else nil
+		if entry and check and entry.checks[check] and not Guard.neverDowngraded(check, msg :: string) then
+			seen[path :: string] = seen[path :: string] or {}
+			seen[path :: string][check] = (seen[path :: string][check] or 0) + 1
+			table.insert(warnings, `warning: [legacy] {f} (legacy: {entry.reason})`)
+		else
+			table.insert(failures, f)
+		end
+	end
+	local paths = {}
+	for path in entries do
+		table.insert(paths, path)
+	end
+	table.sort(paths)
+	for _, path in paths do
+		local entry = entries[path]
+		local base = baseFiles[path]
+		if type(base) ~= "table" then
+			fail(`{path}: not in studwork.json's legacyBaseline; the list may only shrink`)
+			base = {}
+		end
+		local any = false
+		local names = {}
+		for c in entry.checks do
+			table.insert(names, c)
+		end
+		table.sort(names)
+		for _, c in names do
+			local n = (seen[path] or {})[c] or 0
+			if n > 0 then
+				any = true
+			end
+			local allowedN = base[c]
+			if type(base) == "table" and baseFiles[path] ~= nil and type(allowedN) ~= "number" then
+				fail(`{path}: check {c} isn't in the baseline for this file; the list may only shrink`)
+			elseif type(allowedN) == "number" and n > allowedN then
+				fail(
+					`{path}: {n} [{c}] findings, more than the baseline's {allowedN}; legacy code may only shrink`
+				)
+			end
+		end
+		if not any then
+			table.insert(warnings, `warning: [legacy] {path}: nothing legacy left; remove the entry from {L}`)
+		end
+	end
+	return failures, warnings, notes
+end
+
+-- Path inspection for a list entry (relative to `root`): canonical form, case, symlinks, existence.
+function Guard.inspectLegacyPath(root: string, path: string): string
+	if
+		string.sub(path, 1, 1) == "/"
+		or string.find(path, "\\", 1, true)
+		or string.find(path, "//", 1, true)
+		or string.sub(path, -1) == "/"
+	then
+		return "not-canonical"
+	end
+	for seg in string.gmatch(path, "[^/]+") do
+		if seg == "." or seg == ".." then
+			return "not-canonical"
+		end
+	end
+	local dir = root
+	for seg in string.gmatch(path, "[^/]+") do
+		if not fs.isDir(dir) then
+			return "missing"
+		end
+		local found, folded = false, false
+		for _, name in fs.readDir(dir) do
+			if name == seg then
+				found = true
+			elseif string.lower(name) == string.lower(seg) then
+				folded = true
+			end
+		end
+		if not found then
+			return if folded then "case" else "missing"
+		end
+		local here = if dir == "." then seg else dir .. "/" .. seg
+		local ok, res = pcall(process.exec, "test", { "-L", here })
+		if ok and res.ok then
+			return "symlink"
+		end
+		dir = here
+	end
+	return if fs.isFile(dir) then "file" else "missing"
+end
+
+-- git in `root`. For another folder (--legacy-check) the repository-pointing variables a git hook
+-- exports (GIT_DIR, GIT_WORK_TREE, GIT_INDEX_FILE, ...) are dropped, so `root`'s own repo answers.
+local function gitIn(root: string, args: { string }): (boolean, string)
+	local full = {}
+	if root ~= "." then
+		for _, v in
+			{
+				"GIT_DIR",
+				"GIT_WORK_TREE",
+				"GIT_INDEX_FILE",
+				"GIT_PREFIX",
+				"GIT_COMMON_DIR",
+				"GIT_OBJECT_DIRECTORY",
+			}
+		do
+			table.insert(full, "-u")
+			table.insert(full, v)
+		end
+		table.insert(full, "git")
+	end
+	table.insert(full, "-C")
+	table.insert(full, root)
+	for _, a in args do
+		table.insert(full, a)
+	end
+	local ok, result = pcall(process.exec, if root ~= "." then "env" else "git", full)
+	if not ok then
+		return false, tostring(result)
+	end
+	return result.ok, if result.ok then result.stdout else result.stderr
+end
+
+-- The baseline anchor: studwork.json's legacyBaseline in the FIRST commit that added it.
+function Guard.legacyAnchor(root: string): any
+	local serde = require("@lune/serde")
+	local okRepo, inside = gitIn(root, { "rev-parse", "--is-inside-work-tree" })
+	if not okRepo or not string.find(inside, "true", 1, true) then
+		return { status = "unavailable", detail = "not a git repository" }
+	end
+	local okS, shallow = gitIn(root, { "rev-parse", "--is-shallow-repository" })
+	if not okS then
+		return { status = "unavailable", detail = "git rev-parse --is-shallow-repository failed" }
+	end
+	if string.find(shallow, "true", 1, true) then
+		return { status = "shallow" }
+	end
+	if not gitIn(root, { "rev-parse", "--verify", "-q", "HEAD" }) then
+		return { status = "no-commit" }
+	end
+	local okL, log =
+		gitIn(root, { "log", "--diff-filter=A", "--reverse", "--format=%H", "--", "studwork.json" })
+	if not okL then
+		return { status = "unavailable", detail = "git log failed" }
+	end
+	local first = string.match(log, "^(%x+)")
+	if first == nil then
+		return { status = "no-commit" }
+	end
+	local okShow, text = gitIn(root, { "show", first .. ":studwork.json" })
+	if not okShow then
+		return { status = "unavailable", detail = "git show " .. first .. ":studwork.json failed" }
+	end
+	local okD, decoded = pcall(serde.decode, "json", text)
+	if not okD or type(decoded) ~= "table" then
+		return { status = "unavailable", detail = "the first committed studwork.json isn't JSON" }
+	end
+	return { status = "ok", commit = first, baseline = decoded.legacyBaseline }
+end
+
+-- Reads the project's inputs at `root` for Guard.applyLegacy.
+function Guard.legacyInput(root: string): any
+	local serde = require("@lune/serde")
+	local function at(p: string): string
+		return if root == "." then p else root .. "/" .. p
+	end
+	local input: any = { adopted = false }
+	local listPath = at(Guard.LEGACY_LIST)
+	if fs.isFile(listPath) then
+		local ok, decoded = pcall(serde.decode, "json", fs.readFile(listPath))
+		if ok then
+			input.list = decoded
+		else
+			input.listError = tostring(decoded)
+		end
+	end
+	local marker = at("studwork.json")
+	if fs.isFile(marker) then
+		local ok, decoded = pcall(serde.decode, "json", fs.readFile(marker))
+		if ok and type(decoded) == "table" then
+			input.adopted = decoded.adopted == true
+			input.baseline = decoded.legacyBaseline
+		end
+	end
+	if input.list ~= nil or input.listError ~= nil then
+		input.anchor = Guard.legacyAnchor(root)
+	end
+	input.inspect = function(path: string): string
+		return Guard.inspectLegacyPath(root, path)
+	end
+	return input
+end
+
 local function selfTest(): boolean
 	local failures = {}
 	local function expectCheck(name: string, findings: { string }, check: string)
@@ -2174,6 +2567,171 @@ local function selfTest(): boolean
 		table.insert(failures, "theme allow-list: Button.luau must not be allowed")
 	end
 
+	-- (v1.6.0) transitional guardrails (adopting.md §5): every rule planted
+	local selfFailures = failures
+	do
+		local SAVE = "src/server/Save.server.luau"
+		local function finding(path, line, check, msg)
+			return `{path}:{line}: [{check}] {msg}`
+		end
+		local ds = "only framework Data may use DataStoreService"
+		local base = { files = { [SAVE] = { purchases = 2, numbers = 1 } } }
+		local function legacyCase(o)
+			local entry = o.entry
+				or { path = SAVE, checks = { "purchases", "numbers" }, reason = "old save code" }
+			local input = {
+				adopted = if o.adopted == nil then true else o.adopted,
+				list = if o.list ~= nil then o.list else { files = { entry } },
+				baseline = if o.baseline ~= nil then o.baseline else base,
+				anchor = o.anchor or { status = "ok", commit = "abc", baseline = o.anchored or base },
+				inspect = o.inspect or function(path)
+					return if path == SAVE or path == "src/server/Other.luau" then "file" else "missing"
+				end,
+			}
+			return Guard.applyLegacy(
+				o.findings or { finding(SAVE, 3, "purchases", ds), finding(SAVE, 9, "purchases", ds) },
+				input
+			)
+		end
+		local function expectLegacy(name, failures, needle)
+			for _, f in failures do
+				if string.find(f, needle, 1, true) then
+					return
+				end
+			end
+			table.insert(
+				selfFailures,
+				`{name}: expected a failure containing '{needle}', got: {table.concat(failures, " | ")}`
+			)
+		end
+		local f0, w0 = legacyCase({})
+		expectClean("legacy: listed findings within the baseline warn", f0)
+		if
+			#w0 ~= 2
+			or not string.find(w0[1], "warning: [legacy] " .. SAVE .. ":3: [purchases]", 1, true)
+			or not string.find(w0[1], "(legacy: old save code)", 1, true)
+		then
+			table.insert(
+				failures,
+				"legacy: a listed finding must print as a [legacy] warning with its reason"
+			)
+		end
+		expectLegacy("legacy: growing count", (legacyCase({
+			findings = {
+				finding(SAVE, 1, "purchases", ds),
+				finding(SAVE, 2, "purchases", ds),
+				finding(SAVE, 3, "purchases", ds),
+			},
+		})), "more than the baseline's 2")
+		expectLegacy("legacy: new file", (legacyCase({
+			entry = { path = "src/server/Other.luau", checks = { "purchases" }, reason = "r" },
+			findings = { finding("src/server/Other.luau", 1, "purchases", ds) },
+		})), "not in studwork.json's legacyBaseline")
+		expectLegacy("legacy: new check", (legacyCase({
+			entry = { path = SAVE, checks = { "purchases", "remotes" }, reason = "r" },
+		})), "check remotes isn't in the baseline")
+		expectLegacy("legacy: unlisted check still fails", (legacyCase({
+			findings = { finding(SAVE, 4, "remotes", "OnServerEvent bypasses Net") },
+		})), "[remotes]")
+		expectLegacy("legacy: missing reason", (legacyCase({
+			entry = { path = SAVE, checks = { "purchases" }, reason = " " },
+		})), "needs a reason")
+		expectLegacy("legacy: stale entry (file gone)", (legacyCase({
+			inspect = function()
+				return "missing"
+			end,
+		})), "no longer exists")
+		local _, wStale = legacyCase({ findings = {} })
+		local staleWarned = false
+		for _, w in wStale do
+			staleWarned = staleWarned or string.find(w, "nothing legacy left", 1, true) ~= nil
+		end
+		if not staleWarned then
+			table.insert(failures, "legacy: a listed file with no findings left must warn")
+		end
+		expectLegacy("legacy: edited baseline", (legacyCase({
+			baseline = { files = { [SAVE] = { purchases = 5, numbers = 1 } } },
+		})), "differs from the one in the commit that first added studwork.json")
+		expectLegacy("legacy: re-added studwork.json (anchor = first add)", (legacyCase({
+			anchored = { files = { [SAVE] = { purchases = 1 } } },
+		})), "differs from the one in the commit")
+		expectLegacy(
+			"legacy: shallow clone fails closed",
+			(legacyCase({ anchor = { status = "shallow" } })),
+			"shallow clone"
+		)
+		expectLegacy(
+			"legacy: no git history fails closed",
+			(legacyCase({ anchor = { status = "unavailable", detail = "x" } })),
+			"fails closed"
+		)
+		local fNo, _, nNo = legacyCase({ anchor = { status = "no-commit" } })
+		expectClean("legacy: before the first commit nothing is compared", fNo)
+		if #nNo == 0 then
+			table.insert(failures, "legacy: before the first commit lint must say so")
+		end
+		expectLegacy("legacy: ProcessReceipt in a listed file still fails", (legacyCase({
+			findings = {
+				finding(
+					SAVE,
+					5,
+					"purchases",
+					"only the framework Shop assigns MarketplaceService.ProcessReceipt: use ctx.shop.onProduct"
+				),
+			},
+		})), "ProcessReceipt")
+		expectLegacy("legacy: special in a listed file still fails", (legacyCase({
+			findings = { finding(SAVE, 6, "special", "reaches framework internals") },
+		})), "[special]")
+		expectLegacy("legacy: listing packages is refused", (legacyCase({
+			entry = { path = SAVE, checks = { "packages" }, reason = "r" },
+		})), "never downgraded")
+		expectLegacy(
+			"legacy: list in a non-adopted project",
+			(legacyCase({ adopted = false })),
+			"only adopted projects"
+		)
+		expectLegacy("legacy: more entries than the baseline", (legacyCase({
+			list = {
+				files = {
+					{ path = SAVE, checks = { "purchases" }, reason = "r" },
+					{ path = "src/server/Other.luau", checks = { "purchases" }, reason = "r" },
+				},
+			},
+		})), "more than the baseline's 1")
+		-- evasions: the real path inspection (on the core's own files, wherever lint runs)
+		local coreRoot = require("./Roots").CORE
+		local dotted = Guard.inspectLegacyPath(coreRoot, "./tools/lune/guardrails.luau")
+		expectLegacy("legacy: a ./ prefix", (legacyCase({
+			entry = { path = "./" .. SAVE, checks = { "purchases" }, reason = "r" },
+			inspect = function(path)
+				return Guard.inspectLegacyPath(".", path)
+			end,
+		})), "exactly as it is on disk")
+		if dotted ~= "not-canonical" then
+			table.insert(failures, "legacy: a ./ path must be not-canonical, got " .. dotted)
+		end
+		local cased = Guard.inspectLegacyPath(coreRoot, "TOOLS/lune/guardrails.luau")
+		if cased ~= "case" then
+			table.insert(failures, "legacy: a path with a different case must be refused, got " .. cased)
+		end
+		if Guard.inspectLegacyPath(coreRoot, "tools/lune/guardrails.luau") ~= "file" then
+			table.insert(failures, "legacy: the exact path must inspect as a file")
+		end
+		expectLegacy("legacy: a different case", (legacyCase({
+			inspect = function()
+				return "case"
+			end,
+		})), "case doesn't match")
+		expectLegacy("legacy: a symlink", (legacyCase({
+			inspect = function()
+				return "symlink"
+			end,
+		})), "symlink can't be listed")
+		if Guard.parseFinding("a/b.luau:12: [numbers] x: y") ~= "a/b.luau" then
+			table.insert(failures, "legacy: parseFinding must read the --raw format")
+		end
+	end
 	if #failures > 0 then
 		print("guardrails self-test FAILED:")
 		for _, f in failures do
@@ -2189,6 +2747,37 @@ end
 local args = process.args
 if args[1] == "--self-test" then
 	process.exit(if selfTest() then 0 else 1)
+end
+
+-- (v1.6.0) --raw: every finding, ignoring studwork-legacy.json (tools/adopt --init reads it)
+local raw = false
+if args[1] == "--raw" then
+	raw = true
+	args = table.move(args, 2, #args, 1, {})
+end
+-- (v1.6.0) --legacy-check <dir>: scan the project at <dir> as a root game and apply its
+-- studwork-legacy.json (paths relative to <dir>); the transitional rules' end-to-end hook (specs)
+if args[1] == "--legacy-check" and args[2] then
+	local root = args[2]
+	local found = {}
+	for _, f in Guard.scanGame(root) do
+		if string.sub(f, 1, #root + 1) == root .. "/" then
+			f = string.sub(f, #root + 2)
+		end
+		table.insert(found, f)
+	end
+	local failures, warnings, notes = Guard.applyLegacy(found, Guard.legacyInput(root))
+	for _, w in warnings do
+		print(w)
+	end
+	for _, n in notes do
+		print(n)
+	end
+	for _, f in failures do
+		print(f)
+	end
+	print(`guardrails: {#failures} finding(s), {#warnings} legacy warning(s)`)
+	process.exit(if #failures > 0 then 1 else 0)
 end
 
 local dirs = {}
@@ -2231,6 +2820,22 @@ end
 if runGit then
 	for _, f in Guard.gitFindings() do
 		table.insert(findings, f)
+	end
+end
+
+-- (v1.6.0) an adopted project's studwork-legacy.json (adopting.md §5); --raw skips it. A
+-- non-adopted project with a list fails here too.
+if not raw then
+	local input = Guard.legacyInput(".")
+	if input.list ~= nil or input.listError ~= nil then
+		local failures, warnings, notes = Guard.applyLegacy(findings, input)
+		for _, w in warnings do
+			print(w)
+		end
+		for _, n in notes do
+			print(n)
+		end
+		findings = failures
 	end
 end
 

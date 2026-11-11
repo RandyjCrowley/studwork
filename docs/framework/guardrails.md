@@ -150,3 +150,37 @@ not a substring.
 
 A line ending in `-- guard: allow <check>` skips that check for that line; say why on the line
 above, and use it rarely.
+
+## Transitional guardrails (adopted projects)
+
+Added in v1.6.0 for a game that adopted StudWork (`tools/adopt --init`, [adopting.md](adopting.md) §5).
+Its old code breaks the lint checks on day one, so `studwork-legacy.json` (project root) lists those
+files with the checks they may still break and why:
+
+```json
+{ "files": [ { "path": "src/server/SaveManager.server.luau", "checks": ["purchases", "numbers"],
+               "reason": "old save code; replaced by importLegacy in plan step 3" } ] }
+```
+
+- A finding of a listed check in a listed file prints
+  `warning: [legacy] <path>:<line>: [<check>] <message> (legacy: <reason>)` and doesn't fail lint.
+  Any other check in that file, and every other file, still fails.
+- **Never downgraded:** a `ProcessReceipt` assignment, `special` and `packages` fail in a listed
+  file too; listing `special` or `packages` is itself an error.
+- **It may only shrink:** `studwork.json`'s `legacyBaseline` holds the findings per file and per
+  check at init. More findings than the baseline, a file or check the baseline doesn't have, or more
+  entries than the baseline fail lint.
+- **The baseline is anchored in git:** it must equal the `legacyBaseline` of the first commit that
+  added `studwork.json` (`git log --diff-filter=A --reverse`), so editing it, or deleting and
+  re-adding `studwork.json`, fails. A shallow clone or a missing history fails closed (fetch the full
+  history, as CI does). Before the first commit lint says there's nothing to compare yet.
+- **Paths are exact:** relative to the project root, as on disk (no `./`, `..`, other case, or
+  symlinks). A listed file that's gone fails ("remove it from studwork-legacy.json"); a listed file
+  with no findings left warns ("nothing legacy left; remove the entry").
+- Every entry needs a non-empty `reason`.
+- A project without `"adopted": true` may not have a list at all.
+
+`lune run tools/lune/guardrails --raw [<dir>]` prints every finding, ignoring the list (that's what
+`tools/adopt --init` reads to write the list and the baseline). `guardrails --self-test` plants a
+violation for each rule, and `tools/lune/GuardrailsLegacy.spec.luau` runs them in throwaway git repos.
+
