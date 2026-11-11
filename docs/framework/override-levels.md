@@ -14,11 +14,13 @@ Examples use the generated game layout (`games/<g>/src/shared/Config/`).
 ## 1. Use the defaults
 
 ```lua
+local Modules = ReplicatedStorage:WaitForChild("Modules")
+-- ...
 modules = {
-	require(Collection:WaitForChild("Items")),
-	require(Collection:WaitForChild("Rarity")),
-	require(Collection:WaitForChild("Inventory")),
-	require(EconomyKit:WaitForChild("Economy")),
+	require(Modules:WaitForChild("Items"):WaitForChild("module")),
+	require(Modules:WaitForChild("Rarity"):WaitForChild("module")),
+	require(Modules:WaitForChild("Inventory"):WaitForChild("module")),
+	require(Modules:WaitForChild("Economy"):WaitForChild("module")),
 },
 ```
 
@@ -44,14 +46,13 @@ Streak = {
 },
 ```
 
-The keys of each kit module are on its kit page. In core v1.3.0 the kit modules still take their
-v1.2 balance keys under `config.<Module>`; the Phase 1 kit rewrite keeps names and meanings
-(PHASE1-CONTRACT.md "Additive only").
+The keys of each kit module, with their defaults, are on its kit page (see the
+[framework index](README.md)).
 
 ## 3. Replace a piece
 
-**A rarity preset.** Rarity tiers come from config, owned by the Collection kit (pinned by
-PHASE1-CONTRACT.md, being built in Phase 1):
+**A rarity preset.** Rarity tiers come from `config.Rarity.tiers`, owned by the Collection kit
+([Collection](kits/collection.md)):
 
 ```lua
 Rarity = {

@@ -4,8 +4,8 @@
 playable within minutes. Every one of those decisions can be overridden, so the framework never
 becomes something you have to work around.
 
-Status: draft for core v1.3.0, written by an AI coding agent (2026-11-10). The lead reviews it against the
-code in Phase 0. Changes are recorded in `docs/decisions.md`.
+Design decisions and their reasons are recorded in [decisions.md](decisions.md); the framework
+docs start at [framework/README.md](framework/README.md).
 
 ---
 
@@ -24,7 +24,7 @@ A game that sets only its name and items gets all of the following:
 | Economy | Items earn per tick (1 s by default), multipliers stack by multiplying | Progress you can see every second |
 | Luck | Weighted rolls, a guaranteed tier after a run of bad rolls, mutations, all odds disclosed | Fair, exciting and compliant |
 | Rebirth | Reset for a permanent multiplier. Robux-bought items are kept and items bought with Coins are wiped | Long-term goal without punishing paying players or allowing exploits |
-| Return | Streaks on UTC days with a grace window, capped offline earnings | Return days are what Roblox ranks |
+| Return | Daily streaks (UTC days by default) with a grace window, capped offline earnings | Return days are what Roblox ranks |
 | Social | Co-play detection: friends in the server, invite joins, private servers | Co-play is a ranking signal |
 
 ## 2. Five levels of override
@@ -33,8 +33,8 @@ Each level is a supported path, documented with an example. Go only as deep as y
 
 | Level | You do | Example |
 |---|---|---|
-| **1. Use the defaults** | Nothing | `modules = { Kits.Collection, Kits.Economy }` gives a working game |
-| **2. Change config** | Set values in your game's Config | `Economy = { tickSeconds = 5 }`, `Streak = { timezone = "local", graceHours = 36 }` |
+| **1. Use the defaults** | Nothing | listing the Collection and Economy modules in `modules` gives a working game |
+| **2. Change config** | Set values in your game's Config | `Economy = { income = { tickSeconds = 5, ... } }`, `Streak = { streak = { utcOffsetHours = -5, graceHours = 36 } }` |
 | **3. Replace a piece** | Supply your own preset, theme, screen or widget | A 4-tier "Bronze/Silver/Gold/Diamond" rarity preset, your own theme, your own HUD |
 | **4. Switch a kit off** | Leave it out of `modules` | No Economy kit: items become cards, cosmetics or quest items with no income |
 | **5. Write your own module** | `tools/make-module`, using the public module API | A leaderboard, a quest system, a pet-follow system |

@@ -1,9 +1,8 @@
 # Social kit: Friends, Mail
 
 Co-play detection and cross-server, offline-safe messages with a mailbox. Code:
-`packages/kits/social/<Module>/` (one folder per module since core-v1.3.1: `module.luau`, `server/`, `client/`; Rojo `ReplicatedStorage.Modules.<Module>`, `ServerScriptService.Modules.<Module>`). Phase 1 status: being rebuilt on the module API (agent C). Entries marked
-**(contract)** are pinned by
-[PHASE1-CONTRACT.md]((internal build report, not public)).
+`packages/kits/social/<Module>/` (one folder per module: `module.luau`, `server/`, `client/`; Rojo `ReplicatedStorage.Modules.<Module>`, `ServerScriptService.Modules.<Module>`). Entries marked
+**(contract)** are part of the cross-module surface listed in [kit-contract.md](../kit-contract.md).
 
 ```lua
 local Modules = ReplicatedStorage:WaitForChild("Modules")
@@ -17,12 +16,12 @@ local Mail = require(Modules:WaitForChild("Mail"):WaitForChild("module"))
 
 | Key | Default | Meaning |
 |---|---|---|
-| `friends.checkIntervalSec` | required (> 0) | how often in-server friend detection re-runs |
+| `friends.checkIntervalSec` | `30` | how often in-server friend detection re-runs |
 | `friends.coPlayMultiplier` | none | income multiplier while at least one friend is in the server; needs Economy |
 
 - **API:** `onCoPlay(fn(player, friends, kind)) -> Connection` (`kind` = `"invite"` when a friend
   referred the join, `"private"` in a private server, else `"server"`), `friendsInServer(player)`
-  (the last detected list; doesn't yield).
+  (the last detected list; doesn't yield), signal `CoPlay(player, friends, kind)`.
 - Uses `Economy.addMultiplier/removeMultiplier` (optional Economy).
 - **Save data:** none.
 
@@ -38,6 +37,9 @@ idempotent (key them on the message id). Messages reach offline players and othe
 | `mail.maxAttempts` | `10` | handler errors before a message is dead-lettered (counted across sessions) |
 | `mail.backoff` | `{ base = 30, factor = 2, max = 900 }` | wait before retry n: `min(max, base * factor^(n-1))` seconds |
 | `mail.mailboxCap` | `500` | held messages per player |
+| `mail.giftCap` | `100` | undelivered gifts (`returnKinds`) one recipient can have waiting; over it a gift goes straight back to the sender |
+| `mail.returnAfterDays` | `14` | an uncollected gift goes back to the sender's mailbox after this many days |
+| `mail.returnKinds` | `{ "core_gift" }` | kinds sent through `txApi.send` that are escrowed, capped and returned |
 
 - **API:** `send(userId, kind, payload, key?) -> boolean` (yields; `kind` matches
   `^[%w_-]{1,32}$`, payload JSON-safe, depth <= 4, <= 1000 bytes; the same `key` twice runs
@@ -52,7 +54,7 @@ idempotent (key them on the message id). Messages reach offline players and othe
   the module that owns a kind decides what claiming it does (Inventory owns `core_gift`). `false`
   holds it in the mailbox; an error retries and then dead-letters.
 - **Client action:** `claimMail(id)`: wire = Mail's own `net.blink` event `ClaimMail`
-  (`Data: Id`, RemoteScope `STUDWORK_MAIL`; was framework `RequestMailClaim` before core-v1.3.1),
+  (`Data: Id`, RemoteScope `STUDWORK_MAIL`; the framework event `RequestMailClaim` before v1.3.1),
   limit 2/s burst 5 (the server part's `actions.claimMail.limit`). Friends has no client actions
   and no `net.blink`.
 - **Replicated `extra`:** `mailbox` (contract): `{ { id, kind, payload, sentAt, heldAt } }`.
@@ -60,7 +62,7 @@ idempotent (key them on the message id). Messages reach offline players and othe
 - **Save data:** section `mail`: `{ mail = { seen, attempts, dead, box?, outbox? } }`, not
   replicated (the mailbox goes out as `extra.mailbox`).
 
-**Client part (`Mail/client/`, core-v1.3.1):** `StudWork.use(Mail).actions.claimMail(messageId)`;
+**Client part (`Mail/client/`):** `StudWork.use(Mail).actions.claimMail(messageId)`;
 `StudWork.use(Mail).onMailbox(fn(count)) -> Connection` (was `StudWork.Client.onMailbox`); the HUD
 badge widget `"Social.mailbox"` (topCenter, order 3, while messages wait; tapping calls
 `HudOptions.onMailbox` or opens the `"Mailbox"` screen), registered with `UI.registerWidget` at

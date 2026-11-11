@@ -70,7 +70,7 @@ Yes: register a screen with the same name (`tools/make-screen <game> Inventory`)
 `client.hud.widgets["<Module>.<widget>"]` to your component or `false` ([theme guide](theme.md)).
 
 **How do I test without Studio?**
-`tools/test <folder>` runs Lune specs. Modules use `StudWork.test.harness` (module-api.md §15);
+`tools/test <folder>` runs Lune specs. Modules use `StudWork.test.harness` ([module-api.md §15](module-api.md#15-testing-modules));
 multi-server scenarios use `StudWork.test.sim`; whole games boot in the sim through their
 `Boot.spec.luau`. `tools/make-module` writes a passing test to start from.
 
@@ -79,8 +79,8 @@ multi-server scenarios use `StudWork.test.sim`; whole games boot in the sim thro
 config, its own section, replicated state, an optional dependency on Economy and its signal, the
 shared ticker, a widget and a screen, with tests.
 
-**What's still moving in core v1.3.0?**
-The five kits are being rebuilt on the module API, the theme/HUD/screen registry is being built,
-and the "nothing is special" lint rule lands in Phase 2. Kit APIs, extensions, signals and
-replicated keys are pinned by
-[PHASE1-CONTRACT.md]((internal build report, not public)); the kit pages mark them.
+**What may change, and what won't?**
+The public API follows semantic versioning: within a major version, changes are additive. The
+kits' cross-module surface (APIs, extensions, signals, replicated keys) is listed in
+[kit-contract.md](kit-contract.md); the kit pages mark those entries **(contract)**. Release notes
+are in the [changelog](../../CHANGELOG.md); known limits in [known-issues.md](../known-issues.md).

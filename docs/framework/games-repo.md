@@ -1,8 +1,10 @@
-# Using StudWork from a games repo (v1.4.0)
+# Using StudWork from a games repo
 
-StudWork lives in its own repo (`roblox-core`). Games live in a **games repo** that has roblox-core
-as a git submodule at `roblox-core/`, pinned at a release tag, and runs the core's tools against its
-own `games/` folder. The core repo itself has no `games/`; its example games are in `examples/`.
+StudWork lives in its own repo (this one; the docs call it "the core"). Your games live in your
+own **games repo**, which has StudWork as a git submodule at `roblox-core/`, pinned at a release
+tag, and runs the core's tools against its own `games/` folder. The folder name `roblox-core/` is
+what the tools expect (`STUDWORK_CORE_DIR`). The StudWork repo itself has no `games/`; its example
+games are in `examples/`. Supported since v1.4.0.
 
 ## Layout
 
@@ -53,15 +55,15 @@ above the working directory, and a games repo has none, so in a games repo the t
 
 ```sh
 git init my-games && cd my-games
-git submodule add <url-or-path-of-roblox-core> roblox-core
+git submodule add <url-or-path-of-studwork> roblox-core
 #   a local path: git blocks the file transport by default, so allow it for this command:
-#   git -c protocol.file.allow=always submodule add /path/to/roblox-core roblox-core
-git -C roblox-core checkout v1.4.0
+#   git -c protocol.file.allow=always submodule add /path/to/studwork roblox-core
+git -C roblox-core checkout v1.4.1
 cp -R roblox-core/templates/games-repo/. .
 mv gitignore .gitignore && mv env.example .env.example && rm README.md
-git add -A && git commit -m "games repo on StudWork v1.4.0"
+git add -A && git commit -m "games repo on StudWork v1.4.1"
 tools/install            # rokit install + wally install into roblox-core/deps/ + this repo's hook
-tools/doctor             # every line ok, incl. "framework pin  roblox-core/ at v1.4.0, clean"
+tools/doctor             # every line ok, incl. "framework pin  roblox-core/ at v1.4.1, clean"
 ```
 
 A fresh clone of the games repo needs the submodule first:
@@ -88,9 +90,9 @@ tools/build [name|--all]       # rojo build -> build/<name>.rbxl
 tools/dev <name>               # rojo serve on the game's port + Studio steps
 tools/net                      # Blink for the games' .blink files
 tools/sync-projects            # regenerate the kit module entries of every game project
-tools/framework-status         # each game's stamped StudWork version vs the pinned roblox-core tag
+tools/framework-status         # each game's stamped StudWork version vs the pinned tag (core's tools/core-status)
 tools/doctor
-tools/publish <name> --test|--live [--dry-run]               # ask the user first
+tools/publish <name> --test|--live [--dry-run]               # uploads to Roblox: --dry-run first
 ```
 
 `tools/test-sim` and `tools/bench` are framework suites: they run in the core repo.
@@ -106,8 +108,8 @@ Game work never edits `roblox-core/`. `tools/lint` (and so the pre-commit hook) 
   or one commit stages a game folder together with the `roblox-core` pointer (bump the framework in
   its own commit).
 
-Need something from the framework? Add an entry to `FRAMEWORK_REQUESTS.md`; the framework owner
-ships it in a roblox-core release.
+Need something from the framework? Add an entry to `FRAMEWORK_REQUESTS.md` and ship it as a
+StudWork release (or open an issue or pull request on StudWork); then bump the pin.
 
 ## Bumping the framework to a new tag
 
@@ -138,7 +140,7 @@ Open Cloud upload, stamp), with the games repo as the project:
   `--live`) are the game folder and the `roblox-core` submodule;
 - `GAMES.md`'s "Core" column is updated.
 
-Always `--dry-run` first; a real publish needs the user's OK.
+Always `--dry-run` first; a real publish uploads to Roblox, so check the target ids before you run it.
 
 ## Testing the mechanism
 

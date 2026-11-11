@@ -1,10 +1,8 @@
 # Economy kit: Economy, Upgrades, Rebirth, Offline
 
 Currencies, item income and multipliers, level upgrades, rebirth, and offline earnings. Code:
-`packages/kits/economy/<Module>/` (one folder per module since core-v1.3.1: `module.luau`, `server/`, `client/`; Rojo `ReplicatedStorage.Modules.<Module>`, `ServerScriptService.Modules.<Module>`). Phase 1 status: being rebuilt on the module API (agent B). Entries marked
-**(contract)** are pinned by
-[PHASE1-CONTRACT.md]((internal build report, not public)) and offered today through
-the compat bridge.
+`packages/kits/economy/<Module>/` (one folder per module: `module.luau`, `server/`, `client/`; Rojo `ReplicatedStorage.Modules.<Module>`, `ServerScriptService.Modules.<Module>`). Entries marked
+**(contract)** are part of the cross-module surface listed in [kit-contract.md](../kit-contract.md).
 
 ```lua
 local Modules = ReplicatedStorage:WaitForChild("Modules")
@@ -24,7 +22,7 @@ nothing (cards, cosmetics, quest items).
 | Key | Default | Meaning |
 |---|---|---|
 | `primaryCurrency` | `"Coins"` | the HUD's currency and the default for every currency argument |
-| `currencies` | none | further currencies Economy owns besides `primaryCurrency`. Economy is the compliance spender (`ctx.compliance.registerCurrencySpender`) only for paid currencies it owns, so list a non-primary currency here if it is in `compliance.paidCurrencies` (core-v1.3.1, R20) |
+| `currencies` | none | further currencies Economy owns besides `primaryCurrency`. Economy is the compliance spender (`ctx.compliance.registerCurrencySpender`) only for paid currencies it owns, so list a non-primary currency here if it is in `compliance.paidCurrencies` (boot fails if a paid currency has no spender) |
 | `startingCurrency` | `{}` | `{ [currency] = amount }` for a new player; its keys are known currencies |
 | `income.tickSeconds` | required (> 0) | payout interval; 1 = every second |
 | `income.source` | required | `"displayed"` (items shown on the plot; needs Plot) or `"owned"` (everything owned) |
@@ -37,27 +35,30 @@ Paid currencies are framework config: `GameConfig.compliance.paidCurrencies = { 
   currency?) -> boolean` (errors for a paid currency: spend those only through
   `compliance.spendForRoll`, contract), `balance(player, currency?)`, `addIncomeSource(player, id,
   perSec)`, `removeIncomeSource(player, id)`, `addMultiplier(player, id, mult, expiresAt?, persist?)`,
-  `removeMultiplier(player, id)`, `getMultiplier(player)`, `getRate(player)`. Amounts are finite
-  and > 0; `spend` never goes negative.
+  `removeMultiplier(player, id)`, `getMultiplier(player)`, `getRate(player)`, `primaryCurrency()`,
+  `startingBalance(currency)`. Amounts are finite and > 0; `spend` never goes negative.
 - **txApi (contract):** `grant(tx, amount, reason, currency?) -> boolean`, `spend(tx, amount,
-  reason, currency?) -> boolean` (same paid-currency refusal).
+  reason, currency?) -> boolean` (same paid-currency refusal), `balance(tx, currency?)`.
+- **Extensions (contract):** `rateFactor(id, fn(player) -> number | { number }) -> invalidate(player)`
+  (a factor in the income rate; Rebirth and Upgrades use it), `displayedSource(fn(player) -> {
+  [slotId] = uid }) -> invalidate(player)` (the displayed set for `income.source = "displayed"`;
+  Plot provides it).
 - **purchaseOps (contract):** `grant(tx, amount, currency?) -> boolean`.
 - **Compliance:** registers the currency spender for every paid currency.
 - **Signals (contract):** `CurrencyChanged(player, currency, newBalance, delta, reason)`; income
   ticks use reason `"income"`.
-- **Replicated:** `data.currency`; `extra.ratePerSec`, `extra.multiplier` (sent when they change).
+- **Replicated:** `data.currency`, `data.multipliers`; `extra.ratePerSec`, `extra.multiplier` (sent when they change).
 - **Save data:** section `economy`: `{ currency = { [id] = number }, multipliers = { [id] = {
   mult, expiresAt? } } }` (saved boosts; session boosts are memory only).
 
-**Client part (`Economy/client/`, core-v1.3.1):** the HUD currency widget `"Economy.currency"`
+**Client part (`Economy/client/`):** the HUD currency widget `"Economy.currency"`
 (topCenter, order 1: `config.Economy.primaryCurrency` + its rate unless `HudOptions.showRate ==
 false`), registered with `UI.registerWidget` at start (it used to be built into the framework HUD;
 same id, so `client.hud.widgets["Economy.currency"]` overrides work unchanged). Client actions:
 `StudWork.use(Upgrades).actions.upgrade(id)`, `StudWork.use(Rebirth).actions.rebirth()` (from
-`Upgrades/client/`, `Rebirth/client/`; were the framework client's `Actions.upgrade` / `.rebirth`,
-the v1.2 `Core.Client.Actions`). Since core-v1.3.1 each fires its module's own Blink event
+`Upgrades/client/`, `Rebirth/client/`). Each fires its module's own Blink event
 (`Upgrades/net.blink` `Upgrade(Id)`, limit 6/s burst 12; `Rebirth/net.blink` `Rebirth`, limit 0.5/s
-burst 2) instead of the framework events `RequestUpgrade` / `RequestRebirth`.
+burst 2). Before v1.3.1 these were framework events (`RequestUpgrade` / `RequestRebirth`).
 
 ## Upgrades
 
@@ -82,8 +83,9 @@ multiplierPerRebirth`; `resetCurrencies` defaults to `{ primary }`.
 
 The inventory rule is a documented default: Robux-bought copies (`paid:`) are always kept (no config
 and no `keepOnRebirth = false` can wipe them); copies from coin rolls (`paidcur:`) and everything else
-are wiped unless the item has `keepOnRebirth = true` (or `inventory.paidCurrency` / `inventory.earned`
-is `"keep"`). It is applied through
+are wiped unless the item has `keepOnRebirth = true` (or `config.Rebirth.onRebirth.paidCurrency` /
+`onRebirth.earned` is `"keep"`; `onRebirth.itemOverrides = false` ignores the item flags). It is
+applied through
 `ctx.depsTx[Inventory]` (optional Inventory), contract.
 
 - **API:** `canRebirth(player)`, `rebirth(player) -> boolean`, `cost(player)`, `multiplier(player)`.

@@ -10,8 +10,8 @@ self-test that generates into a scratch folder, checks the output and cleans up
 tools/new-game <name> [--modules A,B,C] [--no-design-doc] [--into <folder>]
 ```
 
-Copies `templates/new-game` to `games/<name>` (or `<folder>/<name>` with `--into`, v1.4.0; the
-core's override examples use `--into examples/overrides`), picks the next free Rojo port, writes
+Copies `templates/new-game` to `games/<name>` (or `<folder>/<name>` with `--into`; the
+framework's override examples use `--into examples/overrides`), picks the next free Rojo port, writes
 `deploy.json` with placeholder ids, sets `gameId`, renames the game's own module (`modules/<name>`,
 module name in PascalCase: `my-game` -> `MyGame`), rewrites every project `$path` that leaves the
 template for the game's depth (in a games repo: into `roblox-core/`, see
@@ -57,7 +57,7 @@ Writes the module anatomy:
 | `client/init.luau` | a client `api` reading the replicated slice |
 | `tests/<Name>.spec.luau` | a passing harness test (boot, save section, config override) |
 | `README.md` | config, API and save-data tables to fill in |
-| `net.blink` (`--net`) | the module's own client <-> server events: `option RemoteScope = "STUDWORK_<NAME>"`, `Casing = Pascal`, `ServerOutput = "server/Net.luau"`, `ClientOutput = "client/Net.luau"` (the core-v1.3.1 convention); run `tools/net` to generate both `Net.luau` files, which the framework binds as the parts' `net` (module-api.md §19.9) |
+| `net.blink` (`--net`) | the module's own client <-> server events: `option RemoteScope = "STUDWORK_<NAME>"`, `Casing = Pascal`, `ServerOutput = "server/Net.luau"`, `ClientOutput = "client/Net.luau"` ; run `tools/net` to generate both `Net.luau` files, which the framework binds as the parts' `net` ([module-api.md §19.9](module-api.md#199-one-folder-per-module-the-live-part-lookups-added-in-v131)) |
 
 With `--game` it adds `ReplicatedStorage.Modules.<Name>` (`module`, `client`) and
 `ServerScriptService.Modules.<Name>` to the game's `default.project.json`. It prints the
@@ -74,7 +74,7 @@ Every built-in kit module (`packages/kits/<kit>/<Module>/`) is mapped in every p
 `games/`, `templates/` and `examples/` as `ReplicatedStorage.Modules.<Module>.{module, client,
 shared}` and `ServerScriptService.Modules.<Module>` (the parts that exist); an example module
 (`examples/modules/<x>/`) only in the projects inside its own folder (its fixture games). Those
-entries are generated (core-v1.3.1, one folder per module): don't edit them by hand. The project's
+entries are generated: don't edit them by hand. The project's
 own `Modules` entries (the game module's server part, a game-local module from `make-module
 --game`) are kept as written. Module folders are found by `tools/lune/ModuleDiscovery.luau`, the
 same discovery the Lune testkit and the multi-server sim use.
@@ -106,13 +106,13 @@ Writes `games/<game>/src/client/Screens/<ScreenName>.luau` (a React screen from 
 once (registers every screen in the folder with `UI.registerScreen` under its file name), and
 adds `require(script.Parent:WaitForChild("Screens")).registerAll()` to `Main.client.luau` right
 after `StudWork.start(Config)`. Open it with `UI.open("<ScreenName>")`. Registering a name a module
-already uses (e.g. `Inventory`) replaces that module's screen. The registry is the module-api.md
-§13 contract being built in core v1.3.0 Phase 1; the generated registry calls it through an
-untyped `UI` until that lands.
+already uses (e.g. `Inventory`) replaces that module's screen. The registry is `UI.registerScreen`
+in `packages/ui` ([module-api.md §13](module-api.md#13-theme-rarity-look-hud-and-screens)); the
+generated file requires `UI` untyped (`:: any`).
 
 ## Templates
 
-Everything the generators write comes from `templates/` in the core (v1.4.0):
+Everything the generators write comes from `templates/` in this repo:
 
 | Folder | Used by |
 |---|---|
@@ -124,12 +124,12 @@ Everything the generators write comes from `templates/` in the core (v1.4.0):
 | `templates/games-repo/` | copied by hand into a new games repo ([games-repo.md](games-repo.md)): `tools/` wrappers, hook, `.gitignore`, `GAMES.md`, `FRAMEWORK_REQUESTS.md` |
 
 `{{Name}}`-style placeholders are filled by `tools/lune/MakeGen.luau`. The `.tmpl` suffix keeps
-them out of lint, tests and Rojo. Their output is byte-identical to the v1.3.1 generators
-(`MakeGen.spec.luau` compares against v1.3.1's inline strings).
+them out of lint, tests and Rojo. `tools/lune/MakeGen.spec.luau` pins the output byte for byte
+(against the inline strings the generators used before the templates moved to files).
 
 ## In a games repo
 
 Every generator also runs from a games repo that has this repo as its `roblox-core/` submodule
-(v1.4.0, [games-repo.md](games-repo.md)): `tools/new-game` creates `games/<name>` with `$path`s into
+([games-repo.md](games-repo.md)): `tools/new-game` creates `games/<name>` with `$path`s into
 `roblox-core/`, `tools/make-module --game <game>` maps the new module in that game's project, and
 the templates always come from `roblox-core/templates/`.
