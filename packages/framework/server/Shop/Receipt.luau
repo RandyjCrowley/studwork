@@ -23,6 +23,18 @@
 	     hits step 5 and releases them once the save is confirmed.
 	  9. -> PurchaseGranted "granted"
 
+	v1.6.0 purchase bridge (docs/framework/adopting.md §4), both deps optional:
+	  5b. deps.legacyCheck(player, purchaseId) (the old history store, §4.2), only for an id that
+	      is not recorded, BEFORE any handler: "found" -> deps.recordLegacy(player, purchaseId)
+	      writes _framework.legacyPurchases (false -> NotProcessedYet "not_loaded"), then the save:
+	      confirmed -> PurchaseGranted "legacy_duplicate" (no effects, nothing granted); failed ->
+	      NotProcessedYet "save_failed" with the record parked (kind "legacy_duplicate", no effects),
+	      so the retry is a step-5 duplicate that only retries the save. "error" -> NotProcessedYet
+	      "legacy_check_failed". "none" / "skip" -> the normal flow.
+	  Receipt.legacyCommit is the step-7 commit for an onLegacyProduct handler (§4.3): the old
+	  handler runs OUTSIDE the transaction (it may yield); only "PurchaseGranted" commits
+	  purchases[PurchaseId] = now (anything else -> "legacy_not_granted", nothing written).
+
 	`effects` in the result is non-nil exactly when the grant just became final (saved) in this
 	call: the caller runs them plus grant feedback. So effects run once per real (persisted) grant
 	and never for a declined/erroring handler. A crash between commit and save loses the
@@ -33,11 +45,20 @@
 local Receipt = {}
 
 export type Decision = "PurchaseGranted" | "NotProcessedYet"
-export type CommitStatus = "committed" | "handler_error" | "handler_yielded" | "retry_later" | "not_loaded"
+export type CommitStatus =
+	"committed"
+	| "handler_error"
+	| "handler_yielded"
+	| "retry_later"
+	| "not_loaded"
+	| "legacy_not_granted"
+export type LegacyCheck = "found" | "none" | "skip" | "error"
 
 -- currencySpent (v1.2, N9): kept so the purchase analytics can still be logged if the player
 -- leaves before the save is confirmed (Receipt.forgetPlayer returns the dropped entries).
-export type Pending = { userId: number, effects: { () -> () }, currencySpent: number? }
+-- kind (v1.6.0): "legacy_duplicate" = a parked §4.2 legacy record (nothing was granted here:
+-- no effects, no grant feedback, no purchase analytics); nil = a real grant.
+export type Pending = { userId: number, effects: { () -> () }, currencySpent: number?, kind: string? }
 
 export type Deps<P> = {
 	inFlight: { [string]: boolean },
@@ -48,6 +69,9 @@ export type Deps<P> = {
 	hasHandler: boolean,
 	commit: (player: P, receipt: any) -> (CommitStatus, { () -> () }?, string?),
 	save: (player: P) -> boolean,
+	-- v1.6.0 (adopting.md §4.2), optional: the old history store check + its record
+	legacyCheck: ((player: P, purchaseId: string) -> (LegacyCheck, string?))?,
+	recordLegacy: ((player: P, purchaseId: string) -> boolean)?,
 }
 
 export type Result = {
@@ -84,10 +108,43 @@ local function run<P>(receipt: any, deps: Deps<P>): Result
 			return result("NotProcessedYet", "save_failed")
 		end
 		deps.pending[purchaseId] = nil
+		if parked.kind == "legacy_duplicate" then
+			return result("PurchaseGranted", "legacy_duplicate") -- the old game granted it
+		end
 		return result("PurchaseGranted", "duplicate", parked.effects)
 	end
 	-- Not recorded: parked effects (if any) belong to a commit that never persisted.
 	deps.pending[purchaseId] = nil
+	if deps.legacyCheck ~= nil then
+		local cok, found, detail = pcall(deps.legacyCheck :: any, player, purchaseId)
+		if not cok then
+			return result("NotProcessedYet", "legacy_check_failed", nil, tostring(found))
+		end
+		if found == "error" then
+			return result("NotProcessedYet", "legacy_check_failed", nil, detail)
+		end
+		if found == "found" then
+			local record = deps.recordLegacy
+			local rok, recorded = pcall(record :: any, player, purchaseId)
+			if not rok or recorded ~= true then
+				return result("NotProcessedYet", "not_loaded", nil, if rok then nil else tostring(recorded))
+			end
+			if not trySave(deps, player) then
+				deps.pending[purchaseId] =
+					{ userId = receipt.PlayerId, effects = {}, kind = "legacy_duplicate" }
+				return result("NotProcessedYet", "save_failed")
+			end
+			return result("PurchaseGranted", "legacy_duplicate")
+		end
+		if found ~= "none" and found ~= "skip" then
+			return result(
+				"NotProcessedYet",
+				"legacy_check_failed",
+				nil,
+				`unexpected check result {tostring(found)}`
+			)
+		end
+	end
 	if not deps.hasHandler then
 		return result("NotProcessedYet", "no_handler")
 	end
@@ -178,6 +235,37 @@ function Receipt.commit<P>(
 		return "not_loaded", nil, nil
 	end
 	return "committed", queue, nil
+end
+
+-- v1.6.0 (adopting.md §4.3): the commit step for an onLegacyProduct handler. The old handler
+-- runs OUTSIDE any transaction (it may yield, like the old code did). Only a "PurchaseGranted"
+-- answer records purchases[PurchaseId] = now (one `update`); an error, "NotProcessedYet" or any
+-- other value -> "legacy_not_granted" and nothing is written. Returns (status, effects, detail).
+function Receipt.legacyCommit<P>(
+	update: (player: P, fn: (data: any) -> ()) -> boolean,
+	oldHandler: (receipt: any, player: P) -> any,
+	player: P,
+	receipt: any,
+	now: number
+): (CommitStatus, { () -> () }?, string?)
+	local ok, answer = pcall(oldHandler :: any, table.clone(receipt), player)
+	if not ok then
+		return "legacy_not_granted", nil, "old handler error: " .. tostring(answer)
+	end
+	if answer ~= "PurchaseGranted" then
+		return "legacy_not_granted", nil, `old handler answered {tostring(answer)}`
+	end
+	local uok, res = pcall(update, player, function(data: any)
+		data.purchases = data.purchases or {}
+		data.purchases[receipt.PurchaseId] = now
+	end)
+	if not uok then
+		return "handler_error", nil, tostring(res)
+	end
+	if res ~= true then
+		return "not_loaded", nil, nil
+	end
+	return "committed", {}, nil
 end
 
 -- Drops the parked effects of a player who left (their save can't be confirmed here anymore)

@@ -32,6 +32,22 @@ declared dependency).
    between commit and save loses the commit and its parked effects together, so the next server runs the
    handler once: one persisted grant overall.
 
+## The purchase bridge (v1.6.0, adopting.md §4)
+
+- A PurchaseId in `_framework.purchases` **or** `_framework.legacyPurchases` (ids the old game granted,
+  written by the import) is a `duplicate`.
+- `ctx.shop.legacyReceipts({ name, scope?, key, until? })` (once per game, in `init`): every unrecorded
+  receipt is checked against the old history store before any handler. Found -> recorded in
+  `legacyPurchases`, saved, `PurchaseGranted` (`legacy_duplicate`), nothing granted; a failed save parks
+  it (retry = duplicate). Read error -> `NotProcessedYet` (`legacy_check_failed`). Past
+  `until + Legacy.RECEIPT_KEEP_DAYS` the check is skipped.
+- `ctx.shop.onLegacyProduct(product, fn(receiptInfo, player), { writesLegacyData = bool })`: a development
+  bridge. Duplicate checks first, then the old handler outside a transaction (`Receipt.legacyCommit`);
+  `"PurchaseGranted"` records the id and waits for the save, anything else is `NotProcessedYet`. One
+  handler per product across both kinds; a boot warning per product; boot error at claim when an
+  `importLegacy` is on and any legacy product has `writesLegacyData = true`.
+- Tests: `Receipt.spec.luau` (pure), `packages/framework/test/LegacyShop.spec.luau` (end to end).
+
 ## N9: after-purchase effects when the player has left (core v1.3.0 decision)
 
 **`tx.after` effects run even if the buyer has left, as long as the grant's save is confirmed.** When a

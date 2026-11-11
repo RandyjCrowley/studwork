@@ -42,9 +42,20 @@
 	(ref -> ops), opts.canUse(callerName, ref) -> boolean, opts.isEnabled(ref), opts.now, opts.spawn,
 	opts.wait, opts.log, opts.isStudio, opts.guid(). platform.marketplace.getProcessReceipt() -> (readable,
 	fn?) is optional (no check without it).
+
+	v1.6.0 purchase bridge (docs/framework/adopting.md §4): opts.legacy (the read-only Legacy reader),
+	opts.hasLegacyImport() -> boolean (asked at claim time, the end of boot).
+	  A PurchaseId in _framework.purchases OR _framework.legacyPurchases is recorded (duplicate).
+	  ctx.shop.legacyReceipts({ name, scope?, key, until? }): once per game, before the claim; every
+	      unrecorded receipt is checked against the old history store first (Receipt step 5b).
+	  ctx.shop.onLegacyProduct(product, fn(receiptInfo, player), { writesLegacyData = boolean }):
+	      a development bridge for an old product handler (Receipt.legacyCommit). One handler per
+	      product across onProduct and onLegacyProduct. Boot warning per product; boot error at
+	      claim when hasLegacyImport() and any writesLegacyData = true.
 ]]
 
 local Receipt = require(script.Receipt)
+local Legacy = require(script.Parent.Legacy)
 
 local Shop = {}
 
@@ -65,8 +76,12 @@ function Shop.new(opts: any): any
 	products.passes = products.passes or {}
 	products.devProducts = products.devProducts or {}
 
-	local handlersById: { [number]: { owner: string, fn: (any) -> () } } = {}
-	local handlersByName: { [string]: { owner: string, fn: (any) -> () } } = {}
+	-- legacy (v1.6.0): an onLegacyProduct entry; fn is then the old handler(receiptInfo, player)
+	type Entry = { owner: string, fn: (...any) -> ...any, legacy: boolean?, writesLegacyData: boolean? }
+	local handlersById: { [number]: Entry } = {}
+	local handlersByName: { [string]: Entry } = {}
+	local legacyStore: { name: string, scope: string?, key: string, ["until"]: number? }? = nil
+	local legacyProducts: { { product: string, owner: string, writes: boolean } } = {}
 	local passHandlers: { [number]: { (any) -> () } } = {}
 	local passCache: { [any]: { [number]: boolean } } = {}
 	local passFired: { [any]: { [any]: boolean } } = {}
@@ -154,13 +169,20 @@ function Shop.new(opts: any): any
 	-- Receipt.commit (pure, unchanged from v1.2) drives it: `update` opens ONE framework tx whose
 	-- `data` argument is the _framework working section (purchases[PurchaseId] lands in the same
 	-- commit as the handler's writes); buildTx hands Receipt the tx handle and its after queue.
-	local function commitWith(
-		entry: { owner: string, fn: (any) -> () },
-		player: any,
-		receipt: any
-	): (Receipt.CommitStatus, any, string?)
+	local function commitWith(entry: Entry, player: any, receipt: any): (Receipt.CommitStatus, any, string?)
 		local name = productName(receipt.ProductId)
 		local tag = name or tostring(receipt.ProductId)
+		if entry.legacy then
+			-- §4.3: the old handler runs outside a tx; only the record is a framework tx
+			local function recordUpdate(p: any, fn: (data: any) -> ()): boolean
+				return (
+					data.runTx(p, function(tx: any)
+						fn(data.section(tx, "_framework"))
+					end, { meta = { purchase = true, product = tag, legacyProduct = true } })
+				)
+			end
+			return Receipt.legacyCommit(recordUpdate, entry.fn :: any, player, receipt, now())
+		end
 		local handle: any = nil
 		-- Receipt.commit's after queue and control, handed over in buildTx (before the handler runs)
 		local live: { queue: { () -> () }?, control: any } = { queue = nil, control = nil }
@@ -224,7 +246,32 @@ function Shop.new(opts: any): any
 		return Receipt.commit(update, handler, buildTx, player, receipt, now())
 	end
 
-	local function processWith(receipt: any, override: { owner: string, fn: (any) -> () }?): Receipt.Result
+	-- §4.2: the old history store check (Receipt step 5b). nil = no store registered.
+	local function legacyCheck(player: any, purchaseId: string): (Receipt.LegacyCheck, string?)
+		local spec = legacyStore :: any
+		local cutover = spec["until"]
+		if cutover ~= nil and now() > cutover + Legacy.RECEIPT_KEEP_DAYS * 86400 then
+			return "skip", nil
+		end
+		local key = Legacy.expand(spec.key, { userId = player.UserId, purchaseId = purchaseId })
+		local ok, value, err = opts.legacy.readKey(spec.name, spec.scope, key)
+		if not ok then
+			return "error", tostring(err)
+		end
+		return if value ~= nil then "found" else "none", nil
+	end
+
+	local function recordLegacy(player: any, purchaseId: string): boolean
+		return (
+			data.runTx(player, function(tx: any)
+				local fw = data.section(tx, "_framework")
+				fw.legacyPurchases = fw.legacyPurchases or {}
+				fw.legacyPurchases[purchaseId] = now()
+			end, { meta = { purchase = true, legacyDuplicate = true } })
+		)
+	end
+
+	local function processWith(receipt: any, override: Entry?): Receipt.Result
 		local entry = override
 			or (
 				if type(receipt) == "table" and type(receipt.ProductId) == "number"
@@ -242,8 +289,15 @@ function Shop.new(opts: any): any
 			end,
 			isRecorded = function(player: any, purchaseId: string): boolean
 				local purchases = data.frameworkField(player, "purchases")
-				return type(purchases) == "table" and purchases[purchaseId] ~= nil
+				if type(purchases) == "table" and purchases[purchaseId] ~= nil then
+					return true
+				end
+				-- v1.6.0 (adopting.md §4.1): ids the old game granted, carried over by the import
+				local old = data.frameworkField(player, "legacyPurchases")
+				return type(old) == "table" and old[purchaseId] ~= nil
 			end,
+			legacyCheck = if legacyStore ~= nil then legacyCheck else nil,
+			recordLegacy = recordLegacy,
 			hasHandler = entry ~= nil,
 			commit = function(player: any, r: any)
 				return commitWith(entry :: any, player, r)
@@ -292,6 +346,24 @@ function Shop.new(opts: any): any
 	local hijacks = 0
 
 	function s.claim()
+		-- §4.3 boot error: an old handler that writes the old save while an import reads it
+		if opts.hasLegacyImport ~= nil then
+			local writer: any = nil
+			for _, lp in legacyProducts do
+				if lp.writes then
+					writer = lp
+					break
+				end
+			end
+			if writer ~= nil and opts.hasLegacyImport() then
+				local ids = if opts.data and opts.data.legacyImports then opts.data.legacyImports() else {}
+				local who = if #ids > 0 then table.concat(ids, ", ") else "a module"
+				error(
+					`legacy product {writer.product} writes the old save, but {who} imports it (importLegacy); migrate {writer.product} to ctx.shop.onProduct first`,
+					0
+				)
+			end
+		end
 		claimed = true
 		local fn = function(receipt: any): any
 			return marketplace.decision(s.processReceipt(receipt))
@@ -446,6 +518,11 @@ function Shop.new(opts: any): any
 		end
 		for _, m in mine do
 			local spent = m.parked.currencySpent or 0
+			if m.parked.kind == "legacy_duplicate" then
+				-- nothing was granted here (the old game did): no effects, signal or analytics
+				parkedProduct[m.id] = nil
+				continue
+			end
 			if ok and saved == true then
 				flush(m.parked.effects)
 				opts.signals.ProductGranted:Fire(player, parkedProduct[m.id], m.id)
@@ -469,6 +546,9 @@ function Shop.new(opts: any): any
 			end
 		end
 		for _, dropped in Receipt.forgetPlayer(pending, player.UserId) do
+			if dropped.kind == "legacy_duplicate" then
+				continue
+			end
 			pcall(opts.analytics.custom, player, "ProductPurchased", dropped.currencySpent or 0)
 		end
 	end
@@ -527,45 +607,105 @@ function Shop.new(opts: any): any
 		return `{purchaseId}: 1st {first.decision} ({first.reason}), 2nd {second.decision} ({second.reason})`
 	end
 
+	-- One handler per product across onProduct and onLegacyProduct. -> error message or nil.
+	local function register(api: string, product: number | string, entry: Entry): string?
+		if type(product) == "number" then
+			if handlersById[product] ~= nil then
+				return `{api}: product {product} already has a handler (owned by {handlersById[product].owner})`
+			end
+			handlersById[product] = entry
+			return nil
+		end
+		if type(product) ~= "string" then
+			return `{api}: product must be an id or a devProducts name`
+		end
+		local id = products.devProducts[product]
+		if id == nil then
+			return `{api}: unknown product '{product}' (not in products.devProducts)`
+		end
+		if handlersByName[product] ~= nil then
+			return `{api}: product '{product}' already has a handler (owned by {handlersByName[product].owner})`
+		end
+		if id ~= 0 and handlersById[id] ~= nil then
+			return `{api}: product id {id} already has a handler`
+		end
+		handlersByName[product] = entry
+		if id == 0 then
+			warnOnce("product0:" .. product, "product '" .. product .. "' has id 0 (not created yet)")
+			return nil
+		end
+		handlersById[id] = entry
+		return nil
+	end
+
+	function s.legacyReceiptStore(): any
+		return legacyStore
+	end
+
 	function s.forModule(owner: string): any
 		return table.freeze({
 			onProduct = function(product: number | string, handler: (tx: any) -> ())
 				if type(handler) ~= "function" then
 					error("ctx.shop.onProduct: handler must be a function(tx)", 2)
 				end
-				local entry = { owner = owner, fn = handler }
-				if type(product) == "number" then
-					if handlersById[product] ~= nil then
-						error(
-							`ctx.shop.onProduct: product {product} already has a handler (owned by {handlersById[product].owner})`,
-							2
-						)
-					end
-					handlersById[product] = entry
-					return
+				local err = register("ctx.shop.onProduct", product, { owner = owner, fn = handler })
+				if err then
+					error(err, 2)
 				end
-				if type(product) ~= "string" then
-					error("ctx.shop.onProduct: product must be an id or a devProducts name", 2)
+			end,
+			-- v1.6.0 (adopting.md §4.3): an old product handler, a development bridge (never live)
+			onLegacyProduct = function(
+				product: number | string,
+				handler: (receiptInfo: any, player: any) -> any,
+				o: any
+			)
+				if type(handler) ~= "function" then
+					error("ctx.shop.onLegacyProduct: handler must be a function(receiptInfo, player)", 2)
 				end
-				local id = products.devProducts[product]
-				if id == nil then
-					error(`ctx.shop.onProduct: unknown product '{product}' (not in products.devProducts)`, 2)
-				end
-				if handlersByName[product] ~= nil then
+				if type(o) ~= "table" or type(o.writesLegacyData) ~= "boolean" then
 					error(
-						`ctx.shop.onProduct: product '{product}' already has a handler (owned by {handlersByName[product].owner})`,
+						"ctx.shop.onLegacyProduct: opts.writesLegacyData (boolean) is required: does the old handler write the old save?",
 						2
 					)
 				end
-				handlersByName[product] = entry
-				if id == 0 then
-					warnOnce("product0:" .. product, "product '" .. product .. "' has id 0 (not created yet)")
-					return
+				if claimed then
+					error("ctx.shop.onLegacyProduct: register it in init", 2)
 				end
-				if handlersById[id] ~= nil then
-					error(`ctx.shop.onProduct: product id {id} already has a handler`, 2)
+				local err = register(
+					"ctx.shop.onLegacyProduct",
+					product,
+					{ owner = owner, fn = handler, legacy = true, writesLegacyData = o.writesLegacyData }
+				)
+				if err then
+					error(err, 2)
 				end
-				handlersById[id] = entry
+				local label = tostring(product)
+				table.insert(legacyProducts, { product = label, owner = owner, writes = o.writesLegacyData })
+				log(
+					`[StudWork.Shop] legacy product {label} ({owner}) runs its old handler through ctx.shop.onLegacyProduct: a development bridge, never ship it live (tools/publish --live refuses); port it to ctx.shop.onProduct`
+				)
+			end,
+			-- v1.6.0 (adopting.md §4.2): the old game's purchase history store, once per game, in init
+			legacyReceipts = function(spec: any)
+				if claimed then
+					error("ctx.shop.legacyReceipts: register it in init", 2)
+				end
+				if legacyStore ~= nil then
+					error("ctx.shop.legacyReceipts: already registered (once per game)", 2)
+				end
+				local err = Shop.validateLegacyReceipts(spec)
+				if err then
+					error("ctx.shop.legacyReceipts: " .. err, 2)
+				end
+				if opts.legacy == nil then
+					error("ctx.shop.legacyReceipts: no legacy reader in this runtime", 2)
+				end
+				legacyStore = table.freeze({
+					name = spec.name,
+					scope = spec.scope,
+					key = spec.key,
+					["until"] = spec["until"],
+				})
 			end,
 			onPassOwned = function(pass: number | string, handler: (player: any) -> ())
 				if type(handler) ~= "function" then
@@ -590,6 +730,36 @@ function Shop.new(opts: any): any
 	end
 
 	return s
+end
+
+-- adopting.md §4.2: validates a ctx.shop.legacyReceipts spec. -> error message or nil.
+function Shop.validateLegacyReceipts(spec: any): string?
+	if type(spec) ~= "table" then
+		return "expects { name, scope?, key, until? }"
+	end
+	for k in spec do
+		if k ~= "name" and k ~= "scope" and k ~= "key" and k ~= "until" then
+			return `unknown field '{tostring(k)}' (name, scope, key, until)`
+		end
+	end
+	if type(spec.name) ~= "string" or spec.name == "" then
+		return "name must be the old DataStore's name (a non-empty string)"
+	end
+	if spec.scope ~= nil and type(spec.scope) ~= "string" then
+		return "scope must be a string"
+	end
+	if type(spec.key) ~= "string" or not string.find(spec.key, "{purchaseId}", 1, true) then
+		return "key must be a pattern that uses {purchaseId} (and usually {userId})"
+	end
+	local ok, err = pcall(Legacy.expand, spec.key, { userId = 1, purchaseId = "x" })
+	if not ok then
+		return tostring(err)
+	end
+	local u = spec["until"]
+	if u ~= nil and (type(u) ~= "number" or u ~= u or u <= 0) then
+		return "until must be a unix time in seconds"
+	end
+	return nil
 end
 
 return Shop
