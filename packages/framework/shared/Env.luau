@@ -7,7 +7,10 @@
 	  Env.build(environments, info, forced?) -> EnvAPI          frozen { name(), placeId(), universeId() }
 
 	info = { isStudio: boolean, placeId: number, universeId: number }. An unlisted place is live, so a
-	place nobody listed can never switch on test-only behaviour. Ids are positive integers (the
+	place nobody listed can never switch on test-only behaviour. Order: studio; a test place id; a live
+	place id; a test universe id, trusted only when environments.live.universeIds lists the live
+	universe (so the test universe is known to be another experience: a live universe listed under
+	test can never make live servers test; until then it is ignored, with a boot warning); else live. Ids are positive integers (the
 	generated Environments.luau leaves deploy.json's placeholders out); an id listed under both test
 	and live (place ids with place ids, universe ids with universe ids) is a boot error.
 ]]
@@ -30,15 +33,36 @@ local function contains(list: any, id: number): boolean
 	return false
 end
 
+local function nonEmpty(list: any): boolean
+	return type(list) == "table" and next(list) ~= nil
+end
+
+-- A test universe counts only when the live universe is listed too (and so known to differ: an id
+-- under both is a boot error).
+local function testUniverseTrusted(environments: any): boolean
+	local live = if type(environments) == "table" then environments.live else nil
+	return type(live) == "table" and nonEmpty(live.universeIds)
+end
+
 function Env.resolve(environments: any, info: Info): Types.EnvName
 	if info.isStudio then
 		return "studio"
 	end
 	local test = if type(environments) == "table" then environments.test else nil
-	if type(test) == "table" then
-		if contains(test.placeIds, info.placeId) or contains(test.universeIds, info.universeId) then
-			return "test"
-		end
+	local live = if type(environments) == "table" then environments.live else nil
+	if type(test) == "table" and contains(test.placeIds, info.placeId) then
+		return "test"
+	end
+	if type(live) == "table" and contains(live.placeIds, info.placeId) then
+		return "live"
+	end
+	if
+		type(test) == "table"
+		and contains(test.universeIds, info.universeId)
+		and testUniverseTrusted(environments)
+		and not contains(live.universeIds, info.universeId)
+	then
+		return "test"
 	end
 	return "live"
 end
@@ -108,6 +132,12 @@ function Env.validate(environments: any, info: Info?): ({ string }, { string })
 				end
 			end
 		end
+	end
+	if type(test) == "table" and nonEmpty(test.universeIds) and not testUniverseTrusted(environments) then
+		table.insert(
+			warnings,
+			"environments.test.universeIds is ignored until environments.live.universeIds lists the live universe: a test universe must be its own experience, and is only trusted once it is known to differ from live (its servers run as live meanwhile)"
+		)
 	end
 	if info ~= nil and not info.isStudio and type(live) == "table" then
 		local inTest = Env.resolve(environments, info) == "test"

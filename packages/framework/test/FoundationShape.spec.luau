@@ -67,7 +67,10 @@ describe("Env", function()
 		local environments = { test = { placeIds = { 11 } }, live = { placeIds = { 99 } } }
 		expect(Env.resolve(environments, { isStudio = true, placeId = 11, universeId = 22 })).toBe("studio")
 		expect(Env.resolve(environments, info)).toBe("test")
-		expect(Env.resolve({ test = { universeIds = { 22 } } }, info)).toBe("test")
+		expect(Env.resolve({ test = { universeIds = { 22 } }, live = { universeIds = { 33 } } }, info)).toBe(
+			"test"
+		)
+		expect(Env.resolve({ test = { universeIds = { 22 } } }, info)).toBe("live") -- live universe unknown
 		expect(Env.resolve({ test = { placeIds = { 5 } } }, info)).toBe("live")
 		expect(Env.resolve(nil, info)).toBe("live")
 	end)

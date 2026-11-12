@@ -1119,9 +1119,13 @@ ctx.env                                              -- the same frozen table, s
 ```
 
 - `"studio"` when running in Studio; `"test"` when `game.PlaceId` is listed in
-  `environments.test.placeIds` or `game.GameId` in `environments.test.universeIds`; otherwise
-  `"live"` (an unlisted place is live, with a boot warning when `environments.live` is set and
-  doesn't list it either). **An id listed under both `test` and `live` is a boot error.**
+  `environments.test.placeIds`; `"live"` when it is in `environments.live.placeIds`; `"test"` when
+  `game.GameId` is in `environments.test.universeIds` and `environments.live.universeIds` lists the
+  live universe (a test universe is trusted only once it is known to differ from live; without a
+  live universe it is ignored with a boot warning, so a live universe listed under `test` can never
+  make live servers test); otherwise `"live"` (an unlisted place is live, with a boot warning when
+  `environments.live` is set and doesn't list it either). **An id listed under both `test` and
+  `live` is a boot error.**
 - `environments` is framework-level config (top level of `GameConfig`, §11). In a game it is
   generated from `deploy.json` into `src/shared/Config/Environments.luau` by `tools/sync-projects`
   (`--check` fails on drift, and when deploy.json's test and live ids are equal). Placeholder

@@ -63,6 +63,26 @@ describe("Env.resolve", function()
 		expect(Env.resolve({ test = { placeIds = { 222 } } }, info(222, 333))).toBe("test")
 	end)
 
+	it("a live universe listed under test never makes a live server test (M4)", function()
+		-- hand-written: the live universe under test, no live list: every server would be test
+		local shared = { test = { universeIds = { 333 } } }
+		expect(Env.resolve(shared, info(444, 333))).toBe("live")
+		expect(Env.resolve(shared, info(999, 333))).toBe("live")
+		-- the live place listed by place id only, the universe under test
+		local byPlace = { test = { universeIds = { 333 } }, live = { placeIds = { 444 } } }
+		expect(Env.resolve(byPlace, info(444, 333))).toBe("live")
+		expect(Env.resolve(byPlace, info(555, 333))).toBe("live") -- a live sub-place too
+		-- a live place id beats a (trusted) test universe
+		local both =
+			{ test = { universeIds = { 111 } }, live = { placeIds = { 444 }, universeIds = { 333 } } }
+		expect(Env.resolve(both, info(444, 111))).toBe("live")
+		expect(Env.resolve(both, info(999, 111))).toBe("test")
+		-- a test place id is explicit and still wins (a test place inside the live experience)
+		expect(
+			Env.resolve({ test = { placeIds = { 222 } }, live = { universeIds = { 333 } } }, info(222, 333))
+		).toBe("test")
+	end)
+
 	it("is live for a live place and for any place nobody listed", function()
 		expect(Env.resolve(IDS, info(444, 333))).toBe("live")
 		expect(Env.resolve(IDS, info(5, 6))).toBe("live")
@@ -106,11 +126,29 @@ describe("Env.validate", function()
 		expect(warnings[1]).toContain("unknown key")
 	end)
 
+	it("warns once that a test universe is ignored until the live universe is listed", function()
+		local _, w = Env.validate({ test = { universeIds = { 333 } } }, info(444, 333))
+		expect(#w).toBe(1)
+		expect(w[1]).toContain("environments.test.universeIds is ignored")
+		_, w =
+			Env.validate({ test = { universeIds = { 111 } }, live = { placeIds = { 444 } } }, info(444, 333))
+		expect(#w).toBe(1)
+		_, w = Env.validate(IDS, info(222, 111))
+		expect(#w).toBe(0)
+		_, w = Env.validate({ test = { placeIds = { 222 } } }, info(222, 111))
+		expect(#w).toBe(0)
+	end)
+
 	it("warns for an unlisted place only when environments.live is set, never in Studio", function()
 		local _, w = Env.validate(IDS, info(5, 6))
 		expect(#w).toBe(1)
 		expect(w[1]).toContain("place 5 isn't in environments; treating it as live")
 		_, w = Env.validate({ test = IDS.test }, info(5, 6))
+		-- (no unlisted-place warning without a live list; the one warning is that the test universe
+		-- is ignored until the live universe is listed, M4)
+		expect(#w).toBe(1)
+		expect(w[1]).toContain("environments.test.universeIds is ignored")
+		_, w = Env.validate({ test = { placeIds = IDS.test.placeIds } }, info(5, 6))
 		expect(#w).toBe(0)
 		_, w = Env.validate(IDS, info(5, 6, true))
 		expect(#w).toBe(0)
@@ -139,6 +177,19 @@ describe("environments at boot", function()
 		expect(ctx.env.universeId()).toBe(111)
 		local p = h:addPlayer({ userId = 1 })
 		expect(h:state(p).framework.env).toBe("test")
+	end)
+
+	it("a live universe under test (no live list) boots as live, so testOnly flags stay off", function()
+		local h, _, ctx = boot({
+			placeId = 444,
+			universeId = 333,
+			environments = { test = { universeIds = { 333 } } },
+			flags = { beta = { default = false, test = true, testOnly = true } },
+		})
+		expect(h).never.toBeNil()
+		expect(ctx.env.name()).toBe("live")
+		expect(ctx.flags.isOn("beta")).toBe(false)
+		expect(hasWarning(h, "environments.test.universeIds is ignored")).toBe(true)
 	end)
 
 	it("an unknown place is live, with one boot warning", function()
