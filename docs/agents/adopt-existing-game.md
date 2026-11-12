@@ -519,6 +519,13 @@ recipe uses (`FindFirstChild`, `WaitForChild`, `Instance.new("Folder" | "IntValu
 | "StringValue" | "BoolValue")` parented to the player), so that code needs no guard. They have no
 `Character` (nil): code that reads the character must handle nil.
 
+**Testing a product, or old stores, in the sim:** `local h = server:purchase(StudWork.test.sim.receipt(userId,
+"purchase-1", <productId>))` runs Shop's `ProcessReceipt` in a server thread (`h.done`,
+`h.result`); send the same receipt twice to prove one grant. The sim server reads the World's mock
+DataStores as old stores only with `sim.gameServer(world, "default.project.json", { legacy = "world" })` (seed them with
+`world:seed("PurchaseHistory", "<key>", value)`); without it `importLegacy` and
+`ctx.shop.legacyReceipts` see nothing. Example: `studwork/packages/framework/test/sim/LegacyImport.spec.luau`.
+
 A remote that passes a client argument into a grant or save write is the audit's high risk
 `client_value_trusted`: compute that value on the server in the action.
 
