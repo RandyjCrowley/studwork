@@ -456,9 +456,22 @@ game, in `init`. Every receipt whose PurchaseId isn't recorded is checked agains
 - a read error answers `NotProcessedYet` (`legacy_check_failed`), so Roblox retries;
 - nothing there: the normal flow.
 
-`until` (optional, unix seconds) is the cutover time: once `now` is past `until` plus the
-re-delivery window (`Legacy.RECEIPT_KEEP_DAYS`), the check is skipped, so an old-store outage can't
-block purchases forever.
+`until` (optional, unix seconds) is the cutover time, and `checkDays` (optional, added in v1.6.1, a
+positive number of days, default `Legacy.RECEIPT_KEEP_DAYS` = 90) is the late-receipt window after it:
+
+- before `until`: every unrecorded receipt is checked;
+- from `until` to `until + checkDays` days: still checked (old receipts Roblox re-delivers late
+  are still caught);
+- after that: the check is skipped, so an old-store outage can't block purchases forever. A very
+  late re-delivered **old** receipt then grants normally. That's acceptable because Roblox
+  re-delivers an unacknowledged receipt only for a limited time (days, not months), and the
+  default 90 days covers it with a wide margin. Raise `checkDays` if you want more margin; lower
+  it only if you're sure no old receipt can still be pending.
+
+Without `until` the store is checked forever. If you set `until`, keep the old history store
+readable until `until + checkDays` days have passed. `checkDays` only changes this check: the ids
+an import carried over in `_framework.legacyPurchases` (§4.1) keep their fixed 90-day pruning,
+since they come from the old save, not from the history store.
 
 ### 4.3 Old handlers through Shop, in Studio and test places (`ctx.shop.onLegacyProduct`)
 
@@ -487,10 +500,33 @@ So old product code keeps working **while the game is being migrated**, without 
   is required. If any module has an `importLegacy` and any legacy product has
   `writesLegacyData = true`, boot fails: *"legacy product CoinPack writes the old save, but <id>
   imports it (importLegacy); migrate CoinPack to ctx.shop.onProduct first"*.
-  `writesLegacyData` is the author's declaration; nothing checks the handler's code (final
-  review M1). A wrong `false` on a handler that writes the old save loses that purchase's grant
-  in a test place (the save was imported before the write). That's one reason the bridge is test
-  places only: `--verify` and `tools/publish --live` refuse while any `onLegacyProduct` is left.
+- **What is enforced, and what is only declared** (v1.6.1, final review M1). A wrong
+  `writesLegacyData = false` on a handler that writes the old save would lose that purchase's
+  grant (the save was imported before the write), so:
+  - *Enforced:* the boot error above (`writesLegacyData = true` + `importLegacy`);
+    `tools/adopt --verify` and `tools/publish --live` refuse any `onLegacyProduct` before live;
+    and an undeclared write **fails loudly in tests and in Studio**: the receipt answers
+    `NotProcessedYet`, nothing is recorded, and an error *"UNDECLARED LEGACY WRITE: legacy product
+    CoinPack (Shopkeeper) declared writesLegacyData = false but its old handler wrote store
+    OldData key Player_1 ...; declare writesLegacyData = true or remove the write"* is logged.
+    - In tests (`StudWork.test.legacyStore`, its `dataStoreService()` facade for old code, and the
+      sim's World DataStores with `{ legacy = "world" }`): every write (`SetAsync`, `UpdateAsync`,
+      `IncrementAsync`, `RemoveAsync`, ordered-store writes, and ProfileService / DataStore2
+      writes that go through the same mock) made while the handler runs, including from a task it
+      spawned that writes before the handler returns. Not caught: a write deferred past the
+      handler's return (`task.defer`, `task.delay`, a later event). Writes to the registered
+      `legacyReceipts` history store are allowed (recording the purchase there isn't the save).
+    - In Studio (real DataStores, which can't be intercepted): before the handler, Shop reads the
+      player's keys that every registered `importLegacy` source reads (value and `UpdatedTime`,
+      `UseCache = false`, through the read-only reader), and reads them again after it. A change
+      fails loudly; a failed read answers `NotProcessedYet` (fail closed). Limits: only the
+      imported keys are compared (a write to another old store isn't seen, and with no
+      `importLegacy` nothing is compared, since there's no imported save to lose); a write
+      deferred past the second read isn't seen; with Studio API access off nothing is compared
+      (the old handler can't write either, and the import is skipped that session).
+  - *Declared only:* what the old handler does on a **live** server (a published test place):
+    nothing checks it there; the boot logs a warning listing every bridge and its
+    `writesLegacyData` flag. That's one reason the bridge is test places only.
 - A product has one handler: `onProduct` or `onLegacyProduct`, not both (boot error).
 - Every `onLegacyProduct` logs a boot warning naming the product.
 

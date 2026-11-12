@@ -36,17 +36,24 @@ declared dependency).
 
 - A PurchaseId in `_framework.purchases` **or** `_framework.legacyPurchases` (ids the old game granted,
   written by the import) is a `duplicate`.
-- `ctx.shop.legacyReceipts({ name, scope?, key, until? })` (once per game, in `init`): every unrecorded
+- `ctx.shop.legacyReceipts({ name, scope?, key, until?, checkDays? })` (once per game, in `init`): every unrecorded
   receipt is checked against the old history store before any handler. Found -> recorded in
   `legacyPurchases`, saved, `PurchaseGranted` (`legacy_duplicate`), nothing granted; a failed save parks
   it (retry = duplicate). Read error -> `NotProcessedYet` (`legacy_check_failed`). Past
-  `until + Legacy.RECEIPT_KEEP_DAYS` the check is skipped.
+  `until + checkDays` days (v1.6.1; default `Legacy.RECEIPT_KEEP_DAYS` = 90; a positive number, the
+  validator refuses anything else) the check is skipped.
 - `ctx.shop.onLegacyProduct(product, fn(receiptInfo, player), { writesLegacyData = bool })`: a development
   bridge. Duplicate checks first, then the old handler outside a transaction (`Receipt.legacyCommit`);
   `"PurchaseGranted"` records the id and waits for the save, anything else is `NotProcessedYet`. One
   handler per product across both kinds; a boot warning per product; boot error at claim when an
   `importLegacy` is on and any legacy product has `writesLegacyData = true`.
-- Tests: `Receipt.spec.luau` (pure), `packages/framework/test/LegacyShop.spec.luau` (end to end).
+- v1.6.1: a `writesLegacyData = false` handler that writes an old store anyway answers `NotProcessedYet`,
+  records nothing and logs `UNDECLARED LEGACY WRITE` (product, module, store, key). Tests: the legacy store
+  mock reports every write while the handler runs (`reader.watchWrites`; the `legacyReceipts` history store
+  excepted). Studio: the `importLegacy` sources' keys are read before and after the handler and compared
+  (`reader.stamp`); a failed read is `NotProcessedYet`. Live: no check (adopting.md §4.3 lists the limits).
+- Tests: `Receipt.spec.luau` (pure), `packages/framework/test/LegacyShop.spec.luau` (end to end),
+  `LegacyBridgeWrites.spec.luau` and `sim/LegacyBridgeWrites.spec.luau` (undeclared writes, `checkDays`).
 
 ## N9: after-purchase effects when the player has left (core v1.3.0 decision)
 

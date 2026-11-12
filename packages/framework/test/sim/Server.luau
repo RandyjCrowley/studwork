@@ -574,9 +574,29 @@ function Server._platform(self): any
 		makeLegacy = if server.legacyMode == "world"
 			then function()
 				local Legacy = server.require(Loader.core("packages/framework/server/Legacy.luau"))
-				return Legacy.readOnly(game:GetService("DataStoreService"), {
+				local reader = Legacy.readOnly(game:GetService("DataStoreService"), {
 					log = function(msg)
 						server.globals.warn(msg)
+					end,
+				})
+				-- (v1.6.1) the mock reports this server's writes to non-framework stores, so Shop
+				-- catches an undeclared old-store write (adopting.md §4.3). The framework's own
+				-- sim stores (PlayerData_<gameId>, StudWorkShared_<gameId>) are not old stores.
+				return table.freeze({
+					get = reader.get,
+					latestOrdered = reader.latestOrdered,
+					watchWrites = function(fn)
+						return server.world:watchWrites(function(ev)
+							local plain = string.gsub(ev.storeName, "^ordered:", "")
+							if
+								ev.writer ~= server.jobId
+								or string.find(plain, "^PlayerData_")
+								or string.find(plain, "^StudWorkShared_")
+							then
+								return
+							end
+							fn({ store = ev.storeName, name = plain, key = ev.key, op = ev.op })
+						end)
 					end,
 				})
 			end

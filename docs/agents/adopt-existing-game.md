@@ -441,7 +441,9 @@ The audit's `historyIn` (per product handler) says where its history is: `"save"
   ctx.shop.legacyReceipts({ name = "PurchaseHistory", key = "{userId}_{purchaseId}" })
   ```
 
-  Leave `until` out; the user sets it to the cutover time later (put that in the report).
+  Leave `until` out; the user sets it to the cutover time later (put that in the report). The
+  store is still checked for `checkDays` (default 90) days after `until`; leave `checkDays` out
+  unless the user asks.
 - If neither exists: write that in the report (the old game had no duplicate protection).
 
 **The bridge (`ctx.shop.onLegacyProduct`)** lets an old handler keep running through Shop while
@@ -450,6 +452,9 @@ need the game playable meanwhile. Rules:
 
 - Never for a handler that writes the old save when an import is registered
   (`writesLegacyData = true` + `importLegacy` = boot error).
+- Declare `writesLegacyData` truthfully. A `false` handler that writes an old store fails loudly in
+  tests and in Studio (`UNDECLARED LEGACY WRITE ...`, the receipt is `NotProcessedYet`): set it to
+  `true` (and port the product before adding an import) or remove the write.
 - Never for a handler the audit marked critical (randomness, no history check).
 - **Every `onLegacyProduct` must be gone before step 10**: `tools/adopt --verify` fails while one is left.
 

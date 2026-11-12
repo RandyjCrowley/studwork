@@ -136,6 +136,8 @@ export type LegacyReceiptStore = {
 	scope: string?,
 	key: string, -- uses {userId} and {purchaseId}
 	["until"]: number?,
+	-- (added in v1.6.1) days after `until` the old store is still checked (default 90)
+	checkDays: number?,
 }
 
 export type RollInfo = {

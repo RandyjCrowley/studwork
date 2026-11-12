@@ -252,7 +252,35 @@ function World._commit(
 		before = if before then deepCopy(before) else nil,
 		after = deepCopy(stored),
 	})
+	self:_wrote(storeName, key, writer, "write")
 	return entry
+end
+
+-- (v1.6.1) write observers (Shop's undeclared legacy write check through the sim legacy
+-- backend): fn({ storeName, key, writer, op }) on every committed write or remove.
+function World.watchWrites(self, fn: (any) -> ()): () -> ()
+	self.writeWatchers = self.writeWatchers or {}
+	local token = {}
+	self.writeWatchers[token] = fn
+	return function()
+		self.writeWatchers[token] = nil
+	end
+end
+
+function World._wrote(self, storeName: string, key: string, writer: string, op: string)
+	for _, fn in table.clone(self.writeWatchers or {}) do
+		fn({ storeName = storeName, key = key, writer = writer, op = op })
+	end
+end
+
+function World._remove(self, storeName: string, key: string, writer: string): any
+	local store = self.stores[storeName]
+	local entry = store and store[key]
+	if store then
+		store[key] = nil
+	end
+	self:_wrote(storeName, key, writer, "remove")
+	return if entry then deepCopy(entry.value) else nil
 end
 
 -- DataStoreService facade for one server (writer = its JobId).
@@ -291,6 +319,18 @@ function World.dataStoreService(self, server: any)
 			world:_call("SetAsync", name, key, server.jobId)
 			world:_commit(name, key, server.jobId, value, userIds, nil)
 		end
+		-- (v1.6.1) the rest of the write API old game code uses
+		function ds.IncrementAsync(_ds, key: string, delta: number?)
+			world:_call("IncrementAsync", name, key, server.jobId)
+			local entry = world:_entry(name, key)
+			local v = (if entry then tonumber(entry.value) else 0) or 0
+			world:_commit(name, key, server.jobId, v + (delta or 1), nil, nil)
+			return v + (delta or 1)
+		end
+		function ds.RemoveAsync(_ds, key: string)
+			world:_call("RemoveAsync", name, key, server.jobId)
+			return world:_remove(name, key, server.jobId)
+		end
 		function ds.GetVersionAsync()
 			error("sim DataStore: GetVersionAsync not modelled", 0)
 		end
@@ -303,6 +343,26 @@ function World.dataStoreService(self, server: any)
 		function ods.SetAsync(_ods, key: string, value: number)
 			world:_call("SetAsync", storeName, tostring(key), server.jobId)
 			world:_commit(storeName, tostring(key), server.jobId, value, nil, nil)
+		end
+		function ods.UpdateAsync(_ods, key: string, transform: (any) -> any)
+			world:_call("UpdateAsync", storeName, tostring(key), server.jobId)
+			local entry = world:_entry(storeName, tostring(key))
+			local v = transform(if entry then entry.value else nil)
+			if v ~= nil then
+				world:_commit(storeName, tostring(key), server.jobId, v, nil, nil)
+			end
+			return v
+		end
+		function ods.IncrementAsync(_ods, key: string, delta: number?)
+			world:_call("IncrementAsync", storeName, tostring(key), server.jobId)
+			local entry = world:_entry(storeName, tostring(key))
+			local v = (if entry then entry.value else 0) + (delta or 1)
+			world:_commit(storeName, tostring(key), server.jobId, v, nil, nil)
+			return v
+		end
+		function ods.RemoveAsync(_ods, key: string)
+			world:_call("RemoveAsync", storeName, tostring(key), server.jobId)
+			world:_remove(storeName, tostring(key), server.jobId)
 		end
 		function ods.GetSortedAsync(_ods, ascending: boolean, pageSize: number)
 			world:_call("GetSortedAsync", storeName, "*", server.jobId)

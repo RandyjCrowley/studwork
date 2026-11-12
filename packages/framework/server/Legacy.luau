@@ -22,6 +22,14 @@
 	    store.failNext(n)                           the next n reads raise
 	    store.reads                                 how many reads were made (tests)
 	    store.now = fn                              the clock `set` stamps with (default os.time)
+	    store.dataStoreService() -> a DataStoreService-like facade over the same stores, so old
+	        handler code runs unchanged in tests (v1.6.1): GetDataStore(name, scope?) with
+	        GetAsync / SetAsync / UpdateAsync / IncrementAsync / RemoveAsync, GetOrderedDataStore
+	        with SetAsync / UpdateAsync / IncrementAsync / RemoveAsync / GetSortedAsync
+	    store.watchWrites(fn(event)) -> stop()      (v1.6.1) every WRITE (set, setOrdered, busy, the
+	        facade's writes) calls fn({ store = storeId, name, scope?, key, op }); an observer only
+	        (the framework never writes through it). Shop uses it to catch an onLegacyProduct
+	        handler that declared writesLegacyData = false and writes anyway (adopting.md §4.3).
 	Legacy.new(opts) -> reader      opts = { backend, now, wait?, log?, isStudio? }
 	  reader.readKey(name, scope?, key) -> (ok, value?, updatedAt? | err)
 	  reader.read(source, userId) -> (status, value?, info)
@@ -31,6 +39,11 @@
 	      a single source: old = its value; a map: old = { [name] = value? } (found when any is).
 	      sources = { [name]: { found, updatedAt? } } ("main" for a single source)
 	  reader.expand(pattern, vars) -> string        "{userId}" / "{purchaseId}" substitution
+	  reader.canWatch() -> boolean                  (v1.6.1) the backend reports writes (test mocks)
+	  reader.watchWrites(fn) -> stop()              (v1.6.1) backend.watchWrites (errors without it)
+	  reader.stamp(source, userId) -> (ok, stamp | err)   (v1.6.1, Studio write detection) READS the
+	      keys a source reads (no cache) and returns { { store, key, updatedAt?, value } };
+	      err = Legacy.NO_ACCESS when Studio has no API access. Legacy.sameStamp(a, b) -> (bool, key?)
 	Legacy.validateSource(source) -> err?           registration check (Context/Data, boot errors)
 	Legacy.storeNames(source) -> { string }         the store names a source reads (collision check)
 
@@ -173,6 +186,23 @@ function Legacy.memory(seed: any?): any
 	end
 	local fail = 0
 	local m: any = { reads = 0, now = os.time }
+	local watchers: { [number]: (any) -> () } = {}
+	local nextWatcher = 0
+	local function wrote(name: string, scope: string?, key: string, op: string)
+		local event =
+			table.freeze({ store = storeId(name, scope), name = name, scope = scope, key = key, op = op })
+		for _, fn in table.clone(watchers) do
+			fn(event)
+		end
+	end
+	function m.watchWrites(fn: (any) -> ()): () -> ()
+		nextWatcher += 1
+		local id = nextWatcher
+		watchers[id] = fn
+		return function()
+			watchers[id] = nil
+		end
+	end
 	local function read()
 		m.reads += 1
 		if fail > 0 then
@@ -187,6 +217,7 @@ function Legacy.memory(seed: any?): any
 		local id = storeId(name, scope)
 		stores[id] = stores[id] or {}
 		stores[id][key] = { value = deepCopy(value), at = at or m.now() }
+		wrote(name, scope, key, "set")
 	end
 	m.write = m.set -- adopting.md §3 name
 	-- re-stamps a key as just written (an old server still saving): a busy read
@@ -194,6 +225,7 @@ function Legacy.memory(seed: any?): any
 		local e = (stores[storeId(name, scope)] or {})[key]
 		if e then
 			e.at = m.now()
+			wrote(name, scope, key, "busy")
 		end
 	end
 	-- seeded update times (seed values have none = written long ago)
@@ -207,6 +239,7 @@ function Legacy.memory(seed: any?): any
 		local id = storeId(name, scope)
 		ordered[id] = ordered[id] or {}
 		ordered[id][key] = n
+		wrote(name, scope, key, "setOrdered")
 	end
 	function m.get(name: string, scope: string?, key: string): (any, number?)
 		read()
@@ -232,7 +265,138 @@ function Legacy.memory(seed: any?): any
 		local e = (stores[storeId(name, scope)] or {})[key]
 		return if e then deepCopy(e.value) else nil
 	end
+	-- (v1.6.1) old game code in tests: a DataStoreService-like facade; every write notifies the
+	-- watchers (Shop's undeclared-write check). Reads through it don't count as framework reads.
+	function m.dataStoreService(): any
+		local service: any = {}
+		function service.GetDataStore(_self: any, name: string, scope: string?, _options: any?): any
+			local id = storeId(name, scope)
+			local ds: any = {}
+			local function cur(key: string): any
+				local e = (stores[id] or {})[key]
+				return if e then deepCopy(e.value) else nil
+			end
+			local function put(key: string, value: any, op: string)
+				stores[id] = stores[id] or {}
+				if value == nil then
+					stores[id][key] = nil
+				else
+					stores[id][key] = { value = deepCopy(value), at = m.now() }
+				end
+				wrote(name, scope, key, op)
+			end
+			function ds.GetAsync(_ds: any, key: string): any
+				return cur(key)
+			end
+			function ds.SetAsync(_ds: any, key: string, value: any)
+				put(key, value, "SetAsync")
+			end
+			function ds.UpdateAsync(_ds: any, key: string, transform: (any) -> any): any
+				local v = transform(cur(key))
+				if v ~= nil then
+					put(key, v, "UpdateAsync")
+				end
+				return v
+			end
+			function ds.IncrementAsync(_ds: any, key: string, delta: number?): number
+				local v = (tonumber(cur(key)) or 0) + (delta or 1)
+				put(key, v, "IncrementAsync")
+				return v
+			end
+			function ds.RemoveAsync(_ds: any, key: string): any
+				local old = cur(key)
+				put(key, nil, "RemoveAsync")
+				return old
+			end
+			return ds
+		end
+		function service.GetOrderedDataStore(_self: any, name: string, scope: string?): any
+			local id = storeId(name, scope)
+			local ods: any = {}
+			local function put(key: string, n: number?, op: string)
+				local t: { [string]: number } = ordered[id] or {}
+				ordered[id] = t
+				t[key] = n :: any
+				wrote(name, scope, key, op)
+			end
+			function ods.SetAsync(_o: any, key: string, n: number)
+				put(key, n, "SetAsync")
+			end
+			function ods.UpdateAsync(_o: any, key: string, transform: (number?) -> number?): number?
+				local v = transform((ordered[id] or {})[key])
+				if v ~= nil then
+					put(key, v, "UpdateAsync")
+				end
+				return v
+			end
+			function ods.IncrementAsync(_o: any, key: string, delta: number?): number
+				local v = ((ordered[id] or {})[key] or 0) + (delta or 1)
+				put(key, v, "IncrementAsync")
+				return v
+			end
+			function ods.RemoveAsync(_o: any, key: string)
+				put(key, nil, "RemoveAsync")
+			end
+			function ods.GetSortedAsync(_o: any, ascending: boolean, pageSize: number): any
+				local list = {}
+				local entries: { [string]: number } = ordered[id] or {}
+				for key, n in entries do
+					table.insert(list, { key = key, value = n })
+				end
+				table.sort(list, function(a, b)
+					return if ascending then a.value < b.value else a.value > b.value
+				end)
+				local page = {}
+				for i = 1, math.min(pageSize, #list) do
+					page[i] = list[i]
+				end
+				return {
+					GetCurrentPage = function(): any
+						return page
+					end,
+				}
+			end
+			return ods
+		end
+		return service
+	end
 	return m
+end
+
+-- (v1.6.1) deep equality of two stored values (Studio write detection compares before/after)
+local function same(a: any, b: any): boolean
+	if type(a) ~= "table" or type(b) ~= "table" then
+		return a == b
+	end
+	for k, v in a do
+		if not same(v, b[k]) then
+			return false
+		end
+	end
+	for k in b do
+		if a[k] == nil then
+			return false
+		end
+	end
+	return true
+end
+
+-- Two reader.stamp results -> (unchanged, "store key" of the first changed key)
+function Legacy.sameStamp(a: { any }, b: { any }): (boolean, string?)
+	for i, x in a do
+		local y = b[i]
+		if y == nil or y.store ~= x.store or y.key ~= x.key then
+			return false, `{x.store} {x.key}`
+		end
+		if y.updatedAt ~= x.updatedAt or not same(x.value, y.value) then
+			return false, `{x.store} {x.key}`
+		end
+	end
+	if #b ~= #a then
+		local y = b[#a + 1]
+		return false, if y then `{y.store} {y.key}` else nil
+	end
+	return true, nil
 end
 
 Legacy.KINDS =
@@ -366,6 +530,59 @@ function Legacy.new(opts: any): any
 	end
 
 	r.expand = Legacy.expand
+
+	-- (v1.6.1) write observation: test mocks only (the live backend has no such method)
+	function r.canWatch(): boolean
+		return type(backend.watchWrites) == "function"
+	end
+	function r.watchWrites(fn: (any) -> ()): () -> ()
+		return backend.watchWrites(fn)
+	end
+
+	-- (v1.6.1) Studio write detection: READ every key a source reads (no retries: one failed
+	-- read fails the check closed). DataStore2 ordered backups: the ordered store's top entry plus
+	-- the version key it points at.
+	function r.stamp(source: any, userId: number): (boolean, any)
+		local out = {}
+		local function get(name: string, scope: string?, key: string): string?
+			local ok, value, at = pcall(backend.get, name, scope, key)
+			if not ok then
+				local message = tostring(value)
+				return if Legacy.isNoAccessError(message) then Legacy.NO_ACCESS else message
+			end
+			table.insert(out, { store = storeId(name, scope), key = key, updatedAt = at, value = value })
+			return nil
+		end
+		local kind = source.kind
+		if kind == "datastore2" and source.savingMethod ~= "Standard" then
+			local storeName = source.name .. "/" .. tostring(userId)
+			local ok, key, n = pcall(backend.latestOrdered, storeName, source.scope)
+			if not ok then
+				local message = tostring(key)
+				return false, if Legacy.isNoAccessError(message) then Legacy.NO_ACCESS else message
+			end
+			table.insert(
+				out,
+				{ store = "ordered:" .. storeId(storeName, source.scope), key = tostring(key), value = n }
+			)
+			if n ~= nil then
+				local err =
+					get(storeName, source.scope, tostring(if type(n) == "number" then math.floor(n) else n))
+				if err then
+					return false, err
+				end
+			end
+		else
+			local key = if kind == "datastore2"
+				then tostring(userId)
+				else Legacy.expand(source.key, { userId = userId })
+			local err = get(source.name, source.scope, key)
+			if err then
+				return false, err
+			end
+		end
+		return true, out
+	end
 
 	local now: () -> number = opts.now or os.time
 	local wait: (number) -> () = opts.wait or function(_s: number) end
