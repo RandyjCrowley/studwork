@@ -139,7 +139,24 @@ A module registers `ctx.console.register("points", fn, help)`; the command is ty
 `economy grant`. In a spec: `h:console("mygame", "points")`; in Studio's command bar:
 `game.ServerScriptService.Framework.StudWorkConsole:Invoke("mygame", "points")`. `Invoke("help")`
 lists every command with its prefix. The handler is `fn(player, ...)`; name the first parameter
-`_player` when you don't use it (selene's `unused_variable` ignores a leading underscore). Registering
+`_player` when you don't use it (selene's `unused_variable` ignores a leading underscore).
+**`player` is nil** when the command runs from the Studio command bar or from `h:console`: neither
+has a calling player. To act on a user, take the user id as an argument (by convention the last
+one, as the kits do: `economy grant 100 Coins <userId>`) and look the player up:
+
+```lua
+ctx.console.register("points", function(_player: any, amount: string?, userId: string?): string
+	local target = Players:GetPlayerByUserId(tonumber(userId) or 0)
+	if target == nil then
+		return "usage: mygame points <amount> <userId> (the player must be in this server)"
+	end
+	-- ... act on target
+	return "ok"
+end, "mygame points <amount> <userId>")
+-- spec: h:console("mygame", "points", "5", tostring(p.UserId)); a number argument works too
+```
+
+Registering
 in `init` is the rule; guard Studio-only commands with `if ctx.isStudio then` (a spec sets
 `isStudio = true`).
 

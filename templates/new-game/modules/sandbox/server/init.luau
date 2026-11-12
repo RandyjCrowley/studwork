@@ -11,7 +11,7 @@
 	  - Robux product EggRoll (paid roll of "Egg"; a restricted player gets a fixed crystal) -- @if Rarity,Inventory
 	  - Robux product CoinPack and the DoubleCoins pass -- @if Economy
 	  - the "gift" mail kind -- @if Mail
-	  - Studio console (StudWorkConsole): `giftme [itemId]` (Mail), `fill`, `free` (Inventory) -- @if Inventory|Mail
+	  - Studio console (StudWorkConsole): `giftme [itemId] [userId]` (Mail), `fill [userId]`, `free [userId]` (Inventory) -- @if Inventory|Mail
 ]]
 
 local Players = game:GetService("Players")
@@ -35,7 +35,14 @@ local TOUCH_COOLDOWN = 1.5 -- seconds between block rewards per player (a feel n
 local Sandbox = {}
 
 -- @if Inventory|Mail
-local function firstPlayer(): Player?
+-- The player a console command acts on. A handler's `player` is nil from the Studio command bar
+-- and from h:console, so a command takes the target's userId as its last argument; without one it
+-- acts on the first player in the server.
+local function targetPlayer(userId: string?): Player?
+	local id = tonumber(userId)
+	if id ~= nil then
+		return Players:GetPlayerByUserId(id)
+	end
 	return Players:GetPlayers()[1]
 end
 -- @end
@@ -88,21 +95,22 @@ function Sandbox.init(ctx: any)
 	-- @if Inventory|Mail
 	-- Studio-only test hooks. A command is typed with this module's lower-case name in front
 	-- (StudWorkConsole:Invoke("sandbox", "giftme", itemId?) and friends; Invoke("help") lists them all).
-	-- A handler's first parameter is the calling player: name it _player when unused (selene).
+	-- A handler's first parameter is the calling player, which is nil from the command bar and
+	-- h:console: target a user with a userId argument (targetPlayer). Name it _player (selene).
 	if ctx.isStudio then
 		-- @if Mail
-		ctx.console.register("giftme", function(_player: any, itemId: string?): string
-			local player = firstPlayer()
+		ctx.console.register("giftme", function(_player: any, itemId: string?, userId: string?): string
+			local player = targetPlayer(userId)
 			if player == nil then
 				return "no player"
 			end
 			local ok = ctx.deps[Mail].send(player.UserId, "gift", { itemId = itemId or "comet" })
 			return "sent=" .. tostring(ok)
-		end, "sandbox giftme [itemId]: mail yourself a gift (Studio)")
+		end, "sandbox giftme [itemId] [userId]: mail a player a gift (Studio)")
 		-- @end
 		-- @if Inventory
-		ctx.console.register("fill", function(): string
-			local player = firstPlayer()
+		ctx.console.register("fill", function(_player: any, userId: string?): string
+			local player = targetPlayer(userId)
 			if player == nil then
 				return "no player"
 			end
@@ -113,9 +121,9 @@ function Sandbox.init(ctx: any)
 				end
 			end
 			return `inventory {inventory.count(player)}/{inventory.cap(player)}`
-		end, "sandbox fill: fill your inventory to the cap (Studio)")
-		ctx.console.register("free", function(): string
-			local player = firstPlayer()
+		end, "sandbox fill [userId]: fill a player's inventory to the cap (Studio)")
+		ctx.console.register("free", function(_player: any, userId: string?): string
+			local player = targetPlayer(userId)
 			if player == nil then
 				return "no player"
 			end
@@ -125,7 +133,7 @@ function Sandbox.init(ctx: any)
 				inventory.remove(player, first.uid, "test")
 			end
 			return `inventory {inventory.count(player)}/{inventory.cap(player)}`
-		end, "sandbox free: remove one item (Studio)")
+		end, "sandbox free [userId]: remove one of a player's items (Studio)")
 		-- @end
 	end
 	-- @end
