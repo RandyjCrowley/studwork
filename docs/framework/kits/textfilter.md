@@ -125,7 +125,10 @@ player (or a store other players read) without passing TextFilter.
   is annotated (`string`, `any`, `unknown`, a table type). Handlers: `handler = ...`, an entry of an
   `actions = { ... }` table, or `actions.<name> = ...`, where the value is an inline function or the
   name of a function defined in the same file (`local function onRename(player, name)` then
-  `handler = onRename`).
+  `handler = onRename`; a dotted name, `function M.onRename(...)` or `M.onRename = function(...)`
+  then `handler = M.onRename`), or either wrapped in a call (`handler = guard(onRename)`,
+  `handler = Util.wrap(M.onRename, 2)`, `handler = guard(function(player, name) ... end)`): every
+  argument of the call that is a function, or names one in the same file, is scanned as a handler.
 - **Filter records:** the values `filter` and `store` return (`Filtered`, `Stored`) are their own
   class: passing the **whole** value to a sink is a finding (use `result.public`,
   `result.forViewer(...)` or `TextFilter.shown(stored)`), so the display rules (viewer, age) apply.
@@ -146,7 +149,11 @@ player (or a store other players read) without passing TextFilter.
   `player text '<name>' reaches <sink> without TextFilter (docs/framework/kits/textfilter.md)` and
   `filter record '<name>' reaches <sink> whole: pass TextFilter.shown(...) or .public (docs/framework/kits/textfilter.md)`.
 - **Limits:** it follows names only within one function and one file (a handler that hands the
-  text to another function, or a handler defined in another file, isn't followed); text that travels through
+  text to another function, even a local helper that holds the sink, or a handler defined in
+  another file, isn't followed); a method handler (`function M:onRename`), a handler looked up
+  from a table (`handlers[name]`) or one returned by a call defined elsewhere isn't resolved;
+  reassigning a param to a filtered value (`name = r.public`) doesn't clear it (use a new name);
+  text that travels through
   tables, other modules or saves isn't followed (the author's own save isn't a sink: it never
   holds another player's text unless a later read sends it on, which a sink in that code catches).
   `-- guard: allow textfilter` at the end of the sink's line, with a reason on the line above, for
@@ -157,9 +164,12 @@ player (or a store other players read) without passing TextFilter.
   into a sorted map `set`, into `Notifications` `send` params, a whole `Stored` record into
   `setAll("sign", stored)`, the original sent after `filter` (`"public"` into `setAll`, `"private"`
   into `fireAll`) and after `store`, a named local handler, a `local f = function` actions entry,
-  `actions.x = f`, and params typed `any`, a table, a union with `string`, and `...`. Must pass: the
-  same flows after `store(...)` with `TextFilter.shown(stored)`, after `textFor(...)`, a named
-  handler that sends only `r.public`, `number`/`boolean` params, and a guarded non-text param.
+  `actions.x = f`, a dotted handler (`handler = M.f`, `{ x = T.f }` with `T.f = function`), a
+  wrapped handler (`guard(f)`, `Util.wrap(M.f, 2)`, `guard(function ... end)`), and params typed
+  `any`, a table, a union with `string`, and `...`. Must pass: the same flows after `store(...)`
+  with `TextFilter.shown(stored)`, after `textFor(...)`, a named handler that sends only
+  `r.public` (also dotted and wrapped), a wrapper's other arguments, `number`/`boolean` params,
+  and a guarded non-text param.
 
 ## Override levels
 
