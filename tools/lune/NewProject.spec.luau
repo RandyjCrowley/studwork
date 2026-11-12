@@ -3,6 +3,7 @@
 -- single-game skeleton (templates/single-game).
 local NewProject = require("tools/lune/NewProject.luau")
 local NewGame = require("tools/lune/NewGame.luau")
+local KitModules = require("tools/lune/KitModules.luau")
 local fs = (getmetatable(getfenv(1)) :: any).__index.require("@lune/fs")
 
 local function parse(args)
@@ -217,5 +218,59 @@ describe("NewProject skeleton", function()
 		expect(claude).toContain("FRAMEWORK_REQUESTS.md")
 		expect(string.find(claude, "roblox-core/", 1, true)).toBeNil()
 		expect(string.find(claude, "games/<name>", 1, true)).toBeNil()
+	end)
+end)
+
+-- (v1.7.1) tools/new-project --modules runs studwork/tools/new-game with the same list: a kit the
+-- user names goes in the game module's dependsOn, also the ones the template keeps optional.
+describe("new-project --modules: named kits in the game module's dependsOn", function()
+	local function block(src: string, field: string): string
+		return string.match(src, "\n\t" .. field .. " = (%b{})") or ""
+	end
+
+	it("the template's optional kits move to dependsOn when named; nothing named stays", function()
+		local template = fs.readFile("templates/new-game/modules/sandbox/module.luau")
+		expect(block(template, "optional")).toContain('WaitForChild("Leaderboards")')
+		local named = { "Items", "Rarity", "Inventory", "Economy", "Leaderboards", "Badges" }
+		local order, _, errors = NewGame.resolveModules(
+			KitModules.load(fs, require("tools/lune/ModuleDiscovery.luau"), "."),
+			named
+		)
+		assert(order, errors and table.concat(errors, "; "))
+		local out = assert(NewGame.trimDependsOn(template, order, named))
+		local depends, optional = block(out, "dependsOn"), block(out, "optional")
+		for _, kit in named do
+			if string.find(template, 'WaitForChild("' .. kit .. '")', 1, true) then
+				expect(depends).toContain('WaitForChild("' .. kit .. '")')
+			end
+			expect(string.find(optional, '"' .. kit .. '"', 1, true)).toBeNil()
+		end
+		-- the game module refers to no kit it doesn't use: Items (reached through Inventory) isn't added
+		expect(string.find(out, 'WaitForChild("Items")', 1, true)).toBeNil()
+		-- the promoted line is the template's own (same ref form), once
+		local _, count = string.gsub(
+			out,
+			'require%(KitDefs:WaitForChild%("Leaderboards"%):WaitForChild%("module"%)%),',
+			""
+		)
+		expect(count).toBe(1)
+		expect(optional).toBe("{}")
+		for _, kit in { "Notifications", "TextFilter", "Mail", "Streak" } do
+			expect(string.find(out, '"' .. kit .. '"', 1, true)).toBeNil()
+		end
+	end)
+
+	it("a kit in the list but not named (added as a dependency) keeps the template's optional", function()
+		local template = fs.readFile("templates/new-game/modules/sandbox/module.luau")
+		local out = assert(
+			NewGame.trimDependsOn(template, { "Items", "Leaderboards", "Badges" }, { "Items", "Badges" })
+		)
+		expect(block(out, "dependsOn")).toContain('WaitForChild("Badges")')
+		expect(block(out, "optional")).toContain('WaitForChild("Leaderboards")')
+		expect(string.find(block(out, "optional"), '"Badges"', 1, true)).toBeNil()
+		-- no named list (new-game without --modules, or an old caller): v1.7.0 behaviour
+		local old = assert(NewGame.trimDependsOn(template, { "Items", "Leaderboards" }))
+		expect(block(old, "optional")).toContain('WaitForChild("Leaderboards")')
+		expect(string.find(block(old, "dependsOn"), '"Leaderboards"', 1, true)).toBeNil()
 	end)
 end)

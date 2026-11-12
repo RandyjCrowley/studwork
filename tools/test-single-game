@@ -3,13 +3,14 @@
 # (docs/framework/single-game-project.md). In $TMPDIR (this repo is never touched):
 #   1. a git snapshot of THIS working tree, committed and tagged v<StudWork.VERSION> in the temp
 #      copy only: the local "fixture remote" StudWork is cloned from
-#   2. tools/new-project <tmp>/proj --url <fixture> --modules Items,Rarity,Inventory,Economy
+#   2. tools/new-project <tmp>/proj --url <fixture> --modules Items,Rarity,Inventory,Economy,Leaderboards
 #      --no-install (Wally packages copied from this repo's deps/, like tools/test-games-repo)
 # then checks the result (submodule at the tag, $paths into studwork/, no absolute paths in any
 # committed file, repo-local identity, the first commit made through the real hook) and runs the
 # project's own tools/ wrappers with NO game argument: lint, typecheck, test, build
-# (build/<name>.rbxl), make-module, make-screen, sync-projects --check, publish --test --dry-run
-# (stamps coreVersion/coreSha/coreTag + test.dryRun), framework-status, doctor, dev --print,
+# (build/<name>.rbxl), make-module, make-screen, make-migration (v1.7.1: the game module with a
+# referenced data.version, its migrations/ mapped and in the Rojo tree), sync-projects --check,
+# publish --test --dry-run (stamps coreVersion/coreSha/coreTag + test.dryRun), framework-status, doctor, dev --print,
 # new-game (refused); planted failures (type error, selene undefined global, raw remote, dirty
 # submodule, untagged submodule); real commits through the project's pre-commit hook (normal,
 # partial, a studwork bump mixed with game files refused, the bump alone passes).
@@ -112,7 +113,7 @@ fi
 echo "== tools/new-project $G"
 NP_LOG="$LOGS/new-project.log"
 if (cd "$WORK" && "$CORE_ROOT/tools/new-project" proj --url "$WORK/studwork" \
-	--modules Items,Rarity,Inventory,Economy --no-install ${AUTHOR_ARGS[@]+"${AUTHOR_ARGS[@]}"}) >"$NP_LOG" 2>&1; then
+	--modules Items,Rarity,Inventory,Economy,Leaderboards --no-install ${AUTHOR_ARGS[@]+"${AUTHOR_ARGS[@]}"}) >"$NP_LOG" 2>&1; then
 	pass "new-project | $(tail -1 "$NP_LOG")"
 else
 	fail "new-project | $(tail -8 "$NP_LOG" | tr '\n' ' ')"
@@ -138,6 +139,11 @@ check "kit modules generated into studwork/" \
 	grep -q '"studwork/packages/kits/economy/Economy/module.luau"' "$G/default.project.json"
 check "no \$path leaves the project (../)" sh -c "! grep -q '\"\\.\\./' '$G/default.project.json'"
 check "the game module at modules/proj/" test -f "$G/modules/proj/module.luau"
+# (v1.7.1) a kit named in --modules is in the game module's dependsOn, not optional
+check "--modules: Leaderboards in the game module's dependsOn" sh -c \
+	"awk '/^\tdependsOn = \{/,/^\t\},/' '$G/modules/proj/module.luau' | grep -q '\"Leaderboards\"'"
+check "--modules: Leaderboards not optional" sh -c \
+	"! awk '/^\toptional = \{/,/^\t\},/' '$G/modules/proj/module.luau' | grep -q '\"Leaderboards\"'"
 check "docs/design.md" test -f "$G/docs/design.md"
 check "README.md names the game" grep -q '^# proj' "$G/README.md"
 check "CLAUDE.md for game agents" grep -q 'Never edit `studwork/`' "$G/CLAUDE.md"
@@ -211,6 +217,16 @@ check "make-module: modules/quests/" test -f "$G/modules/quests/module.luau"
 check "make-module: mapped in default.project.json" grep -q '"modules/quests/module.luau"' "$G/default.project.json"
 step make-screen tools/make-screen Shop
 check "make-screen: src/client/Screens/Shop.luau" test -f "$G/src/client/Screens/Shop.luau"
+# (v1.7.1) make-migration on the game module whose data.version is a reference (a local here)
+perl -0pi -e 's/(local StudWork = require\(ReplicatedStorage:WaitForChild\("Framework"\)\)\n)/$1local SAVE_VERSION = 1\n/; s/\n\t\tversion = 1,\n/\n\t\tversion = SAVE_VERSION,\n/' \
+	"$G/modules/proj/module.luau"
+check "make-migration fixture: data.version = SAVE_VERSION" grep -q 'version = SAVE_VERSION,' "$G/modules/proj/module.luau"
+step make-migration tools/make-migration Proj --name add-gems
+check "make-migration: modules/proj/migrations/002_add_gems.luau" test -f "$G/modules/proj/migrations/002_add_gems.luau"
+check "make-migration: the referenced version bumped" grep -q '^local SAVE_VERSION = 2$' "$G/modules/proj/module.luau"
+check "make-migration: GameModule.migrations mapped" grep -q '"modules/proj/migrations"' "$G/default.project.json"
+step sourcemap-after-migration sh -c 'cd studwork && rojo sourcemap ../default.project.json'
+check "make-migration: the migration is in the Rojo tree" grep -q '002_add_gems' "$(logof sourcemap-after-migration)"
 step sync-projects-check tools/sync-projects --check
 step lint-after-generators tools/lint
 step test-after-generators tools/test

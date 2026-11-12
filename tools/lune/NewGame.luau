@@ -15,9 +15,13 @@
 	                                    (`require(Modules:WaitForChild("Items"):WaitForChild("module")),`;
 	                                    v1.3.1 R19); added ref lines use the local
 	                                    `modulesVar` (default "Modules" = ReplicatedStorage.Modules)
-	trimDependsOn(src, list)        -> (src?, error?)    the game module's `dependsOn = { ... }` (and
+	trimDependsOn(src, list, named?) -> (src?, error?)   the game module's `dependsOn = { ... }` (and
 	                                    v1.7.0 its `optional = { ... }`): drops the refs of modules
-	                                    not in `list` (adds none)
+	                                    not in `list` (adds none). (v1.7.1) `named` = the kits the
+	                                    user named in --modules: their `optional` lines move to
+	                                    dependsOn (the game asked for them); a kit only added as
+	                                    another kit's dependency stays optional, and a kit the
+	                                    module doesn't refer to isn't added
 	pruneKitLocals(src)             -> src               drops the kit locals nothing uses any more:
 	                                    `local Modules = ReplicatedStorage:WaitForChild("Modules")`,
 	                                    `local X = require(Modules:WaitForChild("X"):WaitForChild(
@@ -289,13 +293,56 @@ end
 
 -- (v1.7.0) an `optional = { ... }` block next to it is trimmed the same way: a game module that
 -- requires a kit it doesn't list would trip the `modules` guardrail.
-function NewGame.trimDependsOn(source: string, list: { string }): (string?, string?)
-	local out, err = rewriteBlock(source, "dependsOn", list, nil)
+local function blockLines(source: string, field: string): { [string]: string }
+	local lines: { [string]: string } = {}
+	local block = string.match(source, field .. "%s*=%s*(%b{})")
+	if block then
+		for line in string.gmatch(string.sub(block, 2, -2) .. "\n", "([^\n]*)\n") do
+			local mod = lineModule(line)
+			if mod then
+				lines[mod] = line
+			end
+		end
+	end
+	return lines
+end
+
+function NewGame.trimDependsOn(source: string, list: { string }, named: { string }?): (string?, string?)
+	-- (v1.7.1) the named kits the template lists as optional: promoted to dependsOn
+	local optionalLines = blockLines(source, "optional")
+	local promoted: { [string]: string } = {}
+	local isNamed: { [string]: boolean } = {}
+	for _, n in named or {} do
+		isNamed[n] = true
+	end
+	local inList: { [string]: boolean } = {}
+	for _, n in list do
+		inList[n] = true
+	end
+	for mod, line in optionalLines do
+		if isNamed[mod] and inList[mod] then
+			promoted[mod] = line
+		end
+	end
+	local dependsLines = blockLines(source, "dependsOn")
+	local dependsList: { string } = {}
+	local optionalList: { string } = {}
+	for _, n in list do
+		if dependsLines[n] or promoted[n] then
+			table.insert(dependsList, n)
+		end
+		if promoted[n] == nil then
+			table.insert(optionalList, n)
+		end
+	end
+	local out, err = rewriteBlock(source, "dependsOn", dependsList, function(n: string): string
+		return promoted[n]
+	end)
 	if out == nil then
 		return nil, err
 	end
 	if string.find(out, "optional%s*=%s*%b{}") then
-		return rewriteBlock(out, "optional", list, nil)
+		return rewriteBlock(out, "optional", optionalList, nil)
 	end
 	return out, nil
 end

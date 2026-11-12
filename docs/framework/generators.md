@@ -35,13 +35,16 @@ template for the game's depth (in a games repo: into `roblox-core/`, see
 `--modules` writes code and config for the listed modules only, so `tools/lint` passes with no
 hand trimming:
 
-- `GameConfig.modules` and the game module's `dependsOn`;
+- `GameConfig.modules` and the game module's `dependsOn`: (v1.7.1) a kit named in `--modules` that
+  the game module refers to goes in `dependsOn`, also the four the template lists as `optional` (a
+  kit only added as a dependency of another keeps the template's place; none is added that the
+  game module doesn't use);
 - the game module's server code (product handlers, events, console commands, signal hooks);
 - `Balance.luau` sections, and values that depend on another module (`income.source` is
   `"displayed"` only with Plot, `"owned"` otherwise; Streak rewards and the Friends multiplier only
   with Economy);
 - Items fields (`economy = { incomePerSec }` only with Economy), products, events, tuning;
-- (v1.7.0) the `Leaderboards`, `Badges`, `Notifications` and `TextFilter` config sections in `Balance.luau`, and their `optional` entries in the game module (a trimmed `--modules` list drops both), so a game made with `--modules` lists no module it doesn't use;
+- (v1.7.0) the `Leaderboards`, `Badges`, `Notifications` and `TextFilter` config sections in `Balance.luau`, and their `optional` entries in the game module (a trimmed `--modules` list drops both, and moves a named one to `dependsOn`), so a game made with `--modules` lists no module it doesn't use;
 - the client's action bar (upgrade, chest, egg, rebirth, mailbox buttons) and the HUD goal;
 - the world's plots (only with Plot).
 
@@ -106,7 +109,7 @@ LocalizationTable ([localization](kits/localization.md)).
 ## tools/make-migration
 
 ```
-tools/make-migration <module-dir | ModuleName> [--name <label>]
+tools/make-migration <module-dir | ModuleName> [--name <label>] [--from <n>]
 ```
 
 Reads `data.version` from `module.luau` and writes:
@@ -115,9 +118,33 @@ Reads `data.version` from `module.luau` and writes:
 - `tests/MigrationNNN.spec.luau`: a stub test that passes, to fill in with a real old section;
 - `module.luau`: `data.version = NNN`, and `migrations = script.Parent.migrations` the first time.
 
-For a module inside a game it also maps `migrations/` in the game's project. Update
-`data.default` to the new shape yourself. A module name is looked up in every game's `modules/` (`games/*`; in the core repo also
-`examples/sandbox`, `examples/overrides/*`) and `examples/modules`.
+Update `data.default` to the new shape yourself. A module name is looked up in every game's
+`modules/` (`games/*`; in a single-game project the root's `modules/`; in the core repo also
+`examples/sandbox`, `examples/overrides/*`) and `examples/modules`; a folder path
+(`modules/coins`) works too.
+
+**A referenced version** (v1.7.1). `data.version` may be a number literal (`version = 3`, bumped in
+place) or a reference: a local (`local VERSION = 2` … `version = VERSION`) or a field of a module in
+the module's own folder (`version = Save.VERSION` with
+`local Save = require(script.Parent.shared.Save)`). A reference is read by evaluating
+`module.luau` under Lune the way the game requires it (files of the module's folder load for real;
+`game`, the framework and kit refs are inert stand-ins), and the one number literal it comes from
+(`Save.VERSION = 2`, `VERSION = 2,` or `local VERSION = 2`) is bumped. When there isn't exactly one
+such literal (`version = Base.VERSION + 1`) the migration is still written and the tool says which
+value to set by hand. `--from <n>` gives the current version instead of reading it (a positive
+integer; a warning when it disagrees with the version read from the module); use it when the
+definition can't be evaluated outside Roblox.
+
+**The migration reaches the place.** `data.migrations = script.Parent.migrations` needs the folder
+in the Rojo project. For a module inside a game (`<game>/modules/<folder>`, or `modules/<folder>` at
+a single-game project's root) the tool checks the game's `*.project.json` files: a node whose
+`module` is `modules/<folder>/module.luau` (`ReplicatedStorage.Modules.<Name>`, or the game
+module's `ReplicatedStorage.GameModule`) gets `"migrations": { "$path": "modules/<folder>/migrations" }`
+unless it has one or a `$path` already maps the whole folder. Only that entry is added; the rest of
+the file keeps its order and formatting (`tools/sync-projects --check` stays clean). A module that
+no project file maps is refused before anything is written, with the exact entry to add. A module
+outside any game (`examples/modules/<x>`, a `--dir` module) gets a note to map it in its own
+project.
 
 ## tools/make-screen
 

@@ -35,13 +35,15 @@ tools/new-game my-game --modules Items,Rarity,Inventory,Economy
 It prints `created games/my-game (servePort N)`. Missing hard dependencies are added and reported
 (`--modules Plot` adds Items and Inventory). `--modules ""` gives a foundation-only game (no kits).
 
-The game's own module (`modules/my-game/module.luau`) gets the chosen core kits in `dependsOn` and
-the chosen `Leaderboards`, `Badges`, `Notifications` and `TextFilter` in `optional`; all of them are
-in `GameConfig.modules`, so `ctx.deps[Kit]` works for each. The difference: a `dependsOn` kit that
-is missing from `GameConfig.modules` fails the boot and its `init` runs before yours; an `optional`
-kit is no ordering edge (call it from `start` or later) and `ctx.deps[Kit]` errors while it is off
-(guard with `ctx.isEnabled(Kit)` if the game may drop it). Move a kit up to `dependsOn` when the
-game can't run without it.
+The game's own module (`modules/my-game/module.luau`) gets the kits you name in `--modules` that it
+uses in `dependsOn` (since v1.7.1; a kit only added as another kit's dependency stays where the
+template has it). Without `--modules` it gets the core kits in `dependsOn` and `Leaderboards`, `Badges`,
+`Notifications` and `TextFilter` in `optional`. All of them are in `GameConfig.modules`, so
+`ctx.deps[Kit]` works for each. The difference: a `dependsOn` kit that is missing from
+`GameConfig.modules` fails the boot and its `init` runs before yours; an `optional` kit is no
+ordering edge (call it from `start` or later) and `ctx.deps[Kit]` errors while it is off (guard with
+`ctx.isEnabled(Kit)` if the game may drop it). Move a kit up to `dependsOn` when the game can't run
+without it.
 
 | Kit | Modules | Hard dependencies |
 |---|---|---|
