@@ -15,8 +15,9 @@
 	                                    (`require(Modules:WaitForChild("Items"):WaitForChild("module")),`;
 	                                    v1.3.1 R19); added ref lines use the local
 	                                    `modulesVar` (default "Modules" = ReplicatedStorage.Modules)
-	trimDependsOn(src, list)        -> (src?, error?)    the game module's `dependsOn = { ... }`:
-	                                    drops the refs of modules not in `list` (adds none)
+	trimDependsOn(src, list)        -> (src?, error?)    the game module's `dependsOn = { ... }` (and
+	                                    v1.7.0 its `optional = { ... }`): drops the refs of modules
+	                                    not in `list` (adds none)
 	pruneKitLocals(src)             -> src               drops the kit locals nothing uses any more:
 	                                    `local Modules = ReplicatedStorage:WaitForChild("Modules")`,
 	                                    `local X = require(Modules:WaitForChild("X"):WaitForChild(
@@ -252,8 +253,17 @@ function NewGame.rewriteModulesBlock(
 	return out, err
 end
 
+-- (v1.7.0) an `optional = { ... }` block next to it is trimmed the same way: a game module that
+-- requires a kit it doesn't list would trip the `modules` guardrail.
 function NewGame.trimDependsOn(source: string, list: { string }): (string?, string?)
-	return rewriteBlock(source, "dependsOn", list, nil)
+	local out, err = rewriteBlock(source, "dependsOn", list, nil)
+	if out == nil then
+		return nil, err
+	end
+	if string.find(out, "optional%s*=%s*%b{}") then
+		return rewriteBlock(out, "optional", list, nil)
+	end
+	return out, nil
 end
 
 local KIT_LOCAL_PATTERNS = {

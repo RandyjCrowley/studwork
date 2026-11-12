@@ -246,6 +246,26 @@ return StudWork.defineModule({
 		expect(string.find(out, "Mail", 1, true)).toBeNil()
 	end)
 
+	it("trimDependsOn trims an optional block the same way (v1.7.0)", function()
+		local src = [[
+return StudWork.defineModule({
+	name = "Sandbox",
+	dependsOn = {
+		require(Collection:WaitForChild("Rarity")),
+	},
+	optional = {
+		require(KitDefs:WaitForChild("Leaderboards"):WaitForChild("module")),
+		require(KitDefs:WaitForChild("Badges"):WaitForChild("module")),
+	},
+})
+]]
+		local out = NewGame.trimDependsOn(src, { "Rarity", "Badges" })
+		expect(string.find(out, 'WaitForChild("Badges")', 1, true) ~= nil).toBe(true)
+		expect(string.find(out, "Leaderboards", 1, true)).toBeNil()
+		local none = NewGame.trimDependsOn(src, { "Rarity" })
+		expect(string.find(none, "optional = {}", 1, true) ~= nil).toBe(true)
+	end)
+
 	it("moduleName makes the game module's name from the gameId", function()
 		expect(NewGame.moduleName("example-collector")).toBe("ExampleCollector")
 		expect(NewGame.moduleName("zz-scratch")).toBe("ZzScratch")
