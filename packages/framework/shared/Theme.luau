@@ -16,7 +16,8 @@
 	  colors   background surface surfaceAlt outline text textMuted accent accentAlt currency
 	           success danger warning sunlight shadow backdrop dropShadow
 	  fonts    display displayFallback body
-	  metrics  cornerRadius padding strokeThickness minTouchTarget, text = { small body title number }
+	  metrics  cornerRadius padding strokeThickness minTouchTarget, text = { small body title number min }
+	           (text.min: smallest size scaled text may shrink to, v1.6.1)
 	  sounds   <key> = { id, volume?, pitch? } (id 0 = silent)
 	  rarity   preset?, tiers = { { id, color, glow?, glowStrength?, soundKey? } }
 
@@ -84,7 +85,7 @@ local FRAMEWORK_DEFAULT = Freeze.freezeCopy({
 		padding = 12,
 		strokeThickness = 2,
 		minTouchTarget = 44,
-		text = { small = 14, body = 18, title = 24, number = 28 },
+		text = { small = 14, body = 18, title = 24, number = 28, min = 9 },
 	},
 	sounds = {
 		rarity_common = { id = 15675055424, volume = 0.4 },

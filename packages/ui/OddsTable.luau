@@ -28,6 +28,7 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local React = require(ReplicatedStorage:WaitForChild("Packages"):WaitForChild("React"))
 local Format = require(script.Parent.Format)
 local Odds = require(script.Parent.Odds)
+local OddsLayout = require(script.Parent.OddsLayout)
 local Panel = require(script.Parent.Panel)
 local RarityBadge = require(script.Parent.RarityBadge)
 local TextFit = require(script.Parent.TextFit)
@@ -50,13 +51,27 @@ export type Props = {
 	maxHeight: number?,
 }
 
-local ROW_HEIGHT = 36
+local ROW_HEIGHT = OddsLayout.ROW_HEIGHT
 local DEFAULT_RESTRICTED_TEXT = "Paid random items are restricted in your region. "
 	.. "You can still earn these rewards by playing."
+
+-- Text never clips (v1.6.1): every cell is a Scale fraction of the row (OddsLayout.columns) and
+-- every text is TextScaled with a UITextSizeConstraint from the theme (min = Theme.text.min).
+local function minText(maxSize: number): number
+	return TextFit.fixedLabel(maxSize, Theme.text.min).MinTextSize :: number
+end
+
+local function cell(col: OddsLayout.Column): (UDim2, UDim2)
+	return UDim2.new(col.scale, col.offset, 1, 0), UDim2.new(col.x, col.xOffset, 0, 0)
+end
 
 local function Row(props: { row: Odds.OddsRow, layoutOrder: number })
 	local row = props.row
 	local color = (Theme.rarity(row.rarity))
+	local cols = OddsLayout.columns
+	local nameSize, namePos = cell(cols.name)
+	local badgeSize, badgePos = cell(cols.badge)
+	local pctSize, pctPos = cell(cols.percent)
 	return e("Frame", {
 		BackgroundColor3 = Theme.color("surfaceAlt"),
 		BorderSizePixel = 0,
@@ -74,24 +89,34 @@ local function Row(props: { row: Odds.OddsRow, layoutOrder: number })
 			Text = row.name,
 			FontFace = Theme.font("bold"),
 			TextSize = Theme.text.body,
+			TextScaled = true, -- long names ("Rainbow Legendary Sword") shrink and wrap, never "..."
+			TextWrapped = true,
 			TextColor3 = Theme.color("text"),
 			TextXAlignment = Enum.TextXAlignment.Left,
-			TextTruncate = Enum.TextTruncate.AtEnd,
 			BackgroundTransparency = 1,
-			Size = UDim2.new(0.45, -16, 1, 0),
-			Position = UDim2.fromOffset(16, 0),
+			Size = nameSize,
+			Position = namePos,
+		}, {
+			Fit = e("UITextSizeConstraint", {
+				MinTextSize = minText(Theme.text.body),
+				MaxTextSize = Theme.text.body,
+			}),
 		}),
 		Badge = if row.rarity
 			then e("Frame", {
 				BackgroundTransparency = 1,
-				Size = UDim2.new(0.3, 0, 1, 0),
-				Position = UDim2.fromScale(0.45, 0),
+				Size = badgeSize,
+				Position = badgePos,
 			}, {
 				Layout = e("UIListLayout", {
 					VerticalAlignment = Enum.VerticalAlignment.Center,
 					HorizontalAlignment = Enum.HorizontalAlignment.Left,
 				}),
-				Badge = e(RarityBadge, { rarity = row.rarity }),
+				-- a sized badge is TextScaled with a theme constraint: "LEGENDARY" fits a phone row
+				Badge = e(RarityBadge, {
+					rarity = row.rarity,
+					size = UDim2.new(1, 0, 0, OddsLayout.BADGE_HEIGHT),
+				}),
 			})
 			else nil,
 		Percent = e("TextLabel", {
@@ -102,11 +127,11 @@ local function Row(props: { row: Odds.OddsRow, layoutOrder: number })
 			TextColor3 = color,
 			TextXAlignment = Enum.TextXAlignment.Right,
 			BackgroundTransparency = 1,
-			Size = UDim2.new(0.25, -8, 1, 0),
-			Position = UDim2.fromScale(0.75, 0),
+			Size = pctSize,
+			Position = pctPos,
 		}, {
 			Fit = e("UITextSizeConstraint", {
-				MinTextSize = TextFit.fixedLabel(Theme.text.body).MinTextSize,
+				MinTextSize = minText(Theme.text.body),
 				MaxTextSize = Theme.text.body,
 			}),
 		}),

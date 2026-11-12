@@ -31,7 +31,7 @@ inside `UI.ScaledRoot` (full-screen root that applies the responsive UIScale and
 
 Helpers: `UI.Theme` (`set`, `current`, `color`, `rarity`, `tiers`, `tierOrder`, `sound`, `font`,
 `gradient`, `setOverrides`, `subscribe`, `metrics`, `text`, `touchTarget`), pure `UI.ThemeTokens`, `UI.Primitives` (corner/stroke/padding/gradient/shadow/list/textSize elements),
-pure `UI.Format` (`abbreviate`, `percent`), `UI.Odds` (`rows`, `total`, `mutationRows`, `outcomeRows`, `pityLine`), `UI.ToastQueue`,
+pure `UI.Format` (`abbreviate`, `percent`), `UI.Odds` (`rows`, `total`, `mutationRows`, `outcomeRows`, `pityLine`), `UI.OddsLayout` (OddsTable's Scale columns and minimum row width, v1.6.1), `UI.ToastQueue`,
 `UI.Responsive`. The pure ones have `*.spec.luau` tests.
 
 ## Theme
