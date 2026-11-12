@@ -21,6 +21,11 @@ charm-sync's `patch.diff` treats `old == new` as "unchanged" and walks everythin
 
 Now each player has a `SectionCache`: per top-level PlayerData key it keeps the sanitised copy, the source table reference and `ctx.services.Data.sectionVersion(player, section)` at copy time. A rebuild re-copies a section only when its version moved (or its source table reference changed, e.g. reload); every other section reuses last time's copy by reference, so the diff skips it. The top-level `data` table is new each rebuild. Scalar sections are copied by value.
 
+- (v1.7.0) The same holds one level up: a module's part of the state (`modules[name]`, its `data` copy
+  plus `extra`) is reused by reference while its data copy, its `setAll` values and the player's
+  `set` values are unchanged (`set`/`setAll` bump a per-module version), so a module that changed
+  nothing adds no tables to the diff when another module dirties the player
+  (`packages/framework/test/ReplicationReuse.spec.luau`).
 - Server-only sections `purchases`, `pity`, `funnel`, `mail` are **never replicated** (`SectionCache.SERVER_ONLY`).
 - Correctness depends on Data's contract: a committed update that changes a section bumps that section's version. With a single-counter stub every section is re-copied (correct, just no savings). If Data has no `sectionVersion`, a fallback counter forces a full copy.
 - Bench (`tools/bench`, 50 players x 100 items, Economy tick): with real per-section versions a rebuild takes roughly 25x less time and 20x less allocation per tick than re-copying every section.
