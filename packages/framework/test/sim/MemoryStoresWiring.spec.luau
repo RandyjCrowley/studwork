@@ -23,7 +23,7 @@ describe("sim ordered stores and sorted maps", function()
 		expect(boardA.set("7", 11)).toBe(true)
 		local _, v = boardB.get("7")
 		expect(v).toBe(11)
-		expect(world.memoryStores.sortedMapNames()).toEqual({ "SW/Probe/m" })
+		expect(world.memoryStores.sortedMapNames()).toEqual({ "SW/Probe/m", "SW/_/census" }) -- + the census (§23.5)
 	end)
 
 	it("expiry follows world:advance", function()

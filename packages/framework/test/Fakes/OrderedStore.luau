@@ -2,10 +2,20 @@
 --[[
 	In-memory ordered store (StudWork.test, module-api.md §23.3 / §23.10): the backend behind
 	`ctx.data.ordered(name)` in the harness and the sim. It is the OrderedDataStore stand-in, not the
-	framework layer: server/OrderedStore.luau validates, budgets and wraps failures around it.
+	framework layer: server/OrderedStore.luau validates, budgets, retries and wraps failures around it.
+
+	No second ordered store: the data lives in an existing mock OrderedDataStore, reached through
+	the same adapter the live platform uses (server/PlatformStores.luau orderedAdapter + orderedShim):
+	  - by default the legacy adapter's memory backend (server/Legacy.luau Legacy.memory(), the one
+	    StudWork.test.legacyStore() is), one per store;
+	  - in the sim, the World's ordered stores (world.stores["ordered:<storeName>"], world:setOrdered,
+	    world:failNext / failFor, latency), wired by test/sim/MemoryStores.luau.
 
 	  OrderedFake.new(opts?) -> fake
-	    opts = { name = string?, clock = () -> number? }
+	    opts = { name = string?, clock = () -> number?,
+	             ods = OrderedDataStore-like?   (default: Legacy.memory()'s, through the shim)
+	             peek = () -> { [key]: number }?   read every entry without a call (entries())
+	             seed = (key, value) -> ()?        write one entry without a call (seed()) }
 	  backend (raises on a failure; the framework layer turns that into (false, "failed")):
 	    get(key) -> number?                       set(key, value)
 	    increment(key, delta) -> number           update(key, fn(old) -> number?) -> number?  (nil cancels)
@@ -14,11 +24,13 @@
 	    entries() -> { [key]: number }            a copy
 	    seed({ [key] = number })                  put values in without a call
 	    calls                                     { { op, key?, value? } } every backend call
-	    failNext(n, code?)                        the next n backend calls raise `code` (default "InjectedFailure")
-
-	FOUNDATION: a working standalone store. The stores builder (B1) points it at the sim World's and
-	the legacy adapter's existing ordered backend (no second copy) and adds the experience-level limits.
+	    failNext(n, code?)                        the next n backend calls raise `code` (default
+	                                              "InjectedFailure"; "HTTP 429 (Too Many Requests)" is
+	                                              an experience-level throttle)
 ]]
+
+local Legacy = (require :: any)(script.Parent.Parent.Parent.server.Legacy)
+local PlatformStores = (require :: any)(script.Parent.Parent.Parent.server.PlatformStores)
 
 local OrderedFake = {}
 
@@ -28,7 +40,27 @@ end
 
 function OrderedFake.new(opts: any?): any
 	local o = opts or {}
-	local values: { [string]: number } = {}
+	local name: string = o.name or "ordered"
+	local ods = o.ods
+	local peek: () -> { [string]: number } = o.peek
+	local seedOne: (string, number) -> () = o.seed
+	if ods == nil then
+		local legacy = Legacy.memory()
+		local raw = legacy.dataStoreService():GetOrderedDataStore(name)
+		ods = PlatformStores.orderedShim(raw)
+		peek = peek
+			or function(): { [string]: number }
+				local out = {}
+				for _, entry in raw:GetSortedAsync(false, math.huge):GetCurrentPage() do
+					out[tostring(entry.key)] = entry.value
+				end
+				return out
+			end
+		seedOne = seedOne or function(key: string, value: number)
+			legacy.setOrdered(name, key, value)
+		end
+	end
+	local backend = PlatformStores.orderedAdapter(ods)
 	local fake: any = { name = o.name, calls = {} }
 	local failures, failCode = 0, "InjectedFailure"
 
@@ -47,70 +79,58 @@ function OrderedFake.new(opts: any?): any
 
 	function fake.get(key: string): number?
 		enter("get", key)
-		return values[key]
+		return backend.get(key)
 	end
 
 	function fake.set(key: string, value: number)
 		enter("set", key, value)
 		assert(isInteger(value), "ordered store: value must be a finite integer")
-		values[key] = value
+		backend.set(key, value)
 	end
 
 	function fake.increment(key: string, delta: number): number
 		enter("increment", key, delta)
 		assert(isInteger(delta), "ordered store: delta must be a finite integer")
-		values[key] = (values[key] or 0) + delta
-		return values[key]
+		return backend.increment(key, delta)
 	end
 
 	function fake.update(key: string, fn: (number?) -> number?): number?
 		enter("update", key)
-		local old = values[key]
-		local new = fn(old)
-		if new == nil then
-			return old -- cancelled
-		end
-		assert(isInteger(new), "ordered store: value must be a finite integer")
-		values[key] = new
-		return new
+		return backend.update(key, function(old: number?): number?
+			local new = fn(old)
+			assert(new == nil or isInteger(new), "ordered store: value must be a finite integer")
+			return new
+		end)
 	end
 
 	function fake.remove(key: string)
 		enter("remove", key)
-		values[key] = nil
+		backend.remove(key)
 	end
 
 	function fake.top(count: number, order: string, minValue: number?, maxValue: number?): { any }
 		enter("top")
-		local rows = {}
-		for key, value in values do
-			if (minValue == nil or value >= minValue) and (maxValue == nil or value <= maxValue) then
-				table.insert(rows, { key = key, value = value })
-			end
+		return backend.top(count, order, minValue, maxValue)
+	end
+
+	function fake.entries(): { [string]: number }
+		if peek ~= nil then
+			return table.clone(peek())
 		end
-		table.sort(rows, function(a: any, b: any): boolean
-			if a.value ~= b.value then
-				if order == "asc" then
-					return a.value < b.value
-				end
-				return a.value > b.value
-			end
-			return a.key < b.key
-		end)
 		local out = {}
-		for i = 1, math.min(count, #rows) do
-			out[i] = rows[i]
+		for _, row in backend.top(math.huge, "desc") do
+			out[row.key] = row.value
 		end
 		return out
 	end
 
-	function fake.entries(): { [string]: number }
-		return table.clone(values)
-	end
-
 	function fake.seed(entries: { [string]: number })
 		for key, value in entries do
-			values[key] = value
+			if seedOne ~= nil then
+				seedOne(key, value)
+			else
+				ods:SetAsync(key, value)
+			end
 		end
 	end
 
