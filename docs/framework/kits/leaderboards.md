@@ -77,8 +77,8 @@ the join; the `Rebirthed` signal only keeps this server's cached count current.
   player whose save isn't loaded, or while the board's `flag` is off. **(contract)**
   On a `max` or `sum` board the value is combined in memory first and joins the save in one update
   per player within 30 s (on the player's own staggered phase), before each store write, on leave
-  and on shutdown, so submitting every tick costs no save transaction per call; `rank` and
-  `extra.mine` include it at once. A `max` value that doesn't beat the saved best changes nothing.
+  and on shutdown, so submitting every tick costs no save transaction per call; `rank` includes it
+  at once, `extra.mine` after the next store write (`writeSeconds`). A `max` value that doesn't beat the saved best changes nothing.
   `set` boards go straight into the save (their order matters).
 - `top(boardId, previous?) -> { rows: { { rank, userId, name, value } }, periodId?, endsAt?, updatedAt }`:
   the cached rows (frozen); doesn't yield. **(contract)**

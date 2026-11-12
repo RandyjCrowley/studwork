@@ -604,7 +604,9 @@ these pages before relying on a limit.
   re-displaying an author's text could leave the author `rate_limited`. `shown` isn't counted at
   all: its original was a counted submission, and its result is held per record for
   `cache.seconds` outside the LRU cache, so a record costs at most one filter per `cache.seconds`
-  however many viewers ask (rate-limiting it blanked friends and private records in bursts).
+  however many viewers ask (rate-limiting it blanked friends and private records in bursts). With
+  `cache.seconds` under 60 that hold is no bound, so `shown` then counts against the `textFor`
+  bucket.
 - **The `textfilter` lint never clears a name.** Only TextFilter's return values are clean: filtering
   the text and then sending the original anyway is the likeliest mistake, and the old "clean from
   the next line" rule passed it. Handlers named by a function defined in the same file are scanned,
