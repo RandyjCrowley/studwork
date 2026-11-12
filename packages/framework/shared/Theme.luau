@@ -15,6 +15,7 @@
 	Token groups:
 	  colors   background surface surfaceAlt outline text textMuted accent accentAlt currency
 	           success danger warning sunlight shadow backdrop dropShadow
+	           leaderboardSelf (v1.7.0: the player's own row in UI.Leaderboard)
 	  fonts    display displayFallback body
 	  metrics  cornerRadius padding strokeThickness minTouchTarget, text = { small body title number min }
 	           (text.min: smallest size scaled text may shrink to, v1.6.1)
@@ -74,6 +75,7 @@ local FRAMEWORK_DEFAULT = Freeze.freezeCopy({
 		shadow = "#5A6AA8",
 		backdrop = "#000000", -- Modal dim (was Color3.new(0, 0, 0))
 		dropShadow = "#000000", -- Primitives.shadow (was Color3.new(0, 0, 0))
+		leaderboardSelf = "#FFD23F", -- (v1.7.0) the player's own row in UI.Leaderboard
 	},
 	fonts = {
 		display = "rbxasset://fonts/families/FredokaOne.json",

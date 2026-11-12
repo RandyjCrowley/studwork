@@ -70,6 +70,8 @@ end
 Test.memoryStore = Harness.memoryStore
 Test.legacyStore = Harness.legacyStore -- (added in v1.6.0)
 Test.player = Harness.player
+-- (added in v1.7.0, §23.10) StudWork.test.fakes: engine-service and Open Cloud stand-ins
+Test.fakes = require(script.Parent.Fakes)
 
 Test.sim = require(script.Parent.sim.Fixtures)
 

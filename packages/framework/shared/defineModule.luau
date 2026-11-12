@@ -12,6 +12,7 @@
 local Freeze = require(script.Parent.Freeze)
 local Schema = require(script.Parent.Schema)
 local Semver = require(script.Parent.Semver)
+local Strings = require(script.Parent.Strings)
 
 local DefineModule = {}
 
@@ -39,6 +40,7 @@ local TOP_FIELDS = {
 	data = true,
 	itemFields = true,
 	theme = true,
+	strings = true, -- (v1.7.0, §23.9) a table, or function(config) -> table
 	server = true,
 	client = true,
 	description = true,
@@ -333,6 +335,10 @@ function DefineModule.defineModule(spec: any): any
 	end
 	if spec.theme ~= nil then
 		checkTheme(spec.theme, errors)
+	end
+	if spec.strings ~= nil and type(spec.strings) ~= "function" then
+		-- a function is called once at boot with the merged config and checked then
+		Strings.check(spec.strings, if type(spec.name) == "string" then spec.name else "?", errors)
 	end
 	if spec.server ~= nil and not isPascalName(spec.server) then
 		table.insert(errors, "server must be the PascalCase folder name under ServerScriptService.Modules")

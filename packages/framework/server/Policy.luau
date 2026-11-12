@@ -18,6 +18,15 @@
 
 local Policy = {}
 
+-- (added in v1.7.0, §23.8) the boolean PolicyService fields ctx.policy.allows accepts
+Policy.BOOLEAN_FIELDS = table.freeze({
+	IsContentSharingAllowed = true,
+	ArePaidRandomItemsRestricted = true,
+	AreAdsAllowed = true,
+	IsPaidItemTradingAllowed = true,
+	IsSubjectToChinaPolicies = true,
+})
+
 Policy.MAX_ATTEMPTS = 4
 Policy.BACKGROUND_RETRY = 30
 Policy.BASE_DELAY = 1
@@ -34,6 +43,7 @@ function Policy.new(opts: any): any
 	local restricted: { [any]: boolean } = {}
 	local overrides: { [any]: boolean? } = {}
 	local tracking: { [any]: boolean } = {}
+	local infos: { [any]: any } = {} -- the last successful lookup, for allows()
 
 	local p: any = {}
 
@@ -59,6 +69,7 @@ function Policy.new(opts: any): any
 		local ok, info = pcall(lookupFn, player)
 		if ok and type(info) == "table" and type(info.ArePaidRandomItemsRestricted) == "boolean" then
 			if isPlayer(player) then
+				infos[player] = info
 				restricted[player] = info.ArePaidRandomItemsRestricted
 				publish(player)
 			end
@@ -106,6 +117,17 @@ function Policy.new(opts: any): any
 		restricted[player] = nil
 		overrides[player] = nil
 		tracking[player] = nil
+		infos[player] = nil
+	end
+
+	-- (v1.7.0, §23.8) a boolean policy field; FAIL CLOSED: false until the lookup succeeded, from the
+	-- same lookup track() already makes (no extra request). An unknown field errors.
+	function p.allows(player: any, field: string): boolean
+		if type(field) ~= "string" or not Policy.BOOLEAN_FIELDS[field] then
+			error(`ctx.policy.allows: unknown policy field '{tostring(field)}'`, 2)
+		end
+		local info = infos[player]
+		return type(info) == "table" and info[field] == true
 	end
 
 	function p.isKnown(player: any): boolean
@@ -125,6 +147,7 @@ function Policy.new(opts: any): any
 	p.api = table.freeze({
 		paidRandomRestricted = p.paidRandomRestricted,
 		isKnown = p.isKnown,
+		allows = p.allows,
 	})
 
 	return p

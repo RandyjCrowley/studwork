@@ -29,7 +29,7 @@ theme = {
 
 | Group | Keys (framework defaults) | Notes |
 |---|---|---|
-| `colors` | `background` `#1E2235`, `surface` `#2B3050`, `surfaceAlt` `#3A4170`, `outline` `#14172A`, `text` `#FFF8EC`, `textMuted` `#B9BEDA`, `accent` `#FFB547`, `accentAlt` `#5ED1C9`, `currency` `#FFD23F`, `success` `#6BD66B`, `danger` `#FF5D6C`, `warning` `#FFD23F`, `sunlight` `#FFE7B8`, `shadow` `#5A6AA8`, `backdrop` `#000000`, `dropShadow` `#000000` | modules add their own (`leaderboardHighlight`) |
+| `colors` | `background` `#1E2235`, `surface` `#2B3050`, `surfaceAlt` `#3A4170`, `outline` `#14172A`, `text` `#FFF8EC`, `textMuted` `#B9BEDA`, `accent` `#FFB547`, `accentAlt` `#5ED1C9`, `currency` `#FFD23F`, `success` `#6BD66B`, `danger` `#FF5D6C`, `warning` `#FFD23F`, `sunlight` `#FFE7B8`, `shadow` `#5A6AA8`, `backdrop` `#000000`, `dropShadow` `#000000`, `leaderboardSelf` `#FFD23F` | modules add their own (`leaderboardHighlight`) |
 | `fonts` | `display` Fredoka One, `displayFallback` Builder Sans, `body` Builder Sans | `rbxasset://fonts/families/*.json` |
 | `metrics` | `cornerRadius` 12, `padding` 12, `strokeThickness` 2, `minTouchTarget` 44, `text.small` 14, `text.body` 18, `text.title` 24, `text.number` 28, `text.min` 14, `minTextSize` 11 | pixels; 44 px is the mobile touch minimum; `text.min` is the design-pixel floor for scaled text; `minTextSize` is the minimum real on-screen pixel size after responsive and Modal scales |
 | `sounds` | `rarity_common` ... `rarity_secret`, `coin_tick`, `purchase`, `rebirth`, `ui_click`, `ui_error`, `streak`, `event_start` | `{ id, volume?, pitch? }` (id 0 = silent) |

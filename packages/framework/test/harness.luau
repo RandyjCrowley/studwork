@@ -23,6 +23,8 @@
 local Server = (require :: any)(script.Parent.Parent.server)
 local Platform = (require :: any)(script.Parent.Parent.server.Platform)
 local Net = (require :: any)(script.Parent.Parent.server.Net)
+local Fakes = require(script.Parent.Fakes)
+local OrderedStore = (require :: any)(script.Parent.Parent.server.OrderedStore)
 
 local Harness = {}
 Harness.__index = Harness
@@ -43,8 +45,26 @@ export type Options = {
 	startTime: number?,
 	analytics: any?,
 	compliance: any?,
-	policy: { [number]: boolean | string }?, -- userId -> restricted, or "fail" (lookup errors)
+	-- userId -> restricted, "fail" (lookup errors), or (v1.7.0, §23.8) a table of policy fields
+	policy: { [number]: boolean | string | { [string]: boolean } }?,
 	owned: { [number]: { [number]: boolean } }?, -- userId -> passId -> owns
+	-- (added in v1.7.0, §23.10)
+	env: string?, -- "studio" | "test" | "live": forces the environment name
+	placeId: number?,
+	universeId: number?,
+	services: { [string]: any }?, -- ctx.services fakes (StudWork.test.fakes.*)
+	openCloud: any?, -- StudWork.test.fakes.openCloud(): the ctx.openCloud transport
+	secrets: { [string]: boolean }?, -- secrets-store names that exist
+	locale: string?,
+	translator: any?, -- StudWork.test.fakes.translator(): every player's translator
+	storeBudgets: any?, -- GameConfig.storeBudgets
+	census: { servers: number, players: number, peakPlayers: number? }?, -- a fixed census reading
+	-- GameConfig pass-throughs (so StudWork.test.boot({ flags = ... }) works)
+	flags: any?,
+	flagOverride: any?,
+	environments: any?,
+	strings: any?,
+	localization: any?,
 }
 
 -- A fake Blink event (client -> server: On; server -> client: Fire/FireAll), recording traffic.
@@ -142,8 +162,24 @@ local function fakePlatform(self: any, opts: Options): any
 			if answer == "fail" then
 				error("PolicyService down")
 			end
+			if type(answer) == "table" then
+				local info: { [string]: any } = { ArePaidRandomItemsRestricted = false }
+				for field, value in answer do
+					info[field] = value
+				end
+				return info
+			end
 			return { ArePaidRandomItemsRestricted = answer == true }
 		end,
+		-- (v1.7.0) the in-memory ordered stores and sorted maps (Fakes.memoryStores), the translator
+		stores = { ordered = self.stores.ordered, sortedMap = self.stores.sortedMap },
+		localization = {
+			translatorFor = function(_player: any): any
+				return opts.translator
+			end,
+		},
+		placeId = opts.placeId or 0,
+		universeId = opts.universeId or 0,
 		analytics = {
 			funnel = function(p: any, index: number, name: string)
 				table.insert(fake.analytics, { kind = "funnel", player = p, index = index, name = name })
@@ -217,6 +253,13 @@ local function build(opts: Options): (any, any)
 	local self: any = setmetatable({}, Harness)
 	self.clock = opts.startTime or 1_700_000_000
 	self.store = opts.store or Server.memoryStore()
+	-- (v1.7.0) the ordered stores and sorted maps live next to the save store, so several harnesses
+	-- given the same StudWork.test.memoryStore() share them; their expiry runs on this clock
+	self.stores = (if type(self.store) == "table" then rawget(self.store, "stores") else nil)
+		or Fakes.memoryStores()
+	self.stores.setClock(function()
+		return self.clock
+	end)
 	self.logs = {}
 	self.players = {}
 	local servers = opts.servers or {}
@@ -230,6 +273,12 @@ local function build(opts: Options): (any, any)
 		events = opts.events,
 		analytics = opts.analytics,
 		compliance = opts.compliance,
+		storeBudgets = opts.storeBudgets,
+		flags = opts.flags,
+		flagOverride = opts.flagOverride,
+		environments = opts.environments,
+		strings = opts.strings,
+		localization = opts.localization,
 	}
 	self.gameConfig = gameConfig
 	-- (v1.6.0) a legacy store's writes are stamped with the harness clock (unless a test set one)
@@ -249,6 +298,20 @@ local function build(opts: Options): (any, any)
 			return self.clock
 		end,
 		isStudio = opts.isStudio or false,
+		env = opts.env,
+		placeId = opts.placeId,
+		universeId = opts.universeId,
+		services = opts.services,
+		census = opts.census,
+		openCloud = if opts.openCloud ~= nil
+			then {
+				hasSecret = function(name: string): boolean
+					return (opts.secrets ~= nil and opts.secrets[name] == true)
+						or opts.openCloud.hasSecret(name)
+				end,
+				request = opts.openCloud.request,
+			}
+			else nil,
 		logSink = function(level: string, msg: string)
 			table.insert(self.logs, { level = level, msg = msg })
 		end,
@@ -420,8 +483,10 @@ end
 
 -- An in-memory store several harnesses can share (one "DataStore" seen by every server), with
 -- failure injection: store.failNext(n) makes the next n load/save calls raise.
-function Harness.memoryStore(): any
+function Harness.memoryStore(opts: any?): any
 	local s = Server.memoryStore()
+	-- (v1.7.0) opts.sortedMap = { structureLimit?, partitionLimit?, quotaBytes? } for the sorted maps
+	s.stores = Fakes.memoryStores(opts)
 	local fails = 0
 	local function failing(fn: any): any
 		return function(...: any): ...any
@@ -438,6 +503,16 @@ function Harness.memoryStore(): any
 		fails += n
 	end
 	return s
+end
+
+-- (added in v1.7.0, §23.10) the in-memory backing store of a module's ordered store / sorted map:
+-- entries(), failNext(n, code?), calls. Several harnesses on one memoryStore() share them.
+function Harness.orderedStore(self: any, moduleName: string, name: string): any
+	return self.stores.ordered(OrderedStore.storeName(moduleName, name, self.runtime.isStudio))
+end
+
+function Harness.sortedMap(self: any, moduleName: string, name: string): any
+	return self.stores.sortedMap(`SW/{moduleName}/{name}`)
 end
 
 function Harness.saved(self: any, p: any): any

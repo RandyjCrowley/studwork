@@ -19,6 +19,12 @@
 	  makeStore(gameId) -> Data store (Store.luau)
 	  makeShared(gameId) -> shared-store backend (SharedStore.luau; ctx.data.shared). Optional:
 	                                   without it the runtime uses SharedStore.memory()
+	  placeId, universeId              (v1.7.0) game.PlaceId / game.GameId (environments, §23.1)
+	  stores = { ordered(storeName) -> backend, sortedMap(storeName) -> backend }   (v1.7.0,
+	                                   PlatformStores.luau: ctx.data.ordered / ctx.data.sortedMap)
+	  services = { get(name) -> service }                (v1.7.0, PlatformServices.luau: ctx.services)
+	  openCloud = { hasSecret(name), request(req) }      (v1.7.0: the ctx.openCloud transport)
+	  localization = { translatorFor(player) -> translator? }   (v1.7.0: ctx.text)
 	  installConsole(run(...) -> string)
 	  gameModule() -> ModuleRef?       the game's implicit module (§7, C4): live, the definition at
 	                                   ReplicatedStorage.GameModule.module (games/<g>/modules/<gameId>)
@@ -26,6 +32,8 @@
 	}
 ]]
 
+local PlatformServices = require(script.Parent.PlatformServices)
+local PlatformStores = require(script.Parent.PlatformStores)
 local SharedStore = require(script.Parent.SharedStore)
 local Store = require(script.Parent.Store)
 local Legacy = require(script.Parent.Legacy)
@@ -102,7 +110,14 @@ function Platform.inert(overrides: any?): any
 			return SharedStore.memory()
 		end,
 		installConsole = function(_run: any) end,
+		placeId = 0,
+		universeId = 0,
+		stores = PlatformStores.inert(),
 	}
+	local inertServices = PlatformServices.inert()
+	p.services = inertServices.services
+	p.openCloud = inertServices.openCloud
+	p.localization = inertServices.localization
 	for k, v in overrides or {} do
 		p[k] = v
 	end
@@ -126,8 +141,15 @@ function Platform.live(): any
 		return typeof(p) == "Instance" and p:IsA("Player") and p.Parent == Players
 	end
 
+	local liveServices = PlatformServices.live()
 	local p: any = {
 		isStudio = isStudio,
+		placeId = game.PlaceId,
+		universeId = game.GameId,
+		stores = PlatformStores.live(),
+		services = liveServices.services,
+		openCloud = liveServices.openCloud,
+		localization = liveServices.localization,
 		now = os.time,
 		clock = os.clock,
 		spawn = task.spawn,

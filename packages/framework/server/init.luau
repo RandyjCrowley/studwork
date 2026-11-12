@@ -37,11 +37,19 @@
 	                               GameConfig.modules unless already listed; the game never lists
 	                               itself. Its data.key must be the gameId (the v1.2 game[gameId]
 	                               table splits into that section).
+	  (v1.7.0, §23.10; the test harness and the sim inject them)
+	  env                          "studio" | "test" | "live": forces the environment name
+	  placeId, universeId          default platform.placeId / platform.universeId (environments)
+	  services                     { [name] = fake }: ctx.services (and the flag override's config service)
+	  openCloud                    the Open Cloud transport (default platform.openCloud)
+	  census                       { servers, players, peakPlayers? }: a fixed census reading
 ]]
 
 local Shared = require(script.Shared)
 local requireShared = require :: any -- see Shared.luau
 local ConfigValidate = requireShared(Shared.ConfigValidate)
+local Env = requireShared(Shared.Env)
+local Flags = requireShared(Shared.Flags)
 local Freeze = requireShared(Shared.Freeze)
 local Resolve = requireShared(Shared.Resolve)
 local Signal = requireShared(Shared.Signal)
@@ -49,20 +57,28 @@ local StudWork = requireShared(Shared)
 local Admins = require(script.Events.Admins)
 local Analytics = require(script.Analytics)
 local Boot = require(script.Boot)
+local Census = require(script.Census)
 local Compliance = require(script.Compliance)
 local Context = require(script.Context)
 local Data = require(script.Data)
 local Events = require(script.Events)
 local Extensions = require(script.Extensions)
+local FlagOverride = require(script.FlagOverride)
 local Lifecycle = require(script.Lifecycle)
 local Loader = require(script.Loader)
 local Net = require(script.Net)
+local OpenCloud = require(script.OpenCloud)
+local OrderedStore = require(script.OrderedStore)
 local Platform = require(script.Platform)
 local Policy = require(script.Policy)
 local Replication = require(script.Replication)
+local Services = require(script.Services)
 local Shop = require(script.Shop)
 local SharedStore = require(script.SharedStore)
+local SortedMapStore = require(script.SortedMapStore)
 local Store = require(script.Store)
+local StoreBudget = require(script.StoreBudget)
+local Text = require(script.Text)
 local Legacy = require(script.Legacy)
 
 local Server = {}
@@ -216,6 +232,11 @@ function Server.start(gameConfig: any, serverConfig: any?, opts: any?): any
 		logSink("warn", msg)
 	end
 	local platform = o.platform or (if o.bindPlatform == false then Platform.inert() else Platform.live())
+	local envInfo = {
+		isStudio = if o.isStudio ~= nil then o.isStudio else platform.isStudio == true,
+		placeId = o.placeId or platform.placeId or 0,
+		universeId = o.universeId or platform.universeId or 0,
+	}
 	local enabled: { [any]: boolean } = {}
 	local byName: { [string]: any } = {}
 
@@ -360,6 +381,36 @@ function Server.start(gameConfig: any, serverConfig: any?, opts: any?): any
 				return Server.formatAdoptStatus(rt.data.legacyImports(), rt.data.legacyMarkers(player) or {})
 			end,
 		}
+		-- (v1.7.0, §23.2) flags: every flag with its value and source; flags set (Studio only)
+		cmd("flags", "flags: every feature flag with its value and source", function()
+			local lines = {}
+			for _, name in rt.flagsState.names() do
+				table.insert(lines, `{name} = {tostring(rt.flags.isOn(name))} ({rt.flags.source(name)})`)
+			end
+			return if #lines == 0 then "no flags declared" else table.concat(lines, "\n")
+		end)
+		cmd(
+			"flags set",
+			"flags set <name> <true|false|clear>: a local override on this server (Studio only)",
+			function(name: string?, value: string?)
+				if not rt.isStudio then
+					return "Studio-only"
+				end
+				local on: boolean? = nil
+				if value == "true" then
+					on = true
+				elseif value == "false" then
+					on = false
+				elseif value ~= "clear" then
+					return "usage: flags set <name> <true|false|clear>"
+				end
+				local ok, reason = rt.flagsState.setOverride(name or "", on)
+				if not ok then
+					return `refused: {tostring(reason)}`
+				end
+				return `{name} = {tostring(rt.flags.isOn(name :: string))}`
+			end
+		)
 		cmd("net", "net: framework event owners, dropped and rate-limited request counts", function()
 			return rt.net.summary()
 		end)
@@ -494,7 +545,8 @@ function Server.start(gameConfig: any, serverConfig: any?, opts: any?): any
 
 		-- 2. validate config / items / theme (all errors together)
 		rt.phase = "config"
-		local result = ConfigValidate.validate(order, gameConfig)
+		local result =
+			ConfigValidate.validate(order, gameConfig, { serverConfig = serverConfig, env = envInfo })
 		for _, w in result.warnings do
 			logSink("warn", "[StudWork] " .. w)
 		end
@@ -513,6 +565,58 @@ function Server.start(gameConfig: any, serverConfig: any?, opts: any?): any
 		rt.isStudio = if o.isStudio ~= nil then o.isStudio else platform.isStudio
 		local now = o.now or platform.now
 		rt.now = now
+		-- (v1.7.0, §23) environment, flags, store budgets, census, the ordered / sorted-map layers,
+		-- services, Open Cloud and strings: all inert until a game or module uses them
+		rt.env = Env.build(gameConfig.environments, envInfo, o.env)
+		rt.flagsState = Flags.new({
+			flags = gameConfig.flags,
+			serverFlags = if type(serverConfig) == "table" then serverConfig.flags else nil,
+			envName = rt.env.name(),
+			side = "server",
+			log = warnLog,
+		})
+		rt.flags = rt.flagsState.api
+		rt.storeBudget = StoreBudget.new({ config = gameConfig.storeBudgets, now = now, log = warnLog })
+		rt.census = Census.new({ fixed = o.census, now = now, log = warnLog })
+		rt.orderedStore = OrderedStore.new({
+			backend = platform.stores.ordered,
+			budget = rt.storeBudget,
+			isStudio = rt.isStudio,
+			now = now,
+			log = warnLog,
+		})
+		rt.sortedMapStore = SortedMapStore.new({
+			backend = platform.stores.sortedMap,
+			budget = rt.storeBudget,
+			log = warnLog,
+		})
+		rt.services = Services.new({
+			get = platform.services.get,
+			fakes = o.services,
+			isTest = o.bindPlatform == false,
+		})
+		rt.openCloud = OpenCloud.new({
+			config = if type(serverConfig) == "table" then serverConfig.openCloud else nil,
+			transport = o.openCloud or platform.openCloud,
+			now = now,
+			log = warnLog,
+		})
+		rt.strings = Text.new({
+			defaults = result.strings,
+			overrides = gameConfig.strings,
+			localization = gameConfig.localization,
+			translatorFor = platform.localization.translatorFor,
+			log = warnLog,
+		})
+		rt.flagOverride = FlagOverride.new({
+			config = gameConfig.flagOverride,
+			flags = rt.flagsState,
+			services = rt.services,
+			spawn = platform.spawn,
+			delay = platform.delay,
+			now = now,
+			log = warnLog,
+		})
 		-- (added in v1.6.0, adopting.md §3/§4) the read-only reader of a game's OLD stores
 		local legacyBackend = o.legacy or (if platform.makeLegacy then platform.makeLegacy() else nil)
 		if legacyBackend == nil and o.platform == nil and o.bindPlatform ~= false then
@@ -578,6 +682,12 @@ function Server.start(gameConfig: any, serverConfig: any?, opts: any?): any
 		})
 		rt.data.onChange(function(player: any)
 			rt.replication.markDirty(player)
+		end)
+		-- (v1.7.0, §23.1-§23.2) state.framework.env and state.framework.flags
+		rt.replication.setFrameworkAll("env", rt.env.name())
+		rt.replication.setFrameworkAll("flags", rt.flagsState.replicated())
+		rt.flagsState.onAnyChange(function()
+			rt.replication.setFrameworkAll("flags", rt.flagsState.replicated())
 		end)
 		rt.policy = Policy.new({
 			lookup = platform.policyLookup,
@@ -710,6 +820,8 @@ function Server.start(gameConfig: any, serverConfig: any?, opts: any?): any
 
 		-- 6. framework start
 		rt.events.start()
+		rt.census.start()
+		platform.spawn(rt.flagOverride.start) -- background: never blocks boot
 		rt.net.start() -- releases the queued requests (module handlers run here)
 		platform.installConsole(function(...: any): string
 			return rt.consoleText(...)
@@ -738,6 +850,7 @@ function Server.start(gameConfig: any, serverConfig: any?, opts: any?): any
 		local clock: () -> number = platform.clock or os.clock
 		local joinedAt = clock()
 		platform.spawn(rt.policy.track, player)
+		platform.spawn(rt.strings.fetch, player) -- the player's translator (background; English until it arrives)
 		rt.shop.playerJoined(player)
 		local passes = rt.shop.awaitPasses(player)
 		local loadStart = clock()
@@ -780,6 +893,7 @@ function Server.start(gameConfig: any, serverConfig: any?, opts: any?): any
 		end
 		rt.data.release(player)
 		rt.policy.forget(player)
+		rt.strings.forget(player)
 		rt.shop.playerRemoving(player)
 		rt.replication.remove(player)
 		rt.net.forget(player)

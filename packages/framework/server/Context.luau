@@ -17,6 +17,8 @@
 	  analytics   Analytics.api          funnel / economy / custom
 	  events      Events.forModule       schedule / trigger / isActive / onEnded
 	  shop        Shop.forModule         onProduct / onPassOwned / ownsPass / onLegacyProduct / legacyReceipts (v1.6.0)
+	  v1.7.0 (module-api.md §23): env, flags, services, openCloud, text, and in ctx.data: ordered,
+	  sortedMap, census
 ]]
 
 local Shared = require(script.Parent.Shared)
@@ -117,6 +119,10 @@ function Context.build(rt: any, ref: any): any
 		-- Durable, atomic, cross-server key-value store; keys are this module's own (prefixed with
 		-- its name). update(key, fn(old) -> new) -> (ok, new); yields (SharedStore.luau).
 		shared = rt.shared.forModule(name, rt.assertUsable),
+		-- (added in v1.7.0, §23.3-§23.5) ordered stores, sorted maps and the census, per module
+		ordered = rt.orderedStore.forModule(name, rt.assertUsable),
+		sortedMap = rt.sortedMapStore.forModule(name, rt.assertUsable),
+		census = rt.census.api,
 		-- (added in v1.6.0, adopting.md §3) a one-time import of the player's OLD save; init only
 		importLegacy = function(spec: any)
 			if rt.phase ~= "init" then
@@ -212,6 +218,12 @@ function Context.build(rt: any, ref: any): any
 		analytics = rt.analytics.api,
 		events = rt.events.forModule(name),
 		shop = rt.shop.forModule(name),
+		-- (added in v1.7.0, §23.1, §23.2, §23.6, §23.7, §23.9)
+		env = rt.env,
+		flags = rt.flags,
+		services = rt.services.forModule(name),
+		openCloud = rt.openCloud.forModule(name),
+		text = rt.strings.api,
 
 		signals = signals,
 		console = console,

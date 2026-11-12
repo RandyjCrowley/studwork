@@ -10,6 +10,7 @@
 	Servers are created with World:server(opts) (see Server.luau).
 ]]
 
+local MemoryStores = require(script.Parent.MemoryStores)
 local Scheduler = require(script.Parent.Scheduler)
 
 local World = {}
@@ -73,6 +74,8 @@ function World.new(opts: { dt: number?, verbose: boolean?, epoch: number? }?)
 		servers = {},
 		nextJob = 0,
 	}, World)
+	-- (v1.7.0) ordered stores and sorted maps, shared by every sim server (MemoryStores.luau)
+	self.memoryStores = MemoryStores.new(self, if o then (o :: any).memoryStores else nil)
 	local answers: { [number]: any } = {}
 	self.restricted = setmetatable({}, {
 		__index = answers,

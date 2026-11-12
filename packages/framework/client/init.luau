@@ -94,11 +94,18 @@ local function startUi(info: any): any
 end
 
 Boot.installStarter(function(gameConfig: any, serverConfig: any?): any
-	return Runtime.start(gameConfig, serverConfig, {
+	local rt = Runtime.start(gameConfig, serverConfig, {
 		ui = startUi,
 		state = State.raw,
 		computed = Charm.computed,
 	})
+	-- (v1.7.0) the server's flag values arrive in state.framework.flags: keep the client in step
+	pcall(function()
+		Charm.subscribe(State.raw, function()
+			rt.syncFramework()
+		end)
+	end)
+	return rt
 end)
 
 return Client

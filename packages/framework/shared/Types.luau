@@ -370,6 +370,10 @@ export type ServerConfig = {
 	-- (added in 1.6.1, adopting.md §5) the decoded studwork-legacy.json (tools/adopt maps it into
 	-- the place); a live server with entries (or an onLegacyProduct bridge) warns once at boot
 	legacyList: LegacyList?,
+	-- (added in 1.7.0, §23.7) the Open Cloud allow-list; never replicated
+	openCloud: OpenCloudConfig?,
+	-- (added in 1.7.0, §23.2) hidden flags: same fields as GameConfig.flags, serverOnly implied
+	flags: FlagsConfig?,
 }
 
 -- (added in 1.6.1) studwork-legacy.json: the legacy files still in an adopted game.
@@ -401,7 +405,153 @@ export type GameConfig = {
 	mail: MailConfig?, -- Mail module delivery tuning (optional)
 	shop: ShopConfig?, -- (added in 1.6.1) framework Shop tuning (optional)
 	assetsFolderName: string?, -- child of ReplicatedStorage holding item models (default "GameAssets")
+	-- (added in 1.7.0, §23) all optional
+	environments: EnvironmentsConfig?,
+	flags: FlagsConfig?,
+	flagOverride: FlagOverrideConfig?,
+	storeBudgets: StoreBudgetsConfig?,
+	strings: StringsTable?,
+	localization: LocalizationConfig?,
 }
+
+--------------------------------------------------------------------------------
+-- v1.7.0: environments, flags, stores, services, Open Cloud, strings (module-api.md §23)
+--------------------------------------------------------------------------------
+
+-- §23.1
+export type EnvName = "studio" | "test" | "live"
+export type EnvironmentIds = { placeIds: { number }?, universeIds: { number }? }
+export type EnvironmentsConfig = { test: EnvironmentIds?, live: EnvironmentIds? }
+export type EnvAPI = {
+	name: () -> EnvName,
+	placeId: () -> number,
+	universeId: () -> number,
+}
+
+-- §23.2
+export type FlagDef = {
+	default: boolean,
+	studio: boolean?,
+	test: boolean?,
+	live: boolean?,
+	testOnly: boolean?,
+	serverOnly: boolean?,
+	override: boolean?,
+	description: string?,
+}
+export type FlagsConfig = { [string]: FlagDef }
+export type FlagOverrideConfig = {
+	enabled: boolean?, -- default false
+	keyPrefix: string?, -- default "flag_"
+	refreshSeconds: number?, -- default 30 (5..600)
+}
+export type FlagsAPI = {
+	isOn: (name: string) -> boolean,
+	onChanged: (name: string, fn: (on: boolean) -> ()) -> Connection,
+	all: () -> { [string]: boolean },
+	source: (name: string) -> "config" | "override",
+}
+
+-- §23.3
+export type OrderedEntry = { key: string, value: number }
+export type OrderedStore = {
+	get: (key: string) -> (boolean, number?),
+	set: (key: string, value: number) -> (boolean, string?),
+	increment: (key: string, delta: number) -> (boolean, any),
+	update: (key: string, fn: (old: number?) -> number?) -> (boolean, any),
+	remove: (key: string) -> (boolean, string?),
+	top: (
+		count: number,
+		order: "desc" | "asc",
+		minValue: number?,
+		maxValue: number?
+	) -> (boolean, any),
+}
+
+-- §23.4
+export type SortedMapItem = { key: string, value: any, sortKey: number | string }
+export type SortedMapBound = { key: string?, sortKey: (number | string)? }
+export type SortedMapStore = {
+	get: (key: string) -> (boolean, any, (number | string)?),
+	set: (key: string, value: any, expirySeconds: number, sortKey: (number | string)?) -> (boolean, string?),
+	update: (
+		key: string,
+		fn: (old: any, oldSortKey: (number | string)?) -> (any, (number | string)?),
+		expirySeconds: number
+	) -> (boolean, any),
+	remove: (key: string) -> (boolean, string?),
+	range: (
+		direction: "asc" | "desc",
+		count: number,
+		lower: SortedMapBound?,
+		upper: SortedMapBound?
+	) -> (boolean, any),
+}
+
+-- §23.5
+export type MemoryBudgetConfig = {
+	reserve: number?, -- 0.05..0.9, default 0.2
+	defaultShare: number?, -- 0.01..1, default 0.25
+	shares: { [string]: number }?, -- { [ModuleName] = fraction }
+}
+export type StoreBudgetsConfig = {
+	orderedReserve: number?, -- 0..0.9, default 0.25
+	memoryUnits: { base: number?, perPlayer: number? }?, -- default { base = 20, perPlayer = 20 }
+	memory: MemoryBudgetConfig?,
+	censusSeconds: number?, -- 30..600, default 60
+}
+export type CensusInfo = { servers: number, players: number, peakPlayers: number, at: number }
+
+-- §23.6
+export type ServicesAPI = {
+	get: (name: string) -> any,
+}
+
+-- §23.7
+export type OpenCloudSecretRule = {
+	modules: { string },
+	methods: { string },
+	paths: { string },
+}
+export type OpenCloudConfig = {
+	perMinute: number?, -- default 600
+	secrets: { [string]: OpenCloudSecretRule }?,
+}
+export type OpenCloudRequest = {
+	secret: string,
+	method: "GET" | "POST" | "PATCH" | "DELETE",
+	path: string,
+	body: { [string]: any }?,
+}
+export type OpenCloudAPI = {
+	available: (secretName: string) -> boolean,
+	request: (req: OpenCloudRequest) -> (boolean, number?, any),
+}
+
+-- §23.9
+export type StringsTable = { [string]: string }
+export type LocalizationConfig = { sourceLocale: string?, useTranslators: boolean? }
+export type TextAPI = {
+	format: (player: Player, key: string, args: { [any]: any }?) -> string,
+	english: (key: string, args: { [any]: any }?) -> string,
+}
+
+-- §23.10 / §23.11: the additions to the scoped ctx (the ModuleContext and ScopedData of
+-- module-api.md §5 are documented there; these are the fields v1.7.0 adds to them).
+export type ScopedDataAdditions = {
+	ordered: (name: string) -> OrderedStore,
+	sortedMap: (name: string) -> SortedMapStore,
+	census: () -> CensusInfo?,
+}
+export type ModuleContextAdditions = {
+	env: EnvAPI,
+	flags: FlagsAPI,
+	services: ServicesAPI,
+	openCloud: OpenCloudAPI,
+	text: TextAPI,
+}
+-- A module definition's `strings`: a table, or a function of the module's merged config.
+export type ModuleStrings = StringsTable | (config: any) -> StringsTable
 
 --------------------------------------------------------------------------------
 -- Signals
@@ -644,6 +794,8 @@ export type PolicyAPI = {
 	-- true once the policy lookup finished. Robux handlers: unknown -> return false (retry later);
 	-- known restricted -> grant a non-random fallback.
 	isKnown: (player: Player) -> boolean,
+	-- (added in 1.7.0, §23.8) a boolean PolicyService field; fail closed (false until known)
+	allows: (player: Player, field: string) -> boolean,
 }
 
 export type DataAPI = {

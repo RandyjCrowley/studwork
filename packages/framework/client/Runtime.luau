@@ -25,6 +25,9 @@
 	opts (tests inject them): loadClient(ref) -> part?, gameModule (ref), state (a Charm atom
 	or any function returning the raw replicated state), ui (false = no UI; or fn(info) -> client
 	table for StudWork.Client), computed (Charm.computed stand-in).
+	(v1.7.0, §23.10) env ("studio" | "test" | "live"), placeId, universeId, isStudio, locale,
+	translator, flags (the replicated flag values): the environment, flags and strings the client
+	runtime exposes as rt.env, rt.flags and rt.text (StudWork.env / .flags / .text).
 ]]
 
 local Boot = require(script.Parent.Boot)
@@ -32,11 +35,29 @@ local Boot = require(script.Parent.Boot)
 local Shared: any = Boot.shared
 local ConfigValidate = (require :: any)(Shared:WaitForChild("ConfigValidate"))
 local DefineModule = (require :: any)(Shared:WaitForChild("defineModule"))
+local Env = (require :: any)(Shared:WaitForChild("Env"))
+local Flags = (require :: any)(Shared:WaitForChild("Flags"))
 local Resolve = (require :: any)(Shared:WaitForChild("Resolve"))
+local ClientText = require(script.Parent.Text)
 
 local Runtime = {}
 
-Runtime.VERSION = "1.6.2"
+Runtime.VERSION = "1.7.0"
+
+-- game.PlaceId / game.GameId / RunService:IsStudio(), tolerant of a Lune stand-in without them
+function Runtime.detect(property: string): number
+	local ok, value = pcall(function(): any
+		return (game :: any)[property]
+	end)
+	return if ok and type(value) == "number" then value else 0
+end
+
+function Runtime.detectStudio(): boolean
+	local ok, value = pcall(function(): any
+		return game:GetService("RunService"):IsStudio()
+	end)
+	return ok and value == true
+end
 
 local function pascal(name: string): string
 	return string.upper(string.sub(name, 1, 1)) .. string.sub(name, 2)
@@ -181,6 +202,11 @@ function Runtime.start(gameConfig: any, serverConfig: any?, opts: any?): any
 	Boot.attach(rt)
 
 	local parts: { [any]: any } = {}
+	local envInfo = {
+		isStudio = if o.isStudio ~= nil then o.isStudio else Runtime.detectStudio(),
+		placeId = o.placeId or Runtime.detect("PlaceId"),
+		universeId = o.universeId or Runtime.detect("GameId"),
+	}
 	local function boot()
 		-- 1. resolve (+ the game module)
 		local config = table.clone(gameConfig)
@@ -211,12 +237,44 @@ function Runtime.start(gameConfig: any, serverConfig: any?, opts: any?): any
 		end
 		-- 2. validate
 		rt.phase = "config"
-		local result = ConfigValidate.validate(order, config)
+		local result = ConfigValidate.validate(order, config, { env = envInfo })
 		if #result.errors > 0 then
 			error("invalid GameConfig:\n  - " .. table.concat(result.errors, "\n  - "), 0)
 		end
 		rt.configs = result.configs
 		rt.theme = result.theme
+		-- (v1.7.0, §23) environment, flags, strings: the same pure resolvers as the server, then
+		-- the server's replicated values (state.framework.env / .flags) once they arrive
+		rt.env = Env.build(config.environments, envInfo, o.env)
+		rt.flagsState = Flags.new({
+			flags = config.flags,
+			envName = rt.env.name(),
+			side = "client",
+		})
+		rt.flags = rt.flagsState.api
+		if o.flags ~= nil then
+			rt.flagsState.applyReplicated(o.flags)
+		end
+		rt.textState = ClientText.new({
+			defaults = result.strings,
+			overrides = config.strings,
+			localization = config.localization,
+			translator = o.translator or ClientText.liveTranslator(),
+			locale = o.locale,
+			log = function(m: string)
+				warn(m)
+			end,
+		})
+		rt.text = rt.textState.text
+		-- takes state.framework.flags from the replicated state (called at start and on every change)
+		function rt.syncFramework()
+			local s = if o.state then o.state() else nil
+			local fw = if type(s) == "table" then s.framework else nil
+			if type(fw) == "table" and type(fw.flags) == "table" then
+				rt.flagsState.applyReplicated(fw.flags)
+			end
+		end
+		rt.syncFramework()
 		-- 3. client parts + APIs
 		rt.phase = "client-parts"
 		local stateAtom: any = o.state

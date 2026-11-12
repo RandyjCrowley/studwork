@@ -11,6 +11,10 @@
 	                                                   { loaded, framework, modules }) plus the
 	                                                   framework client UI (Hud, Feedback, Input)
 	  StudWork.hook()                                  a helper list for offering extensions (§8)
+	  StudWork.env / StudWork.flags / StudWork.text    (v1.7.0, §23) which environment this is; feature
+	                                                   flags (both sides); a string by key (client).
+	                                                   Facade members of the framework, not modules:
+	                                                   no ModuleRef, StudWork.use doesn't accept them
 	  StudWork.test                                    the public test harness (§15; Lune only:
 	                                                   harness / boot / memoryStore / player /
 	                                                   sim.*, packages/framework/test/Public.luau)
@@ -33,7 +37,7 @@ local Resolve = require(script.Resolve)
 
 local StudWork = {}
 
-StudWork.VERSION = "1.6.2"
+StudWork.VERSION = "1.7.0"
 
 export type ModuleRef<API = any, TxAPI = any, ClientAPI = any> = any
 
@@ -95,6 +99,16 @@ StudWork.test = table.freeze({
 	memoryStore = forward({ "memoryStore" }),
 	legacyStore = forward({ "legacyStore" }), -- (added in v1.6.0)
 	player = forward({ "player" }),
+	-- (added in v1.7.0, §23.10) in-memory stand-ins for the engine services and Open Cloud
+	fakes = table.freeze({
+		badgeService = forward({ "fakes", "badgeService" }),
+		textService = forward({ "fakes", "textService" }),
+		userService = forward({ "fakes", "userService" }),
+		configService = forward({ "fakes", "configService" }),
+		openCloud = forward({ "fakes", "openCloud" }),
+		translator = forward({ "fakes", "translator" }),
+		experienceNotificationService = forward({ "fakes", "experienceNotificationService" }),
+	}),
 	sim = table.freeze(sim),
 }) :: any
 
@@ -172,6 +186,49 @@ local function assertStarted(what: string)
 			3
 		)
 	end
+end
+
+-- (v1.7.0, §23.1, §23.2, §23.9) facade members that forward to the side's runtime. Not modules:
+-- `use` doesn't accept them, they have no ModuleRef.
+local function runtimeMember(path: string, member: string): any
+	assertStarted(path)
+	local value = (RuntimeSlot.runtime :: any)[member]
+	if value == nil then
+		error(`[StudWork] {path} is not available on this side`, 3)
+	end
+	return value
+end
+
+StudWork.env = table.freeze({
+	name = function(): string
+		return runtimeMember("StudWork.env.name", "env").name()
+	end,
+	placeId = function(): number
+		return runtimeMember("StudWork.env.placeId", "env").placeId()
+	end,
+	universeId = function(): number
+		return runtimeMember("StudWork.env.universeId", "env").universeId()
+	end,
+})
+
+StudWork.flags = table.freeze({
+	isOn = function(name: string): boolean
+		return runtimeMember("StudWork.flags.isOn", "flags").isOn(name)
+	end,
+	onChanged = function(name: string, fn: (on: boolean) -> ()): any
+		return runtimeMember("StudWork.flags.onChanged", "flags").onChanged(name, fn)
+	end,
+	all = function(): { [string]: boolean }
+		return runtimeMember("StudWork.flags.all", "flags").all()
+	end,
+	source = function(name: string): string
+		return runtimeMember("StudWork.flags.source", "flags").source(name)
+	end,
+})
+
+-- Client: the string for a key in the local player's language. The server side has ctx.text.
+function StudWork.text(key: string, args: { [any]: any }?): string
+	return runtimeMember("StudWork.text", "text")(key, args)
 end
 
 function StudWork.use<A>(ref: ModuleRef<A>): A

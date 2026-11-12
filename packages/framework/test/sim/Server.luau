@@ -57,6 +57,7 @@ local Loader = require(script.Parent.Loader)
 
 local Signal = require(script.Parent.Signal)
 local Instances = require(script.Parent.Instances)
+local MemoryStores = require(script.Parent.MemoryStores)
 
 local Server = {}
 Server.__index = Server
@@ -612,6 +613,43 @@ function Server._platform(self): any
 				end,
 			})
 		end,
+		-- (v1.7.0, §23.10) the World's shared in-memory ordered stores and sorted maps
+		stores = MemoryStores.platform(self.world.memoryStores).stores,
+		services = {
+			get = function(name: string): any
+				return setmetatable({}, {
+					__index = function(_, method: any): any
+						return function()
+							error(
+								"no test fake for "
+									.. name
+									.. ": pass sim.server(world, { services = { "
+									.. name
+									.. " = ... } }) (called "
+									.. tostring(method)
+									.. ")",
+								2
+							)
+						end
+					end,
+				})
+			end,
+		},
+		openCloud = {
+			hasSecret = function(_name: string): boolean
+				return false
+			end,
+			request = function(_req: any): (boolean, number?, any)
+				error("no Open Cloud transport in this sim server", 0)
+			end,
+		},
+		localization = {
+			translatorFor = function(_player: any): any
+				return nil
+			end,
+		},
+		placeId = 0,
+		universeId = 0,
 		installConsole = function(run)
 			server.console = run
 		end,
@@ -746,6 +784,9 @@ function Server._boot(self, opts: any)
 	self.scheduler:spawn(self, function()
 		self.runtime = FrameworkServer.start(gameConfig, serverConfig, {
 			platform = self:_platform(),
+			services = opts.services,
+			openCloud = opts.openCloud,
+			census = opts.census,
 			loadServer = loadServer,
 			gameModule = gameModule,
 			isStudio = self.isStudio,

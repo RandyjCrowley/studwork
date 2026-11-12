@@ -69,6 +69,15 @@
 	  theme     a hex colour literal ("#RRGGBB"), a Color3.fromRGB literal or an asset id
 	            ("rbxassetid://123") in UI or kit/example/game-module client code outside a theme or
 	            config file (THEME_ALLOWED): colours and assets come from the theme.
+	  strings   (v1.7.0, tools/lune/GuardStrings.luau) hard-coded English in the UI kit, kit client
+	            parts and framework client code, and string keys without an English default
+	            (docs/framework/kits/localization.md). Not games, not examples.
+	  textfilter (v1.7.0, tools/lune/GuardTextFilter.luau) a client-supplied string reaching a
+	            player or a shared store without TextFilter, or a whole TextFilter record reaching
+	            one, in game, example and kit server code (docs/framework/kits/textfilter.md).
+	            Best effort; a legacy list may name it.
+	  purchases also (v1.7.0): ConfigService, `:GetSecret(`, `:RequestAsync(` and `:PostAsync(` are
+	            framework-only (PURCHASES_ALLOWED: the Platform*/OpenCloud/FlagOverride adapters).
 	A line ending in `-- guard: allow <check>` (e.g. `-- guard: allow numbers`) is skipped for
 	that check; use it rarely and say why on the line above.
 ]]
@@ -79,6 +88,8 @@ local process = require("@lune/process")
 -- the kit module manifest, read from the kit module definitions (packages/kits/<kit>/<Module>/
 -- module.luau since v1.3.1; v1.3.0, was the v1.2 module manifest)
 local Modules = require("./KitModules").load(fs)
+local GuardStrings = require("./GuardStrings")
+local GuardTextFilter = require("./GuardTextFilter")
 
 local Guard = {}
 
@@ -90,6 +101,12 @@ Guard.PURCHASES_ALLOWED = {
 	"packages/framework/server/Data.luau",
 	"packages/framework/server/SharedStore.luau", -- ctx.data.shared: the framework-owned shared DataStore
 	"packages/framework/server/Legacy.luau", -- (v1.6.0) the READ-ONLY reader of a game's old stores (adopting.md §3)
+	-- (v1.7.0) the live engine adapters and the services table that names the refused services
+	"packages/framework/server/PlatformStores.luau", -- ordered stores / sorted maps: the DataStore / MemoryStore services
+	"packages/framework/server/PlatformServices.luau", -- GetService, the secrets store and HTTP transport, LocalizationService
+	"packages/framework/server/OpenCloud.luau", -- ctx.openCloud: the only Open Cloud caller
+	"packages/framework/server/FlagOverride.luau", -- the experience config service behind ctx.flags
+	"packages/framework/server/Services.luau", -- ctx.services: names every refused service and its replacement
 	"packages/framework/test/", -- fakes
 }
 
@@ -361,6 +378,32 @@ local NORMALIZED_RULES = {
 		"MemoryStoreService",
 		"purchases",
 		"MemoryStoreService only inside the framework: use ctx.data.shared",
+		true,
+	},
+	-- (v1.7.0, module-api.md §23.6) the experience config service, secrets and raw HTTP are
+	-- framework-only: ctx.flags, ctx.openCloud. Plain HttpService (JSONEncode, GenerateGUID) stays allowed.
+	{
+		"ConfigService",
+		"purchases",
+		"ConfigService only inside the framework: use ctx.flags",
+		true,
+	},
+	{
+		":GetSecret(",
+		"purchases",
+		"HttpService:GetSecret only inside the framework: use ctx.openCloud",
+		true,
+	},
+	{
+		":RequestAsync(",
+		"purchases",
+		"HttpService:RequestAsync only inside the framework: use ctx.openCloud",
+		true,
+	},
+	{
+		":PostAsync(",
+		"purchases",
+		"HttpService:PostAsync only inside the framework: use ctx.openCloud",
 		true,
 	},
 	{
@@ -1699,7 +1742,8 @@ Guard.LEGACY_LIST = "studwork-legacy.json"
 local AdoptedMarker = require("./AdoptedMarker")
 Guard.AdoptedMarker = AdoptedMarker
 -- checks a legacy entry may list (the scanGame checks); special and packages are never downgraded
-Guard.LEGACY_CHECKS = { modules = true, numbers = true, remotes = true, purchases = true, theme = true }
+Guard.LEGACY_CHECKS =
+	{ modules = true, numbers = true, remotes = true, purchases = true, theme = true, textfilter = true }
 Guard.LEGACY_NEVER = { special = true, packages = true }
 -- (v1.6.0) pseudo-checks an entry may list that no guardrail scan produces: "style" = the file
 -- fails selene / StyLua / luau-lsp as old code (lint skips it, typecheck warns). Never counted in
@@ -2450,6 +2494,43 @@ local function selfTest(): boolean
 		"allowed normalised",
 		Guard.scanSource('local d = game:GetService("DataStoreService") -- guard: allow purchases', gm)
 	)
+	-- (v1.7.0, §23.6) ConfigService, :GetSecret(, :RequestAsync( and :PostAsync( are framework-only
+	expectCheck("GetSecret", Guard.scanSource('local key = HttpService:GetSecret("k")', gm), "purchases")
+	expectCheck("RequestAsync", Guard.scanSource("local r = http:RequestAsync({ Url = u })", gm), "purchases")
+	expectCheck("PostAsync", Guard.scanSource("http:PostAsync(u, body)", gm), "purchases")
+	expectCheck(
+		"ConfigService",
+		Guard.scanSource('local c = game:GetService("ConfigService")', gm),
+		"purchases"
+	)
+	expectCheck(
+		"package ConfigService",
+		Guard.scanSource('local c = game:GetService("ConfigService")', pkg),
+		"purchases"
+	)
+	expectClean("JSONEncode stays allowed", Guard.scanSource("local s = HttpService:JSONEncode(t)", gm))
+	expectClean(
+		"GenerateGUID stays allowed",
+		Guard.scanSource("local g = HttpService:GenerateGUID(false)", gm)
+	)
+	for _, adapter in
+		{
+			"packages/framework/server/PlatformServices.luau",
+			"packages/framework/server/OpenCloud.luau",
+			"packages/framework/server/FlagOverride.luau",
+		}
+	do
+		if not Guard.isPurchasesAllowed(adapter) then
+			table.insert(failures, `purchases allow-list: {adapter} (a framework adapter) must be allowed`)
+		end
+	end
+	-- (v1.7.0) the two new checks plant their own cases in their own files
+	for _, f in GuardStrings.selfTest() do
+		table.insert(failures, `strings: {f}`)
+	end
+	for _, f in GuardTextFilter.selfTest() do
+		table.insert(failures, `textfilter: {f}`)
+	end
 	expectCheck("exp literal", Guard.scanSource("Core.Economy.grant(player, 1e3, 'q')", server), "numbers")
 	expectCheck("hex literal", Guard.scanSource("Core.Economy.grant(player, 0xFF, 'q')", server), "numbers")
 
@@ -3353,6 +3434,9 @@ for _, dir in dirs do
 	for _, f in Guard.scanGame(dir) do
 		table.insert(findings, f)
 	end
+	for _, f in GuardTextFilter.scanGame(fs, dir) do
+		table.insert(findings, f)
+	end
 end
 if runGit then
 	-- the framework's own scans run in the core repo; a games repo pins a released (already
@@ -3368,6 +3452,13 @@ if runGit then
 	end
 	if not external then
 		for _, f in Guard.scanFrameworkSpecialAll() do
+			table.insert(findings, f)
+		end
+		-- (v1.7.0) strings: UI kit, kit client parts, framework client; textfilter: kit and example server code
+		for _, f in GuardStrings.scanAll(fs) do
+			table.insert(findings, f)
+		end
+		for _, f in GuardTextFilter.scanAll(fs) do
 			table.insert(findings, f)
 		end
 	end
