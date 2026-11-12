@@ -41,6 +41,8 @@ type ModuleSpec = { name: string, key: string, fields: { string } }
 type Entry = {
 	caches: { [string]: any },
 	extra: { [string]: { [string]: any } },
+	extraVersions: { [string]: number },
+	built: { [string]: { m: any, data: any, shared: number, extra: number } },
 	framework: { [string]: any },
 	state: any,
 	subscribed: boolean,
@@ -80,6 +82,7 @@ function Replication.new(opts: any): any
 
 	local entries: { [any]: Entry } = {}
 	local sharedModule: { [string]: { [string]: any } } = {}
+	local sharedVersions: { [string]: number } = {}
 	local sharedFramework: { [string]: any } = { paidRandomRestricted = true, activeEvents = {} }
 	local dirty: { [any]: boolean } = {}
 	local needsFlush = false
@@ -101,10 +104,55 @@ function Replication.new(opts: any): any
 			if not isPlayer(player) then
 				return nil
 			end
-			entry = { caches = {}, extra = {}, framework = {}, state = nil, subscribed = false, sent = nil }
+			entry = {
+				caches = {},
+				extra = {},
+				extraVersions = {},
+				built = {},
+				framework = {},
+				state = nil,
+				subscribed = false,
+				sent = nil,
+			}
 			entries[player] = entry
 		end
 		return entry
+	end
+
+	-- One module's part of the state. A module whose data copy, shared extra and per-player extra
+	-- are all unchanged keeps the SAME table as last time, so charm-sync's diff skips it (no
+	-- per-tick churn per module). `d` is the data copy, or false when there is none.
+	local function moduleState(entry: Entry, name: string, d: any): any
+		local sharedVersion = sharedVersions[name] or 0
+		local extraVersion = entry.extraVersions[name] or 0
+		local last = entry.built[name]
+		if last ~= nil and last.data == d and last.shared == sharedVersion and last.extra == extraVersion then
+			return last.m
+		end
+		local m: { [string]: any } = {}
+		if d then
+			m.data = d
+		end
+		local shared = sharedModule[name]
+		local extra = entry.extra[name]
+		if shared ~= nil or extra ~= nil then
+			local merged = if shared ~= nil then table.clone(shared) else {}
+			if extra ~= nil then
+				for k, v in extra do
+					merged[k] = v
+				end
+			end
+			m.extra = merged
+		end
+		if last == nil then
+			entry.built[name] = { m = m, data = d, shared = sharedVersion, extra = extraVersion }
+		else
+			last.m = m
+			last.data = d
+			last.shared = sharedVersion
+			last.extra = extraVersion
+		end
+		return m
 	end
 
 	local function build(player: any, entry: Entry): any
@@ -115,7 +163,7 @@ function Replication.new(opts: any): any
 		end
 		local modules: { [string]: any } = {}
 		for _, spec in specs do
-			local m: { [string]: any } = {}
+			local d: any = false -- false: the module has a replicated section but no data yet
 			if loaded then
 				local version = data.sectionVersion(player, spec.key)
 				local cache = entry.caches[spec.name]
@@ -136,23 +184,19 @@ function Replication.new(opts: any): any
 					cache = { version = version, data = picked, view = view }
 					entry.caches[spec.name] = cache
 				end
-				m.data = cache.data
+				d = cache.data
 			end
-			modules[spec.name] = m
+			modules[spec.name] = moduleState(entry, spec.name, d)
 		end
-		for name, shared in sharedModule do
-			local m = modules[name] or {}
-			m.extra = table.clone(shared)
-			modules[name] = m
-		end
-		for name, extra in entry.extra do
-			local m = modules[name] or {}
-			local merged = m.extra or {}
-			for k, v in extra do
-				merged[k] = v
+		for name in sharedModule do
+			if modules[name] == nil then
+				modules[name] = moduleState(entry, name, false)
 			end
-			m.extra = merged
-			modules[name] = m
+		end
+		for name in entry.extra do
+			if modules[name] == nil then
+				modules[name] = moduleState(entry, name, false)
+			end
 		end
 		return { loaded = loaded, framework = fw, modules = modules }
 	end
@@ -274,6 +318,7 @@ function Replication.new(opts: any): any
 				end
 				if mine[key] ~= value or type(value) == "table" then
 					mine[key] = wire(value)
+					entry.extraVersions[name] = (entry.extraVersions[name] or 0) + 1
 					r.markDirty(player)
 				end
 			end,
@@ -285,6 +330,7 @@ function Replication.new(opts: any): any
 					sharedModule[name] = mine
 				end
 				mine[key] = wire(value)
+				sharedVersions[name] = (sharedVersions[name] or 0) + 1
 				markAll()
 			end,
 			sent = function(player: any, key: string): any

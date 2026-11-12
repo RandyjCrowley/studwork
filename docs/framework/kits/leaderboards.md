@@ -75,6 +75,11 @@ the join; the `Rebirthed` signal only keeps this server's cached count current.
   saved value for the board (by `mode`) and marks it dirty; the write follows on the next
   cadence. `false` for an unknown board, a board whose source isn't `submit`, a bad value, a
   player whose save isn't loaded, or while the board's `flag` is off. **(contract)**
+  On a `max` or `sum` board the value is combined in memory first and joins the save in one update
+  per player within 30 s (on the player's own staggered phase), before each store write, on leave
+  and on shutdown, so submitting every tick costs no save transaction per call; `rank` and
+  `extra.mine` include it at once. A `max` value that doesn't beat the saved best changes nothing.
+  `set` boards go straight into the save (their order matters).
 - `top(boardId, previous?) -> { rows: { { rank, userId, name, value } }, periodId?, endsAt?, updatedAt }`:
   the cached rows (frozen); doesn't yield. **(contract)**
 - `rank(player, boardId) -> (rank?, value)`: the player's own value (0 when they have none yet,
@@ -175,7 +180,9 @@ Section `leaderboards`, version 1: `{ values = { [boardId] = number }, periods =
 { id = periodId, value } }, dirty = { [boardId] = true } }`. Not replicated (the client gets
 `extra.mine`). Values are the player's own and authoritative; the stores hold the shared copy. A
 dirty value is written after the next load if the server stopped before writing it (safe: writes
-are idempotent).
+are idempotent). A submitted `max` or `sum` value reaches the section within 30 s, or on leave or
+shutdown (above); only a server crash inside that window loses it, as it loses anything since the
+last autosave.
 
 ## Client part and UI
 
@@ -219,7 +226,8 @@ are idempotent).
 | Store read fails or is over budget | last rows stay; next try after `backoff`; `updatedAt` shows staleness |
 | The elected reader stops mid-read | its lease expires after 30 s; the next server that finds the item stale reads |
 | Write fails or the memory share is full | the value stays dirty and is retried on the next cadence, then on the next load |
-| Shutdown | `onShutdown` flushes dirty values within the store budget; the rest are written on the player's next load |
+| Shutdown | `onShutdown` puts every pending submit into the save, then flushes dirty values within the store budget; the rest are written on the player's next load |
+| Leave | pending submits go into the save before the leave write, so nothing accepted is lost |
 | Studio without API access | the framework's in-memory fallback with one warning (like `ctx.data.shared`) |
 | A name lookup fails | the rows show the user id with one warning per board until the next read; nothing else stops |
 | The `flag` is off | nothing is written or read, `submit` returns `false`, `top` is empty and the replicated boards are `{}` until it is on again |
@@ -228,7 +236,7 @@ are idempotent).
 ## Tests (mocked)
 
 Specs: `packages/kits/engagement/tests/Leaderboards*.spec.luau` (harness: `Leaderboards`,
-`LeaderboardsBoards`; pure rules: `LeaderboardsPure`; client: `LeaderboardsClient`; sim:
+`LeaderboardsBoards`, `LeaderboardsPending` (in-memory submits: leave, shutdown, periods, txApi, idle ticks); pure rules: `LeaderboardsPure`; client: `LeaderboardsClient`; sim:
 `LeaderboardsSim`; the sandbox wiring: `LeaderboardsDemo`), `Leaderboards/client/State.spec.luau`
 and `packages/ui/Leaderboard.spec.luau`.
 

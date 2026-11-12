@@ -23,8 +23,8 @@ local Streak = require(ReplicatedStorage:WaitForChild("Modules"):WaitForChild("S
 
 Day = `(now + utcOffsetHours * 3600) // 86400` (UTC by default). Same day: nothing. Next day: +1. One missed day is forgiven
 within `graceHours` after it ended. Otherwise the streak resets to 1. Clock skew (today before the
-last day) leaves it unchanged. It is evaluated on load and every 60 s, so players online across
-midnight count.
+last day) leaves it unchanged. It is evaluated on load and, for players online across midnight,
+once when the day changes (checked every 60 s; a failed evaluation is retried on the next check).
 
 ## API
 

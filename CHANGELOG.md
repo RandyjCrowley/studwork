@@ -104,6 +104,11 @@ Identifiers like `R19` or `V1` are issue ids: open ones are listed in [docs/know
   miss counts against the author's rate limit.
 - The scaffolded game module's description, version check and `dependsOn` comment are neutral;
   `new-game` rewrites the console prefix in the scaffold's help text.
+- Tick cost with every v1.7.0 module on (bench `KITS-ALL`): a Leaderboards `max`/`sum` submit is
+  combined in memory and joins the save within 30 s (and on each store write, leave and shutdown)
+  instead of one save transaction per call; Leaderboards visits a player only when a write, source
+  read or fold is due; Streak re-evaluates online players once per day change instead of every
+  60 s; Replication reuses a module's part of the state while nothing in it changed.
 
 ### Fixed
 
