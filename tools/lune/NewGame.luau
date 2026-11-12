@@ -54,7 +54,7 @@ NewGame.USAGE = USAGE
 
 -- (v1.7.0) The template's server part says `sandbox` wherever the game module's console prefix
 -- (its lower-case name, module-api.md §5 ctx.console) or log tag shows. A generated game's module is
--- named after the game, so those words become that name: `dogfoodgame giftme`, not `sandbox giftme`.
+-- named after the game, so those words become that name: `mygame giftme`, not `sandbox giftme`.
 function NewGame.renameConsolePrefix(source: string, moduleName: string): string
 	local out = string.gsub(source, "%f[%w]sandbox%f[%W]", string.lower(moduleName))
 	return out

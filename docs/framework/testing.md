@@ -129,9 +129,9 @@ Game code often reads engine services at the top of a file or in `start`. In a s
 ### Console commands
 
 A module registers `ctx.console.register("points", fn, help)`; the command is typed with the module's
-**lower-case name** in front: module `DogfoodGame` -> `dogfoodgame points`; module `Economy` ->
-`economy grant`. In a spec: `h:console("dogfoodgame", "points")`; in Studio's command bar:
-`game.ServerScriptService.Framework.StudWorkConsole:Invoke("dogfoodgame", "points")`. `Invoke("help")`
+**lower-case name** in front: module `MyGame` -> `mygame points`; module `Economy` ->
+`economy grant`. In a spec: `h:console("mygame", "points")`; in Studio's command bar:
+`game.ServerScriptService.Framework.StudWorkConsole:Invoke("mygame", "points")`. `Invoke("help")`
 lists every command with its prefix. The handler is `fn(player, ...)`; name the first parameter
 `_player` when you don't use it (selene's `unused_variable` ignores a leading underscore). Registering
 in `init` is the rule; guard Studio-only commands with `if ctx.isStudio then` (a spec sets

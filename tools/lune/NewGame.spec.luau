@@ -274,9 +274,9 @@ return StudWork.defineModule({
 
 	it("renameConsolePrefix turns the template's console prefix and log tag into the module's", function()
 		local src = 'help = "sandbox giftme [itemId]: x", tag = "[sandbox] hi", Sandbox = {}, "SandboxWorld"'
-		local out = NewGame.renameConsolePrefix(src, "DogfoodGame")
+		local out = NewGame.renameConsolePrefix(src, "MyGame")
 		expect(out).toBe(
-			'help = "dogfoodgame giftme [itemId]: x", tag = "[dogfoodgame] hi", Sandbox = {}, "SandboxWorld"'
+			'help = "mygame giftme [itemId]: x", tag = "[mygame] hi", Sandbox = {}, "SandboxWorld"'
 		)
 	end)
 

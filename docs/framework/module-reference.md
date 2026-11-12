@@ -177,7 +177,7 @@ Every field is scoped to the module that receives it.
 | `ctx.events` | `schedule(id, schedule?, fn(event))`, `trigger`, `isActive(id)`, `onEnded(id, fn)` (live events from `GameConfig.events`) |
 | `ctx.policy` | read-only: `paidRandomRestricted(player)`, `isKnown(player)`, `allows(player, field) -> boolean` (v1.7.0: a boolean `PolicyService` field such as `IsContentSharingAllowed`; false until the lookup succeeds) |
 | `ctx.analytics` | `funnel(player, step)`, `economy(...)`, `custom(player, name, value, fields?)` |
-| `ctx.console` | `register(command, fn(player, ...), help?)`; the command is typed with the module's lower-case name in front: module `DogfoodGame` -> `dogfoodgame points` (`Invoke("dogfoodgame", "points")`, `h:console("dogfoodgame", "points")`). Name an unused first parameter `_player` (selene's `unused_variable`) |
+| `ctx.console` | `register(command, fn(player, ...), help?)`; the command is typed with the module's lower-case name in front: module `MyGame` -> `mygame points` (`Invoke("mygame", "points")`, `h:console("mygame", "points")`). Name an unused first parameter `_player` (selene's `unused_variable`) |
 | `ctx.log` | `info`, `warn`, `debug`, tagged `[<Module>]` |
 | `ctx.theme` | the merged theme tree, read-only |
 | `ctx.isStudio` | boolean |
