@@ -599,7 +599,12 @@ these pages before relying on a limit.
   that player's save). The other limits are per recipient and per server, so a client-chosen
   recipient could have every target's daily send spent by one player.
 - **A TextFilter re-display that misses the cache counts against the author's rate.** Otherwise
-  text a client sends straight to `textFor` reaches `FilterStringAsync` with no bound.
+  text a client sends straight to `textFor` reaches `FilterStringAsync` with no bound. It is a
+  bucket of its own (`perPlayerPerMinute`, apart from submissions): in one shared bucket, viewers
+  re-displaying an author's text could leave the author `rate_limited`. `shown` isn't counted at
+  all: its original was a counted submission, and its result is held per record for
+  `cache.seconds` outside the LRU cache, so a record costs at most one filter per `cache.seconds`
+  however many viewers ask (rate-limiting it blanked friends and private records in bursts).
 - **The `textfilter` lint never clears a name.** Only TextFilter's return values are clean: filtering
   the text and then sending the original anyway is the likeliest mistake, and the old "clean from
   the next line" rule passed it. Handlers named by a function defined in the same file are scanned,

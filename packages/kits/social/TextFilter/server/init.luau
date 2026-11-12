@@ -11,12 +11,15 @@
 	      FilterStringAsync, never from the cache. Filtered = { context, author (user id),
 	      public? (the broadcast string, "public" only), forViewer(viewer) -> string? }
 	  textFor(viewer, author, text, context) -> string?          re-display, through the cache (a
-	      miss counts against perPlayerPerMinute: over it, nil)
+	      miss counts against the author's re-display bucket, perPlayerPerMinute: over it, nil;
+	      never against the author's submissions)
 	  store(author, text, context) -> (ok, Stored | reason)      a kept submission: the original goes
 	      in THIS module's section (originals[id] = { t, c, at }, never replicated); Stored =
 	      { id, author, context, at, shown? } holds no original text
 	  shown(stored, viewer?) -> string?                          re-filtered from the original while
-	      the author is in this server; else stored.shown ("public", younger than shownMaxDays)
+	      the author is in this server (at most once per record per cache.seconds, held per record,
+	      so no rate: the original was a rate-limited submission); else stored.shown ("public",
+	      younger than shownMaxDays)
 	  release(author, stored)                                    drops the original
 	Reasons: empty, too_long, rate_limited, policy, author_offline, filter_failed.
 
@@ -78,9 +81,15 @@ type CacheEntry = {
 function TextFilter.new(): any
 	local ctx: any = nil
 	local online: { [number]: any } = {} -- userId -> player loaded in this server
+	-- per author: submissions (filter, store) and textFor misses, each perPlayerPerMinute, apart so
+	-- what viewers re-display never spends the author's own submissions
 	local rate: { [any]: { minute: number, count: number } } = {}
+	local redisplayRate: { [any]: { minute: number, count: number } } = {}
 	local friends: { [string]: boolean } = {}
 	local cache: { [string]: CacheEntry } = {}
+	-- shown's results per author user id and record id (not in the LRU cache, so eviction can't
+	-- make every shown call a fresh filter); at most one per kept original, cleared on leaving
+	local storedCache: { [number]: { [number]: CacheEntry } } = {}
 	local cacheSize = 0
 	local useCounter = 0
 
@@ -114,12 +123,12 @@ function TextFilter.new(): any
 		return ctx.policy.allows(author, "IsContentSharingAllowed")
 	end
 
-	local function takeRate(author: any): boolean
+	local function takeRate(author: any, buckets: { [any]: { minute: number, count: number } }): boolean
 		local minute = math.floor(ctx.now() / MINUTE)
-		local r = rate[author]
+		local r = buckets[author]
 		if r == nil or r.minute ~= minute then
 			r = { minute = minute, count = 0 }
-			rate[author] = r
+			buckets[author] = r
 		end
 		if r.count >= cfg().perPlayerPerMinute then
 			return false
@@ -238,18 +247,22 @@ function TextFilter.new(): any
 		return { at = ctx.now(), used = useCounter, result = result, public = broadcast, viewers = {} }
 	end
 
-	-- the re-display path: a cached result younger than cache.seconds, or one fresh filter, which
-	-- counts against the author's perPlayerPerMinute like a submission (so text that was never
-	-- submitted can't reach FilterStringAsync without a bound)
-	local function redisplay(author: any, text: string, context: string): CacheEntry?
+	local function fresh(entry: CacheEntry?): boolean
+		return entry ~= nil and ctx.now() - entry.at < cfg().cache.seconds
+	end
+
+	-- the re-display path: a cached result younger than cache.seconds, or one fresh filter. For
+	-- textFor (`limited`) the filter counts against the author's re-display bucket (so text that
+	-- was never submitted can't reach FilterStringAsync without a bound); shown passes false
+	local function redisplay(author: any, text: string, context: string, limited: boolean): CacheEntry?
 		local key = cacheKey(author, text, context)
 		local entry = cache[key]
-		if entry ~= nil and ctx.now() - entry.at < cfg().cache.seconds then
+		if entry ~= nil and fresh(entry) then
 			useCounter += 1
 			entry.used = useCounter
 			return entry
 		end
-		if not takeRate(author) then
+		if limited and not takeRate(author, redisplayRate) then
 			return nil
 		end
 		local result, broadcast = runFilter(author, text, context)
@@ -274,7 +287,7 @@ function TextFilter.new(): any
 		if not policyAllows(author, context) then
 			return nil, "policy", nil
 		end
-		if not takeRate(author) then
+		if not takeRate(author, rate) then
 			return nil, "rate_limited", nil
 		end
 		local result, broadcast = runFilter(author, clean, context)
@@ -319,7 +332,7 @@ function TextFilter.new(): any
 		if not mayView(viewer, author, context) then
 			return nil
 		end
-		local entry = redisplay(author, clean, context)
+		local entry = redisplay(author, clean, context, true)
 		if entry == nil then
 			return nil
 		end
@@ -407,7 +420,20 @@ function TextFilter.new(): any
 		if viewer == nil and stored.context ~= "public" then
 			return nil
 		end
-		local entry = redisplay(author, original.t, stored.context)
+		local held: { [number]: CacheEntry } = storedCache[author.UserId] or {}
+		local entry: CacheEntry? = held[stored.id]
+		if not fresh(entry) then
+			entry = redisplay(author, original.t, stored.context, false)
+			if entry ~= nil then
+				for id, e in held do
+					if not fresh(e) then
+						held[id] = nil
+					end
+				end
+				held[stored.id] = entry
+				storedCache[author.UserId] = held
+			end
+		end
 		if entry == nil then
 			return away(stored)
 		end
@@ -426,6 +452,10 @@ function TextFilter.new(): any
 				section.originals[tostring(stored.id)] = nil
 			end
 		end)
+		local held = storedCache[author.UserId]
+		if held then
+			held[stored.id] = nil
+		end
 	end
 
 	function part.init(context: any)
@@ -441,6 +471,8 @@ function TextFilter.new(): any
 				online[player.UserId] = nil
 			end
 			rate[player] = nil
+			redisplayRate[player] = nil
+			storedCache[player.UserId] = nil
 			local id = tostring(player.UserId)
 			for key in friends do
 				local a, b = string.match(key, "^(%d+):(%d+)$")

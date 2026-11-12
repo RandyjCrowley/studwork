@@ -40,7 +40,7 @@ to the server and shown back (even to the author alone) goes through `"private"`
 | `trim` | `true` | strip leading/trailing whitespace and collapse runs of spaces before filtering |
 | `cache.maxEntries` | `500` | cached **re-display** results per server (least recently used are dropped); a new submission is always filtered fresh |
 | `cache.seconds` | `600` | a cached re-display result is re-filtered after this long |
-| `perPlayerPerMinute` | `20` | filter calls one author's text can cause per minute: every submission (`filter`, `store`; over the limit: `"rate_limited"`) and every `textFor` that misses the cache (over the limit: nil, so the caller shows the fallback). A `textFor` served from the cache costs nothing |
+| `perPlayerPerMinute` | `20` | filter calls one author's text can cause per minute, in two separate buckets: the author's submissions (`filter`, `store`; over the limit: `"rate_limited"`), and `textFor` calls that miss the cache (over the limit: nil, so the caller shows the fallback). What viewers re-display never spends the author's submissions. A `textFor` served from the cache costs nothing; `shown` isn't counted (see `shown`) |
 | `originals.max` | `100` | originals kept per author in this module's save section; the oldest is dropped first (its records then show `shown` only, below) |
 | `shownMaxDays` | `7` | a `"public"` record's saved broadcast string is shown while the author is away for at most this many days after it was filtered; after that, nil until the author is in a server again (a week: a string filtered under older rules is not shown for long) |
 | `fallbackKey` | `"TextFilter.hidden"` | the string key ([localization](localization.md)) callers show instead of text that can't be shown (English default: `"..."`) |
@@ -63,16 +63,19 @@ thread, never inside `ctx.tx`.
 - `textFor(viewer, author, text, context) -> string?`: re-display of text the author already
   submitted (filtered then): filters through the re-display cache and returns what `viewer` may
   see, or nil. A submission's result seeds the cache, so showing it right after costs no call.
-  A cache miss is one `FilterStringAsync` and counts against the author's `perPlayerPerMinute`,
-  like a submission (over it: nil); so text a client sends straight to `textFor` is bounded the same
-  way. New player text still belongs in `filter` or `store`. **(contract)**
+  A cache miss is one `FilterStringAsync` and counts against the author's re-display bucket
+  (`perPlayerPerMinute`, kept apart from the author's submissions; over it: nil), so text a client
+  sends straight to `textFor` is bounded, and viewers can't use up the author's own submissions.
+  New player text still belongs in `filter` or `store`. **(contract)**
 - `store(author, text, context) -> (ok, Stored | reason)`: a submission that is kept: filters,
   saves the original in **this module's** section of the author's save (`originals[id]`, never
   replicated), and returns `Stored = { id, author, context, at, shown? }`. `shown` is the broadcast
   string (`"public"` only) for display while the author is offline. The record holds no original
   text, so it is safe to keep in any section. **(contract)**
 - `shown(stored, viewer?) -> string?`: what to display from a `Stored` record: re-filtered from the
-  original (through the re-display cache) when the author is in the server; otherwise
+  original when the author is in the server (the result is held per record for `cache.seconds`,
+  apart from the re-display cache, so a record is re-filtered at most once per `cache.seconds` and
+  nothing is rate-limited: the original was a submission, counted when stored); otherwise
   `stored.shown` for `"public"` while it is younger than `shownMaxDays`, and nil for `"friends"` and
   `"private"` or an older record. Without a `viewer` only `"public"` text has a string (the
   broadcast one). **(contract)**
@@ -182,7 +185,9 @@ player (or a store other players read) without passing TextFilter.
 offline = { userIds } })` as `harness({ services = { TextService = fake } })`; the fake's results
 offer the broadcast and per-user methods and record calls. Specs: each context and who gets nil;
 two submissions of the same text make two filter calls, while re-display is cached (expiry
-re-filters); `maxLength`, trimming, control characters; per-author rate limit; policy refusal
+re-filters); `maxLength`, trimming, control characters; per-author rate limit (re-display by
+viewers, `textFor` or `shown`, never spends it); `shown` re-filters a record at most once per
+`cache.seconds` even past `cache.maxEntries`; policy refusal
 (`harness({ policy = ... })` extended with `IsContentSharingAllowed`); author offline;
 `filter_failed` never returns the original; a `Stored` record contains no original text; the
 original never replicates (the section isn't in `extra` or `data` state); `store`/`shown` round
