@@ -7,8 +7,9 @@
 	- activeBoosts(out, entries, now): appends every non-expired entry's mult to `out` and returns
 	  the earliest future expiresAt among them (nil = none expire). expiresAt <= now = expired.
 	- pruneExpired(entries, now): removes expired entries in place, returns how many were removed.
-	- isKnownCurrency(id, primary, starting, balances): primary, any key of startingCurrency, or a
-	  currency the player already holds.
+	- isKnownCurrency(id, primary, starting, balances, listed?): primary, any key of
+	  startingCurrency, any entry of `listed` (config.currencies, v1.6.0), or a currency the player
+	  already holds.
 	- applyGrant / applySpend: validated mutation of a currency table (call inside Data.update).
 ]]
 
@@ -111,12 +112,16 @@ function RateMath.isKnownCurrency(
 	id: any,
 	primary: string,
 	starting: { [string]: number }?,
-	balances: { [string]: number }?
+	balances: { [string]: number }?,
+	listed: { string }?
 ): boolean
 	if type(id) ~= "string" then
 		return false
 	end
 	if id == primary then
+		return true
+	end
+	if listed ~= nil and table.find(listed, id) ~= nil then
 		return true
 	end
 	if starting ~= nil and starting[id] ~= nil then

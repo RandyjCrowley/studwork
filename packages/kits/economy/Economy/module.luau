@@ -14,8 +14,9 @@
 	Paid (Robux-buyable) currencies are framework config: GameConfig.compliance.paidCurrencies.
 	Economy registers the compliance spender (ctx.compliance.registerCurrencySpender) only for the
 	paid currencies it owns: primaryCurrency and `currencies` (v1.3.1, R20). Any other paid
-	currency needs its own owner module, or boot fails (module-api §19.10). Granting/holding any
-	currency id is unchanged.
+	currency needs its own owner module, or boot fails (module-api §19.10). Since v1.6.0 a
+	`currencies` entry is also a known currency like the primary: every player has it (balance 0
+	unless startingCurrency says otherwise) and grant/spend accept it.
 	data: section `economy` = { currency = { [id]: number }, multipliers = { [id]: { mult,
 	expiresAt? } } } (the v1.2 fields; FrameworkSection.V12_MAP splits a v1.2 save into it).
 	itemFields: item.economy.incomePerSec (an item without it earns nothing),
@@ -42,7 +43,7 @@ return StudWork.defineModule({
 			primaryCurrency = { type = "string", description = "HUD / default currency" },
 			currencies = {
 				type = "{string}?",
-				description = "further currencies Economy owns besides primaryCurrency (a paid currency gets Economy's spender only if it is one of these)",
+				description = "further currencies Economy owns besides primaryCurrency (each starts at 0 and is grantable; a paid currency gets Economy's spender only if it is one of these)",
 			},
 			startingCurrency = {
 				type = "{[string]: number}?",
