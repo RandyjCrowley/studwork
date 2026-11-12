@@ -117,8 +117,12 @@ Callers keep `Stored` records in their own sections. The in-memory re-display ca
 Best-effort, in game code, examples and kits (server files): it flags player text that reaches a
 player (or a store other players read) without passing TextFilter.
 
-- **Sources:** parameters of an action handler (`actions = { x = function(player, a, b)` or
-  `handler = function(player, ...)`) annotated `string` or unannotated.
+- **Sources:** every parameter of an action handler after the player, `...` included, unless it is
+  annotated with only `number`/`boolean` types: a value from the wire is untrusted whatever else it
+  is annotated (`string`, `any`, `unknown`, a table type). Handlers: `handler = ...`, an entry of an
+  `actions = { ... }` table, or `actions.<name> = ...`, where the value is an inline function or the
+  name of a function defined in the same file (`local function onRename(player, name)` then
+  `handler = onRename`).
 - **Filter records:** the values `filter` and `store` return (`Filtered`, `Stored`) are their own
   class: passing the **whole** value to a sink is a finding (use `result.public`,
   `result.forViewer(...)` or `TextFilter.shown(stored)`), so the display rules (viewer, age) apply.
@@ -129,13 +133,17 @@ player (or a store other players read) without passing TextFilter.
   from `ctx.data.sortedMap(...)` / `ctx.data.ordered(...)` (`set`, `update`, `increment`, directly or
   through a local assigned from one); `Notifications` `send`/`schedule` params; any `.Text =`,
   `.Name =`, `:SetAttribute(` or a `Text`/`Name` prop in an `Instance.new` table.
+- **Clean values:** only what a TextFilter call returns (`result.public`, `result.forViewer(...)`,
+  `textFor(...)`, `shown(...)`); those are new names that carry no taint. Passing a name to
+  `filter`, `textFor` or `store` never clears it: filtering the text and then sending the original
+  anyway is exactly the mistake this check exists for.
 - **Finding:** a sink whose arguments mention a source identifier directly (or a local assigned
   from one by plain assignment, `..`, `string.sub`/`format`/`lower`/`upper`) in the same function,
-  when that identifier hasn't been passed to a TextFilter call (`filter`, `textFor`, `store`) on an
-  earlier line of the function; or a sink given a whole filter record. Messages:
+  before or after any TextFilter call; or a sink given a whole filter record. Messages:
   `player text '<name>' reaches <sink> without TextFilter (docs/framework/kits/textfilter.md)` and
   `filter record '<name>' reaches <sink> whole: pass TextFilter.shown(...) or .public (docs/framework/kits/textfilter.md)`.
-- **Limits:** it follows names only within one function and one file; text that travels through
+- **Limits:** it follows names only within one function and one file (a handler that hands the
+  text to another function, or a handler defined in another file, isn't followed); text that travels through
   tables, other modules or saves isn't followed (the author's own save isn't a sink: it never
   holds another player's text unless a later read sends it on, which a sink in that code catches).
   `-- guard: allow textfilter` at the end of the sink's line, with a reason on the line above, for
@@ -143,9 +151,12 @@ player (or a store other players read) without passing TextFilter.
 - **Self-test** plants (each must fail): an action param into `replicate.setAll`, into `.Text =`,
   through a `..` concatenation into `fireAll`, back to the handler's own player with
   `ctx.net.fire(player, ...)`, into `ctx.replicate.set(other, ...)`, into `ctx.data.shared.update`,
-  into a sorted map `set`, into `Notifications` `send` params, and a whole `Stored` record into
-  `setAll("sign", stored)`. Must pass: the same flows after `store(...)` with
-  `TextFilter.shown(stored)`, after `textFor(...)`, and a guarded non-text param.
+  into a sorted map `set`, into `Notifications` `send` params, a whole `Stored` record into
+  `setAll("sign", stored)`, the original sent after `filter` (`"public"` into `setAll`, `"private"`
+  into `fireAll`) and after `store`, a named local handler, a `local f = function` actions entry,
+  `actions.x = f`, and params typed `any`, a table, a union with `string`, and `...`. Must pass: the
+  same flows after `store(...)` with `TextFilter.shown(stored)`, after `textFor(...)`, a named
+  handler that sends only `r.public`, `number`/`boolean` params, and a guarded non-text param.
 
 ## Override levels
 

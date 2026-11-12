@@ -193,9 +193,8 @@ There are no open Critical or High issues.
 
 ### O11. The `textfilter` and `strings` lint checks are heuristics
 - **Where:** `tools/lune/GuardTextFilter.luau`, `tools/lune/GuardStrings.luau`.
-- **What fails:** `textfilter` follows a string through one function only and treats a name passed
-  to `filter`, `textFor` or `store` as clean from the next line, even if the raw name is sent
-  later; it misses text that crosses functions or tables. `strings` reads one line at a time, so a
+- **What fails:** `textfilter` follows a string through one function only (an inline handler or a
+  function defined in the same file); it misses text that crosses functions, files or tables. `strings` reads one line at a time, so a
   text prop whose value continues on the next line is not followed.
 - **Workaround:** review player-text paths by hand; the TextFilter page lists the safe pattern.
 

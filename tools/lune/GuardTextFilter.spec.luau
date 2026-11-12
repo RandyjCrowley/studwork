@@ -128,12 +128,24 @@ describe("textfilter: reading rules", function()
 		expect(scan(helper)).toEqual({})
 	end)
 
-	it("non-string annotations are not sources; string? and unions with string are", function()
-		expect(scan(handler('\t\t\t\tctx.replicate.setAll("n", n)', "n: number"))).toEqual({})
-		expect(#scan(handler('\t\t\t\tctx.replicate.setAll("n", n)', "n: string?"))).toBe(1)
-		expect(#scan(handler('\t\t\t\tctx.replicate.setAll("n", n)', "n: string | number"))).toBe(1)
-		expect(#scan(handler('\t\t\t\tctx.replicate.setAll("n", n)', "n"))).toBe(1)
-	end)
+	it(
+		"number/boolean annotations are not sources; string?, unions with string and any other type are",
+		function()
+			expect(scan(handler('\t\t\t\tctx.replicate.setAll("n", n)', "n: number"))).toEqual({})
+			expect(scan(handler('\t\t\t\tctx.replicate.setAll("n", n)', "n: boolean?"))).toEqual({})
+			expect(scan(handler('\t\t\t\tctx.replicate.setAll("n", n)', "n: number | boolean"))).toEqual({})
+			for _, annotation in
+				{ "any", "unknown", "{ title: string }", "{ string }", "Payload", "(string) -> ()" }
+			do
+				expect(#scan(handler('\t\t\t\tctx.replicate.setAll("n", n)', "n: " .. annotation))).toBe(1)
+			end
+			expect(#scan(handler("\t\t\t\tctx.net.fireAll(Ev, ...)", "..."))).toBe(1)
+			expect(#scan(handler("\t\t\t\tlocal a = ...\n\t\t\t\tctx.net.fireAll(Ev, a)", "..."))).toBe(1)
+			expect(#scan(handler('\t\t\t\tctx.replicate.setAll("n", n)', "n: string?"))).toBe(1)
+			expect(#scan(handler('\t\t\t\tctx.replicate.setAll("n", n)', "n: string | number"))).toBe(1)
+			expect(#scan(handler('\t\t\t\tctx.replicate.setAll("n", n)', "n"))).toBe(1)
+		end
+	)
 
 	it("taint follows plain assignment, .., string.sub/format/lower/upper and their methods", function()
 		for _, rhs in
@@ -155,23 +167,82 @@ describe("textfilter: reading rules", function()
 		end
 	end)
 
-	it("a TextFilter call clears a name from the next line on, through ctx.deps or an alias", function()
-		local viaDeps = scan(handler(table.concat({
-			'\t\t\t\tlocal t = ctx.deps[TextFilter].textFor(player, player, name, "private")',
-			"\t\t\t\tctx.net.fire(player, Ev, t)",
-		}, "\n")))
-		expect(viaDeps).toEqual({})
-		local sameLine = scan(
-			handler(
-				'\t\t\t\tctx.net.fire(player, Ev, ctx.deps[TextFilter].textFor(player, player, name, "private"))'
+	it(
+		"only what a TextFilter call returns is clean, through ctx.deps or an alias; never its argument",
+		function()
+			for _, call in
+				{
+					'local ok, rec = ctx.deps[TextFilter].filter(player, name, "public")',
+					'TextFilter.filter(player, name, "private")',
+					'local ok, s = TextFilter.store(player, name, "public")',
+					'local t = TextFilter.textFor(player, player, name, "public")',
+				}
+			do
+				local got = scan(handler(table.concat({
+					"\t\t\t\t" .. call,
+					"\t\t\t\tif not ok then return end",
+					'\t\t\t\tctx.replicate.setAll("sign", name)',
+				}, "\n")))
+				expect(#got).toBe(1) -- the original, after the call: still player text
+			end
+			local viaDeps = scan(handler(table.concat({
+				'\t\t\t\tlocal t = ctx.deps[TextFilter].textFor(player, player, name, "private")',
+				"\t\t\t\tctx.net.fire(player, Ev, t)",
+			}, "\n")))
+			expect(viaDeps).toEqual({})
+			local sameLine = scan(
+				handler(
+					'\t\t\t\tctx.net.fire(player, Ev, ctx.deps[TextFilter].textFor(player, player, name, "private"))'
+				)
 			)
-		)
-		expect(sameLine).toEqual({})
-		local notTf = scan(handler(table.concat({
-			"\t\t\t\tlocal t = Other.textFor(player, name)",
-			"\t\t\t\tctx.net.fire(player, Ev, name)",
-		}, "\n")))
-		expect(#notTf).toBe(1)
+			expect(sameLine).toEqual({})
+			local notTf = scan(handler(table.concat({
+				"\t\t\t\tlocal t = Other.textFor(player, name)",
+				"\t\t\t\tctx.net.fire(player, Ev, name)",
+			}, "\n")))
+			expect(#notTf).toBe(1)
+		end
+	)
+
+	it("handlers defined as functions in the same file are scanned like inline ones", function()
+		local function file(lines)
+			return table.concat(lines, "\n")
+		end
+		local named = file({
+			"return function(ctx, part)",
+			"\tlocal function onRename(player, name: string)",
+			'\t\tctx.replicate.setAll("sign", name)',
+			"\tend",
+			"\tpart.actions = {",
+			"\t\trename = { limit = { rate = 1, burst = 2 }, handler = onRename },",
+			"\t}",
+			"end",
+		})
+		expect(#scan(named)).toBe(1)
+		local assigned = file({
+			"return function(ctx, part)",
+			"\tlocal onRename = function(player, name)",
+			'\t\tctx.replicate.setAll("sign", name)',
+			"\tend",
+			"\tpart.actions = { rename = onRename }",
+			"end",
+		})
+		expect(#scan(assigned)).toBe(1)
+		local dotted = file({
+			"local function onRename(player, name)",
+			'\tctx.replicate.setAll("sign", name)',
+			"end",
+			"part.actions.rename = onRename",
+		})
+		expect(#scan(dotted)).toBe(1)
+		-- a function that isn't a handler stays out, and a field access isn't a function name
+		local notHandler = file({
+			"local function show(ctx, name)",
+			'\tctx.replicate.setAll("sign", name)',
+			"end",
+			"part.actions = { rename = { handler = handlers.rename } }",
+		})
+		expect(scan(notHandler)).toEqual({})
 	end)
 
 	it("fields of a record are fine; the record itself is not", function()

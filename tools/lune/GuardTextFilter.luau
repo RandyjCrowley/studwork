@@ -17,13 +17,17 @@
 
 	How it reads a file (on tokens: comments dropped, string contents blanked, an interpolated
 	string's `{expr}` parts kept as `..` concatenations):
-	  sources   the parameters after the first (the player) of an action handler: a
-	            `handler = function(player, ...)` anywhere, or `<name> = function(player, ...)` directly
-	            in an `actions = { ... }` table; annotated `string` (or `string?`) or unannotated.
+	  sources   the parameters after the first (the player) of an action handler, `...` included,
+	            unless annotated with only `number`/`boolean` types (a wire value is untrusted
+	            whatever else it is annotated: `any`, a table, a string). Handlers: `handler = ...`
+	            anywhere, `<name> = ...` directly in an `actions = { ... }` table, or
+	            `actions.<name> = ...`, where the value is an inline function or the name of a
+	            function defined in the same file (`local function onRename(player, name)`).
 	  taint     a local assigned (plain, `..`, string.sub/format/lower/upper or the same methods) from
 	            a tainted name in the same function is tainted from that line on.
-	  cleared   a name passed to a TextFilter call (`filter`, `textFor`, `store` on a receiver that
-	            names TextFilter or a local alias of it) is clean from the NEXT line on.
+	  clean     only what a TextFilter call (`filter`, `textFor`, `store`, `shown` on a receiver that
+	            names TextFilter or a local alias of it) RETURNS. Passing a name to one never clears
+	            it: sending the original after filtering it is the mistake this check is for.
 	  records   the second name a `filter`/`store` call is assigned to (`local ok, s = ...store(...)`)
 	            is a filter record: it may reach a sink only through `TextFilter.shown(s)` or a field.
 	  sinks     ctx.replicate.setAll / set, ctx.net.fire / fireAll (the handler's own player too),
@@ -144,7 +148,6 @@ local OPS2 = {
 }
 
 local TEXT_FNS = { sub = true, format = true, lower = true, upper = true }
-local TF_SUBMIT = { filter = true, textFor = true, store = true }
 local TF_ALL = { filter = true, textFor = true, store = true, shown = true, release = true }
 local STORE_WRITES = { set = true, update = true, increment = true }
 
@@ -514,16 +517,50 @@ local function copyAliases(a: any): any
 	}
 end
 
--- the action handlers: { fnIndex, params = { name }, bodyFrom, bodyTo }
+-- parameter types that can't carry text: a parameter annotated with only these isn't a source
+local SAFE_TYPES = { number = true, boolean = true }
+
+-- every function definition in the file by name: `local function f(`, `function f(`,
+-- `local f = function(` and `f = function(` -> { { fnIndex (the `function` token), open } }
+local function definitions(tokens: { any }): { [string]: { any } }
+	local defs = {}
+	local function put(name: string, fnIndex: number, open: number)
+		defs[name] = defs[name] or {}
+		table.insert(defs[name], { fnIndex = fnIndex, open = open })
+	end
+	for i, t in tokens do
+		if is(t, "function") and t.kind == "kw" then
+			local nameT = tokens[i + 1]
+			local prev = tokens[i - 1]
+			local afterDot = prev ~= nil and prev.kind == "op" and (prev.v == "." or prev.v == ":")
+			if nameT and nameT.kind == "name" and is(tokens[i + 2], "(") and not afterDot then
+				put(nameT.v, i, i + 2) -- `function f(` / `local function f(`
+			elseif is(tokens[i + 1], "(") and is(prev, "=") then
+				local target = tokens[i - 2]
+				local before = tokens[i - 3]
+				local dotted = before ~= nil and before.kind == "op" and (before.v == "." or before.v == ":")
+				if target and target.kind == "name" and not dotted then
+					put(target.v, i, i + 1) -- `local f = function(` / `f = function(`
+				end
+			end
+		end
+	end
+	return defs
+end
+
+-- the action handlers: { fnIndex, params = { name }, bodyFrom, bodyTo }. A handler is an inline
+-- function or a name defined in the same file (`handler = onRename`); every parameter after the
+-- first (the player) is a source unless annotated with only number/boolean types.
 local function handlers(tokens: { any }, close: { [number]: number }): { any }
 	local found = {}
 	local seen = {}
-	local function add(fnIndex: number)
-		if seen[fnIndex] or not is(tokens[fnIndex + 1], "(") then
+	local defs = definitions(tokens)
+	local function add(fnIndex: number, open: number?)
+		open = open or fnIndex + 1
+		if seen[fnIndex] or not is(tokens[open], "(") then
 			return
 		end
 		seen[fnIndex] = true
-		local open = fnIndex + 1
 		local shut = close[open]
 		local bodyTo = close[fnIndex]
 		if shut == nil or bodyTo == nil then
@@ -538,29 +575,33 @@ local function handlers(tokens: { any }, close: { [number]: number }): { any }
 			if t.kind == "name" or is(t, "...") then
 				index += 1
 				local name = t.v
-				local annotated = false
-				local isString = false
+				local safe = false
 				local j = k + 1
 				if is(tokens[j], ":") then
-					annotated = true
 					j += 1
 					local depth = 0
+					local typeNames, unsafe = 0, false
 					while j < shut do
 						local u = tokens[j]
 						if u.kind == "op" and (u.v == "(" or u.v == "{" or u.v == "<") then
 							depth += 1
+							unsafe = true -- a table, function or generic type
 						elseif u.kind == "op" and (u.v == ")" or u.v == "}" or u.v == ">") then
 							depth -= 1
 						elseif depth == 0 and is(u, ",") then
 							break
 						end
-						if u.kind == "name" and u.v == "string" then
-							isString = true
+						if u.kind == "name" or u.kind == "kw" then
+							typeNames += 1
+							if not SAFE_TYPES[u.v] then
+								unsafe = true
+							end
 						end
 						j += 1
 					end
+					safe = typeNames > 0 and not unsafe
 				end
-				if index > 1 and name ~= "..." and (not annotated or isString) then
+				if index > 1 and not safe then
 					table.insert(params, name)
 				end
 				k = j
@@ -569,17 +610,42 @@ local function handlers(tokens: { any }, close: { [number]: number }): { any }
 		end
 		table.insert(found, { fnIndex = fnIndex, params = params, bodyFrom = shut + 1, bodyTo = bodyTo - 1 })
 	end
+	-- `<key> = function(` or `<key> = <name>` (a function defined in this file)
+	local function addValue(at: number)
+		if is(tokens[at], "function") then
+			add(at, nil)
+		elseif tokens[at] and tokens[at].kind == "name" and defs[tokens[at].v] then
+			local after = tokens[at + 1]
+			if
+				after == nil
+				or after.v == ","
+				or after.v == "}"
+				or after.v == ";"
+				or after.line ~= tokens[at].line
+			then
+				for _, d in defs[tokens[at].v] do
+					add(d.fnIndex, d.open)
+				end
+			end
+		end
+	end
 	for i, t in tokens do
-		-- handler = function(player, ...)
+		-- handler = function(player, ...) / handler = onRename
+		if t.kind == "name" and t.v == "handler" and is(tokens[i + 1], "=") then
+			addValue(i + 2)
+		end
+		-- actions.rename = function(player, ...) / actions.rename = onRename
 		if
 			t.kind == "name"
-			and t.v == "handler"
-			and is(tokens[i + 1], "=")
-			and is(tokens[i + 2], "function")
+			and t.v == "actions"
+			and is(tokens[i + 1], ".")
+			and tokens[i + 2]
+			and tokens[i + 2].kind == "name"
+			and is(tokens[i + 3], "=")
 		then
-			add(i + 2)
+			addValue(i + 4)
 		end
-		-- actions = { name = function(player, ...) }
+		-- actions = { name = function(player, ...) } / actions = { name = onRename }
 		if
 			t.kind == "name"
 			and t.v == "actions"
@@ -591,8 +657,8 @@ local function handlers(tokens: { any }, close: { [number]: number }): { any }
 			local k = open + 1
 			while k < shut do
 				local u = tokens[k]
-				if u.kind == "name" and is(tokens[k + 1], "=") and is(tokens[k + 2], "function") then
-					add(k + 2)
+				if u.kind == "name" and is(tokens[k + 1], "=") then
+					addValue(k + 2)
 				end
 				-- skip nested brackets and function bodies (entries only at the table's top level)
 				local opens = (u.kind == "op" and (u.v == "(" or u.v == "{" or u.v == "["))
@@ -785,7 +851,6 @@ function GuardTextFilter.scanSource(source: string, ctx: any): { string }
 			tainted[p] = true
 		end
 		local records: { [string]: boolean } = {}
-		local cleared: { [string]: number } = {}
 		local asgs = assignments(tokens, close, h.bodyFrom, h.bodyTo)
 		local aliases = copyAliases(fileAliases)
 		addAliases(aliases, tokens, asgs)
@@ -799,11 +864,10 @@ function GuardTextFilter.scanSource(source: string, ctx: any): { string }
 			for k = asg.rhsFrom, asg.rhsTo do
 				local t = tokens[k]
 				if
-					t.kind == "name"
+					(t.kind == "name" or is(t, "..."))
 					and tainted[t.v]
 					and isValueRef(tokens, k)
 					and not inRanges(k, calls)
-					and not (cleared[t.v] and cleared[t.v] < asg.line)
 				then
 					hasTaint = true
 				end
@@ -821,34 +885,26 @@ function GuardTextFilter.scanSource(source: string, ctx: any): { string }
 				end
 			end
 		end
-		for _, c in calls do
-			if TF_SUBMIT[c.fn] then
-				for k = c.argsFrom, c.to - 1 do
-					local t = tokens[k]
-					if
-						t.kind == "name"
-						and tainted[t.v]
-						and (cleared[t.v] == nil or cleared[t.v] > c.line)
-					then
-						cleared[t.v] = c.line
-					end
-				end
-			end
-		end
+		-- a TextFilter call never clears its argument: only the values it returns are clean (they
+		-- are new names, never tainted); the original stays player text after the call too
 		for _, s in sinks(tokens, close, h.bodyFrom, h.bodyTo, aliases) do
 			if allowedLine(raw[s.line]) then
 				continue
 			end
 			for k = s.from, s.to do
 				local t = tokens[k]
-				if t.kind ~= "name" or inRanges(k, calls) or not isValueRef(tokens, k) then
+				if
+					(t.kind ~= "name" and not is(t, "..."))
+					or inRanges(k, calls)
+					or not isValueRef(tokens, k)
+				then
 					continue
 				end
 				local key = `{s.line}|{s.label}|{t.v}`
 				if reported[key] then
 					continue
 				end
-				if tainted[t.v] and not (cleared[t.v] and cleared[t.v] < s.line) then
+				if tainted[t.v] then
 					reported[key] = true
 					table.insert(
 						findings,
@@ -1072,6 +1128,98 @@ GuardTextFilter.PLANTED_FAIL = {
 		plant({ 'ctx.replicate.setAll("sign", name)', 'TextFilter.filter(player, name, "public")' }),
 		"reaches ctx.replicate.setAll",
 	},
+	-- a TextFilter call never clears the original: only its return values are clean
+	{
+		"filtered, then the original sent anyway",
+		plant({
+			'local ok, rec = ctx.deps[TextFilter].filter(player, name, "public")',
+			"if not ok then return end",
+			'ctx.replicate.setAll("sign", name)',
+		}),
+		"player text 'name' reaches ctx.replicate.setAll",
+	},
+	{
+		"private filter, then the original to everyone",
+		plant({ 'TextFilter.filter(player, name, "private")', "ctx.net.fireAll(Ev, name)" }),
+		"player text 'name' reaches ctx.net.fireAll",
+	},
+	{
+		"stored, then the original replicated",
+		plant({
+			'local ok, s = TextFilter.store(player, name, "public")',
+			'ctx.replicate.setAll("sign", name)',
+		}),
+		"player text 'name' reaches ctx.replicate.setAll",
+	},
+	-- handlers defined as named functions in the same file
+	{
+		"named local function handler",
+		table.concat({
+			"local M = {}",
+			"function M.part(ctx, part)",
+			"\tlocal function onRename(player, name: string)",
+			'\t\tctx.replicate.setAll("sign", name)',
+			"\tend",
+			"\tpart.actions = {",
+			"\t\trename = { limit = { rate = 1, burst = 2 }, handler = onRename },",
+			"\t}",
+			"end",
+			"return M",
+		}, "\n"),
+		"player text 'name' reaches ctx.replicate.setAll",
+	},
+	{
+		"local = function, as an actions entry",
+		table.concat({
+			"local M = {}",
+			"function M.part(ctx, part)",
+			"\tlocal onTitle = function(player, title)",
+			"\t\tpart.Name = title",
+			"\tend",
+			"\tpart.actions = {",
+			"\t\ttitle = onTitle,",
+			"\t}",
+			"end",
+			"return M",
+		}, "\n"),
+		"player text 'title' reaches .Name =",
+	},
+	{
+		"actions.<name> = a named function",
+		table.concat({
+			"local M = {}",
+			"function M.part(ctx, part)",
+			"\tlocal function onSign(player, text)",
+			"\t\tctx.net.fireAll(Ev, text)",
+			"\tend",
+			"\tpart.actions = {}",
+			"\tpart.actions.sign = onSign",
+			"end",
+			"return M",
+		}, "\n"),
+		"player text 'text' reaches ctx.net.fireAll",
+	},
+	-- every wire value is a source unless annotated number/boolean
+	{
+		"a param typed any",
+		plant({ 'ctx.replicate.setAll("sign", name)' }, "name: any"),
+		"player text 'name'",
+	},
+	{
+		"a param typed as a table",
+		plant({ 'ctx.replicate.setAll("sign", data)' }, "data: { title: string }"),
+		"player text 'data' reaches ctx.replicate.setAll",
+	},
+	{
+		"varargs",
+		plant({ "ctx.net.fireAll(Ev, ...)" }, "..."),
+		"player text '...' reaches ctx.net.fireAll",
+	},
+	{
+		"a union with a text type",
+		plant({ 'ctx.replicate.setAll("sign", label)' }, "label: number | string"),
+		"player text 'label'",
+	},
 }
 
 GuardTextFilter.PLANTED_PASS = {
@@ -1108,6 +1256,24 @@ GuardTextFilter.PLANTED_PASS = {
 	{
 		"a non-string param",
 		plant({ 'ctx.replicate.setAll("count", amount)' }, "amount: number"),
+	},
+	{
+		"number and boolean params (also optional)",
+		plant({ 'ctx.replicate.setAll("state", { on = on, n = n })' }, "on: boolean, n: number?"),
+	},
+	{
+		"a named handler that sends only the filtered string",
+		table.concat({
+			"local M = {}",
+			"function M.part(ctx, part)",
+			"\tlocal function onRename(player, name: string)",
+			'\t\tlocal ok, r = ctx.deps[TextFilter].filter(player, name, "public")',
+			'\t\tif ok then ctx.replicate.setAll("sign", r.public) end',
+			"\tend",
+			"\tpart.actions = { rename = { limit = { rate = 1, burst = 2 }, handler = onRename } }",
+			"end",
+			"return M",
+		}, "\n"),
 	},
 	{
 		"a literal and the player's own name",
