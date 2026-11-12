@@ -8,5 +8,5 @@ defaults, save section, strings), `server/` (server part), Rojo:
 
 Design and API: [docs/framework/kits/textfilter.md](../../../../docs/framework/kits/textfilter.md).
 
-Status: the foundation skeleton. `module.luau` is final; the server part is a valid empty part whose
-API answers with documented safe defaults. Implementation: the badges and text builder of the v1.7.0 round.
+Status: built in v1.7.0. Specs: `packages/kits/social/tests/TextFilter*.spec.luau`; the `textfilter`
+lint check is `tools/lune/GuardTextFilter.luau`.
