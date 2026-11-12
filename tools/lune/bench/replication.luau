@@ -24,6 +24,11 @@
 	    step overlaps a sync; same method for all variants. Samples cost ~50 calls/tick and are
 	    inside the timed region for every variant.
 
+	Budget reference: KITS is the v1.3-v1.6 kit set; KITS-ALL adds every v1.7.0 module (Streak,
+	Leaderboards with a submit per player per tick, Badges, Notifications, TextFilter) with the
+	sandbox's flags and strings and the harness's fakes (nothing real is called). v1.7.0 budget:
+	KITS-ALL <= 0.94 ms/tick (1.2 x the v1.6.1 0.78).
+
 	Usage: lune run tools/lune/bench/replication [runs] [variant...]   (default 5 runs, every
 	variant; prints a markdown table with the median and the min-max spread over the runs)
 ]]
@@ -297,7 +302,10 @@ end
 -- (one ctx.data.update per player), Replication rebuilds every dirty player's state from the
 -- frozen section views; then charm-sync's real diff runs on each player's new state.
 local kitHarness: any = nil
-variants.KITS = function(players)
+local kitApis: any = nil
+-- all = true is KITS-ALL: the same modules plus every v1.7.0 module, configured like the sandbox
+-- (Balance.luau, Config/init.luau), with the harness's fakes for every store and service.
+local function bootKits(players: { FakePlayer }, all: boolean)
 	Harness.mapGame(nil)
 	local ReplicatedStorage = Harness.game:GetService("ReplicatedStorage")
 	local StudWork = Harness.require(ReplicatedStorage.Framework)
@@ -316,27 +324,96 @@ variants.KITS = function(players)
 			economy = { incomePerSec = 1 + n },
 		})
 	end
-	local h = StudWork.test.harness({
-		modules = {
-			kit("Collection", "Items"),
-			kit("Collection", "Rarity"),
-			Inventory,
-			kit("Economy", "Economy"),
-			kit("Economy", "Upgrades"),
-			kit("Economy", "Rebirth"),
-			kit("Economy", "Offline"),
+	local modules = {
+		kit("Collection", "Items"),
+		kit("Collection", "Rarity"),
+		Inventory,
+		kit("Economy", "Economy"),
+		kit("Economy", "Upgrades"),
+		kit("Economy", "Rebirth"),
+		kit("Economy", "Offline"),
+	}
+	local config: any = {
+		Economy = {
+			primaryCurrency = "Coins",
+			startingCurrency = { Coins = 0 },
+			income = { tickSeconds = 1, source = "owned" },
 		},
-		items = items,
-		config = {
-			Economy = {
-				primaryCurrency = "Coins",
-				startingCurrency = { Coins = 0 },
-				income = { tickSeconds = 1, source = "owned" },
+		Inventory = { inventory = { cap = ITEMS + 10 } },
+	}
+	local extra: any = {}
+	if all then
+		for _, m in { "Streak", "Leaderboards", "Badges", "Notifications", "TextFilter" } do
+			table.insert(modules, kit("Engagement", m))
+		end
+		config.Streak = {
+			streak = {
+				graceHours = 6,
+				loopAfter = 7,
+				rewards = { { day = 1, amount = 100 }, { day = 3, amount = 500 } },
 			},
-			Inventory = { inventory = { cap = ITEMS + 10 } },
-		},
+		}
+		config.Leaderboards = {
+			boards = {
+				coins = { period = "allTime", source = { kind = "currency" }, topN = 50 },
+				dailyTouches = { period = "daily", source = { kind = "submit" }, mode = "sum", topN = 25 },
+			},
+		}
+		config.Badges = {
+			badges = {
+				firstCollect = { id = 0, trigger = { kind = "manual" }, toast = true },
+				streakThree = { id = 0, trigger = { kind = "streak", atLeast = 3 }, toast = true },
+			},
+		}
+		config.Notifications = {
+			optIn = { minSessionSeconds = 30, minSessions = 0 },
+			templates = {
+				eggReady = { messageId = "", params = {}, category = "egg" },
+				streakEnding = { messageId = "", hoursBefore = 4, minStreak = 3 },
+			},
+		}
+		config.TextFilter = {}
+		extra.services = {
+			BadgeService = StudWork.test.fakes.badgeService(),
+			TextService = StudWork.test.fakes.textService({}),
+			UserService = StudWork.test.fakes.userService(),
+		}
+		extra.openCloud = StudWork.test.fakes.openCloud()
+		-- flags and strings shaped like examples/sandbox/src/shared/Config/init.luau
+		extra.flags = {
+			leaderboardButton = { default = true, description = "the HUD Leaderboards button" },
+			newShop = {
+				default = false,
+				studio = true,
+				test = true,
+				description = "the redesigned shop screen",
+			},
+			debugPanel = {
+				default = false,
+				studio = true,
+				test = true,
+				testOnly = true,
+				description = "developer overlay",
+			},
+		}
+		extra.strings = {
+			["ui.close"] = "Done",
+			["game.welcome"] = "Welcome back, {name}!",
+			["game.leaderboards"] = "Leaderboards",
+			["game.debug"] = "debug: {env}",
+		}
+	end
+	local h = StudWork.test.harness({
+		modules = modules,
+		items = items,
+		config = config,
+		services = extra.services,
+		openCloud = extra.openCloud,
+		flags = extra.flags,
+		strings = extra.strings,
 	})
 	kitHarness = h
+	kitApis = all and { Leaderboards = h:use(kit("Engagement", "Leaderboards")) } or nil
 	local inv = h:use(Inventory)
 	for i, p in players do
 		local player = h:addPlayer({ userId = i })
@@ -355,14 +432,26 @@ variants.KITS = function(players)
 		return d, new
 	end
 end
+variants.KITS = function(players)
+	return bootKits(players, false)
+end
+variants["KITS-ALL"] = function(players)
+	return bootKits(players, true)
+end
 -- the framework tick runs once for all players (first player of the tick only)
 tickFns.KITS = function(p: FakePlayer, _tick: number)
 	if runtimes[p].player.UserId == 1 then
 		kitHarness:tick(1)
 	end
 end
+-- KITS-ALL: a real game's per-tick work on top: one Leaderboards submit per player per tick
+-- (the currency board is fed by Economy itself on the tick)
+tickFns["KITS-ALL"] = function(p: FakePlayer, tick: number)
+	kitApis.Leaderboards.submit(runtimes[p].player, "dailyTouches", 1)
+	tickFns.KITS(p, tick)
+end
 
-local ORDER = { "BEFORE", "AFTER", "AFTER-STUB", "MERGED", "MERGED-V13", "KITS" }
+local ORDER = { "BEFORE", "AFTER", "AFTER-STUB", "MERGED", "MERGED-V13", "KITS", "KITS-ALL" }
 
 local function median(list: { number }): number
 	local s = table.clone(list)

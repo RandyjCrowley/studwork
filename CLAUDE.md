@@ -237,7 +237,7 @@ all three modes, with relative paths only; in a single-game project they need no
 - `rojo build` of every `*.project.json` under `examples/` and `templates/` succeeds.
 - `tools/new-game` still produces a working game (in a temporary worktree: lint, typecheck, test,
   rojo build) and `tools/test-games-repo` and `tools/test-single-game` pass.
-- `tools/bench` within budget if it runs per tick or per player.
+- `tools/bench` within budget if it runs per tick or per player (the KITS-ALL variant is the reference: ≤ 0.94 ms/tick in v1.7.0).
 - CHANGELOG, docs page, decisions entry. Report: what you built, files touched, test output, open
   questions.
 
