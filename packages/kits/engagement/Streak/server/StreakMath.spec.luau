@@ -154,3 +154,36 @@ describe("StreakMath time zone (v1.3.0)", function()
 		expect(b).toBe("reset")
 	end)
 end)
+
+describe("StreakMath.expiresAt (v1.7.0)", function()
+	it("is the end of the grace window after the next day", function()
+		-- last counted day D: the next day D+1 is the missed one, it ends at day D+2 plus the grace
+		expect(StreakMath.expiresAt({ day = 4, lastDay = D }, 6)).toBe(at(D + 2, 6 * HOUR))
+		expect(StreakMath.expiresAt({ day = 4, lastDay = D }, 0)).toBe(at(D + 2))
+	end)
+
+	it("is the first instant advance() answers reset", function()
+		local state = { day = 4, lastDay = D }
+		local expires = StreakMath.expiresAt(state, 6) :: number
+		local _, before = StreakMath.advance(state, expires - 1, 6)
+		local _, after = StreakMath.advance(state, expires, 6)
+		expect(before).toBe("grace")
+		expect(after).toBe("reset")
+	end)
+
+	it("follows the configured time zone", function()
+		local utc = StreakMath.expiresAt({ day = 2, lastDay = D }, 6, 0) :: number
+		expect(StreakMath.expiresAt({ day = 2, lastDay = D }, 6, 5)).toBe(utc - 5 * HOUR)
+		local state = { day = 2, lastDay = D }
+		local expires = StreakMath.expiresAt(state, 6, -8) :: number
+		expect(select(2, StreakMath.advance(state, expires - 1, 6, -8))).toBe("grace")
+		expect(select(2, StreakMath.advance(state, expires, 6, -8))).toBe("reset")
+	end)
+
+	it("is nil without a streak; a bad grace counts as 0", function()
+		expect(StreakMath.expiresAt({ day = 0, lastDay = 0 }, 6)).toBe(nil)
+		expect(StreakMath.expiresAt({ day = 3, lastDay = 0 }, 6)).toBe(nil)
+		expect(StreakMath.expiresAt({ day = 3, lastDay = D }, nil)).toBe(at(D + 2))
+		expect(StreakMath.expiresAt({ day = 3, lastDay = D }, -4)).toBe(at(D + 2))
+	end)
+end)

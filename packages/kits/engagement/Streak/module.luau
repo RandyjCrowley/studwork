@@ -12,12 +12,23 @@
 	  rewards          table?     { { day, amount, currency? } } granted through the optional
 	                              Economy module
 	  loopAfter        integer?   the rewards table wraps after this day
+
+	api (v1.7.0 adds expiresAt(player) -> number?: the unix time the streak ends without a visit)
 ]]
 
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local StudWork = require(ReplicatedStorage:WaitForChild("Framework"))
 local Economy =
 	require(ReplicatedStorage:WaitForChild("Modules"):WaitForChild("Economy"):WaitForChild("module"))
+
+-- The server API (`StudWork.use(Streak)`). `expiresAt` is v1.7.0 (additive): the Notifications kit
+-- uses it for the "your streak ends soon" reminder.
+export type StreakApi = {
+	onDaily: (handler: (player: any, streakDay: number) -> ()) -> any,
+	get: (player: any) -> { day: number, lastDay: number },
+	expiresAt: (player: any) -> number?,
+	signals: { StreakAdvanced: any },
+}
 
 return StudWork.defineModule({
 	name = "Streak",

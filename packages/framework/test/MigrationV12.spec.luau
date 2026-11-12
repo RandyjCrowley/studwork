@@ -183,6 +183,10 @@ describe("v1.2 save migration (every field, real kit modules, _sandbox game)", f
 					expect(got.lastSeen >= value.lastSeen).toBe(true) -- stamped by the leave save
 					got.stats.sessions, value.stats.sessions = nil, nil
 					got.lastSeen, value.lastSeen = nil, nil
+				elseif key == "notifications" then
+					-- (v1.7.0) Notifications counts a session on every join
+					expect(got.sessions).toBe(value.sessions + 1)
+					got.sessions, value.sessions = nil, nil
 				end
 				expect(got).toEqual(value)
 			end

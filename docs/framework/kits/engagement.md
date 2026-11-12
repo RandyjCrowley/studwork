@@ -26,8 +26,11 @@ midnight count.
 
 ## API
 
-`onDaily(fn(player, streakDay)) -> Connection`, `get(player) -> { day, lastDay }`, signal
-`StreakAdvanced(player, day)` (contract). Rewards go through
+`onDaily(fn(player, streakDay)) -> Connection`, `get(player) -> { day, lastDay }`,
+`expiresAt(player) -> number?` (v1.7.0, additive: the unix time the streak ends if the player doesn't
+return, i.e. the end of the grace window after the next day, `(lastDay + 2) * 86400 + graceHours * 3600`
+in the configured time zone; nil without a streak or a loaded save), signal `StreakAdvanced(player, day)`
+(contract). Rewards go through
 `ctx.depsTx[Economy].grant` (optional Economy, contract).
 
 ## Replicated

@@ -61,6 +61,20 @@ openCloud = {
 Without step 3 every send returns `(false, "not_allowed")` and the server logs once which entry
 is missing. No key, URL or secret value goes in the repo.
 
+## The request
+
+`ctx.openCloud.request` with the configured secret, `POST users/<userId>/notifications` and this body
+(names follow the Open Cloud reference; the live checklist re-checks them). Only the template and
+`params` go in; a player's name or text never does.
+
+```lua
+{ source = { universe = "universes/<ctx.env.universeId()>" },
+  payload = { type = "MOMENT", messageId = tpl.messageId,
+              parameters = { [name] = { stringValue = v } | { int64Value = "<userId>" } },   -- when the template has any
+              joinExperience = { launchData = "sw1:<templateKey>" },                          -- when `launch`
+              analyticsData = { category = tpl.category } } }
+```
+
 ## Config (`config.Notifications`)
 
 | Key | Default | Meaning |
@@ -77,14 +91,14 @@ is missing. No key, URL or secret value goes in the repo.
 | `limits.perPlayerPerDay` | `1` | sends per recipient per UTC day (Roblox's own limit is 1; more only wastes Open Cloud requests) |
 | `limits.minGapHours` | `20` | hours between two sends to one recipient |
 | `limits.perServerPerMinute` | `60` | sends this server makes per minute (Open Cloud allows 2500 per server per minute in total) |
-| `quiet.startHour` / `quiet.endHour` | `22` / `8` | the recipient's local quiet hours; a send due inside them waits until `endHour` |
+| `quiet.startHour` / `quiet.endHour` | `22` / `8` | the recipient's local quiet hours; (wrapping midnight when start > end; equal = none); a send due inside them waits until `endHour` (a wait that takes an entry past `schedule.staleAfterHours` after its original time drops it) |
 | `quiet.defaultUtcOffsetHours` | `0` | used when the recipient's offset is unknown (the client reports its offset, -14..14) |
 | `schedule.shards` | `4` | the due list and the ledger are split into this many sorted maps (`userId % shards`), 1..32, so no single map partition carries every server's traffic |
 | `schedule.pollSeconds` | `30` | the shortest interval between two polls by one server (each poll reads one shard, in turn) |
 | `schedule.pollsPerShardPerMinute` | `20` | target polls per shard per minute across all servers: with many servers each server polls less often (below) |
 | `schedule.batch` | `20` | due entries read per poll (MemoryStore request units = entries returned + 1) |
 | `schedule.leaseSeconds` | `90` | how long a claim keeps an entry out of the due window: one send attempt plus the ledger writes (45..600) |
-| `schedule.staleAfterHours` | `12` | a due entry older than this is dropped, not sent |
+| `schedule.staleAfterHours` | `12` | a due entry older than this is dropped, not sent (its time plus this is also its MemoryStore expiry, so an unpolled entry disappears by itself and stops counting against `maxPerPlayer`) |
 | `schedule.maxAheadHours` | `168` | `schedule` further ahead than this is refused (`"too_far"`); keeps every entry inside MemoryStore's 8-day quota window (§23.5) |
 | `schedule.maxPerPlayer` | `5` | scheduled entries one recipient can have waiting (enforced in the shared ledger, so it holds for offline recipients too) |
 | `retry` | `{ base = 30, factor = 2, max = 900, attempts = 4 }` | backoff for a failed send (429, 5xx, network); 4xx other than 429 is not retried. The attempt count lives in the due entry, so any server continues it |
@@ -93,8 +107,8 @@ is missing. No key, URL or secret value goes in the repo.
 
 | Field | Default | Meaning |
 |---|---|---|
-| `messageId` | required | the notification string's asset id from the Creator Dashboard (Engagement > Notifications). `""` is a placeholder: allowed, scheduled and limited as usual, never sent (`(false, "placeholder")`), one warning per server |
-| `params` | `{}` | parameter names the string uses, each `"string"` or `"userId"` (a `{userId-...}` mention) |
+| `messageId` | required | the notification string's asset id from the Creator Dashboard (Engagement > Notifications). `""` is a placeholder: allowed, scheduled and limited as usual, never sent (`send` answers `(false, "placeholder")` after the recipient's limits; a due placeholder entry is cleared without a send or a count), one log line per server per template on first use, not a boot warning |
+| `params` | `{}` | the parameters the string uses: `{ [name] = "string" | "userId" }` (a `userId` parameter is a `{userId-...}` mention; a plain list of names means all `"string"`). Names are words of at most 32 characters |
 | `category` | the key | Open Cloud `analyticsData.category` |
 | `launch` | `true` | include launch data so the join is attributed (`LaunchedFrom` signal, analytics) |
 | `cooldownHours` | `24` | hours before this template can go to the same player again |
@@ -108,10 +122,13 @@ is missing. No key, URL or secret value goes in the repo.
 - `send(userId, templateKey, params?) -> (ok, reason?)`: yields. Sends now, after the limits,
   quiet hours (a send inside quiet hours is scheduled for `endHour` instead: `(true, "scheduled")`)
   and the `flag`. A retryable failure (429, 5xx, network) goes on the due list with its attempt
-  count and returns `(true, "queued")`; any server continues it. Reasons: `"disabled"`,
+  count and returns `(true, "queued")`; any server continues it. Reasons: `"disabled"` (the `flag` is off, or no template is configured),
   `"no_secret"`, `"not_allowed"` (the `ServerConfig.openCloud` allow-list), `"placeholder"`,
-  `"unknown_template"`, `"bad_params"`, `"rate_limited"` (per recipient), `"server_budget"`,
-  `"cooldown"`, `"memory_budget"` (the module's MemoryStore share is full, §23.5), `"store_busy"`,
+  `"unknown_template"`, `"bad_params"` (also a bad user id or key), `"rate_limited"` (per recipient: the day
+  count, the gap, or another server's send in flight), `"server_budget"`, `"studio"` (Studio without
+  `sendInStudio`: logged, not sent),
+  `"cooldown"` (the template's `cooldownHours`), `"memory_budget"` (the module's MemoryStore share is full,
+  §23.5), `"store_busy"`,
   `"failed"` (after retries), `"refused"` (a 4xx from Open Cloud). Never errors for a platform
   failure. **(contract)**
 - `schedule(userId, templateKey, at, params?, key?) -> (ok, reason?)`: yields. Queues a send for
@@ -146,12 +163,15 @@ the category and the reason.
   `at + staleAfterHours`;
 - the per-recipient ledger `ctx.data.sortedMap("ledger/" .. s)`: key `userId`, value
   `{ d = day, c = countToday, l = lastSentAt, t = { [templateKey] = lastSentAt }, q = { [key] = dueAt },
-  r = { by = jobId, untilAt }? }`, expiry = the later of 48 h and the last waiting entry's
-  `at + staleAfterHours`.
+  r = { by = jobId, untilAt }? }`, expiry = the longest of 48 h, the longest template `cooldownHours` and the last
+  waiting entry's `at + staleAfterHours` (read first, written with that expiry; if another server adds a
+  later entry in between, the update cancels itself and goes round again).
 
 **Scheduling** is two atomic updates: the ledger first (refuses `"too_many"` when `q` already has
 `maxPerPlayer` other keys; records `q[key] = at`), then the due entry (replacing one with the same
-key). `cancel` and `cancelOnJoin` remove both. The player's save holds none of this, so limits and
+key). `cancel` and `cancelOnJoin` remove both (the ledger key first, which also
+tells `cancel` whether anything was waiting). A `schedule` whose due write fails takes its ledger key
+back out. A key whose due entry expired is forgotten by the ledger on its next write. The player's save holds none of this, so limits and
 cancellation work the same for offline recipients.
 
 **Polling.** Each server polls one shard per poll, rotating from a random start. Its interval is
@@ -172,7 +192,10 @@ due list's request rate doesn't grow with the server count. A poll is
    reservation `r`. A refused entry is re-keyed to the time it becomes allowed (or dropped if that is
    past `staleAfterHours`). Quiet hours are applied here too, with the entry's offset `o`.
 3. **Send** one Open Cloud request.
-4. **2xx:** the ledger is updated (count, `lastSentAt`, template time, `r` cleared, `q[key]`
+4. **Not an Open Cloud answer.** `"not_allowed"`, `"no_secret"` and this server's own Open Cloud rate
+   (`"budget"`) mean nothing was sent: nothing counts, the reservation is given back, the entry waits
+   (`retry.base` for the rate, `retry.max` for a setup problem) and no attempt is used.
+5. **2xx:** the ledger is updated (count, `lastSentAt`, template time, `r` cleared, `q[key]`
    removed), then the due entry is removed. **The ledger counts a send only after Open Cloud
    accepted it.** A definitive failure (4xx other than 429): `r` and `q[key]` cleared, entry
    removed, `NotificationFailed`. A retryable failure: `r` cleared, the entry's `n` incremented and
@@ -192,12 +215,19 @@ skipped quietly. Example: at 1,000 concurrent users the quota is about 1.2 MB; t
 (0.25) is about 300 KB, room for about 2,500 waiting entries with their ledgers. With a high
 daily-to-concurrent player ratio, raise the share or `minStreak`.
 
+**The poll needs no setup.** A poll with no usable key pushes each entry it reads back `retry.max`
+seconds, so the entries behind them are read; in Studio with `sendInStudio = false` it logs `would send`
+and clears the entries. The Studio console has `notifications poll` to read one shard now.
+
 ## Client part
 
 - Listens for the module's `PromptOptIn(requestId)` event. On it: `pcall(CanPromptOptInAsync)`;
   if true, `PromptOptIn()`; then the action `optInShown(requestId, shown: boolean)` reports whether
   Roblox's prompt was shown (rate limit 1/s, burst 2). The server accepts it only for the
-  outstanding `requestId` it sent that player (then clears it) and records `lastPromptAt` / `prompts`.
+  outstanding `requestId` it sent that player (then clears it; a request older than five minutes is
+  ignored) and records `lastPromptAt`; `prompts` counts only prompts Roblox showed, so a player Roblox
+  won't prompt (under 13, already opted in) is checked again only after `optIn.cooldownDays`. At most one
+  request per player per session.
 - Reports the device's UTC offset once per session with the action `setUtcOffset(hours)`
   (`os.date("*t")` vs `os.date("!*t")`, rounded to 0.25 h, rate limit 1 per 10 s): it only moves
   sends out of quiet hours.
@@ -214,7 +244,7 @@ Section `notifications`, version 1:
 `extra`: none. Scheduled entries are in the shared ledger, not the save; sends to offline players
 never touch their save.
 
-On join: `sessions += 1`; the player's ledger `q` is read and every waiting key whose template has
+On join: `sessions += 1` (`optIn.minSessions` counts the sessions *before* the current one); the player's ledger `q` is read and every waiting key whose template has
 `cancelOnJoin` is cancelled (in a spawned thread, after load); the join data is read with
 `player:GetJoinData()` and parsed strictly: `LaunchData` must be `sw1:<templateKey>` (at most 200
 bytes) naming a configured template, anything else is ignored. A valid one fires `LaunchedFrom`
@@ -229,6 +259,7 @@ and, at most once per player per UTC day (`lastLaunchDay`), the analytics event
   grace window, using `Streak.expiresAt(player)` (a v1.7.0 addition to Streak's API,
   [kit-contract.md](../kit-contract.md)). Cancelled on join; skipped quietly when the memory share
   is full.
+- A reminder time inside the recipient's quiet hours waits for `endHour` (the entry is re-keyed).
 - Game modules schedule their own: on "egg started", `schedule(userId, "eggReady", readyAt)`.
 
 ## Guardrails it relies on
@@ -238,7 +269,9 @@ and, at most once per player per UTC day (`lastLaunchDay`), the analytics event
   `ServerConfig.openCloud` allow-list limits the module to one method and path.
 - `textfilter`: `send`/`schedule` params are a sink for player text.
 - Analytics (`ctx.analytics.custom`): `NotificationSent`, `NotificationFailed` (reason),
-  `NotificationPrompted`, `NotificationJoin`. Never params.
+  `NotificationPrompted`, `NotificationJoin`. Never params. The framework's analytics call needs a player,
+  so these are sent when the recipient is on the sending server; every outcome is also one log line
+  (template key, user id, reason).
 
 ## Override levels
 
@@ -253,7 +286,7 @@ and, at most once per player per UTC day (`lastLaunchDay`), the analytics event
 
 | Situation | Behaviour |
 |---|---|
-| Secret missing, HTTP requests disabled, Studio local playtest without a local secret | one log line at start, `send` -> `(false, "no_secret")`, no error, gameplay unchanged |
+| Secret missing, HTTP requests disabled, Studio local playtest without a local secret | one log line on the first send or due entry that needs it, `send` -> `(false, "no_secret")`, no error, gameplay unchanged |
 | Secret not allowed for the module in `ServerConfig.openCloud` | one log line naming the missing entry, `(false, "not_allowed")`, no request made |
 | Placeholder `messageId = ""` | limits and scheduling run as usual, nothing sent, `(false, "placeholder")`, one warning per server |
 | Open Cloud 429 / 5xx / network | the entry goes (back) on the due list with its attempt count and backoff; `send` returns `(true, "queued")`; after the last attempt, analytics `NotificationFailed` |
@@ -275,13 +308,13 @@ and, at most once per player per UTC day (`lastLaunchDay`), the analytics event
   limits; quiet hours move a send; `schedule` + `h:tick` past the due time + poll -> one Open Cloud
   request with the documented body; `maxPerPlayer` for an offline recipient; `cancelOnJoin`; a
   missing secret and a missing allow-list entry log once and never error; a placeholder
-  `messageId` sends nothing; the client part with a fake `ExperienceNotificationService` (can
+  `messageId` sends nothing; a row another server claimed after this one read it is not sent; the client part with a fake `ExperienceNotificationService` (can
   prompt / can't / errors); a forged `LaunchData` fires nothing.
 - Sim specs: two servers poll, one send; a server that stops after its claim (the other sends after
   `leaseSeconds`); a 5xx then a 2xx on another server (attempt count carried, ledger counted once);
   a failing head entry doesn't block the entries behind it; many servers keep each shard near
-  `pollsPerShardPerMinute`; filling the module's memory share returns `"memory_budget"` while
-  Leaderboards still writes.
+  `pollsPerShardPerMinute`; a full MemoryStore quota (`TotalMemoryOverLimit`) returns `"memory_budget"` while another
+  module's map still writes (the module's own share, §23.5, is the stores' budget spec).
 
 ## Not verifiable offline
 

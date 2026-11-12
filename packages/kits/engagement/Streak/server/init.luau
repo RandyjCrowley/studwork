@@ -17,6 +17,7 @@
 	    analytics.custom("StreakDay", day) after the commit.
 
 	api: onDaily(handler) -> Connection, get(player) -> { day, lastDay } (a copy),
+	expiresAt(player) -> number? (v1.7.0: the unix time the streak ends without a visit),
 	signals.StreakAdvanced. Console: `streak dump [userId]`, `streak advance [userId]` (Studio).
 ]]
 
@@ -175,6 +176,15 @@ Streak.api = {
 	get = function(player: any): { day: number, lastDay: number }
 		local state = readState(player)
 		return if state then { day = state.day, lastDay = state.lastDay } else { day = 0, lastDay = 0 }
+	end,
+	-- (v1.7.0, additive) the unix time at which the player's streak ends if they don't return: the end
+	-- of the grace window after the next day. nil for a player with no streak or whose save isn't loaded.
+	expiresAt = function(player: any): number?
+		local state = readState(player)
+		if state == nil then
+			return nil
+		end
+		return StreakMath.expiresAt(state, streakConfig().graceHours, offsetHours())
 	end,
 	signals = signals,
 }
