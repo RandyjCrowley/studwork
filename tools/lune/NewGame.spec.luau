@@ -197,7 +197,7 @@ describe("NewGame v1.3 module refs", function()
 		expect(Modules.kitFolder("Mail")).toBe("Social")
 		expect(Modules.ACTIONS.roll).toBe("Rarity")
 		expect(Modules.ACTIONS.claimMail).toBe("Mail")
-		expect(#Modules.ORDER).toBe(11)
+		expect(#Modules.ORDER).toBe(15)
 	end)
 
 	it("keeps the ref lines of chosen modules and adds a ref line for a missing one", function()

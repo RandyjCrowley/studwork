@@ -12,7 +12,13 @@ A game lists a module by its definition:
 | Module | Folder |
 |---|---|
 | [Streak](Streak/README.md) | `Streak/` |
+| [Leaderboards](Leaderboards/README.md) | `Leaderboards/` |
+| [Badges](Badges/README.md) | `Badges/` |
+| [Notifications](Notifications/README.md) | `Notifications/` |
 
-Docs: [docs/framework/kits/engagement.md](../../../docs/framework/kits/engagement.md).
+Docs: [docs/framework/kits/engagement.md](../../../docs/framework/kits/engagement.md); the v1.7.0
+modules have their own pages: [leaderboards](../../../docs/framework/kits/leaderboards.md),
+[badges](../../../docs/framework/kits/badges.md),
+[notifications](../../../docs/framework/kits/notifications.md).
 
 Kit-level specs (Lune, not synced by Rojo): `tests/`.

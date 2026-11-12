@@ -1,0 +1,35 @@
+-- Notifications module network contract (Blink IDL, compiled with `tools/net`; module-api.md §1, §9).
+-- The opt-in prompt runs on the client (Roblox's service is client-only): the server asks with
+-- PromptOptIn(requestId), the client answers with OptInShown(requestId, shown) and reports its UTC
+-- offset once a session with SetUtcOffset(hours). Blink checks the wire types on receive; the
+-- server part's actions still validate the request id and rate-limit.
+option RemoteScope = "STUDWORK_NOTIFICATIONS"
+option Casing = Pascal
+option ServerOutput = "server/Net.luau"
+option ClientOutput = "client/Net.luau"
+
+type Id = string(1..64)
+
+-- Ask this player's client to run Roblox's opt-in check and prompt. (requestId)
+event PromptOptIn {
+    From: Server,
+    Type: Reliable,
+    Call: SingleAsync,
+    Data: Id
+}
+
+-- The client ran the check: shown = whether Roblox's prompt was shown. (requestId, shown)
+event OptInShown {
+    From: Client,
+    Type: Reliable,
+    Call: SingleAsync,
+    Data: (Id, boolean)
+}
+
+-- The device's UTC offset in hours (rounded to 0.25 on the client). (hours)
+event SetUtcOffset {
+    From: Client,
+    Type: Reliable,
+    Call: SingleAsync,
+    Data: f64(-14..14)
+}

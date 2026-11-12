@@ -36,8 +36,12 @@ KitModules.ORDER = {
 	"Rebirth",
 	"Offline",
 	"Streak",
+	"Leaderboards",
+	"Badges",
+	"Notifications",
 	"Friends",
 	"Mail",
+	"TextFilter",
 	"Plot",
 }
 

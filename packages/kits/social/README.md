@@ -13,5 +13,7 @@ A game lists a module by its definition:
 |---|---|
 | [Friends](Friends/README.md) | `Friends/` |
 | [Mail](Mail/README.md) | `Mail/` |
+| [TextFilter](TextFilter/README.md) | `TextFilter/` |
 
-Docs: [docs/framework/kits/social.md](../../../docs/framework/kits/social.md).
+Docs: [docs/framework/kits/social.md](../../../docs/framework/kits/social.md); TextFilter (v1.7.0) has its
+own page: [textfilter](../../../docs/framework/kits/textfilter.md).

@@ -4,7 +4,9 @@
 	here and never edit this package. See README.md.
 
 	Components (React function components): Button, Panel, ItemCard, RarityBadge, Toast,
-	ToastHost, Modal, CurrencyCounter, OddsTable, AutoScale, ScaledRoot.
+	ToastHost, Modal, CurrencyCounter, OddsTable, AutoScale, ScaledRoot, Leaderboard (v1.7.0).
+	Strings (v1.7.0, module-api.md §23.9): UI.text(key, args?) / UI.useText(key, args?) resolve a
+	`ui.*` key (English defaults in UI.Strings) in the player's language.
 	Pure helpers: Format, Odds, OddsLayout, ToastQueue, Responsive, ThemeTokens, Screens, HudLayout. Theme.
 
 	Screens (module-api.md §13): UI.registerScreen(name, component) adds or replaces a screen;
@@ -26,6 +28,11 @@ UI.Responsive = require(script.Responsive)
 UI.Primitives = require(script.Primitives)
 UI.Screens = require(script.Screens)
 UI.HudLayout = require(script.HudLayout)
+UI.Strings = require(script.Strings)
+
+local TextModule = require(script.Text)
+UI.text = TextModule.text
+UI.useText = TextModule.useText
 
 UI.Button = require(script.Button)
 UI.Panel = require(script.Panel)
@@ -39,6 +46,7 @@ UI.CurrencyCounter = require(script.CurrencyCounter)
 UI.OddsTable = require(script.OddsTable)
 UI.AutoScale = require(script.AutoScale)
 UI.ScaledRoot = require(script.ScaledRoot)
+UI.Leaderboard = require(script.Leaderboard)
 
 local ScreenHost = require(script.ScreenHost)
 UI.ScreenHost = ScreenHost.Component

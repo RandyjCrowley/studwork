@@ -1,0 +1,14 @@
+-- Badges module network contract (Blink IDL, compiled with `tools/net`; module-api.md §1, §9).
+-- Server to client only: a badge was confirmed by Roblox (or found already owned), so the client
+-- shows its toast. There is no client request that awards anything. (badge key)
+option RemoteScope = "STUDWORK_BADGES"
+option Casing = Pascal
+option ServerOutput = "server/Net.luau"
+option ClientOutput = "client/Net.luau"
+
+event Awarded {
+    From: Server,
+    Type: Reliable,
+    Call: ManyAsync,
+    Data: string(1..32)
+}

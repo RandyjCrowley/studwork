@@ -34,6 +34,15 @@
       },
       "Modules": {
         "$className": "Folder",
+        "Badges": {
+          "$className": "Folder",
+          "module": {
+            "$path": "../../packages/kits/engagement/Badges/module.luau"
+          },
+          "client": {
+            "$path": "../../packages/kits/engagement/Badges/client"
+          }
+        },
         "Economy": {
           "$className": "Folder",
           "module": {
@@ -64,6 +73,15 @@
             "$path": "../../packages/kits/collection/Items/module.luau"
           }
         },
+        "Leaderboards": {
+          "$className": "Folder",
+          "module": {
+            "$path": "../../packages/kits/engagement/Leaderboards/module.luau"
+          },
+          "client": {
+            "$path": "../../packages/kits/engagement/Leaderboards/client"
+          }
+        },
         "Mail": {
           "$className": "Folder",
           "module": {
@@ -71,6 +89,15 @@
           },
           "client": {
             "$path": "../../packages/kits/social/Mail/client"
+          }
+        },
+        "Notifications": {
+          "$className": "Folder",
+          "module": {
+            "$path": "../../packages/kits/engagement/Notifications/module.luau"
+          },
+          "client": {
+            "$path": "../../packages/kits/engagement/Notifications/client"
           }
         },
         "Offline": {
@@ -115,6 +142,12 @@
             "$path": "../../packages/kits/engagement/Streak/module.luau"
           }
         },
+        "TextFilter": {
+          "$className": "Folder",
+          "module": {
+            "$path": "../../packages/kits/social/TextFilter/module.luau"
+          }
+        },
         "Upgrades": {
           "$className": "Folder",
           "module": {
@@ -138,6 +171,9 @@
         "FoundationOnly": {
           "$path": "foundation-only/modules/foundationonly/server"
         },
+        "Badges": {
+          "$path": "../../packages/kits/engagement/Badges/server"
+        },
         "Economy": {
           "$path": "../../packages/kits/economy/Economy/server"
         },
@@ -150,8 +186,14 @@
         "Items": {
           "$path": "../../packages/kits/collection/Items/server"
         },
+        "Leaderboards": {
+          "$path": "../../packages/kits/engagement/Leaderboards/server"
+        },
         "Mail": {
           "$path": "../../packages/kits/social/Mail/server"
+        },
+        "Notifications": {
+          "$path": "../../packages/kits/engagement/Notifications/server"
         },
         "Offline": {
           "$path": "../../packages/kits/economy/Offline/server"
@@ -167,6 +209,9 @@
         },
         "Streak": {
           "$path": "../../packages/kits/engagement/Streak/server"
+        },
+        "TextFilter": {
+          "$path": "../../packages/kits/social/TextFilter/server"
         },
         "Upgrades": {
           "$path": "../../packages/kits/economy/Upgrades/server"
