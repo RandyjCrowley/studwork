@@ -19,6 +19,9 @@ local function world()
 		epoch = 19000 * 86400 + 12 * 3600,
 		config = {
 			modules = { "Items", "Economy", "Notifications" },
+			-- the specs here are about polling and claims, not the per-minute request cap of a server
+			-- with no players (20 units; covered in NotificationsStores.spec.luau): leave room
+			storeBudgets = { memoryUnits = { base = 100000, perPlayer = 0 } },
 			config = {
 				Notifications = {
 					templates = { egg = { messageId = "1001", cooldownHours = 0 } },
@@ -187,13 +190,24 @@ describe("Notifications across servers", function()
 			local reads = ranges(w) - before
 			-- 4 a minute for 10 minutes = 40 (each server polls every 60 x 8 / 4 = 120 s)
 			expect(reads >= 32 and reads <= 48).toBe(true)
+			-- a lone server is held to the same rate by the real census (servers = 1: every 15 s) once it has read the census
 			local alone = world()
 			alone.config.config.Notifications.schedule =
 				{ shards = 1, pollSeconds = 1, pollsPerShardPerMinute = 4 }
 			boot(alone, fakeOc())
+			alone:advance(120) -- until the first census reading a server polls every pollSeconds
 			local beforeAlone = ranges(alone)
 			alone:advance(600)
-			expect(ranges(alone) - beforeAlone > 300).toBe(true) -- one server polls every pollSeconds
+			local aloneReads = ranges(alone) - beforeAlone
+			expect(aloneReads >= 32 and aloneReads <= 48).toBe(true)
+			-- with the rate raised to one a second, the interval is pollSeconds again
+			local fast = world()
+			fast.config.config.Notifications.schedule =
+				{ shards = 1, pollSeconds = 1, pollsPerShardPerMinute = 60 }
+			boot(fast, fakeOc())
+			local beforeFast = ranges(fast)
+			fast:advance(600)
+			expect(ranges(fast) - beforeFast > 300).toBe(true)
 		end
 	)
 

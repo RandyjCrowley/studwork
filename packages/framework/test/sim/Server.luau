@@ -722,6 +722,7 @@ function Server._fixtureConfig(self): (any, any)
 		compliance = copy(fixture.compliance),
 		analytics = copy(fixture.analytics),
 		shop = copy(fixture.shop), -- (v1.6.1) GameConfig.shop (passPrefetchTimeout)
+		storeBudgets = copy(fixture.storeBudgets), -- (v1.7.0) a spec may raise the per-minute request units
 	}
 	local data = fixture.data or {}
 	return gameConfig, { default = copy(data.default or {}), version = data.version or 1 }, refs

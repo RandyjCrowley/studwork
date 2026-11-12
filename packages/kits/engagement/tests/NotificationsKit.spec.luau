@@ -29,7 +29,7 @@ local TEMPLATES = {
 }
 
 -- opts: config (merged over the test defaults), key (false = no secret), allow (false = no allow-list),
--- streak (add Streak), census, isStudio, flags, flagName
+-- streak (add Streak), census, storeBudgets, isStudio, flags, flagName
 local function boot(opts)
 	opts = opts or {}
 	local oc = StudWork.test.fakes.openCloud()
@@ -76,6 +76,9 @@ local function boot(opts)
 		secrets = if opts.key == false then nil else { [SECRET] = true },
 		serverConfig = { openCloud = { secrets = if opts.allow == false then {} else ALLOW } },
 		census = opts.census,
+		-- these specs are about the module's rules, not the per-minute request cap of a server with no
+		-- players (20 units; covered in NotificationsStores.spec.luau): leave room unless a spec sets it
+		storeBudgets = opts.storeBudgets or { memoryUnits = { base = 100000, perPlayer = 0 } },
 		isStudio = opts.isStudio,
 		flags = opts.flags,
 		env = if opts.flags then "live" else nil,
@@ -939,4 +942,66 @@ describe("Notifications: switched off", function()
 		expect(select(2, api.schedule(7, "anything", NOON + 60))).toBe("disabled")
 		expect(#oc.requests).toBe(0)
 	end)
+end)
+
+describe("Notifications: the module's store budget (storeBudgets, module-api.md section 23.5)", function()
+	it("schedule stops with memory_budget at the module's own memory share and recovers on cancel", function()
+		-- a 1% share of the 64 KB quota (no players, no census): room for a few waiting entries
+		local h, api = boot({
+			storeBudgets = {
+				memoryUnits = { base = 100000, perPlayer = 0 },
+				memory = { shares = { Notifications = 0.01 } },
+			},
+		})
+		local landed, firstFull = {}, nil
+		for userId = 1, 40 do
+			local ok, reason = api.schedule(userId, "plain", NOON + 3600)
+			if ok then
+				table.insert(landed, userId)
+			else
+				expect(reason).toBe("memory_budget")
+				firstFull = firstFull or userId
+			end
+		end
+		expect(#landed >= 1).toBe(true)
+		expect(firstFull ~= nil).toBe(true)
+		expect(#landed < 40).toBe(true)
+		-- the refused one left nothing behind (its ledger write was rolled back), and the share
+		-- holds: the same user is refused again
+		expect(ledger(h, firstFull) == nil or next(ledger(h, firstFull).q) == nil).toBe(true)
+		expect(select(2, api.schedule(firstFull, "plain", NOON + 3600))).toBe("memory_budget")
+		-- a cancel gives its bytes back
+		expect(api.cancel(landed[1], "plain")).toBe(true)
+		expect(api.schedule(firstFull, "plain", NOON + 3600)).toBe(true)
+	end)
+
+	it("a roomy share (the default 25%) takes the same schedules", function()
+		local _, api = boot({ storeBudgets = { memoryUnits = { base = 100000, perPlayer = 0 } } })
+		for userId = 1, 40 do
+			expect(api.schedule(userId, "plain", NOON + 3600)).toBe(true)
+		end
+	end)
+
+	it(
+		"a server with no players is held to its request units: store_busy, nothing sent, then it recovers",
+		function()
+			local h, api, oc = boot({ storeBudgets = {} }) -- the defaults: 20 units a minute with no players
+			local sent, busy = 0, 0
+			for userId = 1, 12 do
+				local ok, reason = api.send(userId, "plain")
+				if ok then
+					sent += 1
+				else
+					expect(reason).toBe("store_busy")
+					busy += 1
+				end
+			end
+			expect(sent >= 1).toBe(true)
+			expect(busy >= 1).toBe(true)
+			expect(#oc.requests).toBe(sent) -- a refused ledger reservation never reaches Open Cloud
+			h.clock += 61
+			h:tick(1)
+			expect(api.send(100, "plain")).toBe(true)
+		end
+	)
 end)
