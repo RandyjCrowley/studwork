@@ -12,9 +12,9 @@
 	  PlatformServices.inert() -> the same shape, nothing available
 
 	STUB (foundation): `services.get` is the plain engine lookup; the Open Cloud transport reports no
-	secret and raises on `request`, and `translatorFor` returns nil (English). The live HTTP,
-	secrets-store and translator adapters are the environments/flags/services builder's (B2), the
-	translator's retry schedule the localization builder's (B3).
+	secret and raises on `request`. The live HTTP and secrets-store adapters are the environments/
+	flags/services builder's (B2). `translatorFor` is `LocalizationService:GetTranslatorForPlayerAsync`
+	(it raises when the fetch fails; server/Text.luau retries at 5, 30 and 120 s).
 ]]
 
 local PlatformServices = {}
@@ -35,8 +35,8 @@ function PlatformServices.live(): any
 			end,
 		},
 		localization = {
-			translatorFor = function(_player: any): any
-				return nil -- STUB (B2/B3)
+			translatorFor = function(player: any): any
+				return game:GetService("LocalizationService"):GetTranslatorForPlayerAsync(player)
 			end,
 		},
 	}
