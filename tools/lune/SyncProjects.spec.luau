@@ -137,4 +137,132 @@ describe("SyncProjects", function()
 		local server = out.vals.tree.vals.ServerScriptService.vals.Modules.vals.Economy
 		expect(server.vals["$path"]).toBe("studwork/packages/kits/economy/Economy/server")
 	end)
+	-- (v1.7.0, docs/framework/kits/environments.md) Environments.luau from deploy.json
+	local function deploy(test, live)
+		local function side(ids)
+			return `\{ "universeId": {ids[1]}, "placeId": {ids[2]} \}`
+		end
+		return `\{ "name": "g", "servePort": 34900, "test": {side(test)}, "live": {side(live)} \}`
+	end
+
+	it("(v1.7.0) writes the test and live ids from deploy.json", function()
+		local out, errors = SyncProjects.environments(deploy({ 111, 222 }, { 333, 444 }))
+		expect(#errors).toBe(0)
+		expect(out).toBe(
+			SyncProjects.ENV_HEADER
+				.. "\nreturn {\n"
+				.. "\ttest = { placeIds = { 222 }, universeIds = { 111 } },\n"
+				.. "\tlive = { placeIds = { 444 }, universeIds = { 333 } },\n"
+				.. "}\n"
+		)
+		local luau = (getmetatable(getfenv(1)) :: any).__index.require("@lune/luau")
+		local env = luau.load(out :: string)()
+		expect(env.test.placeIds[1]).toBe(222)
+		expect(env.live.universeIds[1]).toBe(333)
+	end)
+
+	it("(v1.7.0) leaves placeholder ids out and writes return {} when every id is one", function()
+		local out = SyncProjects.environments(deploy({ 0, 0 }, { 0, 0 }))
+		expect(out).toBe(SyncProjects.ENV_HEADER .. "\nreturn {}\n")
+		local partial = SyncProjects.environments(deploy({ 0, -5 }, { 333, 1.5 }))
+		expect(partial).toBe(
+			SyncProjects.ENV_HEADER .. "\nreturn {\n\tlive = { universeIds = { 333 } },\n}\n"
+		)
+		local strings = SyncProjects.environments(deploy({ '"111"', 0 }, { 0, '"x"' }))
+		expect(strings).toBe(SyncProjects.ENV_HEADER .. "\nreturn {}\n")
+	end)
+
+	it("(v1.7.0) writes the test universe id only when it differs from the live one", function()
+		local out = SyncProjects.environments(deploy({ 333, 222 }, { 333, 444 }))
+		expect(out).toBe(
+			SyncProjects.ENV_HEADER
+				.. "\nreturn {\n"
+				.. "\ttest = { placeIds = { 222 } },\n"
+				.. "\tlive = { placeIds = { 444 }, universeIds = { 333 } },\n"
+				.. "}\n"
+		)
+	end)
+
+	it("(v1.7.0) fails when the test and live place ids are equal", function()
+		local out, errors =
+			SyncProjects.environments(deploy({ 111, 444 }, { 333, 444 }), "games/g/deploy.json")
+		expect(out).toBeNil()
+		expect(#errors).toBe(1)
+		expect(
+			string.find(errors[1], "games/g/deploy.json: test.placeId and live.placeId are both 444", 1, true)
+		).never.toBeNil()
+		local _, bad = SyncProjects.environments("{ not json")
+		expect(#bad).toBe(1)
+	end)
+
+	it("(v1.7.0) maps src/shared/Localization into LocalizationService, idempotently", function()
+		local out, changes =
+			SyncProjects.sync("games/g/default.project.json", OLD, ENTRIES, { localization = true })
+		local tree = SyncProjects.decode(out).vals.tree
+		expect(tree.vals.LocalizationService.vals["$path"]).toBe("src/shared/Localization")
+		expect(table.find(changes, "LocalizationService mapped to src/shared/Localization")).never.toBeNil()
+		expect((SyncProjects.sync("games/g/default.project.json", out, ENTRIES, { localization = true }))).toBe(
+			out
+		)
+		-- the folder is gone: the generated mapping goes too
+		local gone = SyncProjects.sync("games/g/default.project.json", out, ENTRIES, { localization = false })
+		expect(SyncProjects.decode(gone).vals.tree.vals.LocalizationService).toBeNil()
+		-- a hand-written LocalizationService node (other path) is the project's own: kept
+		local own = string.gsub(
+			OLD,
+			'"ServerScriptService": {',
+			'"LocalizationService": { "Tables": { "$path": "loc" } },\n    "ServerScriptService": {',
+			1
+		)
+		local kept = SyncProjects.sync("games/g/default.project.json", own, ENTRIES)
+		expect(SyncProjects.decode(kept).vals.tree.vals.LocalizationService.vals.Tables).never.toBeNil()
+	end)
+
+	it(
+		"(v1.7.0) tools/sync-projects writes Environments.luau, and --check fails on drift and equal ids",
+		function()
+			local luneRequire = (getmetatable(getfenv(1)) :: any).__index.require
+			local fs = luneRequire("@lune/fs")
+			local process = luneRequire("@lune/process")
+			local base = string.gsub(process.env.GUARD_TEST_TMP or process.env.TMPDIR or "/tmp", "/+$", "")
+			local dir = `{base}/studwork-sync-env-{os.time()}-{math.random(1, 1e6)}`
+			local real = string.gsub(process.exec("pwd", { "-P" }).stdout, "%s+$", "")
+			fs.writeDir(dir .. "/games/g/src/shared/Config")
+			local ln = process.exec("ln", { "-s", real, dir .. "/roblox-core" })
+			expect(ln.ok).toBe(true)
+			fs.writeFile(dir .. "/rokit.toml", fs.readFile("rokit.toml")) -- the tool versions, as a games repo has
+			local function run(...)
+				return process.exec("lune", { "run", "roblox-core/tools/lune/sync-projects.luau", ... }, {
+					cwd = dir,
+					env = { STUDWORK_CORE_DIR = "roblox-core", STUDWORK_LAYOUT = "games-repo" },
+				})
+			end
+			local target = dir .. "/games/g/src/shared/Config/Environments.luau"
+			local ok, err = pcall(function()
+				fs.writeFile(dir .. "/games/g/deploy.json", deploy({ 111, 222 }, { 333, 444 }))
+				local check = run("--check")
+				expect(check.ok).toBe(false)
+				expect(string.find(check.stdout, "Environments.luau: drifts from deploy.json", 1, true)).never.toBeNil()
+				local write = run()
+				expect(write.ok).toBe(true)
+				expect(fs.readFile(target)).toBe(
+					(SyncProjects.environments(deploy({ 111, 222 }, { 333, 444 })))
+				)
+				expect(run("--check").ok).toBe(true)
+				fs.writeFile(dir .. "/games/g/deploy.json", deploy({ 111, 444 }, { 333, 444 }))
+				local equal = run("--check")
+				expect(equal.ok).toBe(false)
+				expect(string.find(equal.stdout, "test.placeId and live.placeId are both 444", 1, true)).never.toBeNil()
+				expect(run().ok).toBe(false) -- writing refuses too, and leaves the old file
+				expect(fs.readFile(target)).toBe(
+					(SyncProjects.environments(deploy({ 111, 222 }, { 333, 444 })))
+				)
+			end)
+			pcall(fs.removeFile, dir .. "/roblox-core") -- the symlink first: removeDir must not follow it
+			pcall(fs.removeDir, dir)
+			if not ok then
+				error(err, 0)
+			end
+		end
+	)
 end)
