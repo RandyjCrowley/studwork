@@ -22,7 +22,7 @@
 local OddsLayout = {}
 
 OddsLayout.MIN_ROW_WIDTH = 320 - 2 * 12 - 6
-OddsLayout.ROW_HEIGHT = 36
+OddsLayout.ROW_HEIGHT = 48
 OddsLayout.BADGE_HEIGHT = 22
 OddsLayout.BADGE_PADDING = 8 -- each side
 -- Average glyph advance as a fraction of the text size, upper-cased, for a wide display font
@@ -32,8 +32,8 @@ OddsLayout.GLYPH_WIDTH = 0.65
 export type Column = { scale: number, offset: number, x: number, xOffset: number }
 
 OddsLayout.columns = table.freeze({
-	name = table.freeze({ scale = 0.42, offset = -16, x = 0, xOffset = 16 }),
-	badge = table.freeze({ scale = 0.33, offset = -4, x = 0.42, xOffset = 0 }),
+	name = table.freeze({ scale = 0.38, offset = -16, x = 0, xOffset = 16 }),
+	badge = table.freeze({ scale = 0.37, offset = -4, x = 0.38, xOffset = 0 }),
 	percent = table.freeze({ scale = 0.25, offset = -8, x = 0.75, xOffset = 0 }),
 })
 

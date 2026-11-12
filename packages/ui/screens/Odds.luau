@@ -22,6 +22,7 @@ return function(props: any)
 			restrictedText = props.restrictedText,
 			sortBy = props.sortBy,
 			layoutOrder = 1,
+			title = false,
 		}),
 	}
 	if type(props.actions) == "table" then

@@ -24,7 +24,8 @@ local Theme = require(script.Parent.Theme)
 
 local e = React.createElement
 
-local fitScale = require(script.Parent.ModalFit).fitScale
+local ModalFit = require(script.Parent.ModalFit)
+local ModalLayers = require(script.Parent.ModalLayers)
 
 export type Props = {
 	open: boolean,
@@ -38,6 +39,7 @@ export type Props = {
 local function Modal(props: Props)
 	local bodyRef = React.useRef(nil :: Frame?)
 	local scale, setScale = React.useState(1)
+	local available, setAvailable = React.useState(560)
 	React.useEffect(function(): (() -> ())?
 		local body = bodyRef.current
 		if not props.open or body == nil then
@@ -51,12 +53,22 @@ local function Modal(props: Props)
 			end
 			-- AbsoluteSize includes our own UIScale: divide it out to get the unscaled size
 			local s = if current > 0 then current else 1
-			local nextScale = fitScale(
-				body.AbsoluteSize.X / s,
-				body.AbsoluteSize.Y / s,
-				backdrop.AbsoluteSize.X,
-				backdrop.AbsoluteSize.Y
+			local nextScale = math.max(
+				ModalFit.minScale(Theme.tokens),
+				ModalFit.fitScale(
+					body.AbsoluteSize.X / s,
+					body.AbsoluteSize.Y / s,
+					backdrop.AbsoluteSize.X,
+					backdrop.AbsoluteSize.Y
+				)
 			)
+			local nextAvailable = math.max(
+				Theme.touchTarget,
+				backdrop.AbsoluteSize.Y * ModalFit.MAX_HEIGHT_FRACTION / math.max(nextScale, 0.01)
+					- Theme.text.title
+					- 4 * Theme.metrics.padding
+			)
+			setAvailable(nextAvailable)
 			if math.abs(nextScale - current) > 0.01 then
 				current = nextScale
 				setScale(nextScale)
@@ -89,7 +101,7 @@ local function Modal(props: Props)
 		BackgroundTransparency = 0.45,
 		BorderSizePixel = 0,
 		Size = UDim2.fromScale(1, 1),
-		ZIndex = 50,
+		ZIndex = ModalLayers.backdrop,
 		[React.Event.Activated] = function()
 			if props.dismissOnBackdrop ~= false then
 				close()
@@ -102,7 +114,7 @@ local function Modal(props: Props)
 			AutomaticSize = if props.size then Enum.AutomaticSize.None else Enum.AutomaticSize.Y,
 			Position = UDim2.fromScale(0.5, 0.5),
 			AnchorPoint = Vector2.new(0.5, 0.5),
-			ZIndex = 51,
+			ZIndex = ModalLayers.body,
 			ref = bodyRef,
 		}, {
 			Fit = e("UIScale", { Scale = scale }),
@@ -112,9 +124,25 @@ local function Modal(props: Props)
 				Text = "",
 				BackgroundTransparency = 1,
 				Size = UDim2.fromScale(1, 1),
-				ZIndex = 51,
+				ZIndex = ModalLayers.sink,
 			}),
-			Panel = e(Panel, { title = props.title }, props.children),
+			Panel = e(Panel, { title = props.title, zIndex = ModalLayers.panel }, {
+				Content = e("ScrollingFrame", {
+					BackgroundTransparency = 1,
+					BorderSizePixel = 0,
+					Size = UDim2.new(1, 0, 0, 0),
+					AutomaticSize = Enum.AutomaticSize.Y,
+					AutomaticCanvasSize = Enum.AutomaticSize.Y,
+					CanvasSize = UDim2.new(),
+					ScrollingDirection = Enum.ScrollingDirection.Y,
+					ScrollBarThickness = 6,
+					-- The panel is capped; content scrolls instead of shrinking its text.
+				}, {
+					Limit = e("UISizeConstraint", { MaxSize = Vector2.new(math.huge, available) }),
+					Layout = Primitives.list(Enum.FillDirection.Vertical, Theme.metrics.padding),
+					Children = e(React.Fragment, nil, props.children),
+				}),
+			}),
 			Close = if props.onClose
 				then e("TextButton", {
 					Text = "X",
@@ -125,7 +153,7 @@ local function Modal(props: Props)
 					Size = UDim2.fromOffset(target, target),
 					Position = UDim2.new(1, 8, 0, -8),
 					AnchorPoint = Vector2.new(1, 0),
-					ZIndex = 60,
+					ZIndex = ModalLayers.close,
 					[React.Event.Activated] = close,
 				}, {
 					Corner = e("UICorner", { CornerRadius = UDim.new(0.5, 0) }),

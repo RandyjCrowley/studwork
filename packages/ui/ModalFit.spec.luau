@@ -1,4 +1,7 @@
 local ModalFit = require(script.Parent.ModalFit)
+local ThemeTokens = require(script.Parent.ThemeTokens)
+local SharedTheme = require(script.Parent.Parent.framework.shared.Theme)
+local Responsive = require(script.Parent.Responsive)
 
 describe("UI.ModalFit", function()
 	it("leaves a panel that fits alone", function()
@@ -16,5 +19,13 @@ describe("UI.ModalFit", function()
 	it("returns 1 for unknown sizes", function()
 		expect(ModalFit.fitScale(0, 100, 500, 500)).toBe(1)
 		expect(ModalFit.fitScale(100, 100, 0, 0)).toBe(1)
+	end)
+	it("keeps the smallest text at the real pixel floor at minimum responsive scale", function()
+		local tokens = ThemeTokens.new(SharedTheme.DEFAULT)
+		local scale = ModalFit.minScale(tokens)
+		expect(scale <= 1).toBe(true)
+		expect(tokens.text.min * Responsive.MIN_SCALE * scale >= tokens.metrics.minTextSize - 0.001).toBe(
+			true
+		)
 	end)
 end)

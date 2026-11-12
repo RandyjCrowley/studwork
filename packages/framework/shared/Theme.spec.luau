@@ -38,7 +38,8 @@ describe("Theme framework-default preset (golden: today's look)", function()
 			padding = 12,
 			strokeThickness = 2,
 			minTouchTarget = 44,
-			text = { small = 14, body = 18, title = 24, number = 28, min = 9 },
+			minTextSize = 11,
+			text = { small = 14, body = 18, title = 24, number = 28, min = 14 },
 		})
 	end)
 
@@ -162,6 +163,16 @@ describe("Theme.merge custom themes", function()
 		expect(all).toContain("theme.sounds.x must be")
 		expect(all).toContain("unknown rarity preset 'standard9'")
 		expect(all).toContain("theme.rarity.tiers[1].color must be '#RRGGBB'")
+	end)
+
+	it("validates the real-pixel text floor range", function()
+		local valid, errors = merge({}, { metrics = { minTextSize = 18 } })
+		expect(#errors).toBe(0)
+		expect(valid.metrics.minTextSize).toBe(18)
+		for _, bad in { 5, 33, "tiny" } do
+			local _, badErrors = merge({}, { metrics = { minTextSize = bad } })
+			expect(table.concat(badErrors, "\n")).toContain("metrics.minTextSize must be between 6 and 32")
+		end
 	end)
 
 	it("treats id 0 as silent", function()

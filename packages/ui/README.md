@@ -21,11 +21,12 @@ inside `UI.ScaledRoot` (full-screen root that applies the responsive UIScale and
 | `Panel` | `title?`, `color?` (palette key, default `surface`), `size?` (default full width, auto height), `automaticSize?`, `position?`, `anchorPoint?`, `layoutOrder?`, children (vertical list). Rounded, stroke, gradient, drop shadow, padding. |
 | `ItemCard` | `name`, `rarity`, `icon?` (nil = rarity-coloured placeholder initial), `incomePerSec?`, `mutation?`, `mutationColor?` (hex), `size?`, `layoutOrder?`, `onActivated?`. Aspect 0.75 held by UIAspectRatioConstraint; stroke glows by tier. |
 | `RarityBadge` | `rarity`, `size?`, `layoutOrder?`. Tier colour pill + glow stroke from `glowStrength`. |
+| `WrappedText` | `text`, `textSize?` (theme size key or number), `font?`, `color?`, `backgroundColor?`, `padding?`, `layoutOrder?`, `alignment?`. Measures the real inner width with TextService and grows to show every wrapped line. |
 | `Toast` | `text`, `rarity?`, `count?` (shows `x3`), `layoutOrder?`, `onDismiss?` (tap). Pops in. |
 | `ToastHost` | `subscribe(push) -> unsubscribe`, `maxVisible?` (3), `duration?` (3 s), `position?`, `anchorPoint?`, `size?`. Queue + auto-dismiss + duplicate merge (pure `ToastQueue`). |
-| `Modal` | `open`, `title?`, `onClose?` (X button + backdrop tap), `dismissOnBackdrop?`, `size?`, children. Dimmed backdrop, panel capped 320-640 px wide. |
+| `Modal` | `open`, `title?`, `onClose?` (X button + backdrop tap), `dismissOnBackdrop?`, `size?`, children. Dimmed backdrop, panel capped 320-640 px wide; content scrolls instead of shrinking below the readable text floor. |
 | `CurrencyCounter` | `value`, `rate?` (`+12/s` line), `icon?`, `label?`, `animate?` (default true), `duration?` (0.35 s), `size?`, `position?`, `anchorPoint?`, `layoutOrder?`. Abbreviated (1.2K / 3.4M / 5.6B ...). |
-| `OddsTable` | `detail` (server `Types.OddsDetail`, `Core.Client.state().odds[tableId]`: item odds, mutation line, every item x mutation outcome, pity line "Guaranteed Legendary+ at least every N rolls"; preferred) or legacy `odds` (`{[itemId]: probability}`), `items` (`{id,name,rarity}` defs), `sortBy?` (`"rarity"` = rarest last, default; or `"probability"`), `title?`, `restricted?`, `restrictedText?`, `maxHeight?`, `size?`, `position?`, `anchorPoint?`, `layoutOrder?`. Exact percentages; never `0%` for a non-zero chance. |
+| `OddsTable` | `detail` (server `Types.OddsDetail`, `Core.Client.state().odds[tableId]`: item odds, mutation line, every item x mutation outcome, pity line "Guaranteed Legendary+ at least every N rolls"; preferred) or legacy `odds` (`{[itemId]: probability}`), `items` (`{id,name,rarity}` defs), `sortBy?` (`"rarity"` = rarest last, default; or `"probability"`), `title?` (`false` hides the embedded heading), `restricted?`, `restrictedText?`, `maxHeight?`, `size?`, `position?`, `anchorPoint?`, `layoutOrder?`. Exact percentages; never `0%` for a non-zero chance. |
 | `ScaledRoot` | children. Full-screen root with the responsive UIScale (use this for screens). |
 | `AutoScale` | none. Bare UIScale following the viewport; only under a content-sized frame (under a full-screen frame it pushes content off screen - use `ScaledRoot`). |
 
@@ -33,6 +34,11 @@ Helpers: `UI.Theme` (`set`, `current`, `color`, `rarity`, `tiers`, `tierOrder`, 
 `gradient`, `setOverrides`, `subscribe`, `metrics`, `text`, `touchTarget`), pure `UI.ThemeTokens`, `UI.Primitives` (corner/stroke/padding/gradient/shadow/list/textSize elements),
 pure `UI.Format` (`abbreviate`, `percent`), `UI.Odds` (`rows`, `total`, `mutationRows`, `outcomeRows`, `pityLine`), `UI.OddsLayout` (OddsTable's Scale columns and minimum row width, v1.6.1), `UI.ToastQueue`,
 `UI.Responsive`. The pure ones have `*.spec.luau` tests.
+
+The default `metrics.minTextSize = 11` is a **real on-screen pixel** floor after responsive and modal scaling.
+`text.min = 14` design px is the default floor for fixed-width TextScaled labels.
+Odds names use a fixed readable size, wrap up to two lines, then ellipsize; tap the name to reveal its full text.
+The odds notice and long section headers use measured `WrappedText` rather than unreliable wrapped AutomaticSize Y.
 
 ## Theme
 

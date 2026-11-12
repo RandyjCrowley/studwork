@@ -15,7 +15,7 @@
 		odds: { [itemId]: probability }?  legacy: per-item odds only (e.g. Rarity.getOdds)
 		items: { { id: string, name: string, rarity: string } }  item defs (GameConfig.items)
 		sortBy: "rarity" | "probability" | nil  ("rarity": rarest last)
-		title: string?                    default "Odds"
+		title: string | false              default "Odds"; false omits embedded heading
 		restricted: boolean?              show the regional notice (pass
 		                                  Core.Client.state().paidRandomRestricted for Robux rolls)
 		restrictedText: string?           override the notice text
@@ -33,6 +33,7 @@ local Panel = require(script.Parent.Panel)
 local RarityBadge = require(script.Parent.RarityBadge)
 local TextFit = require(script.Parent.TextFit)
 local Theme = require(script.Parent.Theme)
+local WrappedText = require(script.Parent.WrappedText)
 
 local e = React.createElement
 
@@ -41,7 +42,7 @@ export type Props = {
 	odds: { [string]: number }?,
 	items: { Odds.ItemDefLike },
 	sortBy: Odds.SortBy?,
-	title: string?,
+	title: (string | boolean)?,
 	restricted: boolean?,
 	restrictedText: string?,
 	size: UDim2?,
@@ -66,6 +67,8 @@ local function cell(col: OddsLayout.Column): (UDim2, UDim2)
 end
 
 local function Row(props: { row: Odds.OddsRow, layoutOrder: number })
+	local expanded, setExpanded = React.useState(false)
+	local fullHeight, setFullHeight = React.useState(ROW_HEIGHT)
 	local row = props.row
 	local color = (Theme.rarity(row.rarity))
 	local cols = OddsLayout.columns
@@ -75,7 +78,7 @@ local function Row(props: { row: Odds.OddsRow, layoutOrder: number })
 	return e("Frame", {
 		BackgroundColor3 = Theme.color("surfaceAlt"),
 		BorderSizePixel = 0,
-		Size = UDim2.new(1, 0, 0, ROW_HEIGHT),
+		Size = UDim2.new(1, 0, 0, if expanded then ROW_HEIGHT + fullHeight else ROW_HEIGHT),
 		LayoutOrder = props.layoutOrder,
 	}, {
 		Corner = e("UICorner", { CornerRadius = UDim.new(0, 8) }),
@@ -85,23 +88,39 @@ local function Row(props: { row: Odds.OddsRow, layoutOrder: number })
 			Size = UDim2.new(0, 6, 1, -8),
 			Position = UDim2.fromOffset(4, 4),
 		}, { Corner = e("UICorner", { CornerRadius = UDim.new(0.5, 0) }) }),
-		Name = e("TextLabel", {
+		Name = e("TextButton", {
+			AutoButtonColor = false,
+			Selectable = true,
+			[React.Event.Activated] = function()
+				setExpanded(not expanded)
+			end,
 			Text = row.name,
 			FontFace = Theme.font("bold"),
 			TextSize = Theme.text.body,
-			TextScaled = true, -- long names ("Rainbow Legendary Sword") shrink and wrap, never "..."
+			TextScaled = false, -- names keep a readable fixed size
 			TextWrapped = true,
+			TextTruncate = Enum.TextTruncate.AtEnd,
 			TextColor3 = Theme.color("text"),
 			TextXAlignment = Enum.TextXAlignment.Left,
 			BackgroundTransparency = 1,
 			Size = nameSize,
 			Position = namePos,
-		}, {
-			Fit = e("UITextSizeConstraint", {
-				MinTextSize = minText(Theme.text.body),
-				MaxTextSize = Theme.text.body,
-			}),
 		}),
+		FullName = if expanded
+			then e("Frame", {
+				BackgroundTransparency = 1,
+				Size = UDim2.new(1, -16, 0, fullHeight),
+				Position = UDim2.new(0, 16, 0, ROW_HEIGHT),
+			}, {
+				Text = e(WrappedText, {
+					text = row.name,
+					textSize = "body",
+					font = "bold",
+					color = "text",
+					onHeight = setFullHeight,
+				}),
+			})
+			else nil,
 		Badge = if row.rarity
 			then e("Frame", {
 				BackgroundTransparency = 1,
@@ -141,17 +160,12 @@ end
 local HEADER_HEIGHT = 24
 
 local function Header(props: { text: string, layoutOrder: number })
-	return e("TextLabel", {
-		Text = props.text,
-		FontFace = Theme.font("bold"),
-		TextSize = Theme.text.small,
-		TextColor3 = Theme.color("textMuted"),
-		TextXAlignment = Enum.TextXAlignment.Left,
-		TextWrapped = true,
-		BackgroundTransparency = 1,
-		Size = UDim2.new(1, 0, 0, HEADER_HEIGHT),
-		AutomaticSize = Enum.AutomaticSize.Y, -- long mutation lists wrap on phones
-		LayoutOrder = props.layoutOrder,
+	return e(WrappedText, {
+		text = props.text,
+		font = "bold",
+		textSize = "small",
+		color = "textMuted",
+		layoutOrder = props.layoutOrder,
 	})
 end
 
@@ -212,31 +226,21 @@ local function OddsTable(props: Props)
 	local listHeight = math.min(maxHeight, height)
 
 	return e(Panel, {
-		title = props.title or "Odds",
+		title = if props.title == false then nil else (props.title or "Odds"),
 		size = props.size,
 		position = props.position,
 		anchorPoint = props.anchorPoint,
 		layoutOrder = props.layoutOrder,
 	}, {
 		Notice = if props.restricted
-			then e("TextLabel", {
-				Text = props.restrictedText or DEFAULT_RESTRICTED_TEXT,
-				FontFace = Theme.font("bold"),
-				TextSize = Theme.text.small,
-				TextWrapped = true,
-				TextColor3 = Theme.color("outline"),
-				BackgroundColor3 = Theme.color("warning"),
-				Size = UDim2.fromScale(1, 0),
-				AutomaticSize = Enum.AutomaticSize.Y,
-				LayoutOrder = 1,
-			}, {
-				Corner = e("UICorner", { CornerRadius = UDim.new(0, 8) }),
-				Padding = e("UIPadding", {
-					PaddingTop = UDim.new(0, 6),
-					PaddingBottom = UDim.new(0, 6),
-					PaddingLeft = UDim.new(0, 8),
-					PaddingRight = UDim.new(0, 8),
-				}),
+			then e(WrappedText, {
+				text = props.restrictedText or DEFAULT_RESTRICTED_TEXT,
+				font = "bold",
+				textSize = "small",
+				color = "outline",
+				backgroundColor = "warning",
+				padding = 8,
+				layoutOrder = 1,
 			})
 			else nil,
 		Empty = if #rows == 0

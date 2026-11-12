@@ -5,7 +5,17 @@
 	UNSCALED size fit; 1 when it already fits or a size is unknown (0).
 ]]
 
+local Responsive = require(script.Parent.Responsive)
+
 local ModalFit = {}
+
+-- A second scale may never make the smallest text fall below the real-pixel floor.
+function ModalFit.minScale(tokens: any): number
+	local metrics = tokens.metrics or {}
+	local text = tokens.text or metrics.text or {}
+	local smallest = math.min(text.min or text.small or 14, text.small or 14)
+	return math.min(1, (metrics.minTextSize or 11) / (Responsive.MIN_SCALE * smallest * 0.94))
+end
 
 ModalFit.MAX_WIDTH_FRACTION = 0.92
 ModalFit.MAX_HEIGHT_FRACTION = 0.88
