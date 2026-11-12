@@ -13,6 +13,22 @@ is in [decisions.md](../../decisions.md#v170-engagement-text-flags-localization)
 `packages/framework/shared/Env.luau` and `Flags.luau` (pure, both sides),
 `packages/framework/server/FlagOverride.luau` (the live override).
 
+## Quick start (flags)
+
+A feature flag is a name in `GameConfig.flags`; a kit's `flag` config key points at it (a kill switch).
+The harness must get the same `flags` as the game: the scaffold's `GameModule.spec` forwards
+`Config.flags` (and the other GameConfig keys), so a flag you add to `Config` works in your specs.
+
+```lua
+-- GameConfig
+flags = { notifications = { default = false, studio = true } },   -- off live until you flip it
+config = { Notifications = { flag = "notifications", ... } },
+-- game code, either side:
+if StudWork.flags.isOn("notifications") then ... end
+-- spec (mirrored by KitQuickStarts.spec.luau): pick the environment with env
+local h = StudWork.test.harness({ modules = { Notifications }, env = "studio", flags = Config.flags, config = Config.config })
+```
+
 ## Environments
 
 ```lua

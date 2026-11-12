@@ -16,6 +16,22 @@ Roblox afterwards, in the background; a badge recorded as awarded is never sent 
 the player deletes it from their profile (Roblox would allow that re-award). Nothing a player does
 waits for `BadgeService`.
 
+## Quick start
+
+In `GameConfig.modules` add `Badges`. `id = 0` is a placeholder: recorded, never sent, boots clean
+until you have the real Roblox badge id.
+
+```lua
+-- GameConfig.config
+Badges = { badges = { firstWin = { id = 0, trigger = { kind = "manual" } } } },
+-- game module (server): true when newly recorded; asking twice is safe
+Badges.award(player, "firstWin")
+-- spec (mirrored by KitQuickStarts.spec.luau)
+local h = StudWork.test.harness({ modules = { Badges }, services = { BadgeService = StudWork.test.fakes.badgeService() },
+	config = { Badges = { badges = { firstWin = { id = 0, trigger = { kind = "manual" } } } } } })
+local api = h:use(Badges); expect(api.award(h:addPlayer({ userId = 1 }), "firstWin")).toBe(true)
+```
+
 ## Config (`config.Badges`)
 
 | Key | Default | Meaning |

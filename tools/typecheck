@@ -31,7 +31,7 @@ TESTKIT_DEFS="$(core_path tools/types/testkit.d.luau)"
 mkdir -p .cache
 if [ ! -f "$DEFS" ]; then
 	[ "$OFFLINE" -eq 0 ] || die "--offline: the Roblox type definitions are not at $DEFS (copy globalTypes-$LUAU_LSP_TAG.d.luau from another StudWork checkout's .cache/, or run once without --offline)"
-	echo "downloading Roblox type definitions (luau-lsp $LUAU_LSP_TAG) into $DEFS"
+	echo "first run: downloading Roblox type definitions; --offline to skip (luau-lsp $LUAU_LSP_TAG, into $DEFS)"
 	curl -sfL -o "$DEFS" "https://raw.githubusercontent.com/JohnnyMorganz/luau-lsp/$LUAU_LSP_TAG/scripts/globalTypes.d.luau" \
 		|| die "could not download definitions"
 fi
@@ -173,8 +173,11 @@ fi
 
 if [ -n "$OUT" ]; then
 	echo "$OUT"
-	COUNT="$(echo "$OUT" | grep -c 'Error\|Warning\|Deprecated' || true)"
-	echo "typecheck: $COUNT problem(s)"
+	# luau-lsp prints "<path>(l,c): TypeError: ..." for errors and "<path>(l,c): ImportUnused: ..."
+	# (and the like) for lint warnings. Counted apart; the exit code is 1 for any output, as before.
+	ERRORS="$(echo "$OUT" | grep -cE '\([0-9]+,[0-9]+\): [A-Za-z]*Error' || true)"
+	TOTAL="$(echo "$OUT" | grep -cE '\([0-9]+,[0-9]+\): ' || true)"
+	echo "typecheck: $TOTAL problem(s): $ERRORS error(s), $((TOTAL - ERRORS)) warning(s)"
 	exit 1
 fi
 echo "typecheck: clean"

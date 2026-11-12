@@ -14,6 +14,22 @@ locale atom), `packages/framework/server/Text.luau` (`ctx.text`: translators, re
 `packages/framework/client/Text.luau` (translator proxy, locale), `packages/ui/Strings.luau` (the UI
 kit's English defaults), `packages/ui/Text.luau` (`UI.text`, `UI.useText`).
 
+## Quick start
+
+Nothing to enable: the framework and UI kit already use string keys with English defaults.
+Reword a key or add your own in `GameConfig.strings`; translations come from Roblox's tables.
+
+```lua
+-- GameConfig
+strings = { ["ui.close"] = "Done", ["game.welcome"] = "Welcome back, {name}!" },  -- game keys start "game."
+-- server: in that player's language (English until their translator arrives)
+ctx.text.format(player, "game.welcome", { name = player.Name })
+-- client: UI.useText("game.welcome", { name = ... }) in a component
+-- spec (mirrored by KitQuickStarts.spec.luau): the key resolves from the harness's `strings` option
+local h = StudWork.test.harness({ modules = { MyModule }, strings = { ["game.welcome"] = "Welcome back, {name}!" } })
+-- add locale = "es", translator = StudWork.test.fakes.translator({ entries = {...} }) to test a translation
+```
+
 ## Keys and English defaults
 
 A key is `<namespace>.<name>` (`^[%a][%w_]*%.[%w_.]+$`, at most 100 characters):

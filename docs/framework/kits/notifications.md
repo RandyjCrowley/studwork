@@ -12,6 +12,23 @@ of the cross-module surface in [kit-contract.md](../kit-contract.md).
 local Notifications = require(ReplicatedStorage:WaitForChild("Modules"):WaitForChild("Notifications"):WaitForChild("module"))
 ```
 
+## Quick start
+
+Add `Notifications` to `GameConfig.modules`, the allow-list to `ServerConfig` ([Setup](#setup-the-key-and-the-allow-list)).
+
+```lua
+-- GameConfig.config
+Notifications = { templates = { comeBack = { messageId = "123456" } } },   -- "" = placeholder, never sent
+-- game module (server)
+Notifications.suggestOptIn(player, "firstHatch")                          -- a good moment to ask
+Notifications.schedule(player.UserId, "comeBack", os.time() + 6 * 3600)
+-- spec (NotificationsQuickStart.spec.luau): isStudio = true needs sendInStudio, else it only logs
+local h = StudWork.test.harness({ modules = { Notifications }, isStudio = true, openCloud = fake,
+	secrets = { OpenCloudNotifications = true }, serverConfig = ServerConfig,   -- the openCloud allow-list
+	config = { Notifications = { templates = ..., sendInStudio = true, quiet = { startHour = 0, endHour = 0 },
+		optIn = { minSessions = 0 } } } })   -- minSessions = 0: a brand-new player can be prompted
+```
+
 ## How the platform works (and what it doesn't do)
 
 - **Opt-in is Roblox's prompt, on the client.** `ExperienceNotificationService:CanPromptOptInAsync()`
@@ -372,6 +389,24 @@ for another server. A game that sends many notifications from servers with few p
   grows (`max(pollSeconds, 60 x servers / (shards x pollsPerShardPerMinute))`, above). A due entry
   inside the recipient's quiet hours is moved to their `endHour`, not sent, so pick due times in
   open hours (or set `quiet = { startHour = 0, endHour = 0 }`, no quiet hours).
+- **A complete scheduled-send harness** (Studio server, so `sendInStudio = true`; `quiet` off so any
+  due time is open; the allow-list in `serverConfig`; `schedule.shards = 1`). Without any one of them
+  the fake sees 0 requests. Run as a spec in `NotificationsQuickStart.spec.luau`:
+
+  ```lua
+  local h = StudWork.test.harness({
+  	modules = { Notifications }, isStudio = true, openCloud = openCloudFake,
+  	secrets = { OpenCloudNotifications = true },
+  	serverConfig = { openCloud = { secrets = { OpenCloudNotifications = {
+  		modules = { "Notifications" }, methods = { "POST" }, paths = { "users/*/notifications" } } } } },
+  	config = { Notifications = { templates = { comeBack = { messageId = "123" } },
+  		sendInStudio = true, quiet = { startHour = 0, endHour = 0 }, schedule = { shards = 1 } } },
+  })
+  ```
+
+- **A new player and the opt-in.** `optIn.minSessions` (default 1) counts *finished* sessions, so a
+  fresh `h:addPlayer` is never prompted with the defaults: set `optIn = { minSessions = 0 }` (or
+  `h:rejoin(p)` once). Then `h:tick(181)` passes `minSessionSeconds`.
 - **The opt-in without stubbing the part.** The harness gives the part a recording `net`
   (testing.md), so no hand-made part is needed:
 

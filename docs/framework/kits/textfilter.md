@@ -18,6 +18,22 @@ experience that doesn't is removed until it does. This module is the one path; t
 lint check (below) flags game code that skips it. The original text stays inside this module's own
 server-only save section: nothing the API returns contains it.
 
+## Quick start
+
+In `GameConfig.modules` add `TextFilter`. Filter on the server, from an action handler (it yields),
+and show only what comes back, never the text the player typed.
+
+```lua
+-- game module action (server)
+local ok, stored = ctx.deps[TextFilter].store(player, name, "public")   -- or filter(...) for text you don't keep
+if ok then ctx.data.update(player, function(s) s.petNames[uid] = stored end) end
+-- later, for any viewer: ctx.deps[TextFilter].shown(stored)
+-- spec (mirrored by KitQuickStarts.spec.luau): the fake replaces "badword"; policy allows public text
+local h = StudWork.test.harness({ modules = { TextFilter }, policy = { [1] = { IsContentSharingAllowed = true } },
+	services = { TextService = StudWork.test.fakes.textService({ replace = { badword = true } }) } })
+local ok, result = h:use(TextFilter).filter(h:addPlayer({ userId = 1 }), "a badword", "public")
+```
+
 ## Contexts
 
 | Context | Who may see it | Roblox calls | Text filter context |

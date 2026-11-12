@@ -10,7 +10,7 @@ Games don't live in this repo; each game is its own repo with StudWork pinned as
 |---|---|
 | **Migrate an existing Roblox game to StudWork** ("here's StudWork, here's my game, migrate it") | [docs/agents/adopt-existing-game.md](docs/agents/adopt-existing-game.md), the step-by-step playbook. The design behind it: [docs/framework/adopting.md](docs/framework/adopting.md) |
 | **Build a new game** | [README.md](README.md) "Quick start" (`tools/new-project my-game`), then the new project's own `CLAUDE.md` and [docs/framework/getting-started.md](docs/framework/getting-started.md) |
-| **Work on a game that already uses StudWork** | That project's `CLAUDE.md` and `README.md`; the API is [docs/framework/module-api.md](docs/framework/module-api.md) |
+| **Work on a game that already uses StudWork** | That project's `CLAUDE.md` and `README.md`; the API is [docs/framework/module-api.md](docs/framework/module-api.md) (source of truth; [module-reference.md](docs/framework/module-reference.md) is the current summary) |
 | **Change the framework itself** (this repo) | [CLAUDE.md](CLAUDE.md). Its hard rules bind every change here |
 
 This file only routes. Where it and `CLAUDE.md` seem to differ, `CLAUDE.md` wins for work on this
@@ -42,6 +42,6 @@ repo, and the playbook wins for a migration.
 - [docs/README.md](docs/README.md): the docs index.
 - [docs/agents/](docs/agents/): agent playbooks ([adopt-existing-game.md](docs/agents/adopt-existing-game.md),
   [migrate-prompt.md](docs/agents/migrate-prompt.md)).
-- [docs/framework/module-api.md](docs/framework/module-api.md): the module API (source of truth).
+- [docs/framework/module-api.md](docs/framework/module-api.md): the module API (source of truth); [module-reference.md](docs/framework/module-reference.md) is its current summary.
 - [docs/framework/guardrails.md](docs/framework/guardrails.md): what `tools/lint` refuses and why.
 - [docs/framework/kits/](docs/framework/kits/): each kit's config, API and save data.
