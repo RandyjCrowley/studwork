@@ -717,3 +717,10 @@ these pages before relying on a limit.
   v1.6.0 0.792 ms/tick (medians of 7, fully overlapping spreads, identical allocations); no per-tick
   code changed between them.
 
+- **The local test gate mirrors CI for paths (v1.7.1).** CI has no `$TMPDIR`, so specs that build a
+  temp folder fell back to `<cwd>/.cache`; Lune's `process.cwd` ends in `/`, which made `//`, and the
+  harness's prefix strip then left an absolute-looking `/.cache/...` that failed to load. macOS sets
+  `$TMPDIR`, so every local gate passed while Linux CI failed. The harness now normalises both paths
+  (`tools/lune/testkit/pathutil.luau`: collapse `//`, `.`, trailing `/`), the specs join through it,
+  and `tools/test` always runs the runner self-test with `$TMPDIR` unset, a `<repo>/` cwd and a
+  doubled-slash spec path, with or without path arguments.

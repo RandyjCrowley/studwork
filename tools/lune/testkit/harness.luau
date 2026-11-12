@@ -20,6 +20,7 @@ local luau = require("@lune/luau")
 local serde = require("@lune/serde")
 local process = require("@lune/process")
 local task = require("@lune/task")
+local PathUtil = require("./pathutil")
 
 local Harness = {}
 
@@ -797,10 +798,12 @@ function Harness.runSpec(specPath: string): (number, number, { string })
 	-- The indexed tree uses project-relative paths. Explicit absolute paths inside the
 	-- current project must use those same keys for both loading and Rojo mapping.
 	if string.sub(specPath, 1, 1) == "/" then
+		-- normalised on both sides: a cwd with or without a trailing "/" and doubled slashes in the
+		-- spec path (CI: $TMPDIR unset, cwd "<repo>/") must still reduce to a project-relative key
 		local cwd = string.gsub(process.exec("pwd", {}).stdout, "%s+$", "")
-		if string.sub(specPath, 1, #cwd + 1) == cwd .. "/" then
-			specPath = string.sub(specPath, #cwd + 2)
-		end
+		specPath = PathUtil.relativeTo(specPath, cwd)
+			or PathUtil.relativeTo(specPath, process.cwd)
+			or specPath
 	end
 	local tests: { { name: string, fn: () -> () } } = {}
 	local prefix: { string } = {}
