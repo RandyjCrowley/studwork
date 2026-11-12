@@ -320,6 +320,17 @@ end
 -- the end position of the block opened by the keyword at `pos` (function/if/do/repeat ... end)
 local OPENERS = { ["function"] = true, ["if"] = true, ["do"] = true, ["repeat"] = true }
 local CLOSERS = { ["end"] = true, ["until"] = true }
+-- (v1.6.0 dogfood r4) is the `if` at `s` an expression (after `=`, `return`, `(`, `,`, `{`, an
+-- operator, `and`/`or`/`not`, or `then`/`else` of an outer if-expression)?
+local function isIfExpression(code: string, s: number): boolean
+	local before = string.match(string.sub(code, math.max(1, s - 40), s - 1), "([^%s]+)%s*$") or ""
+	if string.match(before, "[=%(,{%+%-%*/%%%^%.<>]$") then
+		return true
+	end
+	local word = string.match(before, "([%a_][%w_]*)$")
+	return word == "return" or word == "and" or word == "or" or word == "not"
+end
+
 local function blockEnd(code: string, pos: number): number
 	local depth = 0
 	local i = pos
@@ -327,6 +338,11 @@ local function blockEnd(code: string, pos: number): number
 		local s, e, word = string.find(code, "%f[%w_]([%a_][%w_]*)", i)
 		if s == nil then
 			return #code
+		end
+		if word == "if" and isIfExpression(code, s) then
+			-- an if-expression (`x = if a then b else c`) has no `end`
+			i = e + 1
+			continue
 		end
 		if OPENERS[word] then
 			depth += 1
@@ -942,6 +958,16 @@ local function writesData(region: string): boolean
 end
 Scan.writesData = writesData
 
+-- a store write or a leaderstats value write (not a local's `total += w`)
+local function storeWrite(region: string): boolean
+	return string.find(region, ":%s*Increment%s*%(") ~= nil
+		or string.find(region, ":%s*Update%s*%(") ~= nil
+		or string.find(region, "SetAsync%s*%(") ~= nil
+		or string.find(region, "UpdateAsync%s*%(") ~= nil
+		or string.find(region, "IncrementAsync%s*%(") ~= nil
+		or string.find(region, "%.Value%s*[%+%-%*]?=%s*[^=]") ~= nil
+end
+
 local function usesRandom(region: string): boolean
 	return string.find(region, "math%.random") ~= nil
 		or string.find(region, "Random%.new") ~= nil
@@ -961,6 +987,31 @@ local function hasHistoryCheck(region: string): boolean
 end
 Scan.hasHistoryCheck = hasHistoryCheck
 
+-- (v1.6.0 dogfood r4) where a receipt handler keeps its purchase history: "store" (a DataStore
+-- of its own, read or written with the purchase id: `ctx.shop.legacyReceipts`), "save" (a
+-- table inside the player's save indexed by the purchase id: `importLegacy.receipts(old)`), or
+-- nil (no history found). For "save", the field holding it when the scan can name it.
+local function historyIn(region: string): (string?, string?)
+	if not hasHistoryCheck(region) then
+		return nil, nil
+	end
+	local field = string.match(region, "%.([%a_][%w_]*)%s*%[[^%]\n]*PurchaseId[^%]\n]*%]")
+	if
+		string.find(region, "GetAsync") ~= nil
+		or string.find(region, "UpdateAsync") ~= nil
+		or string.find(region, "SetAsync") ~= nil
+	then
+		if field == nil then
+			return "store", nil
+		end
+	end
+	if string.find(region, "%[[^%]\n]*PurchaseId[^%]\n]*%]") ~= nil then
+		return "save", field
+	end
+	return "store", nil
+end
+Scan.historyIn = historyIn
+
 local function scanPurchases(ctx, res)
 	local m = ctx.m
 	local code = m.code
@@ -974,7 +1025,13 @@ local function scanPurchases(ctx, res)
 		local rs, re = functionRegion(code, e + (#string.sub(code, e) - #rest), rest)
 		local region = if rs then string.sub(code, rs, re) else string.sub(code, e)
 		table.insert(regions, { s = rs or e, e = re or #code })
-		table.insert(p.processReceipt, { line = lineOf(m, pos), historyCheck = hasHistoryCheck(region) })
+		local hin, hfield = historyIn(region)
+		table.insert(p.processReceipt, {
+			line = lineOf(m, pos),
+			historyCheck = hasHistoryCheck(region),
+			historyIn = hin,
+			historyField = hfield,
+		})
 	end
 	local purchaseFile = #p.processReceipt > 0 or string.find(code, "ProductId") ~= nil
 	local seen = {}
@@ -1328,16 +1385,65 @@ function Scan.scan(source: string, constants: { [string]: number }?)
 	-- (v1.6.0 dogfood r2) randomness inside one function that also grants (writes save data or
 	-- a sold field): what a paid random item looks like. Visual randomness (positions, effects)
 	-- in a function that grants nothing doesn't count.
+	-- (v1.6.0 dogfood r4) a field write counts as a grant only when it isn't an Instance property
+	-- (PascalCase: orb.Transparency, gui.ResetOnSpawn), so a function that builds parts or UI
+	-- with random positions grants nothing. `randomFns` lists every function that rolls
+	-- (directly, or by calling a local function of this file that does) with the fields it
+	-- writes, so the audit can match them against the currencies the game sells (a remote that
+	-- spends a sold currency and then rolls is a paid random item).
 	res.randomGrants = false
+	res.randomFns = {}
 	if res.random then
+		local rollers = {}
+		for pos, name in string.gmatch(m.code, "()%f[%w_]function%s+([%a_][%w_]*)%s*%(") do
+			if usesRandom(string.sub(m.code, pos, blockEnd(m.code, pos))) then
+				rollers[name] = true
+			end
+		end
+		for pos, name in string.gmatch(m.code, "()%f[%w_]([%a_][%w_]*)%s*=%s*function%f[^%w_]") do
+			local fpos = string.find(m.code, "function", pos, true) or pos
+			if usesRandom(string.sub(m.code, fpos, blockEnd(m.code, fpos))) then
+				rollers[name] = true
+			end
+		end
 		for pos in string.gmatch(m.code, "()%f[%w_]function%f[^%w_]") do
 			local region = string.sub(m.code, pos, blockEnd(m.code, pos))
-			if
-				usesRandom(region) and (writesData(region) or #soldFields(ctx, region, res.ds2Vars or {}) > 0)
-			then
-				res.randomGrants = true
-				break
+			local rolls = usesRandom(region)
+			if not rolls then
+				-- the body after the parameter list (a call to itself isn't a roll)
+				local body = string.match(region, "^function[^%(]*%b()(.*)$") or region
+				for name in rollers do
+					if string.find(body, "%f[%w_]" .. name .. "%s*%(") then
+						rolls = true
+						break
+					end
+				end
 			end
+			if rolls then
+				local fields = {}
+				for _, f in soldFields(ctx, region, res.ds2Vars or {}) do
+					local first = string.sub(f, 1, 1)
+					if first ~= string.upper(first) then
+						table.insert(fields, f)
+					end
+				end
+				table.insert(res.randomFns, {
+					line = lineOf(m, pos),
+					fields = fields,
+					allFields = soldFields(ctx, region, res.ds2Vars or {}),
+				})
+				if #fields > 0 or storeWrite(region) then
+					res.randomGrants = true
+				end
+			end
+		end
+	end
+	-- (v1.6.0 dogfood r4) UI built in code: Instance.new("ScreenGui") (a HUD a LocalScript makes)
+	res.codeUi = {}
+	for pos, n in string.gmatch(m.code, "()Instance%.new%s*%(%s*__S(%d+)__") do
+		local cls = m.strings[tonumber(n)] and m.strings[tonumber(n)].value
+		if cls == "ScreenGui" or cls == "SurfaceGui" or cls == "BillboardGui" then
+			table.insert(res.codeUi, { class = cls, line = lineOf(m, pos) })
 		end
 	end
 	res.mentionsOdds = string.find(string.lower(source), "odds") ~= nil

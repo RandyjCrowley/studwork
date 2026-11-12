@@ -607,4 +607,87 @@ end)
 		expect(string.find(text, "src/server", 1, true)).toBeNil()
 		fs.removeDir(root)
 	end)
+	it(
+		"(r4) paid_random_no_odds: a remote spending a sold currency on a roll; not orbs next to prompts",
+		function()
+			local root = tmpRoot()
+			write(
+				root .. "/default.project.json",
+				'{ "name": "x", "tree": { "$className": "DataModel", "ServerScriptService": { "$path": "src/server" }, "ReplicatedStorage": { "Game": { "my-game": { "$path": "modules/my-game" } } }, "StarterPlayer": { "StarterPlayerScripts": { "$path": "src/client" } } } }'
+			)
+			-- agent c's shape: a game module's client part, a product prompt in one function and
+			-- random orb positions (Instance properties) in another
+			write(
+				root .. "/modules/my-game/client/init.luau",
+				[[local MarketplaceService = game:GetService("MarketplaceService")
+local Client = {}
+function Client.start(_ctx)
+	local gui = Instance.new("ScreenGui")
+	gui.ResetOnSpawn = false
+	MarketplaceService:PromptProductPurchase(game.Players.LocalPlayer, 5555)
+	for _ = 1, 8 do
+		local orb = Instance.new("Part")
+		orb.Anchored = true
+		orb.Position = Vector3.new(math.random(-40, 40), 2, math.random(-40, 40))
+		orb.Transparency = 0
+	end
+end
+return Client
+]]
+			)
+			write(
+				root .. "/src/server/Shop.server.luau",
+				[[local MarketplaceService = game:GetService("MarketplaceService")
+MarketplaceService.ProcessReceipt = function(receipt)
+	local profile = Sessions[receipt.PlayerId]
+	if profile.Data.Purchases[receipt.PurchaseId] then return Enum.ProductPurchaseDecision.PurchaseGranted end
+	if receipt.ProductId == 4444 then
+		profile.Data.gems += 100
+	end
+	profile.Data.Purchases[receipt.PurchaseId] = true
+	return Enum.ProductPurchaseDecision.PurchaseGranted
+end
+]]
+			)
+			local report = Audit.run(env, { root }, { write = false })
+			expect(riskKinds(report).paid_random_no_odds).toBeNil()
+			-- historyIn per product handler
+			expect(report.purchases.products[1].historyIn).toBe("save")
+			expect(report.purchases.products[1].historyField).toBe("Purchases")
+			-- the ScreenGui the client part builds in code is listed in ui[]
+			local codeUi = nil
+			for _, u in report.ui do
+				if u.builtIn == "code" then
+					codeUi = u
+				end
+			end
+			expect(codeUi.class).toBe("ScreenGui")
+			expect(codeUi.scripts).toEqual({ "modules/my-game/client/init.luau" })
+			-- agent b's Hatch: a remote handler spends the sold gems, then rolls (a local function)
+			write(
+				root .. "/src/server/Pets.server.luau",
+				[[local rng = Random.new()
+local function pick()
+	return if rng:NextNumber() < 0.5 then "puppy" else "dragon"
+end
+Remotes.Hatch.OnServerEvent:Connect(function(player)
+	local data = Sessions[player].Data
+	data.gems -= 50
+	table.insert(data.pets, { id = pick() })
+end)
+]]
+			)
+			local report2 = Audit.run(env, { root }, { write = false })
+			local hit = nil
+			for _, r in report2.risks do
+				if string.match(r.id, "^([^:]+)") == "paid_random_no_odds" then
+					hit = r
+				end
+			end
+			expect(hit.level).toBe("high")
+			expect(hit.file).toBe("src/server/Pets.server.luau")
+			expect(hit.line).toBe(5)
+			fs.removeDir(root)
+		end
+	)
 end)
