@@ -9,7 +9,7 @@ local Resolve = require(FrameworkShared:WaitForChild("Resolve"))
 local function bootErrors(gameModule: any): { string }
 	local modules = table.clone(Config.modules)
 	table.insert(modules, gameModule)
-	local order, errors = Resolve.resolve(modules, "1.3.0")
+	local order, errors = Resolve.resolve(modules, require(FrameworkShared).VERSION)
 	if order == nil then
 		return errors
 	end

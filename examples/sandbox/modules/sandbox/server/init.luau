@@ -25,6 +25,11 @@ local Streak = require(Modules:WaitForChild("Streak"):WaitForChild("module"))
 local Friends = require(Modules:WaitForChild("Friends"):WaitForChild("module"))
 local Mail = require(Modules:WaitForChild("Mail"):WaitForChild("module"))
 local Tuning = require(ReplicatedStorage:WaitForChild("Game"):WaitForChild("Config"):WaitForChild("Tuning"))
+-- v1.7.0 kit demos (each file is owned by its kit's builder)
+local DemoBadges = require(script.DemoBadges)
+local DemoLeaderboards = require(script.DemoLeaderboards)
+local DemoNotifications = require(script.DemoNotifications)
+local DemoTextFilter = require(script.DemoTextFilter)
 
 local TOUCH_COOLDOWN = 1.5 -- seconds between block rewards per player (sandbox-only feel number)
 
@@ -35,6 +40,10 @@ local function firstPlayer(): Player?
 end
 
 function Sandbox.init(ctx: any)
+	DemoLeaderboards.init(ctx)
+	DemoBadges.init(ctx)
+	DemoNotifications.init(ctx)
+	DemoTextFilter.init(ctx)
 	-- Robux products: receipt-safe, data-only handlers. Everything goes through `tx` inside the
 	-- transaction that records the receipt; erroring (or tx.retryLater) grants nothing. An
 	-- unknown policy is retried by Compliance itself.
@@ -111,6 +120,10 @@ function Sandbox.init(ctx: any)
 end
 
 function Sandbox.start(ctx: any)
+	DemoLeaderboards.start(ctx)
+	DemoBadges.start(ctx)
+	DemoNotifications.start(ctx)
+	DemoTextFilter.start(ctx)
 	-- Collect: touching the block rolls the free "Block" table.
 	local lastTouch: { [Player]: number } = {}
 	local world = Workspace:FindFirstChild("SandboxWorld")

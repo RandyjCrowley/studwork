@@ -27,8 +27,12 @@ local Config = {
 		require(Modules:WaitForChild("Rebirth"):WaitForChild("module")),
 		require(Modules:WaitForChild("Offline"):WaitForChild("module")),
 		require(Modules:WaitForChild("Streak"):WaitForChild("module")),
+		require(Modules:WaitForChild("Leaderboards"):WaitForChild("module")),
+		require(Modules:WaitForChild("Badges"):WaitForChild("module")),
+		require(Modules:WaitForChild("Notifications"):WaitForChild("module")),
 		require(Modules:WaitForChild("Friends"):WaitForChild("module")),
 		require(Modules:WaitForChild("Mail"):WaitForChild("module")),
+		require(Modules:WaitForChild("TextFilter"):WaitForChild("module")),
 		require(Modules:WaitForChild("Plot"):WaitForChild("module")),
 	} :: { any },
 	config = require(script.Balance),
@@ -38,6 +42,24 @@ local Config = {
 	products = require(script.Products),
 	-- shop = { passPrefetchTimeout = 2 }, -- seconds a join waits for gamepass lookups (0-5)
 	events = require(script.Events),
+	-- Environments (generated from deploy.json by tools/sync-projects) and feature flags
+	-- (docs/framework/kits/environments.md): one normal flag and one testOnly flag.
+	environments = require(script.Environments),
+	flags = {
+		newShop = { default = false, studio = true, test = true, description = "the redesigned shop screen" },
+		debugPanel = {
+			default = false,
+			studio = true,
+			test = true,
+			testOnly = true,
+			description = "developer overlay",
+		},
+	},
+	-- Strings (docs/framework/kits/localization.md): a rewording of a UI kit key, and a game key.
+	strings = {
+		["ui.close"] = "Done",
+		["game.welcome"] = "Welcome back, {name}!",
+	},
 	client = { palette = require(script.Palette) },
 	analytics = {
 		funnel = { "Joined", "FirstCollect", "FirstUpgrade", "FirstRebirth" },

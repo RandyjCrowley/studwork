@@ -13,8 +13,12 @@ local EXPECTED = {
 	"Rebirth",
 	"Offline",
 	"Streak",
+	"Leaderboards",
+	"Badges",
+	"Notifications",
 	"Friends",
 	"Mail",
+	"TextFilter",
 	"Plot",
 	"Sandbox", -- the game's own module, added by the framework
 }

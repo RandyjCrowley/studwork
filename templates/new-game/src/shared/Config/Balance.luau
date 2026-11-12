@@ -152,6 +152,30 @@ local Balance = {
 		},
 	},
 	-- @end
+	-- @if Leaderboards
+	Leaderboards = {
+		-- boards = { -- one entry per board; period = "allTime" | "daily" | "weekly", source = { kind = "submit" | "registered" | "currency" | "rebirths" | "streak" }
+		-- 	coins = { period = "allTime", source = { kind = "currency" }, topN = 50 },
+		-- },
+		boards = {},
+		-- defaults: refreshSeconds = 60, writeSeconds = 120, utcOffsetHours = 0, weekStartsOn = "monday", cutToTop = true
+	},
+	-- @end
+	-- @if Badges
+	Badges = {
+		-- badges = { firstHatch = { id = 0, trigger = { kind = "manual" }, toast = true } }, -- id 0 is a placeholder: recorded, never sent
+		badges = {},
+		-- defaults: awardInStudio = false, ownershipCheck = true, retry = { base = 5, factor = 2, max = 300, attempts = 6 }
+	},
+	-- @end
+	-- @if Notifications
+	Notifications = {
+		-- templates = { eggReady = { messageId = "" } }, -- "" is a placeholder: scheduled and limited, never sent
+		templates = {},
+		-- secret = "OpenCloudNotifications", -- also allow it in ServerConfig.openCloud
+		-- defaults: sendInStudio = false, optIn = { minSessionSeconds = 180, cooldownDays = 30 }, limits = { perPlayerPerDay = 1 }
+	},
+	-- @end
 	-- @if Friends
 	Friends = {
 		friends = { checkIntervalSec = 30, coPlayMultiplier = 1.1 }, -- @if Economy
@@ -161,6 +185,11 @@ local Balance = {
 	-- @if Mail
 	-- Mail = { -- defaults:
 	-- 	mail = { giftCap = 100, returnAfterDays = 14, returnKinds = { "core_gift" }, sweepSeconds = 3600 },
+	-- },
+	-- @end
+	-- @if TextFilter
+	-- TextFilter = { -- defaults:
+	-- 	maxLength = 40, trim = true, perPlayerPerMinute = 20, shownMaxDays = 30, respectContentSharing = true,
 	-- },
 	-- @end
 	-- @if Items

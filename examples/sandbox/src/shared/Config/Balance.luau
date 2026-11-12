@@ -113,6 +113,29 @@ local Balance = {
 	Friends = {
 		friends = { checkIntervalSec = 30, coPlayMultiplier = 1.1 },
 	},
+	-- v1.7.0 kits (docs/framework/kits/): placeholder ids, so nothing is sent to Roblox
+	Leaderboards = {
+		boards = {
+			coins = { period = "allTime", source = { kind = "currency" }, topN = 50 },
+			dailyTouches = { period = "daily", source = { kind = "submit" }, mode = "sum", topN = 25 },
+		},
+	},
+	Badges = {
+		-- id = 0 is a placeholder: recorded as awarded, never sent, one warning per server
+		badges = {
+			firstCollect = { id = 0, trigger = { kind = "manual" }, toast = true },
+			streakThree = { id = 0, trigger = { kind = "streak", atLeast = 3 }, toast = true },
+		},
+	},
+	Notifications = {
+		-- messageId = "" is a placeholder: scheduled and limited as usual, never sent
+		templates = {
+			eggReady = { messageId = "", params = {}, category = "egg" },
+			streakEnding = { messageId = "", hoursBefore = 4, minStreak = 3 },
+		},
+	},
+	-- TextFilter has no required config (defaults: maxLength 40, trim, 20 filter calls a minute)
+	TextFilter = {},
 }
 
 return Balance

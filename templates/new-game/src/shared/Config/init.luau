@@ -29,8 +29,12 @@ local Config = {
 		require(Modules:WaitForChild("Rebirth"):WaitForChild("module")), -- reset for a permanent multiplier (needs Economy)
 		require(Modules:WaitForChild("Offline"):WaitForChild("module")), -- payout for time away (autoPay needs Economy)
 		require(Modules:WaitForChild("Streak"):WaitForChild("module")), -- daily UTC streak with grace (rewards need Economy)
+		require(Modules:WaitForChild("Leaderboards"):WaitForChild("module")), -- all-time and daily/weekly boards shared by every server
+		require(Modules:WaitForChild("Badges"):WaitForChild("module")), -- badge awards with dedupe and retries (triggers use optional modules)
+		require(Modules:WaitForChild("Notifications"):WaitForChild("module")), -- experience notifications: opt-in prompt, templates, scheduled sends
 		require(Modules:WaitForChild("Friends"):WaitForChild("module")), -- co-play detection + optional income bonus
 		require(Modules:WaitForChild("Mail"):WaitForChild("module")), -- cross-server / offline messages + mailbox (idempotent handlers)
+		require(Modules:WaitForChild("TextFilter"):WaitForChild("module")), -- filter player-entered text by audience (public / friends / private)
 		require(Modules:WaitForChild("Plot"):WaitForChild("module")), -- per-player plots with item display slots (needs Inventory)
 	} :: { any },
 	config = require(script.Balance),
@@ -44,6 +48,18 @@ local Config = {
 	products = require(script.Products),
 	-- shop = { passPrefetchTimeout = 2 }, -- seconds a join waits for gamepass lookups (0-5)
 	events = require(script.Events),
+	-- Environments and flags (docs/framework/kits/environments.md). The test and live place ids
+	-- come from deploy.json: `tools/sync-projects` writes Environments.luau. Flags switch behaviour
+	-- per environment; a testOnly flag can never be on in live.
+	environments = require(script.Environments),
+	flags = {},
+	-- flags = { newShop = { default = false, studio = true, test = true } },
+	-- flagOverride = { enabled = true, keyPrefix = "flag_", refreshSeconds = 30 }, -- live override from Roblox configs
+	-- Strings (docs/framework/kits/localization.md): reword any string key or add your own game.*
+	-- keys. Translations come from src/shared/Localization/*.csv (mapped into LocalizationService).
+	strings = {},
+	-- localization = { sourceLocale = "en", useTranslators = true },
+	-- storeBudgets = { orderedReserve = 0.25, memory = { reserve = 0.2, defaultShare = 0.25, shares = {} } }, -- module-api.md §23.5
 	client = {
 		palette = require(script.Palette), -- legacy per-game colour overrides (hex), applied last
 		-- Override points (docs/framework/override-levels.md level 3). Uncomment to use.

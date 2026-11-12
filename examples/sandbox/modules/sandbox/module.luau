@@ -13,7 +13,7 @@ local KitDefs = ReplicatedStorage:WaitForChild("Modules")
 return StudWork.defineModule({
 	name = "Sandbox",
 	version = "1.0.0",
-	framework = "^1.3.0",
+	framework = "^1.7.0",
 	description = "The sandbox game: touch the block, collect, earn; products, gifts and events",
 	dependsOn = {
 		require(KitDefs:WaitForChild("Rarity"):WaitForChild("module")),
@@ -25,6 +25,13 @@ return StudWork.defineModule({
 		require(KitDefs:WaitForChild("Streak"):WaitForChild("module")),
 		require(KitDefs:WaitForChild("Friends"):WaitForChild("module")),
 		require(KitDefs:WaitForChild("Mail"):WaitForChild("module")),
+	},
+	-- the v1.7.0 kits the demo hooks use (server/Demo<Module>.luau)
+	optional = {
+		require(KitDefs:WaitForChild("Leaderboards"):WaitForChild("module")),
+		require(KitDefs:WaitForChild("Badges"):WaitForChild("module")),
+		require(KitDefs:WaitForChild("Notifications"):WaitForChild("module")),
+		require(KitDefs:WaitForChild("TextFilter"):WaitForChild("module")),
 	},
 	data = { key = "sandbox", version = 1, default = { blockTouches = 0 }, replicate = { "blockTouches" } },
 	server = "Sandbox",
