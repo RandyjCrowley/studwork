@@ -19,7 +19,7 @@ inside `UI.ScaledRoot` (full-screen root that applies the responsive UIScale and
 |---|---|
 | `Button` | `text`, `variant?` (`"primary"`\|`"secondary"`\|`"danger"`), `disabled?`, `onActivated?`, `icon?`, `size?`, `position?`, `anchorPoint?`, `layoutOrder?`. Press tween (UIScale 0.94), min size = touch target. |
 | `Panel` | `title?`, `color?` (palette key, default `surface`), `size?` (default full width, auto height), `automaticSize?`, `position?`, `anchorPoint?`, `layoutOrder?`, children (vertical list). Rounded, stroke, gradient, drop shadow, padding. |
-| `ItemCard` | `name`, `rarity`, `icon?` (nil = rarity-coloured placeholder initial), `incomePerSec?`, `mutation?`, `mutationColor?` (hex), `size?`, `layoutOrder?`, `onActivated?`. Aspect 0.75 held by UIAspectRatioConstraint; stroke glows by tier. |
+| `ItemCard` | `name`, `rarity`, `icon?` (nil = rarity-coloured placeholder initial), `incomePerSec?`, `mutation?`, `mutationColor?` (hex), `size?`, `layoutOrder?`, `onActivated?`. Aspect 0.75 held by UIAspectRatioConstraint; stroke glows by tier. Cards summarize long names in two fixed-size lines ending in “…”; the odds table reveals full names on tap. |
 | `RarityBadge` | `rarity`, `size?`, `layoutOrder?`. Tier colour pill + glow stroke from `glowStrength`. |
 | `WrappedText` | `text`, `textSize?` (theme size key or number), `font?`, `color?`, `backgroundColor?`, `padding?`, `layoutOrder?`, `alignment?`. Measures the real inner width with TextService and grows to show every wrapped line. |
 | `Toast` | `text`, `rarity?`, `count?` (shows `x3`), `layoutOrder?`, `onDismiss?` (tap). Pops in. |

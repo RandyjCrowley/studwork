@@ -1,5 +1,5 @@
 --!nocheck
--- Rename to UiTextFit.spec.luau only after the UI contract lands.
+-- Source/model fixtures are checked per component and viewport.
 local fs = (getmetatable(getfenv(1)) :: any).__index.require("@lune/fs")
 local Checker = require("tools/lune/uifit/Checker.luau")
 local Responsive = require("packages/ui/Responsive.luau")
@@ -7,9 +7,10 @@ local OddsLayout = require("packages/ui/OddsLayout.luau")
 local ThemeTokens = require("packages/ui/ThemeTokens.luau")
 local SharedTheme = require("packages/framework/shared/Theme.luau")
 local ModalFit = require("packages/ui/ModalFit.luau")
+local ItemCardLayout = require("packages/ui/ItemCardLayout.luau")
 local tokens = ThemeTokens.new(SharedTheme.DEFAULT)
-local minimum = tokens.metrics.minTextSize or 11
-local modalScale = if ModalFit.minScale then ModalFit.minScale(tokens) else 0.665
+local minimum = tokens.metrics.minTextSize
+local modalScale = ModalFit.minScale(tokens)
 local viewports = {
 	{ name = "desktop", x = 1280, y = 720 },
 	{ name = "small phone", x = 667, y = 375 },
@@ -29,8 +30,17 @@ local fixtures = {
 		{ name = "rate", text = "+999.99B/s", size = tokens.text.small, autoWidth = true },
 	},
 	["packages/ui/ItemCard.luau"] = {
-		{ name = "name", text = longName, size = tokens.text.min, wrapped = true, width = 130, height = 48 },
+		{
+			name = "name",
+			text = longName,
+			size = tokens.text.small,
+			wrapped = true,
+			truncateLines = 2,
+			width = ItemCardLayout.WIDTH - 2 * ItemCardLayout.PADDING,
+			height = ItemCardLayout.nameHeight(tokens.text.small),
+		},
 		{ name = "mutation", text = "RAINBOW", size = tokens.text.small, autoWidth = true },
+		{ name = "income", text = "+999.99B/s", size = tokens.text.small, autoWidth = true },
 	},
 	["packages/ui/Modal.luau"] = {
 		{ name = "close", text = "X", size = tokens.text.title, width = tokens.touchTarget },
@@ -42,31 +52,37 @@ local fixtures = {
 			size = tokens.text.small,
 			wrapped = true,
 			width = OddsLayout.MIN_ROW_WIDTH - 16,
-			height = 80,
+			autoWidth = true, -- WrappedText measures the notice height from its actual width.
 		},
 		{
 			name = "name",
 			text = longName,
-			size = tokens.text.min,
+			size = tokens.text.body,
 			wrapped = true,
+			truncateLines = 2,
 			width = OddsLayout.cellWidth(OddsLayout.columns.name, OddsLayout.MIN_ROW_WIDTH),
-			height = 48,
+			height = OddsLayout.ROW_HEIGHT,
 		},
 		{
 			name = "percent",
 			text = "0.0001%",
-			size = tokens.text.min,
+			size = tokens.text.min, -- TextScaled percent shrinks to the theme constraint floor.
 			width = OddsLayout.cellWidth(OddsLayout.columns.percent, OddsLayout.MIN_ROW_WIDTH),
 		},
 	},
 	["packages/ui/Panel.luau"] = {
-		{ name = "title", text = "Extraordinary Rainbow Rewards", size = tokens.text.min, width = 580 },
+		{
+			name = "title",
+			text = "Extraordinary Rainbow Rewards",
+			size = tokens.text.title,
+			autoWidth = true,
+		}, -- Panel title is TextScaled and width follows the caller.
 	},
 	["packages/ui/RarityBadge.luau"] = {
 		{
 			name = "tier",
 			text = "LEGENDARY",
-			size = tokens.text.min,
+			size = tokens.text.small,
 			width = OddsLayout.cellWidth(OddsLayout.columns.badge, OddsLayout.MIN_ROW_WIDTH) - 16,
 		},
 	},
@@ -76,8 +92,7 @@ local fixtures = {
 			text = longNotice,
 			size = tokens.text.body,
 			wrapped = true,
-			width = 340,
-			height = 120,
+			autoWidth = true, -- Toast delegates height to WrappedText.
 		},
 	},
 	["packages/ui/screens/Inventory.luau"] = {
@@ -93,7 +108,10 @@ fixtures["packages/ui/WrappedText.luau"] =
 local options = {
 	covered = fixtures,
 	fixtures = fixtures,
-	truncation = { ["packages/ui/OddsTable.luau"] = "Tap a name to reveal its full value" },
+	truncation = {
+		["packages/ui/OddsTable.luau"] = "Tap a name to reveal its full value",
+		["packages/ui/ItemCard.luau"] = "Cards summarize names in two lines; the full name belongs in the odds table",
+	},
 	modal = {
 		["packages/ui/Modal.luau"] = true,
 		["packages/ui/OddsTable.luau"] = true,
@@ -106,20 +124,38 @@ local options = {
 	glyphWidth = OddsLayout.GLYPH_WIDTH,
 	viewports = viewports,
 }
-local failures = {}
 local function walk(dir)
 	for _, name in fs.readDir(dir) do
 		local path = dir .. "/" .. name
 		if fs.isDir(path) then
 			walk(path)
 		elseif string.match(name, "%.luau$") and not string.match(name, "%.spec%.luau$") then
-			local problems = Checker.scan(path, fs.readFile(path), options)
-			for _, problem in problems do
-				table.insert(failures, problem.rule .. " " .. problem.path .. ": " .. problem.detail)
-			end
+			local source = fs.readFile(path)
+			describe(path, function()
+				it("is registered and follows source wrap/truncation rules", function()
+					local check = table.clone(options)
+					check.viewports = {}
+					local problems = Checker.scan(path, source, check)
+					assert(
+						#problems == 0,
+						path .. ": " .. (problems[1] and problems[1].rule .. " " .. problems[1].detail or "")
+					)
+				end)
+				for _, viewport in viewports do
+					it("fits modeled text at " .. viewport.name, function()
+						local check = table.clone(options)
+						check.viewports = { viewport }
+						local problems = Checker.scan(path, source, check)
+						assert(
+							#problems == 0,
+							path
+								.. ": "
+								.. (problems[1] and problems[1].rule .. " " .. problems[1].detail or "")
+						)
+					end)
+				end
+			end)
 		end
 	end
 end
 walk("packages/ui")
-table.sort(failures)
-assert(#failures == 0, table.concat(failures, "\n"))

@@ -9,13 +9,12 @@ end
 
 local function textBlocks(source: string): { string }
 	local blocks = {}
-	local pos = 1
+	local cursor = 1
 	while true do
-		local start, finish = string.find(source, 'e%("TextLabel"')
+		local start, finish = string.find(source, 'e%("Text[LBa][a-zA-Z]*"', cursor)
 		if not start then
 			break
 		end
-		-- consume the properties table, not nested children (which may contain other labels)
 		local brace = string.find(source, "{", finish + 1, true)
 		if not brace then
 			break
@@ -35,8 +34,7 @@ local function textBlocks(source: string): { string }
 			end
 		end
 		table.insert(blocks, string.sub(source, brace, last))
-		source = string.sub(source, last + 1)
-		pos += 1
+		cursor = last + 1
 	end
 	return blocks
 end
@@ -45,12 +43,6 @@ function Checker.scan(path: string, source: string, options: any): { Issue }
 	local out: { Issue } = {}
 	local blocks = textBlocks(source)
 	local labelCount = #blocks
-	for _ in string.gmatch(source, 'e%("TextButton"') do
-		labelCount += 1
-	end
-	for _ in string.gmatch(source, 'e%("TextBox"') do
-		labelCount += 1
-	end
 	if labelCount > 0 and not options.covered[path] then
 		issue(out, "coverage", path, "text-bearing component has no fixture")
 	end
@@ -60,15 +52,8 @@ function Checker.scan(path: string, source: string, options: any): { Issue }
 				string.find(block, "TextWrapped%s*=%s*true")
 				and string.find(block, "AutomaticSize%s*=%s*Enum%.AutomaticSize%.[XY][XY]?")
 			then
-				issue(out, "wrap", path, "wrapped label relies on AutomaticSize Y")
+				issue(out, "wrap", path, "wrapped text relies on AutomaticSize Y")
 			end
-		end
-		if
-			string.find(source, 'e%("TextButton"')
-			and string.find(source, "TextWrapped%s*=%s*true")
-			and string.find(source, "AutomaticSize%s*=%s*Enum%.AutomaticSize%.Y")
-		then
-			issue(out, "wrap", path, "wrapped button relies on AutomaticSize Y")
 		end
 	end
 	if
@@ -97,7 +82,10 @@ function Checker.scan(path: string, source: string, options: any): { Issue }
 				local need = chars * fixture.size * options.glyphWidth
 				if fixture.wrapped then
 					local lines = math.ceil(need / width)
-					if fixture.height and lines * fixture.size * 1.25 > fixture.height then
+					local requiredLines = if fixture.truncateLines
+						then math.min(lines, fixture.truncateLines)
+						else lines
+					if fixture.height and requiredLines * fixture.size * 1.25 > fixture.height then
 						issue(out, "wrap", path, fixture.name .. " fixed-height box cannot hold wrapped text")
 					end
 				elseif need > width then
