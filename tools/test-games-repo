@@ -134,6 +134,12 @@ check "framework-status: the pinned tag" grep -q "at $TAG" "$LOGS/framework-stat
 step doctor tools/doctor
 check "doctor: framework pin ok" grep -q "framework pin .*$TAG, clean" "$LOGS/doctor.log"
 step dev-print tools/dev demo --print
+step "help: build" tools/build --help
+step "help: dev" tools/dev --help
+step "help: typecheck" tools/typecheck --help
+step "help: make-module" tools/make-module --help
+step "help: make-migration" tools/make-migration --help
+check "help: usage printed (exit 0 for every tool)" grep -q "usage: tools/make-module" "$LOGS/help: make-module.log"
 check "dev: serves the game's project" grep -q "rojo serve games/demo/default.project.json" "$LOGS/dev-print.log"
 
 # the checks really look at the game's files (each planted problem is caught, then reverted)

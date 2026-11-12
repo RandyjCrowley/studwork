@@ -20,6 +20,10 @@ local args = process.args
 local i = 1
 while i <= #args do
 	local a = args[i]
+	if a == "--help" or a == "-h" then
+		print(USAGE)
+		process.exit(0)
+	end
 	if a == "--name" then
 		label = args[i + 1]
 		i += 1

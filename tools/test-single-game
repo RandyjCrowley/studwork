@@ -166,6 +166,12 @@ step lint tools/lint
 step "lint --anchor-remote (no remote)" tools/lint --anchor-remote
 check "lint --anchor-remote: no remote default branch note" grep -q "no remote default branch" "$(logof "lint --anchor-remote (no remote)")"
 step typecheck tools/typecheck
+step "help: build" tools/build --help
+step "help: dev" tools/dev --help
+step "help: typecheck" tools/typecheck --help
+step "help: make-module" tools/make-module --help
+step "help: make-migration" tools/make-migration --help
+check "help: usage printed (exit 0 for every tool)" grep -q "usage: tools/make-module" "$(logof "help: make-module")"
 # A spec under src/ must see the root Rojo project, with relative and absolute arguments.
 cat >"$G/src/server/GameMapping.spec.luau" <<'LUA'
 --!strict
