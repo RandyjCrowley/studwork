@@ -158,7 +158,8 @@ Go only as deep as you need:
 (Server context during Play). Commands are module-prefixed with the module's **lower-case name**:
 `economy grant 100 Coins <userId>`, `rarity roll Block <userId>`, `shop receipt EggRoll <purchaseId> <userId>`,
 `data dump <userId>`; this game's own module `{{name}}` is `{{console}}`: `{{console}} <command>`. A handler is
-`fn(player, ...)`: name an unused first parameter `_player` (selene).
+`fn(player, ...)`: `player` is nil from the command bar and `h:console`, so take the target's `<userId>` as
+the last argument (`Players:GetPlayerByUserId`); name an unused first parameter `_player` (selene).
 
 ## Testing (`studwork/docs/framework/testing.md`)
 

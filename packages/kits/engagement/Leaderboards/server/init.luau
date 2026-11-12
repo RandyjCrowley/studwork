@@ -319,6 +319,15 @@ function LeaderboardsModule.new(): any
 
 	local spawnRolled: (player: any, b: any, rolled: any) -> ()
 
+	-- True when the save already holds a later period than a pending entry's: a txApi submit
+	-- rolled it past, taking that entry's value with it (see txApi.submit).
+	local function savedPast(section: any, boardId: string, entry: any): boolean
+		local periods = if type(section) == "table" then section.periods else nil
+		local saved = if type(periods) == "table" then periods[boardId] else nil
+		local savedId = if type(saved) == "table" then tonumber(saved.id) else nil
+		return savedId ~= nil and savedId > (tonumber(entry.id) :: number)
+	end
+
 	-- Applies every pending value to the save. Returns false when the save could not be updated
 	-- (the values stay pending).
 	local function foldPending(player: any, ps: any): boolean
@@ -333,15 +342,8 @@ function LeaderboardsModule.new(): any
 		local ran = ctx.data.update(player, function(section: any)
 			for id, entry in taken do
 				local b = boards[id]
-				if entry.id ~= nil then
-					local periods = section.periods
-					local saved = if type(periods) == "table" then periods[id] else nil
-					local savedId = if type(saved) == "table" then tonumber(saved.id) else nil
-					if savedId ~= nil and savedId > (tonumber(entry.id) :: number) then
-						-- a txApi submit already rolled the save past this period, taking this
-						-- value with it (see txApi.submit)
-						continue
-					end
+				if entry.id ~= nil and savedPast(section, id, entry) then
+					continue
 				end
 				local _, r = applyValue(section, b, entry.value, entry.at)
 				if r ~= nil then
@@ -1350,9 +1352,10 @@ function LeaderboardsModule.new(): any
 			local section = ctx.section(tx)
 			local ps = players[tx.player]
 			local entry = if ps ~= nil then ps.pending[boardId] else nil
-			if entry ~= nil and not inPeriod(entry, ctx.now()) then
+			if entry ~= nil and not inPeriod(entry, ctx.now()) and not savedPast(section, boardId, entry) then
 				-- this submit rolls the save into a new period: the earlier period's pending value
-				-- goes into the rolled total first (a later fold skips it: the save is past it)
+				-- goes into the rolled total first (a later fold, or a second txApi submit in this
+				-- tx, skips it: the save is past it)
 				local _, earlier = applyValue(section, b, entry.value, entry.at)
 				if earlier ~= nil then
 					tx.after(function()

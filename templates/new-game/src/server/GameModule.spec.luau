@@ -13,11 +13,20 @@ local ServerConfig = require(script.Parent.ServerConfig)
 -- default.project.json (ServerScriptService.Modules.<Name>), so no `servers` table is needed.
 local function boot(overrides: { [string]: any }?): any
 	local modules = {}
+	-- The Roblox services a listed kit calls, faked (nothing reaches Roblox): Badges BadgeService,
+	-- Leaderboards UserService (display names), TextFilter TextService. Notifications needs
+	-- `openCloud`, `secrets` and the allow-list in ServerConfig instead (kits/notifications.md, Tests).
+	local fakeFor = { Badges = "badgeService", Leaderboards = "userService", TextFilter = "textService" }
+	local serviceName = { Badges = "BadgeService", Leaderboards = "UserService", TextFilter = "TextService" }
+	local services = {}
 	for _, ref in Config.modules do
 		-- Plot builds instances in the world, which Lune doesn't have: Boot.spec boots it in the
 		-- multi-server sim instead. Every other kit runs here for real.
 		if ref.name ~= "Plot" then
 			table.insert(modules, ref)
+		end
+		if fakeFor[ref.name] then
+			services[serviceName[ref.name]] = (StudWork.test.fakes :: any)[fakeFor[ref.name]]()
 		end
 	end
 	table.insert(modules, GameModule)
@@ -30,6 +39,7 @@ local function boot(overrides: { [string]: any }?): any
 		events = Config.events,
 		compliance = Config.compliance,
 		serverConfig = ServerConfig,
+		services = services, -- boot({ services = ... }) replaces them (a fake with a script)
 		isStudio = true, -- the game's Studio-only console commands are registered
 	}
 	-- Every other GameConfig key the kits read, forwarded as the game declares it, so a kit's
@@ -82,9 +92,10 @@ describe("the game module", function()
 	-- @if Inventory
 	it("runs a console command through h:console, as a player in the game", function()
 		local h = boot()
-		h:addPlayer({ userId = 3 }) -- the command acts on Players:GetPlayers()[1], the harness's players
-		-- h:console("<module> <command> args...") returns the command's reply text
-		local reply = h:console(string.lower(GameModule.name), "fill")
+		h:addPlayer({ userId = 3 })
+		-- h:console("<module>", "<command>", args...) returns the command's reply text. The handler's
+		-- `player` is nil here (as from the Studio command bar): pass the target's userId instead
+		local reply = h:console(string.lower(GameModule.name), "fill", "3")
 		expect(string.find(reply, "inventory ", 1, true)).toBe(1)
 	end)
 	-- @end

@@ -69,7 +69,7 @@ Identifiers like `R19` or `V1` are issue ids: open ones are listed in [docs/know
     true until known); Notifications `actor` on `send` and `schedule` with
     `limits.perActorPerDay` (default 10, answer `"actor_limit"`); one boot log line naming every
     placeholder badge id and Notifications `messageId`; a console reply that suggests near matches
-    for an unknown command (`dogfood points` -> `dogfoodgame points`).
+    for an unknown command (`my points` -> `mygame points`).
   - Docs and tools for game authors: `docs/framework/testing.md` (worked game-module spec, every
     harness option) and a scaffolded `src/server/GameModule.spec.luau`; `--help` / `-h` on
     `tools/new-project`, `new-game`, `build`, `dev`, `typecheck`, `make-module` and
@@ -102,9 +102,17 @@ Identifiers like `R19` or `V1` are issue ids: open ones are listed in [docs/know
 - Notifications: a quiet-hours offset is kept in the ledger for offline recipients; a malformed
   `messageId` is a boot error. Badges: the default award budget is 80% of Roblox's limit
   (`base = 40`, `perPlayer = 28`). TextFilter: `shownMaxDays` defaults to 7, and a `textFor` cache
-  miss counts against the author's rate limit.
+  miss counts against the author's rate limit (and so does a `shown` re-filter while `cache.seconds`
+  is under 60).
+- `StudWork.test.harness`: `h:addPlayer` returns a userdata proxy by default, like a live `Player`
+  (`type(p) == "userdata"`, `typeof(p) == "Instance"`), so a `type(p) == "table"` check fails in a
+  spec. A spec that uses `pairs`, `rawget`, `setmetatable` or `table.clone` on a player breaks:
+  pass `instancePlayers = false` to keep plain table players.
 - The scaffolded game module's description, version check and `dependsOn` comment are neutral;
-  `new-game` rewrites the console prefix in the scaffold's help text.
+  `new-game` rewrites the console prefix in the scaffold's help text. The scaffold's console
+  commands take an optional last `[userId]` (a handler's `player` is nil from the command bar and
+  `h:console`), and its `GameModule.spec` fakes `BadgeService`, `UserService` and `TextService` for
+  the kits the game lists.
 - Tick cost with every v1.7.0 module on (bench `KITS-ALL`): a Leaderboards `max`/`sum` submit is
   combined in memory and joins the save within 30 s (and on each store write, leave and shutdown)
   instead of one save transaction per call; Leaderboards visits a player only when a write, source

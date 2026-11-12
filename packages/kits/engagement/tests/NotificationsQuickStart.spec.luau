@@ -35,7 +35,44 @@ local function boot(notificationsConfig)
 	return h, h:use(Notifications), openCloudFake
 end
 
+-- The "Quick start" spec snippet's allow-list (`serverConfig = ServerConfig`)
+local ServerConfig = {
+	openCloud = {
+		secrets = {
+			[SECRET] = {
+				modules = { "Notifications" },
+				methods = { "POST" },
+				paths = { "users/*/notifications" },
+			},
+		},
+	},
+}
+
 describe("notifications.md quick start", function()
+	it("the Quick start spec snippet, as written", function()
+		local fake = StudWork.test.fakes.openCloud()
+		local h = StudWork.test.harness({
+			modules = { Notifications },
+			isStudio = true,
+			openCloud = fake,
+			secrets = { OpenCloudNotifications = true },
+			serverConfig = ServerConfig,
+			config = {
+				Notifications = {
+					templates = { comeBack = { messageId = "123456" } },
+					sendInStudio = true,
+					quiet = { startHour = 0, endHour = 0 },
+					optIn = { minSessions = 0 },
+				},
+			},
+		})
+		local api = h:use(Notifications)
+		local p = h:addPlayer({ userId = 1 })
+		h:tick(181) -- minSessionSeconds (180): no prompt before it
+		expect(api.suggestOptIn(p, "firstHatch")).toBe(true)
+		expect(api.schedule(p.UserId, "comeBack", h.clock + 6 * 3600)).toBe(true)
+	end)
+
 	it("prompts a new player once the opt-in rules allow it", function()
 		-- minSessions = 0: a brand-new player has finished no session yet (the default 1 needs one)
 		local h, api = boot({

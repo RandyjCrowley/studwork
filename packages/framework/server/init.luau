@@ -1006,7 +1006,7 @@ function Server.start(gameConfig: any, serverConfig: any?, opts: any?): any
 				for key in rt.console do
 					local first, second = string.match(key, "^(%S+)%s*(%S*)")
 					if first ~= nil and first ~= typed and string.sub(first, 1, #typed) == typed then
-						-- `dogfood points` -> `dogfoodgame points` (the prefix is the lower-case module name)
+						-- `my points` -> `mygame points` (the prefix is the lower-case module name)
 						if words[2] == nil or second == "" or second == words[2] then
 							table.insert(near, key)
 						end

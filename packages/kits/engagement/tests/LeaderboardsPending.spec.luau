@@ -179,6 +179,29 @@ describe("Leaderboards: pending submits", function()
 		expect(h:saved(p).leaderboards.periods.today.value).toBe(2)
 	end)
 
+	it("two txApi.submits in one tx after midnight both count; the pending value counts once", function()
+		local h = boot(
+			{ boards = { today = { period = "daily", mode = "sum" } }, writeSeconds = 5 },
+			{ startTime = 19001 * DAY - 10 }
+		)
+		local p = h:addPlayer({ userId = 1 })
+		local lb = h:use(Leaderboards)
+		lb.submit(p, "today", 3)
+		h:tick(1)
+		lb.submit(p, "today", 4) -- pending, day 19000
+		h.clock += 15
+		h.runtime.data.runTx(p, function(tx)
+			expect(h.runtime.txApis[Leaderboards].submit(tx, "today", 2)).toBe(true)
+			expect(h.runtime.txApis[Leaderboards].submit(tx, "today", 5)).toBe(true)
+		end)
+		h:tick(FOLD + 10)
+		expect(mapValue(h, "today/19000/0")).toBe(7)
+		expect(mapValue(h, "today/19001/0")).toBe(7)
+		expect(select(2, lb.rank(p, "today"))).toBe(7)
+		h:removePlayer(p)
+		expect(h:saved(p).leaderboards.periods.today.value).toBe(7)
+	end)
+
 	it("a rolled-back txApi.submit leaves the pending value pending", function()
 		local h = boot({ boards = { total = { mode = "sum" } }, writeSeconds = 1000 })
 		local p = h:addPlayer({ userId = 1 })

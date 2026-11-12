@@ -25,9 +25,17 @@ Notifications.schedule(player.UserId, "comeBack", os.time() + 6 * 3600)
 -- spec (NotificationsQuickStart.spec.luau): isStudio = true needs sendInStudio, else it only logs
 local h = StudWork.test.harness({ modules = { Notifications }, isStudio = true, openCloud = fake,
 	secrets = { OpenCloudNotifications = true }, serverConfig = ServerConfig,   -- the openCloud allow-list
-	config = { Notifications = { templates = ..., sendInStudio = true, quiet = { startHour = 0, endHour = 0 },
-		optIn = { minSessions = 0 } } } })   -- minSessions = 0: a brand-new player can be prompted
+	config = { Notifications = { templates = { comeBack = { messageId = "123456" } }, sendInStudio = true,
+		quiet = { startHour = 0, endHour = 0 }, optIn = { minSessions = 0 } } } })   -- 0: a brand-new player can be prompted
+local api = h:use(Notifications)
+local p = h:addPlayer({ userId = 1 })
+h:tick(181)                                    -- minSessionSeconds (180): no prompt before it
+expect(api.suggestOptIn(p, "firstHatch")).toBe(true)
+expect(api.schedule(p.UserId, "comeBack", h.clock + 6 * 3600)).toBe(true)
 ```
+
+Both waits matter: `optIn.minSessions` (default 1) counts finished sessions, and
+`optIn.minSessionSeconds` (default 180) is the time in this session before a prompt.
 
 ## How the platform works (and what it doesn't do)
 

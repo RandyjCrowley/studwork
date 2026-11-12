@@ -36,7 +36,7 @@ print(game.ServerScriptService.Framework.StudWorkConsole:Invoke("help"))
 
 `help` lists every command. Useful ones: `modules`, `data dump [userId]`, `rarity roll <tableId>
 [userId]`, `rarity odds <tableId>`, `streak advance [userId]`, `friends coplay
-<server|invite|private> [userId]`, `sandbox giftme [itemId]`, `sandbox fill`, `sandbox free`.
+<server|invite|private> [userId]`, `sandbox giftme [itemId] [userId]`, `sandbox fill [userId]`, `sandbox free [userId]`.
 Pass a command and its arguments as one string (`StudWorkConsole:Invoke("rarity roll Block")`)
 or as separate arguments. Studio test players have UserIds -1, -2, ….
 

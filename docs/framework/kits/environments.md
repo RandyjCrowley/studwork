@@ -175,6 +175,19 @@ resolver), then overridden by the server's values in `state.framework.flags` onc
 flag; while that flag is off, the kit does nothing outward (no sends, no awards, no store traffic).
 A kit never declares flags itself: the game owns the names.
 
+**A testOnly feature: one pattern.** Declare the flag `{ testOnly = true, default = false, studio = true,
+test = true }` (live can never switch it on), then:
+
+- a **kit** (say Notifications only in test): name the flag in the kit's `flag` key and call the kit
+  unconditionally. While the flag is off the kit refuses on its own (`suggestOptIn` returns
+  `(false, "disabled")`, `submit` returns `false`), so game code needs no check;
+- **your own code** (a debug panel, a dev-only command or button): gate it with
+  `StudWork.flags.isOn(name)`.
+
+Use `isOn` around a kit call only to skip game work the kit can't see (building a prompt UI, say).
+Two flags for one feature drift apart: if game code checks `isOn`, check the same flag the kit
+names.
+
 **Console:** `flags` (list with value and source), `flags set <name> <true|false|clear>` (Studio
 only: a local override for this server, like `ConfigService:SetTestingValue`).
 
