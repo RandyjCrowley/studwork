@@ -41,6 +41,11 @@ local Streak =
 local LEASE_SECONDS = 30 -- the reader lease (the page's number; not a game balance value)
 local TICK_SECONDS = 1 -- the shared ticker's step; every cadence below is config
 local START_JITTER = 0.1 -- each board's first read is staggered by up to this share of refreshSeconds
+-- submitted values wait in memory at most this long before they join the save (staggered per
+-- player; also before each store write, on leave and on shutdown). Durability, not balance: the
+-- framework's autosave decides when the save itself is written.
+local FOLD_SECONDS = 30
+local MAX_CATCH_UP_SECONDS = 600 -- a longer clock jump visits every player once instead
 local MAX_ID_LENGTH = 24
 
 local idCounter = 0 -- distinguishes servers (parts) created in one process
@@ -291,6 +296,76 @@ function LeaderboardsModule.new(): any
 	end
 
 	--------------------------------------------------------------------------------
+	-- Pending submits: `submit` on a `max` or `sum` board combines the value into
+	-- players[player].pending[boardId] = { value, at, id?, startsAt?, endsAt? } (no transaction);
+	-- foldPending applies it to the save in one ctx.data.update. Both modes commute, so a txApi
+	-- submit in between needs no ordering; `set` boards are written straight into the save.
+	--------------------------------------------------------------------------------
+
+	local function inPeriod(entry: any, now: number): boolean
+		return entry.startsAt == nil or (now >= entry.startsAt and now < entry.endsAt)
+	end
+
+	-- The player's value including what is still pending.
+	local function currentValue(player: any, b: any, section: any, now: number): number?
+		local value = savedValue(section, b, now)
+		local ps = players[player]
+		local entry = if ps ~= nil then ps.pending[b.id] else nil
+		if entry ~= nil and inPeriod(entry, now) then
+			value = Merge.combine(b.mode, b.order, value, entry.value)
+		end
+		return value
+	end
+
+	local spawnRolled: (player: any, b: any, rolled: any) -> ()
+
+	-- Applies every pending value to the save. Returns false when the save could not be updated
+	-- (the values stay pending).
+	local function foldPending(player: any, ps: any): boolean
+		local taken = ps.pending
+		if next(taken) == nil then
+			return true
+		end
+		if not ctx.data.isLoaded(player) then
+			return false
+		end
+		local rolledList: { [string]: any }? = nil
+		local ran = ctx.data.update(player, function(section: any)
+			for id, entry in taken do
+				local b = boards[id]
+				if entry.id ~= nil then
+					local periods = section.periods
+					local saved = if type(periods) == "table" then periods[id] else nil
+					local savedId = if type(saved) == "table" then tonumber(saved.id) else nil
+					if savedId ~= nil and savedId > (tonumber(entry.id) :: number) then
+						-- a txApi submit already rolled the save past this period, taking this
+						-- value with it (see txApi.submit)
+						continue
+					end
+				end
+				local _, r = applyValue(section, b, entry.value, entry.at)
+				if r ~= nil then
+					local list = rolledList or {}
+					list[id] = r
+					rolledList = list
+				end
+			end
+		end)
+		if not ran then
+			return false
+		end
+		if ps.pending == taken then
+			ps.pending = {}
+		end
+		if rolledList ~= nil then
+			for id, r in rolledList do
+				spawnRolled(player, boards[id], r)
+			end
+		end
+		return true
+	end
+
+	--------------------------------------------------------------------------------
 	-- Replication
 	--------------------------------------------------------------------------------
 
@@ -327,7 +402,7 @@ function LeaderboardsModule.new(): any
 		local section = ctx.data.get(player)
 		local now = ctx.now()
 		for _, id in boardIds do
-			local value = savedValue(section, boards[id], now)
+			local value = currentValue(player, boards[id], section, now)
 			if value ~= nil then
 				out[id] = { value = value, rank = Merge.indexOf(cache[id].rows, player.UserId) }
 			end
@@ -518,7 +593,7 @@ function LeaderboardsModule.new(): any
 		return true
 	end
 
-	local function spawnRolled(player: any, b: any, rolled: any)
+	function spawnRolled(player: any, b: any, rolled: any)
 		if rolled == nil then
 			return
 		end
@@ -557,8 +632,14 @@ function LeaderboardsModule.new(): any
 	-- Notes a period change: the rows shown move to `previous` and the new period starts empty.
 	-- Returns true when something changed.
 	local function syncPeriod(b: any): boolean
-		local info = periodNow(b)
 		local c = cache[b.id]
+		if c.startsAt ~= nil then
+			local now = ctx.now()
+			if now >= c.startsAt and now < c.endsAt then
+				return false -- still the same period (no allocation on the tick)
+			end
+		end
+		local info = periodNow(b)
 		if info == nil or c.periodId == info.id then
 			return false
 		end
@@ -569,6 +650,7 @@ function LeaderboardsModule.new(): any
 			end
 		end
 		c.periodId = info.id
+		c.startsAt = info.startsAt
 		c.endsAt = info.endsAt
 		c.rows = {}
 		c.cut = nil
@@ -822,32 +904,122 @@ function LeaderboardsModule.new(): any
 		end
 	end
 
-	local function stepPlayers(now: number)
-		for player, ps in players do
-			if not ctx.data.isLoaded(player) then
+	-- Per-player work runs from a timer wheel (one bucket per whole second): a player is visited
+	-- only when one of their writes, source reads or folds is due, so a tick where nothing is due
+	-- costs nothing per player. Anything that makes work due calls `schedule`.
+	local wheel: { [number]: { [any]: boolean } } = {}
+	local wheelAt = 0 -- the last whole second whose bucket ran (set in start)
+
+	local function schedule(player: any, ps: any, at: number)
+		local key = math.max(math.ceil(at), wheelAt + 1)
+		local current = ps.wakeKey
+		if current ~= nil and current > wheelAt and current <= key then
+			return -- already woken at or before then
+		end
+		ps.wakeKey = key
+		local bucket = wheel[key]
+		if bucket == nil then
+			bucket = {}
+			wheel[key] = bucket
+		end
+		bucket[player] = true
+	end
+
+	-- The first fold time after `now` on the player's own (staggered) phase.
+	local function advanceFold(ps: any, now: number)
+		if ps.foldAt <= now then
+			ps.foldAt += (math.floor((now - ps.foldAt) / FOLD_SECONDS) + 1) * FOLD_SECONDS
+		end
+	end
+
+	local function visit(player: any, ps: any, now: number)
+		if players[player] ~= ps or not ctx.data.isLoaded(player) then
+			return -- left, or the save is gone; a new load schedules again
+		end
+		if next(ps.pending) ~= nil then
+			local foldDue = now >= ps.foldAt
+			if not foldDue then
+				for id in ps.pending do
+					if now >= ps.nextAt[id] and not ps.inflight[id] then
+						foldDue = true -- a store write is due: it sends the folded value
+						break
+					end
+				end
+			end
+			if foldDue then
+				foldPending(player, ps)
+				advanceFold(ps, now)
+			end
+		end
+		for _, id in boardIds do
+			local b = boards[id]
+			if now < ps.nextAt[id] or ps.inflight[id] then
 				continue
 			end
-			for _, id in boardIds do
-				local b = boards[id]
-				if now < ps.nextAt[id] or ps.inflight[id] then
-					continue
+			if b.source.kind ~= "submit" then
+				ps.nextAt[id] = now + cfg.writeSeconds
+				spawnRolled(player, b, pollSource(player, b))
+			end
+			local job = jobFor(player, b, ctx.data.get(player))
+			if job ~= nil then
+				ps.nextAt[id] = now + cfg.writeSeconds
+				ps.inflight[id] = true
+				task.spawn(function()
+					local ok, err = pcall(finishJob, player, job)
+					ps.inflight[id] = nil
+					if not ok then
+						ctx.log.warn(`write to '{id}' failed: {tostring(err)}`)
+					end
+					publishMine(player)
+					if players[player] == ps then
+						schedule(player, ps, ps.nextAt[id]) -- still dirty (failed or changed): retry then
+					end
+				end)
+			end
+		end
+		-- the next time anything is due: a source read, a write after the cadence, a fold
+		local wake = math.huge
+		for _, id in boardIds do
+			if not ps.inflight[id] and (boards[id].source.kind ~= "submit" or ps.nextAt[id] > now) then
+				wake = math.min(wake, ps.nextAt[id])
+			end
+		end
+		if next(ps.pending) ~= nil then
+			wake = math.min(wake, ps.foldAt)
+			for id in ps.pending do
+				if not ps.inflight[id] then
+					wake = math.min(wake, ps.nextAt[id])
 				end
-				if b.source.kind ~= "submit" then
-					ps.nextAt[id] = now + cfg.writeSeconds
-					spawnRolled(player, b, pollSource(player, b))
-				end
-				local job = jobFor(player, b, ctx.data.get(player))
-				if job ~= nil then
-					ps.nextAt[id] = now + cfg.writeSeconds
-					ps.inflight[id] = true
-					task.spawn(function()
-						local ok, err = pcall(finishJob, player, job)
-						ps.inflight[id] = nil
-						if not ok then
-							ctx.log.warn(`write to '{id}' failed: {tostring(err)}`)
-						end
-						publishMine(player)
-					end)
+			end
+		end
+		if wake < math.huge then
+			schedule(player, ps, wake)
+		end
+	end
+
+	local function stepPlayers(now: number)
+		local second = math.floor(now)
+		if second < wheelAt or second - wheelAt > MAX_CATCH_UP_SECONDS then
+			-- the clock jumped (or the flag was off a long time): visit everyone once
+			wheel = {}
+			wheelAt = second
+			for player, ps in players do
+				ps.wakeKey = nil
+				visit(player, ps, now)
+			end
+			return
+		end
+		while wheelAt < second do
+			wheelAt += 1
+			local bucket = wheel[wheelAt]
+			if bucket ~= nil then
+				wheel[wheelAt] = nil
+				for player in bucket do
+					local ps = players[player]
+					if ps ~= nil and ps.wakeKey == wheelAt then
+						ps.wakeKey = nil
+						visit(player, ps, now)
+					end
 				end
 			end
 		end
@@ -910,6 +1082,51 @@ function LeaderboardsModule.new(): any
 		if b == nil or b.source.kind ~= "submit" or not isOn() or not ctx.data.isLoaded(player) then
 			return false
 		end
+		local ps = players[player]
+		if ps ~= nil and b.mode ~= "set" then
+			local normalized = Merge.normalize(value)
+			if normalized == nil then
+				warnOnce(
+					`badvalue:{b.id}`,
+					`board '{b.id}': submit refused a value that is not a finite number`
+				)
+				return false
+			end
+			local now = ctx.now()
+			local entry = ps.pending[boardId]
+			if entry ~= nil and not inPeriod(entry, now) then
+				-- an earlier period's value joins the save first
+				if not foldPending(player, ps) then
+					return false
+				end
+				entry = ps.pending[boardId]
+			end
+			if entry == nil then
+				if b.mode == "max" then
+					local saved = savedValue(ctx.data.get(player), b, now)
+					if saved ~= nil and Merge.combine(b.mode, b.order, saved, normalized) == saved then
+						return true -- doesn't beat the saved best: nothing to write
+					end
+				end
+				entry = { value = normalized, at = now }
+				if b.period ~= "allTime" then
+					local info = Period.of(b.period, now, cfg.utcOffsetHours, cfg.weekStartsOn) :: Period.Info
+					entry.id = info.id
+					entry.startsAt = info.startsAt
+					entry.endsAt = info.endsAt
+				end
+				ps.pending[boardId] = entry
+				advanceFold(ps, now)
+				schedule(
+					player,
+					ps,
+					if ps.inflight[boardId] then ps.foldAt else math.min(ps.foldAt, ps.nextAt[boardId])
+				)
+			else
+				entry.value = Merge.combine(b.mode, b.order, entry.value, normalized)
+			end
+			return true
+		end
 		local accepted = false
 		local rolled: any = nil
 		local ran = ctx.data.update(player, function(section: any)
@@ -917,6 +1134,9 @@ function LeaderboardsModule.new(): any
 		end)
 		if ran and accepted then
 			spawnRolled(player, b, rolled)
+			if ps ~= nil then
+				schedule(player, ps, ps.nextAt[boardId]) -- the save holds a dirty value
+			end
 			return true
 		end
 		return false
@@ -983,6 +1203,7 @@ function LeaderboardsModule.new(): any
 
 	function Leaderboards.start(_context: any)
 		local now = ctx.now()
+		wheelAt = math.floor(now) - 1
 		for _, id in boardIds do
 			local c = newCache()
 			c.nextAt = now + math.random() * cfg.refreshSeconds * START_JITTER
@@ -1009,18 +1230,23 @@ function LeaderboardsModule.new(): any
 		end
 
 		ctx.data.onLoaded(function(player: any)
-			local ps = { nextAt = {}, inflight = {} }
+			local now = ctx.now()
+			local ps =
+				{ nextAt = {}, inflight = {}, pending = {}, foldAt = now + math.random() * FOLD_SECONDS }
 			for _, id in boardIds do
 				ps.nextAt[id] = 0
 			end
 			players[player] = ps
+			schedule(player, ps, now) -- a dirty value from an earlier session is written now
 			nameCache[player.UserId] = { name = playerName(player), at = ctx.now() }
 			publishMine(player)
 		end)
 		ctx.lifecycle.onPlayerRemoving(function(player: any)
-			if players[player] == nil then
+			local ps = players[player]
+			if ps == nil then
 				return
 			end
+			foldPending(player, ps) -- values accepted while the flag was on are kept either way
 			local jobs: { any } = if isOn() then pendingJobs(player) else {}
 			players[player] = nil
 			rebirths[player] = nil
@@ -1037,6 +1263,9 @@ function LeaderboardsModule.new(): any
 			task.spawn(step)
 		end)
 		ctx.lifecycle.onShutdown(function()
+			for player, ps in table.clone(players) do
+				foldPending(player, ps)
+			end
 			if not isOn() then
 				return
 			end
@@ -1091,7 +1320,7 @@ function LeaderboardsModule.new(): any
 			if b == nil or c == nil or not ctx.data.isLoaded(player) then
 				return nil, 0
 			end
-			local value = savedValue(ctx.data.get(player), b, ctx.now())
+			local value = currentValue(player, b, ctx.data.get(player), ctx.now())
 			if value == nil then
 				return nil, 0
 			end
@@ -1118,7 +1347,32 @@ function LeaderboardsModule.new(): any
 			if b == nil or b.source.kind ~= "submit" or not isOn() then
 				return false
 			end
-			local accepted, rolled = submitCommon(ctx.section(tx), b, value)
+			local section = ctx.section(tx)
+			local ps = players[tx.player]
+			local entry = if ps ~= nil then ps.pending[boardId] else nil
+			if entry ~= nil and not inPeriod(entry, ctx.now()) then
+				-- this submit rolls the save into a new period: the earlier period's pending value
+				-- goes into the rolled total first (a later fold skips it: the save is past it)
+				local _, earlier = applyValue(section, b, entry.value, entry.at)
+				if earlier ~= nil then
+					tx.after(function()
+						spawnRolled(tx.player, b, earlier)
+					end)
+				end
+				tx.after(function()
+					if ps.pending[boardId] == entry then
+						ps.pending[boardId] = nil
+					end
+				end)
+			end
+			local accepted, rolled = submitCommon(section, b, value)
+			if accepted and ps ~= nil then
+				tx.after(function()
+					if players[tx.player] == ps then
+						schedule(tx.player, ps, ps.nextAt[boardId]) -- the save holds a dirty value
+					end
+				end)
+			end
 			if accepted and rolled ~= nil then
 				tx.after(function()
 					spawnRolled(tx.player, b, rolled)
