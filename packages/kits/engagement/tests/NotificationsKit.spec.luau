@@ -849,6 +849,49 @@ describe("Notifications: opt-in", function()
 		expect(api.suggestOptIn(nil, "egg")).toBe(false)
 		expect(h).never.toBe(nil)
 	end)
+
+	-- A live Player is an Instance: type() says "userdata", not "table" (harness players are tables).
+	-- The proxy forwards reads and writes to a harness player, so only its type differs.
+	local function instancePlayer(h, userId)
+		local inner = Harness.player(userId)
+		local proxy = newproxy(true)
+		local mt = getmetatable(proxy)
+		mt.__index = inner
+		mt.__newindex = inner
+		mt.__tostring = function()
+			return inner.Name
+		end
+		h.players[userId] = proxy
+		return h:addPlayer({ userId = userId })
+	end
+
+	it("requests the prompt for a live Player (an Instance, type userdata)", function()
+		local h, api, _, log = boot({ config = { optIn = { minSessionSeconds = 30, minSessions = 0 } } })
+		local p = instancePlayer(h, 7)
+		expect(type(p)).toBe("userdata")
+		h:tick(31)
+		local ok, why = api.suggestOptIn(p, "egg")
+		expect(why).toBe(nil)
+		expect(ok).toBe(true)
+		local asked = prompts(log)
+		expect(#asked).toBe(1)
+		expect(asked[1].player).toBe(p)
+	end)
+
+	it("says why it refused", function()
+		local h, api = boot({ config = { optIn = { minSessionSeconds = 30, minSessions = 0 } } })
+		local p = h:addPlayer({ userId = 1 })
+		expect(select(2, api.suggestOptIn(p, "egg"))).toBe("too_early")
+		h:tick(31)
+		expect(api.suggestOptIn(p, "egg")).toBe(true)
+		expect(select(2, api.suggestOptIn(p, "egg"))).toBe("asked")
+		expect(select(2, api.suggestOptIn({ UserId = 99 }, "egg"))).toBe("not_loaded")
+		expect(select(2, api.suggestOptIn(nil, "egg"))).toBe("bad_params")
+		local h2, api2 = boot()
+		local p2 = h2:addPlayer({ userId = 1 })
+		h2:tick(500)
+		expect(select(2, api2.suggestOptIn(p2, "egg"))).toBe("sessions")
+	end)
 end)
 
 describe("Notifications: join data", function()
