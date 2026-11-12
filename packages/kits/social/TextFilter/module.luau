@@ -38,7 +38,7 @@ return StudWork.defineModule({
 			cache = { maxEntries = 500, seconds = 600 },
 			perPlayerPerMinute = 20,
 			originals = { max = 100 },
-			shownMaxDays = 30,
+			shownMaxDays = 7,
 			fallbackKey = "TextFilter.hidden",
 			respectContentSharing = true,
 		},

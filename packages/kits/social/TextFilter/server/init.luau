@@ -10,7 +10,8 @@
 	  filter(author, text, context) -> (ok, Filtered | reason)   a submission: one fresh
 	      FilterStringAsync, never from the cache. Filtered = { context, author (user id),
 	      public? (the broadcast string, "public" only), forViewer(viewer) -> string? }
-	  textFor(viewer, author, text, context) -> string?          re-display, through the cache
+	  textFor(viewer, author, text, context) -> string?          re-display, through the cache (a
+	      miss counts against perPlayerPerMinute: over it, nil)
 	  store(author, text, context) -> (ok, Stored | reason)      a kept submission: the original goes
 	      in THIS module's section (originals[id] = { t, c, at }, never replicated); Stored =
 	      { id, author, context, at, shown? } holds no original text
@@ -237,7 +238,9 @@ function TextFilter.new(): any
 		return { at = ctx.now(), used = useCounter, result = result, public = broadcast, viewers = {} }
 	end
 
-	-- the re-display path: a cached result younger than cache.seconds, or one fresh filter
+	-- the re-display path: a cached result younger than cache.seconds, or one fresh filter, which
+	-- counts against the author's perPlayerPerMinute like a submission (so text that was never
+	-- submitted can't reach FilterStringAsync without a bound)
 	local function redisplay(author: any, text: string, context: string): CacheEntry?
 		local key = cacheKey(author, text, context)
 		local entry = cache[key]
@@ -245,6 +248,9 @@ function TextFilter.new(): any
 			useCounter += 1
 			entry.used = useCounter
 			return entry
+		end
+		if not takeRate(author) then
+			return nil
 		end
 		local result, broadcast = runFilter(author, text, context)
 		if result == nil then

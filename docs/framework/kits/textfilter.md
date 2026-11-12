@@ -40,9 +40,9 @@ to the server and shown back (even to the author alone) goes through `"private"`
 | `trim` | `true` | strip leading/trailing whitespace and collapse runs of spaces before filtering |
 | `cache.maxEntries` | `500` | cached **re-display** results per server (least recently used are dropped); a new submission is always filtered fresh |
 | `cache.seconds` | `600` | a cached re-display result is re-filtered after this long |
-| `perPlayerPerMinute` | `20` | submissions (`filter`, `store`) one author can make per minute (an over-limit call returns `"rate_limited"`); re-display calls are bounded by the cache instead |
+| `perPlayerPerMinute` | `20` | filter calls one author's text can cause per minute: every submission (`filter`, `store`; over the limit: `"rate_limited"`) and every `textFor` that misses the cache (over the limit: nil, so the caller shows the fallback). A `textFor` served from the cache costs nothing |
 | `originals.max` | `100` | originals kept per author in this module's save section; the oldest is dropped first (its records then show `shown` only, below) |
-| `shownMaxDays` | `30` | a `"public"` record's saved broadcast string is shown while the author is away for at most this many days after it was filtered; after that, nil until the author is in a server again |
+| `shownMaxDays` | `7` | a `"public"` record's saved broadcast string is shown while the author is away for at most this many days after it was filtered; after that, nil until the author is in a server again (a week: a string filtered under older rules is not shown for long) |
 | `fallbackKey` | `"TextFilter.hidden"` | the string key ([localization](localization.md)) callers show instead of text that can't be shown (English default: `"..."`) |
 | `respectContentSharing` | `true` | an author whose `PolicyService` `IsContentSharingAllowed` is false (or unknown) can't publish `"public"` or `"friends"` text (`"policy"`); `"private"` still works |
 
@@ -63,7 +63,9 @@ thread, never inside `ctx.tx`.
 - `textFor(viewer, author, text, context) -> string?`: re-display of text the author already
   submitted (filtered then): filters through the re-display cache and returns what `viewer` may
   see, or nil. A submission's result seeds the cache, so showing it right after costs no call.
-  **(contract)**
+  A cache miss is one `FilterStringAsync` and counts against the author's `perPlayerPerMinute`,
+  like a submission (over it: nil); so text a client sends straight to `textFor` is bounded the same
+  way. New player text still belongs in `filter` or `store`. **(contract)**
 - `store(author, text, context) -> (ok, Stored | reason)`: a submission that is kept: filters,
   saves the original in **this module's** section of the author's save (`originals[id]`, never
   replicated), and returns `Stored = { id, author, context, at, shown? }`. `shown` is the broadcast
