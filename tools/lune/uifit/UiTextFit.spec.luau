@@ -159,3 +159,37 @@ local function walk(dir)
 	end
 end
 walk("packages/ui")
+
+-- The fixtures above model the components; these lines tie each model to the exact source it
+-- describes, so changing a component (a 1-px name box, a Toast that no longer follows its measured
+-- text) fails here instead of leaving a stale fixture green (v1.6.2 review finding).
+local PROVENANCE = {
+	["packages/ui/ItemCard.luau"] = {
+		"Size = UDim2.new(1, 0, 0, Layout.nameHeight(Theme.text.small))",
+		"TextTruncate = Enum.TextTruncate.AtEnd",
+	},
+	["packages/ui/Toast.luau"] = { "e(WrappedText", "onHeight = setMeasured" },
+	["packages/ui/OddsTable.luau"] = {
+		"e(WrappedText",
+		"UDim2.new(col.scale, col.offset, 0, ROW_HEIGHT)",
+		"TextSize = Theme.text.body",
+	},
+	["packages/ui/Modal.luau"] = { "ModalFit.contentHeight(", "UDim2.new(1, 0, 0, scrollHeight)" },
+}
+describe("text-fit fixtures match their component source", function()
+	for path, needles in PROVENANCE do
+		it(path, function()
+			local source = fs.readFile(path)
+			for _, needle in needles do
+				if not string.find(source, needle, 1, true) then
+					error(
+						path
+							.. " no longer contains `"
+							.. needle
+							.. "`: update the component's text-fit fixture"
+					)
+				end
+			end
+		end)
+	end
+end)

@@ -64,6 +64,12 @@ describe("UI.Modal hit order", function()
 		walk("templates")
 		expect(checked >= 7).toBe(true) -- sandbox, the new-game template, ov-a/b/c/d/f
 	end)
+	it("the close button stays above the backdrop (still usable in a Global ScreenGui)", function()
+		-- review finding: 1.6.2's first layer table put Close at 3, under the backdrop (50) in a
+		-- Global ScreenGui, where v1.6.1 still showed it (60).
+		expect(layers.close > layers.backdrop).toBe(true)
+		expect(layers.close > layers.panel).toBe(true)
+	end)
 	it("Modal warns once when its ScreenGui is Global", function()
 		expect(modal).toContain("ZIndexBehavior.Global")
 		expect(modal).toContain("needs ZIndexBehavior = Sibling")
