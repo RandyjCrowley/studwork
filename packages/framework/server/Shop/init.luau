@@ -34,7 +34,10 @@
 	would be exactly the silent fight the design rejects. See decisions.md, "Purchases and receipts".
 
 	Gamepasses: ownsPass(player, pass) cached per player per pass (UserOwnsGamePassAsync once, with
-	retries; failures not cached); PromptGamePassPurchaseFinished(true) marks it owned;
+	retries; failures not cached); every products.passes entry is fetched at join, before the save
+	loads (v1.6.0, at most PASS_PREFETCH_SECONDS), so ownsPass of a loaded player never yields; a call that WOULD yield inside a tx (or a
+	non-yieldable context) errors "ctx.shop.ownsPass yields: call it outside a transaction ...";
+	PromptGamePassPurchaseFinished(true) marks it owned;
 	onPassOwned(pass, fn) runs once per player per pass (owned at join, after data load, or bought).
 
 	Shop.new(opts): opts.data, opts.policy, opts.products, opts.marketplace (platform), opts.players
@@ -61,6 +64,7 @@ local Shop = {}
 
 Shop.PASS_CHECK_ATTEMPTS = 3
 Shop.PASS_RETRY_DELAY = 1
+Shop.PASS_PREFETCH_SECONDS = 5 -- (v1.6.0) longest a join waits for its pass answers before loading
 Shop.PURCHASES_CAP = 200
 Shop.RECEIPT_CHECK_SECONDS = 2 -- §7.1 runtime ProcessReceipt owner check interval
 
@@ -84,6 +88,7 @@ function Shop.new(opts: any): any
 	local legacyProducts: { { product: string, owner: string, writes: boolean } } = {}
 	local passHandlers: { [number]: { (any) -> () } } = {}
 	local passCache: { [any]: { [number]: boolean } } = {}
+	local passFailed: { [any]: { [number]: boolean } } = {} -- (v1.6.0) lookups that failed at join
 	local passFired: { [any]: { [any]: boolean } } = {}
 	local inFlight: { [string]: boolean } = {}
 	local pending: { [string]: Receipt.Pending } = {}
@@ -446,10 +451,34 @@ function Shop.new(opts: any): any
 		if cache and cache[id] ~= nil then
 			return cache[id]
 		end
+		-- (v1.6.0 dogfood) not cached yet: answering would yield (UserOwnsGamePassAsync). Inside a
+		-- transaction (a capBonus / rateFactor / roll runs in one) or any non-yieldable context
+		-- that would discard the change with a confusing "fn must not yield", or (in the sim)
+		-- park the caller forever. Every pass in products.passes is fetched when the player
+		-- joins, so this only happens before that answer arrived, or for a raw pass id.
+		local inTx = data ~= nil and data.openTxPlayer ~= nil and data.openTxPlayer() ~= nil
+		if (inTx or not coroutine.isyieldable()) and passFailed[player] and passFailed[player][id] then
+			warnOnce(
+				`passfail:{id}`,
+				`ownsPass: the lookup of pass {id} failed at join; read as not owned inside a transaction until a retry outside one succeeds`
+			)
+			return false
+		end
+		if inTx or not coroutine.isyieldable() then
+			error(
+				`ctx.shop.ownsPass yields: call it outside a transaction (pass '{tostring(pass)}' isn't known yet for {tostring(
+					player
+				)}; StudWork fetches every products.passes entry at join, so read it after the player loaded, or track ownership with ctx.shop.onPassOwned)`,
+				2
+			)
+		end
 		local delay = Shop.PASS_RETRY_DELAY
 		for attempt = 1, Shop.PASS_CHECK_ATTEMPTS do
 			local ok, owns = pcall(marketplace.ownsPass, player.UserId, id)
 			if ok then
+				if passFailed[player] then
+					passFailed[player][id] = nil
+				end
 				local current = passCache[player]
 				if current then
 					current[id] = current[id] == true or owns == true
@@ -461,6 +490,10 @@ function Shop.new(opts: any): any
 				opts.wait(delay)
 				delay *= 2
 			end
+		end
+		if passCache[player] ~= nil then
+			passFailed[player] = passFailed[player] or {}
+			passFailed[player][id] = true
 		end
 		log(
 			"[StudWork.Shop] UserOwnsGamePassAsync failed for pass "
@@ -478,9 +511,40 @@ function Shop.new(opts: any): any
 		end)
 	end
 
+	-- (v1.6.0 dogfood) every pass in products.passes is fetched once per player at join, in
+	-- parallel, and playerAdded waits for the answers (at most Shop.PASS_PREFETCH_SECONDS) before
+	-- the runtime loads the save: so by the time the player is loaded, ownsPass is a cache read that
+	-- never yields, even inside a tx. A pass whose lookup failed is remembered in passFailed: inside
+	-- a tx it reads as not owned (logged) instead of erroring, and is retried outside.
+	local function prefetchPasses(player: any)
+		local open = 0
+		for _, id in products.passes do
+			if type(id) == "number" and id > 0 then
+				open += 1
+				spawn(function()
+					local cache = passCache[player]
+					if cache ~= nil and cache[id] == nil then
+						pcall(s.ownsPass, player, id)
+					end
+					open -= 1
+				end)
+			end
+		end
+		if open > 0 and opts.wait ~= nil and coroutine.isyieldable() then
+			local waited = 0
+			while open > 0 and waited < Shop.PASS_PREFETCH_SECONDS and passCache[player] ~= nil do
+				waited += opts.wait(0.05) or 0.05
+			end
+		end
+	end
+
 	function s.playerAdded(player: any)
+		local first = passCache[player] == nil
 		passCache[player] = passCache[player] or {}
 		passFired[player] = passFired[player] or {}
+		if first then
+			prefetchPasses(player)
+		end
 	end
 
 	function s.playerLoaded(player: any)
@@ -538,6 +602,7 @@ function Shop.new(opts: any): any
 
 	function s.playerRemoving(player: any)
 		passCache[player] = nil
+		passFailed[player] = nil
 		passFired[player] = nil
 		-- anything settleOnLeave didn't see (it runs first): v1.2 behaviour, effects dropped
 		for id, p in pending do
