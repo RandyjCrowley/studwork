@@ -1373,16 +1373,27 @@ ctx.openCloud.request({ secret = string, method = "GET" | "POST" | "PATCH" | "DE
   another module's secret, a wrong method and a hard-refused family are each refused with no
   request reaching the fake.
 
-### 23.8 `ctx.policy.allows(player, field)` (added in v1.7.0: TextFilter honours `IsContentSharingAllowed`)
+### 23.8 `ctx.policy.allows(player, field)` and `ctx.policy.restricted(player, field)` (added in v1.7.0: TextFilter honours `IsContentSharingAllowed`; a restriction field must never read as "allowed" while unknown)
 
 ```lua
-ctx.policy.allows(player, "IsContentSharingAllowed") -> boolean
+ctx.policy.allows(player, "IsContentSharingAllowed") -> boolean        -- permissions
+ctx.policy.restricted(player, "IsSubjectToChinaPolicies") -> boolean   -- restrictions
 ```
 
-- Any boolean field of `PolicyService:GetPolicyInfoForPlayerAsync` (the list is checked; an
-  unknown field errors). **Fail closed:** `false` until the lookup succeeds, from the same
-  lookup Policy already makes at join (no extra request). `ctx.policy.isKnown(player)` tells
-  the cases apart.
+- The boolean fields of `PolicyService:GetPolicyInfoForPlayerAsync`, in two kinds, each with its
+  own call so that "unknown" always reads as the safe answer:
+  - **permissions** (`true` = allowed): `IsContentSharingAllowed`, `AreAdsAllowed`,
+    `IsPaidItemTradingAllowed`, `IsEligibleToPurchaseSubscription`. `allows` is **fail closed**:
+    `false` until the lookup succeeds, and `false` unless the answer says `true`.
+  - **restrictions** (`true` = restricted): `ArePaidRandomItemsRestricted`,
+    `IsSubjectToChinaPolicies`. `restricted` is **fail closed** the other way: `true` until the
+    lookup succeeds, and `true` unless the answer says `false`.
+    `restricted(player, "ArePaidRandomItemsRestricted")` equals `paidRandomRestricted(player)`
+    (the Studio console override included).
+- Each call errors for the other kind (the message names the right call) and for an unknown field:
+  a `false` from `allows` on a restriction would read as "not restricted" while the lookup is
+  unknown. Both read the lookup Policy already makes at join (no extra request).
+  `ctx.policy.isKnown(player)` tells the cases apart.
 - Harness: `policy = { [userId] = { IsContentSharingAllowed = false, ... } }` (a table) next to the
   existing `true` / `"fail"` values.
 

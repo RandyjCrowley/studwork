@@ -1,13 +1,18 @@
 --!strict
 --[[
 	Framework Policy (ported from v1.2 core/server/Policy). Framework internal; modules see the
-	read-only ctx.policy = { paidRandomRestricted(player), isKnown(player), allows(player, field) }.
+	read-only ctx.policy = { paidRandomRestricted(player), isKnown(player), allows(player, field),
+	restricted(player, field) }.
 
-	allows(player, field) (added in v1.7.0, module-api.md §23.8): a boolean field of the player's
-	PolicyService info (Policy.BOOLEAN_FIELDS; any other name errors). FAIL CLOSED: false until the
-	lookup succeeded and false for a field the answer doesn't carry as `true`. It reads the answer
-	track() already got at join: no extra request. The Studio console override changes only
-	paidRandomRestricted, never allows.
+	allows(player, field) (added in v1.7.0, module-api.md §23.8): a PERMISSION field of the player's
+	PolicyService info (Policy.PERMISSION_FIELDS: true = allowed). FAIL CLOSED: false until the lookup
+	succeeded and false for a field the answer doesn't carry as `true`.
+	restricted(player, field): a RESTRICTION field (Policy.RESTRICTION_FIELDS: true = restricted).
+	FAIL CLOSED the other way: true until the lookup succeeded and true unless the answer carries it as
+	`false`. Each refuses the other kind (an error naming the right call), so a restriction can't be
+	read as "allowed" while unknown; any other name errors. Both read the answer track() already got
+	at join: no extra request. The Studio console override changes paidRandomRestricted (and so
+	restricted(player, "ArePaidRandomItemsRestricted")), never allows.
 
 	paidRandomRestricted(player) -> PolicyService ArePaidRandomItemsRestricted. FAIL CLOSED: true
 	until a lookup succeeds, and true if every attempt fails. Lookup: up to MAX_ATTEMPTS tries with
@@ -24,7 +29,18 @@
 
 local Policy = {}
 
--- (added in v1.7.0, §23.8) the boolean PolicyService fields ctx.policy.allows accepts
+-- (added in v1.7.0, §23.8) the boolean PolicyService fields: permissions (true = allowed,
+-- ctx.policy.allows) and restrictions (true = restricted, ctx.policy.restricted)
+Policy.PERMISSION_FIELDS = table.freeze({
+	IsContentSharingAllowed = true,
+	AreAdsAllowed = true,
+	IsPaidItemTradingAllowed = true,
+	IsEligibleToPurchaseSubscription = true,
+})
+Policy.RESTRICTION_FIELDS = table.freeze({
+	ArePaidRandomItemsRestricted = true,
+	IsSubjectToChinaPolicies = true,
+})
 Policy.BOOLEAN_FIELDS = table.freeze({
 	IsContentSharingAllowed = true,
 	ArePaidRandomItemsRestricted = true,
@@ -127,14 +143,39 @@ function Policy.new(opts: any): any
 		infos[player] = nil
 	end
 
-	-- (v1.7.0, §23.8) a boolean policy field; FAIL CLOSED: false until the lookup succeeded, from the
-	-- same lookup track() already makes (no extra request). An unknown field errors.
+	-- (v1.7.0, §23.8) a permission field; FAIL CLOSED: false until the lookup succeeded, from the
+	-- same lookup track() already makes (no extra request). A restriction or unknown field errors.
 	function p.allows(player: any, field: string): boolean
-		if type(field) ~= "string" or not Policy.BOOLEAN_FIELDS[field] then
+		if type(field) == "string" and Policy.RESTRICTION_FIELDS[field] then
+			error(
+				`ctx.policy.allows: '{field}' is a restriction (true = restricted): use ctx.policy.restricted(player, "{field}"), which is true until the policy is known`,
+				2
+			)
+		end
+		if type(field) ~= "string" or not Policy.PERMISSION_FIELDS[field] then
 			error(`ctx.policy.allows: unknown policy field '{tostring(field)}'`, 2)
 		end
 		local info = infos[player]
 		return type(info) == "table" and info[field] == true
+	end
+
+	-- (v1.7.0, §23.8) a restriction field; FAIL CLOSED: true until the lookup succeeded and true
+	-- unless the answer says false. A permission or unknown field errors.
+	function p.restricted(player: any, field: string): boolean
+		if type(field) == "string" and Policy.PERMISSION_FIELDS[field] then
+			error(
+				`ctx.policy.restricted: '{field}' is a permission (true = allowed): use ctx.policy.allows(player, "{field}"), which is false until the policy is known`,
+				2
+			)
+		end
+		if type(field) ~= "string" or not Policy.RESTRICTION_FIELDS[field] then
+			error(`ctx.policy.restricted: unknown policy field '{tostring(field)}'`, 2)
+		end
+		if field == "ArePaidRandomItemsRestricted" then
+			return effective(player)
+		end
+		local info = infos[player]
+		return not (type(info) == "table" and info[field] == false)
 	end
 
 	function p.isKnown(player: any): boolean
@@ -155,6 +196,7 @@ function Policy.new(opts: any): any
 		paidRandomRestricted = p.paidRandomRestricted,
 		isKnown = p.isKnown,
 		allows = p.allows,
+		restricted = p.restricted,
 	})
 
 	return p
