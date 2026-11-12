@@ -458,6 +458,19 @@ describe("TextFilter: stored text", function()
 		end
 	)
 
+	it("cache.seconds under a minute: shown's re-filters count against perPlayerPerMinute", function()
+		local h, fake = boot({ config = { perPlayerPerMinute = 5, cache = { seconds = 0 } } })
+		local a, b = join(h, 2)
+		local tf = h:use(TextFilter)
+		local _, s = tf.store(a, "sign", "public")
+		local before = count(fake, "FilterStringAsync")
+		for _ = 1, 50 do
+			tf.shown(s, b)
+		end
+		expect(count(fake, "FilterStringAsync")).toBe(before + 5)
+		expect(tf.filter(a, "a new name", "public")).toBe(true) -- the submission bucket is apart
+	end)
+
 	it("shown refuses anything that isn't a Stored record", function()
 		local h = boot()
 		local a = join(h, 1)

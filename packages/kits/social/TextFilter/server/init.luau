@@ -18,7 +18,8 @@
 	      { id, author, context, at, shown? } holds no original text
 	  shown(stored, viewer?) -> string?                          re-filtered from the original while
 	      the author is in this server (at most once per record per cache.seconds, held per record,
-	      so no rate: the original was a rate-limited submission); else stored.shown ("public",
+	      so no rate: the original was a rate-limited submission; with cache.seconds under 60 a
+	      re-filter counts against the re-display bucket); else stored.shown ("public",
 	      younger than shownMaxDays)
 	  release(author, stored)                                    drops the original
 	Reasons: empty, too_long, rate_limited, policy, author_offline, filter_failed.
@@ -254,6 +255,7 @@ function TextFilter.new(): any
 	-- the re-display path: a cached result younger than cache.seconds, or one fresh filter. For
 	-- textFor (`limited`) the filter counts against the author's re-display bucket (so text that
 	-- was never submitted can't reach FilterStringAsync without a bound); shown passes false
+	-- unless cache.seconds is under a minute (then the per-record hold is no bound)
 	local function redisplay(author: any, text: string, context: string, limited: boolean): CacheEntry?
 		local key = cacheKey(author, text, context)
 		local entry = cache[key]
@@ -423,7 +425,7 @@ function TextFilter.new(): any
 		local held: { [number]: CacheEntry } = storedCache[author.UserId] or {}
 		local entry: CacheEntry? = held[stored.id]
 		if not fresh(entry) then
-			entry = redisplay(author, original.t, stored.context, false)
+			entry = redisplay(author, original.t, stored.context, cfg().cache.seconds < MINUTE)
 			if entry ~= nil then
 				for id, e in held do
 					if not fresh(e) then

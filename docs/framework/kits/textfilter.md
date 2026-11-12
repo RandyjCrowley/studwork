@@ -55,8 +55,8 @@ to the server and shown back (even to the author alone) goes through `"private"`
 | `maxLength` | `40` | longer input is refused (`"too_long"`); 1..200 |
 | `trim` | `true` | strip leading/trailing whitespace and collapse runs of spaces before filtering |
 | `cache.maxEntries` | `500` | cached **re-display** results per server (least recently used are dropped); a new submission is always filtered fresh |
-| `cache.seconds` | `600` | a cached re-display result is re-filtered after this long |
-| `perPlayerPerMinute` | `20` | filter calls one author's text can cause per minute, in two separate buckets: the author's submissions (`filter`, `store`; over the limit: `"rate_limited"`), and `textFor` calls that miss the cache (over the limit: nil, so the caller shows the fallback). What viewers re-display never spends the author's submissions. A `textFor` served from the cache costs nothing; `shown` isn't counted (see `shown`) |
+| `cache.seconds` | `600` | a cached re-display result is re-filtered after this long; `0` turns the cache off. Under 60, `shown`'s re-filters count against the `textFor` bucket (below), so it stays bounded |
+| `perPlayerPerMinute` | `20` | filter calls one author's text can cause per minute, in two separate buckets: the author's submissions (`filter`, `store`; over the limit: `"rate_limited"`), and `textFor` calls that miss the cache (over the limit: nil, so the caller shows the fallback). What viewers re-display never spends the author's submissions. A `textFor` served from the cache costs nothing; `shown` isn't counted while `cache.seconds` is 60 or more (see `shown`) |
 | `originals.max` | `100` | originals kept per author in this module's save section; the oldest is dropped first (its records then show `shown` only, below) |
 | `shownMaxDays` | `7` | a `"public"` record's saved broadcast string is shown while the author is away for at most this many days after it was filtered; after that, nil until the author is in a server again (a week: a string filtered under older rules is not shown for long) |
 | `fallbackKey` | `"TextFilter.hidden"` | the string key ([localization](localization.md)) callers show instead of text that can't be shown (English default: `"..."`) |
@@ -91,7 +91,9 @@ thread, never inside `ctx.tx`.
 - `shown(stored, viewer?) -> string?`: what to display from a `Stored` record: re-filtered from the
   original when the author is in the server (the result is held per record for `cache.seconds`,
   apart from the re-display cache, so a record is re-filtered at most once per `cache.seconds` and
-  nothing is rate-limited: the original was a submission, counted when stored); otherwise
+  nothing is rate-limited: the original was a submission, counted when stored; with `cache.seconds`
+  under 60 that hold is no bound, so a re-filter then counts against the author's `textFor`
+  bucket, and over it the record shows as if the author were away); otherwise
   `stored.shown` for `"public"` while it is younger than `shownMaxDays`, and nil for `"friends"` and
   `"private"` or an older record. Without a `viewer` only `"public"` text has a string (the
   broadcast one). **(contract)**
