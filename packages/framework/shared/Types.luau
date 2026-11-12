@@ -794,8 +794,12 @@ export type PolicyAPI = {
 	-- true once the policy lookup finished. Robux handlers: unknown -> return false (retry later);
 	-- known restricted -> grant a non-random fallback.
 	isKnown: (player: Player) -> boolean,
-	-- (added in 1.7.0, §23.8) a boolean PolicyService field; fail closed (false until known)
+	-- (added in 1.7.0, §23.8) a boolean PolicyService permission field (e.g. IsContentSharingAllowed);
+	-- fail closed (false until known). Restriction fields go through `restricted`.
 	allows: (player: Player, field: string) -> boolean,
+	-- (added in 1.7.0, §23.8) a restriction field (ArePaidRandomItemsRestricted,
+	-- IsSubjectToChinaPolicies); fail closed the other way (true until the lookup succeeds)
+	restricted: (player: Player, field: string) -> boolean,
 }
 
 export type DataAPI = {
