@@ -58,7 +58,30 @@ You don't need to repeat these by hand:
 
 Run `tools/test tools/lune/uifit/Checker.spec.luau` for planted violations and `tools/test tools/lune/uifit/UiTextFit.spec.luau` for named, per-component and per-viewport source/model checks. The full `tools/test` discovers every UI text-bearing component; an unmodeled new component is a failure. Geometry fixtures use component layout modules where available; these model checks do not replace Studio measurements.
 
-In Studio, connect the sandbox, start Play, switch the command bar to **Client**, and paste `tools/studio/ui-text-fit.luau`. The script mounts default components and screens with long text into separate 1280×720 (desktop), 667×375 (small phone), 926×428 (large phone), and 1024×768 (tablet) surfaces. It returns JSON keyed by viewport. Each `clipped` entry includes the full instance path, string, actual box, measured bounds, effective text size, and reason. A failure means a zero-size box, text below the theme's minimum real-pixel size, or a box smaller than `TextService:GetTextBoundsAsync` at the real inner width (not merely `TextFits`, which missed the original bug). `blockedButtons` lists modal buttons whose centre's top hit is not the button or a descendant; no GuiInset is added because the test ScreenGui ignores it. Empty arrays for both keys at every viewport are the target. Set `KEEP = true` at the top to leave the tablet surfaces mounted for screenshots; remove them or stop Play afterward. Review false positives from intentional scroll-window clipping against the screenshot.
+In Studio, connect the sandbox, start Play, switch the command bar to **Client**, and paste
+`tools/studio/ui-text-fit.luau` (or run it through Studio MCP `execute_luau` with
+`datamodel_type = "Client"`). It mounts every UI kit component and the default Odds (restricted,
+long names), Inventory and Mailbox screens, one at a time, in surfaces of 1280×720 (desktop),
+667×375 (small phone), 926×428 (large phone) and 1024×768 (tablet), under the responsive UIScale
+`UI.ScaledRoot` applies at that size, and returns JSON keyed by size:
+
+- `clipped`: text whose box is smaller than `TextService:GetTextBoundsAsync` at its real inner
+  width, or whose rendered size is below `Theme.metrics.minTextSize`. Never `TextFits`, which stays
+  true for the v1.6.1 notice that showed one of its lines. `TextScaled` sizes are emulated in real
+  pixels, because the engine applies `UITextSizeConstraint` after every UIScale.
+- `blocked`: a button inside a Modal (on screen, not scrolled out) whose centre's top hit isn't the
+  button.
+- `offscreen`: a Modal panel or close button outside the screen.
+- `truncated`: intentional two-line ellipses (odds names, item cards), for information.
+
+Pass = `clipped`, `blocked` and `offscreen` empty at every size. Against v1.6.1 it reports the cut-off
+region notice, odds text under 11 px and every Modal button blocked. For screenshots set
+`KEEP = "<size>"`, `KEEP_CASE = "<case>"` (and `ONLY` to run one case); stop Play to clear them.
+
+The surfaces don't cover a game's own ScreenGui. Also open one odds window through the real game
+(`policy restrict true` in the server console, then the game's button): v1.6.2 found a blank odds
+window there that every surface check passed, caused by a game ScreenGui left at
+`ZIndexBehavior.Global`.
 
 ## Checklist
 
