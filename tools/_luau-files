@@ -1,0 +1,92 @@
+#!/usr/bin/env bash
+# tools/_luau-files: sourced by tools/lint and tools/format (after _common.sh). Defines
+# luau_file_set, which fills, for the current project layout:
+#   SELENE_ARGS  what selene checks (absolute paths in a single-game project; run it from the core)
+#   STYLUA_ARGS  what stylua checks / formats (relative to PROJECT_ROOT; use with STYLUA_GLOBS)
+#   STYLUA_CONFIG  the stylua.toml to use (always the core's)
+# and prints one `warning: [legacy] <path>: selene/stylua skipped (legacy: <reason>)` line per file
+# listed in an adopted project's studwork-legacy.json (those files are left out of both sets).
+#   core repo:        packages templates tools examples (+ games), the core's own configs
+#   games repo:       games/
+#   single-game:      every top-level folder and Luau file except studwork/, .git, .cache, .worktrees
+# Bash arrays keep paths with spaces intact (bash 3.2).
+
+# Blink outputs (module server/Net.luau, client/Net.luau) and Generated*.luau are generated
+STYLUA_GLOBS=(-g '*.luau' -g '*.lua' -g '!**/server/Net.luau' -g '!**/client/Net.luau' -g '!**/Generated*.luau')
+
+luau_file_set() {
+	SELENE_ARGS=()
+	STYLUA_ARGS=()
+	STYLUA_CONFIG="$(core_path stylua.toml)"
+	if is_single_game; then
+		luau_file_set_single
+	elif is_games_repo; then
+		[ -d games ] || die "no games/ folder in $PROJECT_ROOT"
+		SELENE_ARGS=("$PROJECT_ROOT/games")
+		STYLUA_ARGS=(games)
+	else
+		SELENE_ARGS=(packages templates tools examples)
+		if [ -d games ]; then SELENE_ARGS+=(games); fi
+		STYLUA_ARGS=("${SELENE_ARGS[@]}")
+	fi
+}
+
+luau_file_set_single() {
+	# every top-level folder and Luau file of the project except the studwork/ submodule and the
+	# tool folders .git/.cache/.worktrees (the same set the guardrails scan: Guard.ROOT_SKIPPED).
+	# Arrays keep paths with spaces intact (bash 3.2).
+	LINT_PATHS=()
+	for d in * .[!.]* ..?*; do
+		[ -e "$d" ] || continue
+		case "$d" in
+		"${CORE_DIR%%/*}" | .git | .cache | .worktrees | node_modules) continue ;;
+		esac
+		if [ -d "$d" ]; then
+			LINT_PATHS+=("$d")
+		else
+			case "$d" in *.luau | *.lua) LINT_PATHS+=("$d") ;; esac
+		fi
+	done
+	[ "${#LINT_PATHS[@]}" -gt 0 ] || die "nothing to lint in $PROJECT_ROOT"
+	# (v1.6.0) an adopted project: the files listed in studwork-legacy.json (old code: _G, not
+	# StyLua-formatted) skip selene and stylua; the guardrails step below still applies the list
+	# (a broken list fails there). --legacy-files prints "<path>\t<reason>" per valid entry.
+	LEGACY_PATHS=()
+	LEGACY_REASONS=()
+	if [ -f studwork-legacy.json ]; then
+		LEGACY_OUT="$(lune_tool guardrails --legacy-files)" || die "guardrails --legacy-files failed"
+		while IFS= read -r line; do
+			[ -n "$line" ] || continue
+			LEGACY_PATHS+=("${line%%$'\t'*}")
+			LEGACY_REASONS+=("${line#*$'\t'}")
+		done <<<"$LEGACY_OUT"
+	fi
+	if [ "${#LEGACY_PATHS[@]}" -gt 0 ]; then
+		i=0
+		while [ "$i" -lt "${#LEGACY_PATHS[@]}" ]; do
+			echo "warning: [legacy] ${LEGACY_PATHS[$i]}: selene/stylua skipped (legacy: ${LEGACY_REASONS[$i]})"
+			i=$((i + 1))
+		done
+		# every Luau file under the lint paths except the listed ones (and, for stylua, the
+		# generated files selene.toml / the stylua globs below exclude when they walk folders themselves)
+		while IFS= read -r -d '' f; do
+			f="${f#./}"
+			skip=0
+			for l in "${LEGACY_PATHS[@]}"; do
+				if [ "$f" = "$l" ]; then
+					skip=1
+					break
+				fi
+			done
+			[ "$skip" -eq 0 ] || continue
+			case "/$f" in
+			*/server/Net.luau | */client/Net.luau | */Generated*.luau | *.d.luau) continue ;;
+			esac
+			SELENE_ARGS+=("$PROJECT_ROOT/$f")
+			STYLUA_ARGS+=("$f")
+		done < <(find "${LINT_PATHS[@]}" -type f \( -name '*.luau' -o -name '*.lua' \) -print0)
+	else
+		for d in "${LINT_PATHS[@]}"; do SELENE_ARGS+=("$PROJECT_ROOT/$d"); done
+		STYLUA_ARGS=("${LINT_PATHS[@]}")
+	fi
+}

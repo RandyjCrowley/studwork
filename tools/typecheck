@@ -7,6 +7,8 @@
 # In the core repo each run also checks the framework, kits, ui and the example modules
 # (examples/modules/*, against their fixture games). In a games repo (docs/framework/games-repo.md)
 # it checks the game's src/ and modules/ only; the core is checked by the core's own CI.
+# (v1.6.0) In an adopted project, problems in files listed in studwork-legacy.json with the "style"
+# check print as `warning: [legacy] <problem>` and don't count (see the end of this file).
 source "$(dirname "$0")/_common.sh"
 
 LUAU_LSP_TAG="1.70.1"
@@ -109,6 +111,50 @@ if ! is_games_repo; then
 		rojo sourcemap "$FIXTURE" --absolute -o .cache/sourcemap-example.json >/dev/null
 		OUT="$OUT$(analyze .cache/sourcemap-example.json --ignore "**/*.spec.luau" "$MOD")"
 	done
+fi
+
+# (v1.6.0) an adopted project: problems in files studwork-legacy.json lists with "style" (old code
+# that fails luau-lsp) print as `warning: [legacy] <problem>` and don't fail; every other problem
+# still does. luau-lsp prints absolute paths: matched by the project-relative path. A problem's
+# continuation lines (no "<path>(<line>,<col>):" prefix) follow the problem they belong to.
+if [ -n "$OUT" ] && is_single_game && [ -f studwork-legacy.json ]; then
+	STYLE_PATHS=()
+	STYLE_OUT="$(lune_tool guardrails --legacy-style-files)" || die "guardrails --legacy-style-files failed"
+	while IFS= read -r line; do
+		[ -n "$line" ] && STYLE_PATHS+=("${line%%$'\t'*}")
+	done <<<"$STYLE_OUT"
+	if [ "${#STYLE_PATHS[@]}" -gt 0 ]; then
+		ROOT_PHYS="$(pwd -P)"
+		KEPT=""
+		LEGACY_WARN=""
+		legacy=0
+		while IFS= read -r line; do
+			if [[ "$line" =~ ^(.+)\(([0-9]+),([0-9]+)\): ]]; then
+				file="${BASH_REMATCH[1]}"
+				# "<path> [<instance path>]" when the sourcemap knows the file
+				if [[ "$file" == *"]" ]]; then file="${file% \[*}"; fi
+				file="${file#"$PROJECT_ROOT"/}"
+				file="${file#"$ROOT_PHYS"/}"
+				file="${file#./}"
+				legacy=0
+				for l in "${STYLE_PATHS[@]}"; do
+					if [ "$file" = "$l" ]; then
+						legacy=1
+						break
+					fi
+				done
+			fi
+			if [ "$legacy" -eq 1 ]; then
+				LEGACY_WARN="$LEGACY_WARN"$'\n'"warning: [legacy] $line"
+			else
+				KEPT="$KEPT"$'\n'"$line"
+			fi
+		done <<<"$OUT"
+		[ -z "$LEGACY_WARN" ] || echo "${LEGACY_WARN#$'\n'}"
+		OUT="${KEPT#$'\n'}"
+		# nothing but blank lines left: clean
+		[ -n "$(echo "$OUT" | tr -d '[:space:]')" ] || OUT=""
+	fi
 fi
 
 if [ -n "$OUT" ]; then
