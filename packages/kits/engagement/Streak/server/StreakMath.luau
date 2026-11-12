@@ -20,6 +20,11 @@
 	graceHours that is not a finite number >= 0 is treated as 0.
 	"next" | "grace" | "reset" | "first" count as a new daily visit (rewards + handlers fire).
 
+	expiresAt(state, graceHours, utcOffsetHours?) (v1.7.0) is the unix time the streak ends if the player
+	does not come back: the end of the grace window after the day that would be missed,
+	(lastDay + 2) * 86400 + graceHours * 3600 in local seconds, minus the offset. nil when there is no
+	streak (day <= 0 or lastDay <= 0). It is the first instant at which advance() answers "reset".
+
 	rewardFor(day, rewards, loopAfter) returns the reward entry for a streak day. When loopAfter
 	is a positive integer and day > loopAfter, the table wraps: effective = (day - 1) % loopAfter + 1.
 	Days without an entry give nil.
@@ -79,6 +84,13 @@ function StreakMath.advance(
 		return { day = state.day + 1, lastDay = today }, "grace" :: Outcome
 	end
 	return { day = 1, lastDay = today }, "reset" :: Outcome
+end
+
+function StreakMath.expiresAt(state: State, graceHours: number?, utcOffsetHours: number?): number?
+	if state.day <= 0 or state.lastDay <= 0 then
+		return nil
+	end
+	return (state.lastDay + 2) * DAY + finiteNonNegative(graceHours) * HOUR - offsetSeconds(utcOffsetHours)
 end
 
 function StreakMath.counts(outcome: string): boolean

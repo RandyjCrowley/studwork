@@ -8,5 +8,8 @@ defaults, save section, strings), `server/` (server part), `client/` (the prompt
 
 Design and API: [docs/framework/kits/notifications.md](../../../../docs/framework/kits/notifications.md).
 
-Status: the foundation skeleton. `module.luau` is final; the server part is a valid empty part whose
-API answers with documented safe defaults. Implementation: the notifications builder of the v1.7.0 round.
+Server files: `init.luau` (the part: API, actions, opt-in, join and leave), `Engine.luau` (sends, due list,
+ledger, claims, retries, poll), and the pure rules `Templates`, `Ledger`, `Quiet`, `Sender`, `OptInRules`
+(each with its spec in `../tests/NotificationsRules.spec.luau`). Client files: `init.luau` and `OptIn.luau`
+(the seam over `ExperienceNotificationService`). Specs: `../tests/Notifications{Rules,Kit,Sim}.spec.luau`,
+everything mocked (no Roblox call).

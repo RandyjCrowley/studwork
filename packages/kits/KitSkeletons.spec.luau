@@ -82,7 +82,7 @@ describe("v1.7.0 kit skeletons boot", function()
 		local saved = h:saved(p)
 		expect(saved.leaderboards).never.toBe(nil)
 		expect(saved.badges.awarded).toEqual({})
-		expect(saved.notifications.sessions).toBe(0)
+		expect(saved.notifications.sessions).toBe(1) -- Notifications counts a session on join
 		expect(saved.textfilter.nextId).toBe(1)
 		expect(StudWork.use(Notifications)).never.toBe(nil)
 	end)
