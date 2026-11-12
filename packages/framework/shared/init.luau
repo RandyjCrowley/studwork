@@ -33,7 +33,7 @@ local Resolve = require(script.Resolve)
 
 local StudWork = {}
 
-StudWork.VERSION = "1.6.1"
+StudWork.VERSION = "1.6.2"
 
 export type ModuleRef<API = any, TxAPI = any, ClientAPI = any> = any
 

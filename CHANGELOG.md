@@ -11,6 +11,67 @@ Identifiers like `R19` or `V1` are issue ids: open ones are listed in [docs/know
 
 ## [Unreleased]
 
+## [1.6.2] - 2026-11-12
+
+UI polish and three fixes found by the first game built on StudWork. No new features; the module
+API and the UI kit's props only grew.
+
+### Fixed
+
+- **The odds panel's region notice is never cut off.** It showed one line ("... You can") on phones
+  while `TextFits` still reported true. Multi-line kit text (the notice, the luck/pity/mutation
+  lines, Toast messages) is measured with `TextService` at its real width instead of relying on
+  `AutomaticSize`, through the new `UI.WrappedText`.
+- **Odds item names are readable on phones.** Text never renders below the new theme metric
+  `metrics.minTextSize` (default 11 real pixels, after the responsive and Modal scales). Names use a
+  fixed size, wrap to 2 lines and end in "…"; tapping a name shows it in full under the row. Rarity
+  badges and percentages keep their columns.
+- **"Odds" appears once.** The default Odds screen, the sandbox, the new-game template and the
+  override examples pass `title = false` to the `OddsTable` inside their window.
+- **Buttons inside `UI.Modal` can be clicked.** The tap-blocking layer sat above the panel; the
+  panel is now above it and the close button above both.
+- **A Modal never runs off the screen.** Its content scrolls inside 88% of the screen height,
+  computed in the content's own design pixels, instead of growing past the top and bottom edges.
+- **The sandbox and the new-game template's odds window was blank.** Their ScreenGui used the
+  default `ZIndexBehavior.Global`, so the Modal's backdrop covered the panel. They (and the override
+  examples) use `Sibling`, like the UI kit's own ScreenGuis; `UI.Modal` warns once in a Global
+  ScreenGui. **Games: set `ZIndexBehavior = Enum.ZIndexBehavior.Sibling` on any ScreenGui that
+  renders `UI.Modal`.**
+- **Item cards fit their size.** Long names clipped (scaled text in a box one line high); now they
+  wrap to 2 lines with "…", the text rows keep readable sizes and the icon takes the space left.
+- **Economy's client part loads**, so the coin counter is on the HUD again. Its definition never
+  declared `client = "Economy"`. A test now checks that every kit module with a `client/` folder
+  declares it. Games that registered `"Economy.currency"` themselves as a workaround can delete
+  that registration.
+- **Lune specs in a single-game project see the root `default.project.json`** also when the spec
+  path is absolute, so a spec under `src/` can require `ReplicatedStorage.Game.*` with no copied
+  project file. `tools/test-single-game` runs such a spec by discovery, relative and absolute path.
+
+### Changed
+
+- Theme default `metrics.text.min` (the smallest size scaled kit text may shrink to) is 14 design
+  pixels, was 9; `TextFit.MIN_TEXT_SIZE` likewise. A tight custom label that only fitted at 9–13 px
+  may need more room.
+- `UI.Modal` content scrolls instead of the whole panel shrinking below the readable minimum
+  (`ModalFit.minScale`). Content is laid out with a 12-px gap (the theme padding), was 8.
+- `UI.Toast` no longer pops in from 60% scale (the scale would take its text below the minimum).
+- `UI.OddsTable` rows are 48 px tall (was 36) and the name/badge/percent columns are 38/37/25%
+  (was 42/33/25%).
+- `UI.ItemCard` names and income use the theme's small text size instead of scaled text; the icon
+  is sized from the space left. The Inventory screen's cells are 120×160 (was 96×128).
+
+### Added
+
+- Theme metric `metrics.minTextSize`; `UI.WrappedText`; `OddsTable` prop `title = false`; in the
+  pure modules under `ReplicatedStorage.UI`: `ModalFit.minScale(tokens)`,
+  `ModalFit.contentHeight(...)` and `ItemCardLayout` (module-api §22).
+- A kit-wide text-fit check: `tools/lune/uifit/` (every UI component, four sizes, planted
+  violations) and the Studio audit `tools/studio/ui-text-fit.luau`, which measures clipped text,
+  text under the minimum size, blocked Modal buttons, Modals off screen and overflowing containers
+  at desktop, small phone, large phone and tablet sizes (docs/manual-qa.md).
+- The README shows real code under the banner: a minimal game config and a client using
+  `StudWork.use`.
+
 ## [1.6.1] - 2026-11-11
 
 Patch fixes and safety hardening from the v1.6.0 review. The module API remains additive.
@@ -437,7 +498,8 @@ First release: the foundation services and kits.
   instead of an unprocessed purchase loop.
 - Leaving or shutting down no longer kicks with "opened in another server".
 
-[Unreleased]: https://github.com/RandyjCrowley/studwork/compare/v1.6.1...HEAD
+[Unreleased]: https://github.com/RandyjCrowley/studwork/compare/v1.6.2...HEAD
+[1.6.2]: https://github.com/RandyjCrowley/studwork/compare/v1.6.1...v1.6.2
 [1.6.1]: https://github.com/RandyjCrowley/studwork/compare/v1.6.0...v1.6.1
 [1.6.0]: https://github.com/RandyjCrowley/studwork/compare/v1.5.0...v1.6.0
 [1.5.0]: https://github.com/RandyjCrowley/studwork/compare/v1.4.1...v1.5.0

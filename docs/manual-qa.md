@@ -72,9 +72,10 @@ long names), Inventory and Mailbox screens, one at a time, in surfaces of 1280×
 - `blocked`: a button inside a Modal (on screen, not scrolled out) whose centre's top hit isn't the
   button.
 - `offscreen`: a Modal panel or close button outside the screen.
+- `overflow`: a fixed-size container whose list content is bigger than it (spills onto neighbours).
 - `truncated`: intentional two-line ellipses (odds names, item cards), for information.
 
-Pass = `clipped`, `blocked` and `offscreen` empty at every size. Against v1.6.1 it reports the cut-off
+Pass = `clipped`, `blocked`, `offscreen` and `overflow` empty at every size. Against v1.6.1 it reports the cut-off
 region notice, odds text under 11 px and every Modal button blocked. For screenshots set
 `KEEP = "<size>"`, `KEEP_CASE = "<case>"` (and `ONLY` to run one case); stop Play to clear them.
 

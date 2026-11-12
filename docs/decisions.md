@@ -342,6 +342,35 @@ Not used:
   before the pin check, and the games-repo test commits through the hook.
 - **A root `CHANGELOG.md`** covers the whole repo; the framework changelog stays with the package.
 
+## v1.6.2 (UI polish and game-found fixes)
+
+- **Text has a floor in real pixels, `metrics.minTextSize` (default 11).** `text.min` alone was a
+  design-pixel floor, and the Modal's fit scale (0.665 on a small phone) multiplied it to about
+  7 px. 11 px is about the smallest size still read comfortably on a phone. Modal no longer shrinks
+  past `ModalFit.minScale`; tall content scrolls instead. `text.min` rose to 14 so the responsive
+  minimum scale (0.85) keeps scaled text above 11.
+- **Multi-line text is measured, not auto-sized.** In Studio the region notice laid out as one line
+  inside the Modal/Panel AutomaticSize chain while the same label alone wrapped correctly, and
+  `TextFits` stayed true. `UI.WrappedText` measures with `TextService:GetTextBoundsAsync`; the Modal's
+  scroll height is set from its measured content for the same reason.
+- **Long names truncate after two lines instead of shrinking.** A readable fixed size with "…"
+  beats a full name at an unreadable size. The odds table shows the full name on tap (odds are a
+  disclosure); an item card is a summary and doesn't.
+- **`UI.Modal` requires a Sibling ScreenGui and doesn't try to work under Global.** Under Global the
+  backdrop must sit above the game's other UI while a game's children default to ZIndex 1, so no
+  ZIndex choice works for arbitrary content. The kit's ScreenGuis, the template and the examples use
+  Sibling, the Modal warns, a spec checks the shipped clients, and the close button stays above the
+  backdrop so a Global window can at least be closed.
+- **The text-fit check has two halves.** Lune can't render React, so `tools/lune/uifit/` checks the
+  source patterns (no AutomaticSize wrapping outside WrappedText, minimum sizes through the scale
+  chain, two-line truncation only with a way to see the full text) and ties each fixture to the
+  source it models. `tools/studio/ui-text-fit.luau` measures the real engine at four sizes. Both were
+  shown red on v1.6.1; the real game flow is still checked by hand (manual-qa), since a game's own
+  ScreenGui settings caused the blank odds window that every surface check passed.
+- **TextScaled sizes are real pixels.** The engine applies `UITextSizeConstraint` after UIScale, so
+  scaled labels (rarity badges, percentages, panel titles) don't grow on large screens. Left as is
+  for this patch (known issue U2).
+
 ## v1.6.1 (fixes from the v1.6.0 review)
 
 - **The join waits for gamepass lookups at most `GameConfig.shop.passPrefetchTimeout`** (default

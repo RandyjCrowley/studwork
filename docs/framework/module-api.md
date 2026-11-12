@@ -1056,3 +1056,39 @@ ctx.shop.legacyReceipts({ name, scope?, key, until?, checkDays? })  -- checkDays
   module, store and key. Tests: `StudWork.test.legacyStore(...)` gains `dataStoreService()` and
   `watchWrites(fn)`. Live servers are not checked (adopting.md §4.3).
 
+
+## 22. Additions in v1.6.2
+
+Patch release: UI kit fixes. Every addition is optional; existing props keep their meaning.
+
+### 22.1 A readable minimum text size (added in v1.6.2: odds item names rendered at about 7 px on phones)
+
+```lua
+GameConfig.theme = { metrics = { minTextSize = 11 } }  -- real on-screen pixels, 6..32, default 11
+```
+
+No UI kit text renders below `minTextSize` after every UIScale (the responsive scale and a
+Modal's fit scale). `metrics.text.min` (design pixels, now 14 by default) stays the floor of scaled
+text. Pure helpers under `ReplicatedStorage.UI`: `ModalFit.minScale(tokens)` (the smallest scale
+`UI.Modal` applies) and `ModalFit.contentHeight(screenY, outerScale, fitScale, chrome, content, floor)`
+(the height of a Modal's scrolling content in design pixels).
+
+### 22.2 Measured wrapped text (added in v1.6.2: the odds region notice showed one line of three)
+
+```lua
+e(UI.WrappedText, { text = "...", textSize = "small", font = "bold", color = "text",
+	backgroundColor = "warning", padding = 8, layoutOrder = 1, onHeight = function(h) end })
+```
+
+Its height is measured with `TextService:GetTextBoundsAsync` at its real width and re-measured when
+the width, text, font or size change; use it for any multi-line kit text instead of a TextLabel
+with `TextWrapped` and `AutomaticSize`.
+
+### 22.3 UI kit props (added in v1.6.2)
+
+- `UI.OddsTable`: `title = false` omits its own heading (for a table inside a window that already
+  has a title). Names wrap to two lines and end in "…"; tapping one shows the full name.
+- `UI.Modal`: content taller than 88% of the screen scrolls. Render it in a ScreenGui with
+  `ZIndexBehavior = Sibling`; under `Global` the backdrop covers the panel and the Modal warns once.
+- `UI.ItemCard`: text rows keep readable sizes and the icon takes the space left
+  (`ItemCardLayout.iconSize`); give the card at least 120 x 160 design px for every optional row.

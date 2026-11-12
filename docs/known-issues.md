@@ -165,6 +165,30 @@ There are no open Critical or High issues.
 - **Workaround:** push the adoption commit and run `tools/lint --anchor-remote` in CI (the
   single-game CI template does).
 
+### U1. `UI.Modal` needs a ScreenGui with `ZIndexBehavior = Sibling`
+
+Under `Global` (the default of `Instance.new("ScreenGui")`) the backdrop draws over the panel's
+contents, so the window looks blank; only the close button shows. The Modal warns once.
+Workaround: set `ZIndexBehavior = Enum.ZIndexBehavior.Sibling` on the ScreenGui (the template and
+examples do).
+
+### U2. Scaled kit text doesn't grow on large screens
+
+Rarity badges, odds percentages and panel titles are `TextScaled` with a `UITextSizeConstraint`,
+which the engine applies in real pixels after UIScale: on desktop and tablet (responsive scale
+1.75) they stay at 14-24 px while fixed text grows, so they look small next to item names. Never
+below `minTextSize`. Workaround: none needed for readability; a game can pass its own sizes.
+
+### U3. A wrapped, truncated name can end without "…"
+
+The engine sometimes ends the second line at a word break without drawing the ellipsis (seen on
+desktop and tablet: "Rainbow Sword of"). The odds table shows the full name on tap.
+
+### U4. A long odds window has two scroll areas
+
+`OddsTable` scrolls its own list (`maxHeight`, default 320) and the Modal scrolls its content.
+Workaround: pass a larger `maxHeight` when the table is the only content of a window.
+
 ## Games-repo mode
 
 ### V2. Generated module READMEs have a wrong docs link in a games repo
