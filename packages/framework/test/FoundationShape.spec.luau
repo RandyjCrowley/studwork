@@ -1,8 +1,8 @@
 --!nocheck
 --[[
-	v1.7.0 foundation: the SHAPE of every new framework surface (module-api.md §23): the facade
-	members, the pure env / flags / strings helpers, the store layers' argument checks, services,
-	Open Cloud and the budget / census stubs. Behaviour specs belong to each surface's builder.
+	v1.7.0: the SHAPE of every new framework surface (module-api.md §23): the facade members, the
+	pure env / flags / strings helpers, the store layers' argument checks, services, Open Cloud,
+	store budgets and the census. Behaviour is covered by each surface's own specs.
 ]]
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local Framework = ReplicatedStorage:WaitForChild("Framework")

@@ -637,6 +637,25 @@ these pages before relying on a limit.
   callers); TextFilter's `shownMaxDays` is 7 (a string filtered under older rules isn't shown for a
   month).
 
+### v1.7.0: fixes from Studio, dogfooding and the tick budget
+
+- **Harness players are userdata by default.** In Studio, Notifications refused every real player
+  because it checked `type(player) == "table"`; every spec passed because the harness's players
+  were tables. `h:addPlayer` now returns a proxy whose `type` is `"userdata"` and `typeof` is
+  `"Instance"`, so this class of bug fails in a spec. `instancePlayers = false` keeps tables for
+  specs that need them.
+- **Leaderboards combine `max`/`sum` submits in memory and save within 30 s** (and on each store
+  write, leave and shutdown). One save transaction per submit made the all-modules tick cost about
+  1.2 ms against a 0.94 ms budget. A server crash can lose up to 30 s of submits (known issue O13);
+  `set` boards still write at once.
+- **The tick budget is measured with every v1.7.0 module on** (`tools/bench` variant `KITS-ALL`,
+  with a Leaderboards submit per player per tick). The old `KITS` variant stays for comparison.
+- **The sandbox uses demo opt-in values** (`minSessions = 0`, `minSessionSeconds = 30`) so the prompt
+  can be checked in a first Studio session; the kit defaults (1 session, 180 s) are unchanged.
+- **Badges show a Studio preview toast** for an award recorded but not sent, so a game can check its
+  UI in Studio; the `BadgeAwarded` signal still means Roblox confirmed, and live behaviour is
+  unchanged.
+
 ## v1.6.2 (UI polish and game-found fixes)
 
 - **Text has a floor in real pixels, `metrics.minTextSize` (default 11).** `text.min` alone was a

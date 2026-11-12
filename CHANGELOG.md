@@ -11,113 +11,102 @@ Identifiers like `R19` or `V1` are issue ids: open ones are listed in [docs/know
 
 ## [Unreleased]
 
+## [1.7.0] - 2026-11-12
+
+The features real games need: four new kit modules (Notifications, Leaderboards, Badges,
+TextFilter) and two framework features (environments and flags, localization), with the store,
+service and Open Cloud surfaces they are built on. Additive: no module API was renamed or removed.
+Nothing here has been checked against live Roblox services yet; see the manual QA checklist
+("New in v1.7.0") and known issues O8 to O13.
+
 ### Added
 
 - **Four kit modules**, all normal modules on the public module API (a game lists them in
-  `GameConfig.modules`; each works when left out):
+  `GameConfig.modules`; each works when left out, and each has a `flag` kill switch):
   - **Notifications** (engagement kit): experience notifications through Open Cloud with the key in
-    Roblox's secrets store. Opt-in prompt rules, message templates, per-player and per-server limits,
-    quiet hours, future sends on a shared due list that any running server sends, strict launch data.
-    API `send`, `schedule`, `cancel`, `suggestOptIn` (returns `(boolean, reason?)`: a live `Player` is
-    accepted, and a refusal says why); signals `Sent`, `OptInPrompted`, `LaunchedFrom`.
+    Roblox's secrets store (`HttpService:GetSecret`); without a key or with a placeholder
+    `messageId` it logs and sends nothing. Opt-in prompt rules (never on join; `minSessions`,
+    `minSessionSeconds`), message templates, per-player, per-actor (`limits.perActorPerDay`) and
+    per-server limits, quiet hours (the offset is kept for offline recipients), future sends on a
+    sharded shared due list that any running server sends (Roblox can't schedule a notification),
+    strict launch data. API `send`, `schedule`, `cancel`, `suggestOptIn` (returns
+    `(boolean, reason?)`); signals `Sent`, `OptInPrompted`, `LaunchedFrom`.
   - **Leaderboards** (engagement kit): all-time boards on ordered stores and daily or weekly boards on
-    MemoryStore sorted maps, a top N shared by every server, the player's own rank, built-in sources
-    (Economy, Rebirth, Streak) and `registerSource`. API `submit`, `top`, `rank`, `refresh`,
-    `registerSource`; signal `BoardRefreshed`; client `board`, `mine`, `open`, `attach`.
-  - **Badges** (engagement kit): awards that are recorded first and sent once, with retries, an
-    ownership check at join and triggers (`manual`, `join`, `streak`, `rebirths`, `item`, `currency`,
-    `leaderboard`). API `award`, `has` (+ `txApi.award`, `purchaseOps.award`); signal `BadgeAwarded`;
-    client `earned`, `onAwarded`.
+    MemoryStore sorted maps reset by the framework clock, a top N shared by every server (one reader
+    per board on a short lease), the player's own rank, built-in sources (Economy, Rebirth, Streak)
+    and `registerSource`. Values come only from the server: no client action writes a board.
+    `max`/`sum` submits are combined in memory and join the save within 30 s, on each store write, on
+    leave and on shutdown. API `submit`, `top`, `rank`, `refresh`, `registerSource`; signal
+    `BoardRefreshed`; client `board`, `mine`, `open`, `attach`.
+  - **Badges** (engagement kit): awards that are recorded first and sent once, with retries and
+    backoff, a cached ownership check at join and triggers (`manual`, `join`, `streak`, `rebirths`,
+    `item`, `currency`, `leaderboard`); a failed award never blocks gameplay. API `award`, `has`
+    (+ `txApi.award`, `purchaseOps.award`); signal `BadgeAwarded`; client `earned`, `onAwarded`. In
+    Studio nothing is sent; a recorded award shows a toast marked "(Studio preview, not sent)" once
+    per player and badge per session (`studioFeedback`).
   - **TextFilter** (social kit): `FilterStringAsync` by audience (`public`, `friends`, `private`),
-    `IsContentSharingAllowed`, a re-display cache and kept originals that never reach clients.
+    `IsContentSharingAllowed`, a bounded re-display cache, per-author submission and re-display
+    limits, and kept originals that live in TextFilter's own save section and never reach clients.
     API `filter`, `textFor`, `store`, `shown`, `release`.
-- **Framework features** (not modules; always on):
-  - Environments and flags: `GameConfig.environments`, `StudWork.env` / `ctx.env`, `GameConfig.flags`
-    and `ServerConfig.flags`, `StudWork.flags` / `ctx.flags`, a live override through `ConfigService`
-    (`GameConfig.flagOverride`), and a `flags` console command. A `testOnly` flag that would be on in
-    live is a boot error.
+- **Framework features** (not modules; always on, inert until configured):
+  - Environments and flags: `GameConfig.environments` (generated from `deploy.json`), `StudWork.env` /
+    `ctx.env`, `GameConfig.flags` and `ServerConfig.flags`, `StudWork.flags` / `ctx.flags` on server
+    and client, a live override through `ConfigService` (`GameConfig.flagOverride`, read on a budget,
+    cached, picked up without a restart) and a `flags` console command. A `testOnly` flag that would
+    be on in live is a boot error, and the live override can't turn one on.
   - Localization: `defineModule.strings`, `GameConfig.strings` and `localization`, `ctx.text`,
-    `StudWork.text`, `UI.text` and `UI.useText`. The UI kit's English moved into `ui.*` keys; every
-    kit component label goes through them.
-  - Stores: `ctx.data.ordered(name)` and `ctx.data.sortedMap(name)` (per module, budgeted, retried,
-    memory-charged), `ctx.data.census()` and `GameConfig.storeBudgets`.
+    `StudWork.text`, `UI.text` and `UI.useText`, through `LocalizationService` translators with an
+    English fallback (never a blank). The UI kit's English moved into `ui.*` keys; Roblox's automatic
+    translation keeps working.
+  - Stores: `ctx.data.ordered(name)` and `ctx.data.sortedMap(name)` (per module, budgeted, retried
+    with backoff, memory-charged against a per-module share), `ctx.data.census()` (sharded past 500
+    servers; every server reads the shard count) and `GameConfig.storeBudgets`.
   - `ctx.services.get(name)` (engine services a module may use, replaceable in specs),
-    `ctx.openCloud` (deny-by-default through `ServerConfig.openCloud`; data store, memory store,
-    config and Luau execution paths refused) and `ctx.policy.allows(player, field)`.
+    `ctx.openCloud` (deny-by-default through `ServerConfig.openCloud` per secret, module, method and
+    path; data store, memory store, config and Luau execution paths always refused),
+    `ctx.policy.allows(player, field)` (permission fields) and `ctx.policy.restricted(player, field)`
+    (restriction fields, true until known).
 - **API additions to existing modules:** `Streak.expiresAt(player)`; `Rebirth.count(player)`.
 - **UI kit:** `UI.Leaderboard` (own-row token `colors.leaderboardSelf`) and `UI.LeaderboardFormat`;
   `UI.Odds.pityLine` and `luckLine` take an optional text resolver.
 - **Framework kick messages** are now the strings `framework.kick.saveFailed`, `.sessionEnded` and
   `.legacyImport` (same English; `Server.KICK_*` still work), so a game can reword or translate them.
-- **Lint:** new `strings` check (hard-coded English in the UI kit, kit client parts and framework client
-  code) and `textfilter` check (client text reaching players or shared stores without TextFilter;
-  listable in `studwork-legacy.json`); the `purchases` check also covers `ConfigService`, `:GetSecret(`,
-  `:RequestAsync(` and `:PostAsync(`.
+- **Lint:** new `strings` check (hard-coded English in the UI kit, kit client parts and framework
+  client code) and `textfilter` check (client text reaching players, replication or shared stores
+  without TextFilter; only TextFilter's return values count as clean; named, dotted and wrapped
+  handlers are followed; listable in `studwork-legacy.json`), each with planted violations in the
+  self-test; the `purchases` check also covers `ConfigService`, `:GetSecret(`, `:RequestAsync(` and
+  `:PostAsync(`.
 - **Tools:** `tools/sync-projects` writes `src/shared/Config/Environments.luau` from `deploy.json`
   (`--check` fails on drift) and maps a game's `src/shared/Localization` as `LocalizationService`.
   `tools/new-game --modules` and `tools/new-project --modules` know the four new modules.
+  `tools/typecheck --offline`; `tools/bench` variant `KITS-ALL` (every v1.7.0 module on) is the tick
+  budget reference. An unknown console command suggests near matches.
 - **Testing:** harness options `env`, `placeId`, `universeId`, `services`, `openCloud`, `secrets`,
-  `locale`, `translator`, `storeBudgets`, `census`, `strings`, `localization`; in-memory ordered stores
-  and sorted maps with Roblox's limits (`h:orderedStore`, `h:sortedMap`); fakes for BadgeService,
-  TextService, UserService, ConfigService, Open Cloud, translators and the experience notification
-  service. The sandbox and the new-game template show every new module, flag and string.
-- **Docs:** a page per new module and feature under `docs/framework/kits/`, module API section 23,
-  kit contract, guardrails, UI README, manual QA checklist ("New in v1.7.0") and known issues O8 to O12
-  and U5.
-
-  - Added after review and dogfooding: `ctx.policy.restricted(player, field)` (restriction fields,
-    true until known); Notifications `actor` on `send` and `schedule` with
-    `limits.perActorPerDay` (default 10, answer `"actor_limit"`); one boot log line naming every
-    placeholder badge id and Notifications `messageId`; a console reply that suggests near matches
-    for an unknown command (`my points` -> `mygame points`).
-  - Docs and tools for game authors: `docs/framework/testing.md` (worked game-module spec, every
-    harness option) and a scaffolded `src/server/GameModule.spec.luau`; `--help` / `-h` on
-    `tools/new-project`, `new-game`, `build`, `dev`, `typecheck`, `make-module` and
-    `make-migration` (usage, exit 0, in core, games-repo and single-game modes);
-    `tools/typecheck --offline`; `tools/lint` says "run tools/format" when stylua fails.
-  - Testing: the harness's fake `game` has `Workspace`, `Players` and `HttpService`; a part with a
-    `net.blink` gets a recording `part.net`; `h:sent(Module?, Event?)` reads what the server sent
-    to clients.
+  `locale`, `translator`, `storeBudgets`, `census`, `strings`, `localization`, `instancePlayers`;
+  in-memory ordered stores and sorted maps with Roblox's limits (`h:orderedStore`, `h:sortedMap`);
+  fakes for BadgeService, TextService, UserService, ConfigService, Open Cloud, translators and the
+  experience notification service; the fake `game` has `Workspace`, `Players` and `HttpService`; a
+  part with a `net.blink` gets a recording `part.net`; `h:sent(Module?, Event?)`.
+- **Docs:** a page per new module and feature under `docs/framework/kits/` (each opens with a quick
+  start mirrored by a spec), `docs/framework/testing.md` (testing a game module), module API section
+  23, kit contract, guardrails, UI README, manual QA checklist ("New in v1.7.0") and known issues O8
+  to O13, U5 and U6. The sandbox and the new-game template show every new module, flag and string;
+  new projects get a worked `src/server/GameModule.spec.luau`.
 
 ### Changed
 
-- Badges: in Studio a record that is not sent (`awardInStudio = false`, or a placeholder id) now
-  fires the client `Awarded` event and shows a toast marked "(Studio preview, not sent)", once per
-  player and key per session; new config `studioFeedback` (default `true`) turns it off, and the
-  `BadgeAwarded` signal still means Roblox confirmed. Live behaviour is unchanged.
-- The sandbox shows each new module in Studio: a flag-gated HUD Leaderboards button
-  (`leaderboardButton`), a testOnly debug label, the notifications opt-in reachable in a first
-  session (`optIn.minSessions = 0` and `minSessionSeconds = 30` as demo values, `sandbox optin`) and
-  a mapped `src/shared/Localization/game.csv` with English and `es` rows. The template's
-  `game.csv` has one example row.
-- `ctx.policy.allows` takes permission fields only; restriction fields use `ctx.policy.restricted`.
-- Environments: a test universe id counts only once `live.universeIds` lists the live universe
-  (otherwise it is ignored with one boot warning and the server resolves live). The order is
-  studio, test place, live place, test universe, live.
-- `StudWork.start` environment options (`env`, `isStudio`) count only with an injected platform
-  (tests); in production they are ignored with one warning.
-- The `textfilter` lint: only TextFilter's return values count as clean (a name stays tainted after
-  a filter call); named handlers (`handler = f`, `actions.x = f`) and untyped parameters are scanned.
-- The census bucket splits into up to 16 shards past 500 servers, each in its own sorted map.
-- Notifications: a quiet-hours offset is kept in the ledger for offline recipients; a malformed
-  `messageId` is a boot error. Badges: the default award budget is 80% of Roblox's limit
-  (`base = 40`, `perPlayer = 28`). TextFilter: `shownMaxDays` defaults to 7, and a `textFor` cache
-  miss counts against the author's rate limit (and so does a `shown` re-filter while `cache.seconds`
-  is under 60).
 - `StudWork.test.harness`: `h:addPlayer` returns a userdata proxy by default, like a live `Player`
   (`type(p) == "userdata"`, `typeof(p) == "Instance"`), so a `type(p) == "table"` check fails in a
-  spec. A spec that uses `pairs`, `rawget`, `setmetatable` or `table.clone` on a player breaks:
-  pass `instancePlayers = false` to keep plain table players.
-- The scaffolded game module's description, version check and `dependsOn` comment are neutral;
-  `new-game` rewrites the console prefix in the scaffold's help text. The scaffold's console
-  commands take an optional last `[userId]` (a handler's `player` is nil from the command bar and
-  `h:console`), and its `GameModule.spec` fakes `BadgeService`, `UserService` and `TextService` for
-  the kits the game lists.
-- Tick cost with every v1.7.0 module on (bench `KITS-ALL`): a Leaderboards `max`/`sum` submit is
-  combined in memory and joins the save within 30 s (and on each store write, leave and shutdown)
-  instead of one save transaction per call; Leaderboards visits a player only when a write, source
-  read or fold is due; Streak re-evaluates online players once per day change instead of every
-  60 s; Replication reuses a module's part of the state while nothing in it changed.
+  spec as it would live. A spec that uses `pairs`, `rawget`, `setmetatable` or `table.clone` on a
+  player breaks: pass `instancePlayers = false` to keep plain table players.
+- Streak re-evaluates online players once per day change instead of every 60 s.
+- Replication reuses a module's part of the replicated state while nothing in it changed.
+- The scaffolded game module: neutral description, version check and `dependsOn` / `optional`
+  comment; `new-game` rewrites the console prefix in the scaffold's help text; console commands take
+  an optional last `[userId]` (a handler's `player` is nil from the command bar and `h:console`).
+- `tools/typecheck` says when it downloads Roblox type definitions on a first run and counts errors
+  and warnings separately; `tools/lint` says "run tools/format" when StyLua fails.
 
 ### Fixed
 
@@ -616,7 +605,8 @@ First release: the foundation services and kits.
   instead of an unprocessed purchase loop.
 - Leaving or shutting down no longer kicks with "opened in another server".
 
-[Unreleased]: https://github.com/RandyjCrowley/studwork/compare/v1.6.2...HEAD
+[Unreleased]: https://github.com/RandyjCrowley/studwork/compare/v1.7.0...HEAD
+[1.7.0]: https://github.com/RandyjCrowley/studwork/compare/v1.6.2...v1.7.0
 [1.6.2]: https://github.com/RandyjCrowley/studwork/compare/v1.6.1...v1.6.2
 [1.6.1]: https://github.com/RandyjCrowley/studwork/compare/v1.6.0...v1.6.1
 [1.6.0]: https://github.com/RandyjCrowley/studwork/compare/v1.5.0...v1.6.0
