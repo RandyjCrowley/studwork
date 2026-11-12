@@ -24,4 +24,30 @@ function Layout.usedHeight(textSize: number): number
 		+ 4 * Layout.GAP
 end
 
+-- Design px every row except the icon needs: padding, the 2-line name, the badge, the optional
+-- income and mutation rows, and the gap above each row that follows the icon.
+function Layout.rowsHeight(textSize: number, hasIncome: boolean, hasMutation: boolean): number
+	local rows = 2 + (if hasIncome then 1 else 0) + (if hasMutation then 1 else 0)
+	return 2 * Layout.PADDING
+		+ Layout.nameHeight(textSize)
+		+ Layout.BADGE
+		+ (if hasIncome then Layout.INCOME else 0)
+		+ (if hasMutation then Layout.MUTATION else 0)
+		+ rows * Layout.GAP
+end
+
+-- The icon takes the height the fixed rows leave in a card of this size (design px), never wider
+-- than the card's inner width and never negative (v1.6.2: a smaller card, such as the Inventory
+-- grid's, overflowed with a fixed 48-px icon).
+function Layout.iconSize(
+	cardWidth: number,
+	cardHeight: number,
+	textSize: number,
+	hasIncome: boolean,
+	hasMutation: boolean
+): number
+	local room = cardHeight - Layout.rowsHeight(textSize, hasIncome, hasMutation)
+	return math.max(0, math.floor(math.min(room, cardWidth - 2 * Layout.PADDING)))
+end
+
 return table.freeze(Layout)

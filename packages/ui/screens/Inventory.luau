@@ -13,7 +13,7 @@ local Theme = require(script.Parent.Parent.Theme)
 
 local e = React.createElement
 
-local CARD = Vector2.new(96, 128)
+local CARD = Vector2.new(120, 160) -- ItemCard's 0.75 aspect; fits every row at readable sizes (v1.6.2)
 
 return function(props: any)
 	local items: { any } = props.items or {}

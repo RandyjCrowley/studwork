@@ -35,12 +35,56 @@ export type Props = {
 	onActivated: (() -> ())?,
 }
 
+-- Product of every UIScale that applies to `inst` (its own and its ancestors').
+local function scaleOf(inst: Instance): number
+	local s = 1
+	local node: Instance? = inst
+	while node and not node:IsA("LayerCollector") do
+		local u = node:FindFirstChildOfClass("UIScale")
+		if u then
+			s *= u.Scale
+		end
+		node = node.Parent
+	end
+	return s
+end
+
 local function ItemCard(props: Props)
 	local color, glow, strength = Theme.rarity(props.rarity)
 	local tappable = props.onActivated ~= nil
+	local hasIncome, hasMutation = props.incomePerSec ~= nil, props.mutation ~= nil
+	local cardRef = React.useRef(nil :: GuiObject?)
+	-- The text rows keep fixed, readable sizes; the icon takes what is left in the card's real size.
+	local icon, setIcon = React.useState(
+		Layout.iconSize(Layout.WIDTH, Layout.WIDTH / Layout.ASPECT, Theme.text.small, hasIncome, hasMutation)
+	)
+	React.useEffect(function(): (() -> ())?
+		local card = cardRef.current
+		if card == nil then
+			return nil
+		end
+		local function measure()
+			local s = math.max(scaleOf(card), 0.01)
+			setIcon(
+				Layout.iconSize(
+					card.AbsoluteSize.X / s,
+					card.AbsoluteSize.Y / s,
+					Theme.text.small,
+					hasIncome,
+					hasMutation
+				)
+			)
+		end
+		measure()
+		local connection = card:GetPropertyChangedSignal("AbsoluteSize"):Connect(measure)
+		return function()
+			connection:Disconnect()
+		end
+	end, { hasIncome, hasMutation } :: { any })
 	return e(
 		if tappable then "TextButton" else "Frame",
 		{
+			ref = cardRef,
 			Text = if tappable then "" else nil,
 			AutoButtonColor = if tappable then false else nil,
 			BackgroundColor3 = Theme.color("surfaceAlt"),
@@ -73,7 +117,8 @@ local function ItemCard(props: Props)
 					TextColor3 = if props.icon then nil else Theme.color("outline"),
 					BackgroundColor3 = color,
 					BackgroundTransparency = if props.icon then 1 else 0,
-					Size = UDim2.fromOffset(Layout.ICON, Layout.ICON),
+					Size = UDim2.fromOffset(icon, icon),
+					Visible = icon > 0,
 					LayoutOrder = 1,
 				} :: any,
 				{

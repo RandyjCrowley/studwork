@@ -22,9 +22,10 @@
 	clipping ancestor (scrolled-out rows are skipped, not failed) must be the top hit of
 	PlayerGui:GetGuiObjectsAtPosition (or a descendant of the button).
 
-	A Modal's panel and close button must lie fully inside the surface (offscreen = {}).
+	A Modal's panel and close button must lie fully inside the surface (offscreen = {}), and a
+	fixed-size container's list content must fit inside it (overflow = {}).
 
-	Pass: every size reports clipped = {}, blocked = {} and offscreen = {}. Set KEEP and KEEP_CASE to leave one
+	Pass: every size reports clipped, blocked, offscreen and overflow empty. Set KEEP and KEEP_CASE to leave one
 	size's case mounted for a screenshot (stop Play to clear it); ONLY runs a single case.
 ]]
 
@@ -59,6 +60,16 @@ for i, tier in TIERS do
 	table.insert(items, { id = id, name = tier .. " Rainbow Sword of the Ancients", rarity = tier })
 	odds[id] = PROBS[i]
 end
+local fullItems = {}
+for _, item in items do
+	table.insert(fullItems, {
+		id = item.id,
+		name = item.name,
+		rarity = item.rarity,
+		incomePerSec = 999999999,
+		mutation = "Rainbow",
+	})
+end
 local NOTICE = "Paid random items are restricted in your region. You can still earn these rewards by playing."
 local function noop() end
 
@@ -77,7 +88,8 @@ local cases: { [string]: any } = {
 	}),
 	-- OddsTable on its own (a game's own panel)
 	OddsTable = e(UI.OddsTable, { odds = odds, items = items, restricted = true }),
-	Inventory = e(screen("Inventory"), { items = items, onClose = noop }),
+	-- every optional card row (income, mutation): the tallest card content
+	Inventory = e(screen("Inventory"), { items = fullItems, onClose = noop }),
 	Mailbox = e(screen("Mailbox"), {
 		messages = {
 			{ id = "m1", kind = "gift", payload = { itemId = "Item5" } },
@@ -267,7 +279,7 @@ end
 local output: { [string]: any } = {}
 for _, size in SIZES do
 	local name, width, height = size[1], size[2], size[3]
-	local clipped, truncated, blocked, offscreen, checkedButtons, labels = {}, {}, {}, {}, 0, 0
+	local clipped, truncated, blocked, offscreen, overflow, checkedButtons, labels = {}, {}, {}, {}, {}, 0, 0
 	for caseName, element in cases do
 		if ONLY and caseName ~= ONLY then
 			continue
@@ -327,6 +339,34 @@ for _, size in SIZES do
 				end
 			end
 		end
+		-- a fixed-size container whose list content is bigger than its inner box spills over its
+		-- neighbours (v1.6.2: Inventory item cards with fixed rows in a smaller grid cell)
+		for _, d in surface:GetDescendants() do
+			if d:IsA("UIListLayout") and d.Parent and d.Parent:IsA("GuiObject") then
+				local box = d.Parent :: GuiObject
+				local auto = box.AutomaticSize
+				local vertical = d.FillDirection == Enum.FillDirection.Vertical
+				local grows = if vertical
+					then auto == Enum.AutomaticSize.Y or auto == Enum.AutomaticSize.XY
+					else auto == Enum.AutomaticSize.X or auto == Enum.AutomaticSize.XY
+				if box.Visible and not box:IsA("ScrollingFrame") and not grows then
+					local s = scaleOf(box)
+					local padX, padY = inset(box, box.AbsoluteSize.X / s, box.AbsoluteSize.Y / s)
+					local innerMain = if vertical
+						then box.AbsoluteSize.Y - padY * s
+						else box.AbsoluteSize.X - padX * s
+					local content = if vertical then d.AbsoluteContentSize.Y else d.AbsoluteContentSize.X
+					if content > innerMain + 2 then
+						table.insert(overflow, {
+							case = caseName,
+							container = (box:GetFullName():gsub("^.-PlayerGui%.", "")),
+							content = math.floor(content / s + 0.5),
+							inner = math.floor(innerMain / s + 0.5),
+						})
+					end
+				end
+			end
+		end
 		for _, d in surface:GetDescendants() do
 			if d:IsA("TextLabel") or d:IsA("TextButton") or d:IsA("TextBox") then
 				labels += 1
@@ -369,6 +409,7 @@ for _, size in SIZES do
 		clipped = clipped,
 		blocked = blocked,
 		offscreen = offscreen,
+		overflow = overflow,
 		truncated = truncated,
 	}
 end
