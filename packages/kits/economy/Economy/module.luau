@@ -37,6 +37,7 @@ return StudWork.defineModule({
 	version = "1.3.0",
 	framework = "^1.3.0",
 	description = "Currencies, item income, multipliers and boosts (economy kit)",
+	client = "Economy",
 	optional = { Items, Inventory },
 	config = {
 		schema = {

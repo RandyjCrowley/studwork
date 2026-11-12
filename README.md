@@ -7,6 +7,36 @@
 [![CI](https://github.com/RandyjCrowley/studwork/actions/workflows/ci.yml/badge.svg)](https://github.com/RandyjCrowley/studwork/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 
+This is what StudWork code looks like (the banner's code panel is an illustration):
+
+```luau
+-- src/shared/Config/init.luau
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local Modules = ReplicatedStorage:WaitForChild("Modules")
+
+return {
+	gameId = "my-game",
+	modules = { require(Modules:WaitForChild("Economy"):WaitForChild("module")) },
+	config = { Economy = { primaryCurrency = "Coins" } },
+	items = {},
+	products = {},
+	events = {},
+}
+```
+
+```luau
+-- src/server/Main.server.luau (game script, outside a module's server part)
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local StudWork = require(ReplicatedStorage:WaitForChild("Framework"))
+local Economy = require(ReplicatedStorage.Modules.Economy.module)
+local Config = require(ReplicatedStorage.Game.Config)
+local ServerConfig = require(script.Parent.ServerConfig)
+
+StudWork.start(Config, ServerConfig)
+assert(StudWork.use(Economy).primaryCurrency() == "Coins", "wrong primary currency")
+-- Game scripts can also call StudWork.use(Economy).balance(player, "Coins") after a player loads.
+```
+
 **StudWork** is an opinionated Roblox game framework written in Luau (`--!strict`). It makes good
 decisions for you, so a new game is playable within minutes: a game that sets only its name and
 items gets rarity tiers, a mobile-first theme, a HUD, an income economy, luck with disclosed odds,
