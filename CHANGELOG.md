@@ -80,6 +80,15 @@ Identifiers like `R19` or `V1` are issue ids: open ones are listed in [docs/know
 
 ### Changed
 
+- Badges: in Studio a record that is not sent (`awardInStudio = false`, or a placeholder id) now
+  fires the client `Awarded` event and shows a toast marked "(Studio preview, not sent)", once per
+  player and key per session; new config `studioFeedback` (default `true`) turns it off, and the
+  `BadgeAwarded` signal still means Roblox confirmed. Live behaviour is unchanged.
+- The sandbox shows each new module in Studio: a flag-gated HUD Leaderboards button
+  (`leaderboardButton`), a testOnly debug label, the notifications opt-in reachable in a first
+  session (`optIn.minSessions = 0` and `minSessionSeconds = 30` as demo values, `sandbox optin`) and
+  a mapped `src/shared/Localization/game.csv` with English and `es` rows. The template's
+  `game.csv` has one example row.
 - `ctx.policy.allows` takes permission fields only; restriction fields use `ctx.policy.restricted`.
 - Environments: a test universe id counts only once `live.universeIds` lists the live universe
   (otherwise it is ignored with one boot warning and the server resolves live). The order is
@@ -100,8 +109,9 @@ Identifiers like `R19` or `V1` are issue ids: open ones are listed in [docs/know
 
 - `tools/net` no longer fails in roblox-core, where there is no `games/` folder: it only searches the
   roots that exist.
-- `tools/build`, `tools/dev` and `tools/typecheck` answered `--help` with "no such game"; and
-  `tools/make-module` / `tools/make-migration` treated it as an unknown option.
+- `--help` and `-h` now print usage and exit 0 on every tool. `tools/build`, `dev` and `typecheck`
+  answered "no such game", `make-module`, `make-migration` and `make-screen` reported an unknown
+  option, and `tools/sync-projects`, `test-adopt` and `test-games-repo` ran instead of helping.
 
 ## [1.6.2] - 2026-11-12
 
