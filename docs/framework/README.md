@@ -17,6 +17,7 @@ overridable, nothing in core is special, guardrails you can't turn off.
 | [Publishing](publishing.md) | One-time Roblox setup (Group, test/live experiences, Open Cloud key), `tools/publish`, launch checklist |
 | [Kit contract](kit-contract.md) | What each kit module offers other modules: api, txApi, purchase ops, extensions, signals, replicated keys |
 | Kits: [Collection](kits/collection.md), [Economy](kits/economy.md), [Base](kits/base.md), [Social](kits/social.md), [Engagement](kits/engagement.md) | Config keys with defaults, API, extensions, signals, replicated state, save data |
+| v1.7.0 modules (design): [Notifications](kits/notifications.md), [Leaderboards](kits/leaderboards.md), [Badges](kits/badges.md), [TextFilter](kits/textfilter.md); framework features: [Environments and flags](kits/environments.md), [Localization](kits/localization.md) | The same, plus failure and budget behaviour, what tests mock, and what can't be verified offline |
 | [Theme guide](theme.md) | The theme tree, presets, rarity look, HUD slots and widgets, screens |
 | [Guardrails](guardrails.md) | What you can't turn off, why, and what can only be guided |
 | [FAQ](faq.md) | Short answers to common questions |

@@ -342,6 +342,142 @@ Not used:
   before the pin check, and the games-repo test commits through the hook.
 - **A root `CHANGELOG.md`** covers the whole repo; the framework changelog stays with the package.
 
+## v1.7.0 (engagement, text, flags, localization)
+
+Designed against the official Roblox documentation as it read on 2026-11-12 (each create.roblox.com
+page below was read from its source in the public creator-docs repository). APIs change: re-check
+these pages before relying on a limit.
+
+- **Grouping.** Notifications, Badges and Leaderboards join Streak in the engagement kit
+  (return-day and progress hooks); TextFilter joins the social kit (it exists because players
+  show each other text). Environments/flags and localization are framework features, below.
+- **Flags and environments are framework features, not a kit module.** The `testOnly` rule is a
+  boot error, so it must run inside boot's config validation, before any module; flags are read
+  by every module and by the UI on both sides; and `StudWork.flags` is a facade name, which a
+  kit can't own without the framework naming a kit. It stays "nothing is special": modules reach it
+  through `ctx.flags`, the same surface a third-party module gets, and kits use it only through a
+  `flag` config key naming a game flag (a live kill switch).
+- **Localization is a framework feature too.** The UI kit and the framework's own messages need
+  strings whether or not any module is enabled, so the resolver lives in framework `shared/` and
+  the UI kit. Modules add their English defaults through a new definition field (`strings`), the
+  same for kits and third-party modules.
+- **Neither framework feature appears in `tools/new-project --modules`.** That list is for
+  `GameConfig.modules`; these are always on and inert until configured. The templates carry
+  their config (`flags = {}`, `strings = {}`, the generated `Environments.luau`) with comments, and
+  the sandbox shows both in use.
+- **Environment = Studio, else a listed test place, else live.** An unlisted place counts as live,
+  so a forgotten list can only switch test features off, never on. The ids come from
+  `deploy.json` (already the source of truth for publishing) through a generated, committed
+  `Environments.luau`, so a game can't publish with ids its runtime doesn't know; `--check` catches
+  drift. Rejected: reading `deploy.json` at runtime (it isn't in the place) and a manual list only
+  (two copies of the same ids drift).
+- **The live flag override is Roblox's experience configs (`ConfigService`).** It is the official
+  remote config: server-only, per experience (so the test experience has its own values),
+  published to servers in about 15 s to 1 min, with `UpdateAvailable`/`Refresh`. The framework
+  reads it after boot (boot never waits), maps `flag_<name>` booleans onto declared flags, and
+  refuses an override that would turn a `testOnly` flag on in live. Rejected: a DataStore
+  document (needs polling budget and a tool to edit it) and an external HTTP service (a secret
+  and an outage dependency). Player-targeted configs (experiments) are out of scope: flags are
+  server-wide.
+  Sources: https://create.roblox.com/docs/production/configs,
+  https://create.roblox.com/docs/reference/engine/classes/ConfigService,
+  https://create.roblox.com/docs/reference/engine/classes/ConfigSnapshot.
+- **Notifications are sent through Open Cloud from the game server, with the key from the secrets
+  store.** `HttpService` can call Open Cloud's `CreateUserNotification` with an `x-api-key` header
+  that must be a `Secret` from `HttpService:GetSecret` (only `x-api-key` and `content-type` headers
+  are allowed; 2500 Open Cloud requests per server per minute, separate from the 500 HTTP limit).
+  The framework wraps this as a generic `ctx.openCloud` (any endpoint Roblox allows), so no kit
+  touches `HttpService` or a secret value and tests fake it. Without the secret (or in a local
+  playtest without a local secret) everything logs once and returns a reason. Rejected: the
+  Creator Store "OpenCloud" Luau package the guide uses (an unpinned asset outside Wally that
+  would have to be vendored and inserted into every place).
+  Sources: https://create.roblox.com/docs/cloud-services/http-service,
+  https://create.roblox.com/docs/cloud-services/secrets,
+  https://create.roblox.com/docs/reference/engine/classes/HttpService,
+  https://create.roblox.com/docs/cloud/guides/experience-notifications,
+  https://create.roblox.com/docs/production/promotion/experience-notifications.
+- **The opt-in prompt is never on join, and only at a moment the game names.** Roblox's prompt
+  (`CanPromptOptInAsync` then `PromptOptIn`, client-only) is hidden from under-13s, from players who
+  already opted in and for 30 days after it was shown; `OptInPromptClosed` reports no answer, so
+  the experience can't know who opted in. The kit therefore never guesses opt-in state: it limits
+  its own prompts (session time, sessions played, cooldown, a lifetime cap) and leaves delivery
+  rules to Roblox. Source: https://create.roblox.com/docs/reference/engine/classes/ExperienceNotificationService.
+- **Future-time notifications use a due list in a MemoryStore sorted map, polled by every server.**
+  Roblox has no scheduled send, and a notification can only go out from something that runs. A
+  sorted map sorted by due time, with a claim written by an atomic update, lets any running server
+  send due entries once; a per-recipient ledger (also a sorted map, 48 h expiry) enforces the daily
+  limit across servers and for offline players, whose saves a server can't write. The cost: no
+  server running means a late or dropped (`staleAfterHours`) notification. Documented, not hidden.
+  Roblox allows one notification per user per day per experience, so `perPlayerPerDay = 1`.
+  Templates must be personal and actionable and must not use false time pressure: the built-in
+  "streak ending" send is only scheduled when it is true.
+- **No PolicyService field governs notifications** (the fields are ads, paid random items, content
+  sharing, trading, subscriptions, commerce, China, photo-to-avatar, endless content); age and
+  region are enforced by Roblox's prompt and delivery. TextFilter does use `IsContentSharingAllowed`
+  for text other players see, through a generic `ctx.policy.allows(player, field)` that fails
+  closed. Source: https://create.roblox.com/docs/reference/engine/classes/PolicyService.
+- **Badges: record first, send later; never twice.** `AwardBadgeAsync` works only while the player
+  is in the server, can fail, and is limited to `50 + 35 x players` per minute; a player can delete
+  a badge and be awarded it again. So the award is recorded in the player's save (in the
+  triggering transaction where there is one) and sent from a background queue with backoff; a
+  recorded badge is never sent again, and a pending one survives to the next session. Ownership is
+  checked at join with `CheckUserBadgesAsync` (10 ids per call, `10 + 5 x players` per minute) and
+  cached. Disabled badges (`GetBadgeInfoAsync().IsEnabled`) stay pending.
+  Sources: https://create.roblox.com/docs/reference/engine/classes/BadgeService,
+  https://create.roblox.com/docs/production/publishing/badges.
+- **Leaderboards: all-time in OrderedDataStore, daily and weekly in MemoryStore sorted maps.**
+  All-time scores must be durable (OrderedDataStore, integers only, pages of at most 100); periodic
+  scores are disposable, and a sorted map per period (`<board>/<periodId>`, expiring after the
+  period) makes the reset a property of the clock, with no reset job and no deletes. The top N is
+  cached per server and refreshed on an interval because `GetSortedAsync` is only `5 + 2 x players`
+  per server per minute; writes are batched per player (`writeSeconds`), use an atomic update for
+  "best", and periodic writes that can't place are skipped to stay inside the experience-wide
+  memory quota (`64 KB + 1.2 KB x users`). An exact rank beyond the top N isn't offered: neither
+  store returns one without reading every entry.
+  Sources: https://create.roblox.com/docs/cloud-services/data-stores/error-codes-and-limits,
+  https://create.roblox.com/docs/reference/engine/classes/OrderedDataStore,
+  https://create.roblox.com/docs/cloud-services/memory-stores,
+  https://create.roblox.com/docs/cloud-services/memory-stores/sorted-map,
+  https://create.roblox.com/docs/reference/engine/classes/MemoryStoreSortedMap.
+- **Store access for kits goes through framework ctx surfaces** (`ctx.data.ordered`,
+  `ctx.data.sortedMap`), scoped to the calling module by name prefix like `ctx.data.shared`. Hard
+  rule 4 keeps `DataStoreService` in the framework, and the framework is the one place that can see
+  the whole server's budget: ordered calls are refused (not queued) while their request type is
+  near its per-server limit, and MemoryStore units are capped per server
+  (`GameConfig.storeBudgets`), so a module can't starve player saves or another module.
+- **Engine services reach modules through `ctx.services.get(name)`.** The framework already puts
+  every engine service it uses behind its Platform table so specs run without Roblox; modules had
+  no such seam. A small allow-list (Badge, Text, User, Localization services, Players) is
+  returned live as-is and replaced by fakes in the harness; services that have a framework surface
+  (DataStore, MemoryStore, Marketplace, Http, Messaging, Config, Policy) are refused with the
+  surface to use.
+- **TextFilter filters by audience and never returns unfiltered text.** `FilterStringAsync` then
+  `GetNonChatStringForBroadcastAsync` for text everyone sees, `GetNonChatStringForUserAsync` per
+  viewer for friends-only or own text; a failure means "don't show it". Roblox can only filter
+  while the author is in the server, so the kit hands callers a save record with the broadcast
+  string for display while the author is away and keeps the original in the author's own save for
+  re-filtering. Results are cached per (author, text, context) with a size and age bound. The lint
+  check is a same-function heuristic: honest about what it can't follow (tables, other modules).
+  Sources: https://create.roblox.com/docs/reference/engine/classes/TextService,
+  https://create.roblox.com/docs/reference/engine/classes/TextFilterResult,
+  https://create.roblox.com/docs/ui/text-filtering.
+- **String keys with English defaults, translated by Roblox's translators, falling back to
+  English, never blank.** `Translator:FormatByKey` errors when no table has the key, which is the
+  normal "untranslated" case, so it runs in `pcall` and falls back to the English default.
+  Labels keep `AutoLocalize` on and show English when no keyed translation exists, so automatic
+  text capture and automatic translation work exactly as for any game text; keyed manual
+  translations win where a game provides them. The format syntax is Roblox's (`{name}`, `{1}`), so
+  a key's English text can be pasted into a localization table unchanged. The no-hard-coded-English
+  rule is a lint check on the UI kit and kit client code only: games may hard-code their own text.
+  Sources: https://create.roblox.com/docs/reference/engine/classes/LocalizationService,
+  https://create.roblox.com/docs/reference/engine/classes/Translator,
+  https://create.roblox.com/docs/production/localization/localize-with-scripting,
+  https://create.roblox.com/docs/production/localization/automatic-translations.
+- **Nothing in this release calls a real Roblox service in tests or in the round.** Every
+  service above has a fake under `StudWork.test.fakes`; what only a live experience can show
+  (delivery, throttling, real filter output, ConfigService propagation) is listed per page under
+  "Not verifiable offline".
+
 ## v1.6.2 (UI polish and game-found fixes)
 
 - **Text has a floor in real pixels, `metrics.minTextSize` (default 11).** `text.min` alone was a
