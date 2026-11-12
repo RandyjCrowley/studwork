@@ -573,7 +573,14 @@ these pages before relying on a limit.
   https://create.roblox.com/docs/reference/engine/classes/Translator,
   https://create.roblox.com/docs/production/localization/localize-with-scripting,
   https://create.roblox.com/docs/production/localization/automatic-translations.
-- **Nothing in this release calls a real Roblox service in tests or in the round.** Every
+- **Store request cap and errors.** The MemoryStore request-unit cap is one per server
+  (`base + perPlayer x players`), shared by all modules; only memory has per-module shares. The
+  census costs about 3 units per server per cycle, not 2 (an `update` is a read and a write). An
+  error raised inside an `update` function (ordered or sorted map) raises in the caller, like the
+  other caller errors, and does not return `false`; a function returning nil cancels the write.
+  A server with 0 players has 20 units a minute, about 3 notification sends a minute (known
+  issue).
+- **Nothing in this release calls a real Roblox service in tests or while building it.** Every
   service above has a fake under `StudWork.test.fakes`; what only a live experience can show
   (delivery, throttling, real filter output, ConfigService propagation) is listed per page under
   "Not verifiable offline".

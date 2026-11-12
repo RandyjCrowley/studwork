@@ -179,4 +179,4 @@ self-test covers the lint check.
 ## Not verifiable offline
 
 Roblox's actual filter output, its age-based differences between viewers, and the per-user
-filtering latency right after a join. Live checklist in the round report.
+filtering latency right after a join. Live checklist: [manual-qa.md](../../manual-qa.md), "New in v1.7.0".

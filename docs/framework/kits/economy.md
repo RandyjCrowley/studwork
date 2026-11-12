@@ -89,7 +89,9 @@ are wiped unless the item has `keepOnRebirth = true` (or `config.Rebirth.onRebir
 applied through
 `ctx.depsTx[Inventory]` (optional Inventory), contract.
 
-- **API:** `canRebirth(player)`, `rebirth(player) -> boolean`, `cost(player)`, `multiplier(player)`.
+- **API:** `canRebirth(player)`, `rebirth(player) -> boolean`, `cost(player)`, `multiplier(player)`,
+  `count(player) -> number` (v1.7.0: rebirths done, 0 until the player's data is loaded; the
+  Leaderboards `rebirths` source and the Badges `rebirths` trigger read it).
 - **Extensions (contract):** `resetStep(id, fn(tx, player))`: runs inside Rebirth's single
   transaction; write your own section with `ctx.section(tx)` (Upgrades and Plot reset this way).
 - **Signals (contract):** `Rebirthed(player, count)`.

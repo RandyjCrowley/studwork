@@ -1171,7 +1171,9 @@ local board = ctx.data.ordered(name)          -- in init or later; doesn't yield
 board.get(key) -> (ok, value: number?)        -- yields
 board.set(key, value) -> (ok, reason?)        -- yields
 board.increment(key, delta) -> (ok, newValue | reason)
-board.update(key, fn(old: number?) -> number?) -> (ok, newValue | reason)  -- atomic, fn may re-run
+board.update(key, fn(old: number?) -> number?) -> (ok, newValue | reason)  -- atomic, fn may re-run;
+                                              -- fn returning nil cancels: (true, current value);
+                                              -- fn raising, or returning a non-integer, raises in the caller
 board.remove(key) -> (ok, reason?)
 board.top(count, order: "desc" | "asc", minValue?, maxValue?) -> (ok, { { key, value } } | reason)
 ```
@@ -1221,7 +1223,9 @@ map.range(direction: "asc" | "desc", count, lower?, upper?) -> (ok, { { key, val
   a string of at most 128 characters, value JSON-safe and at most 32 KB encoded, expiry 1..3 888 000
   seconds (45 days; required, there is no default), `count` 1..200. Breaking one is an error in
   the caller.
-- `update`'s `fn` returning nil cancels the write (Roblox semantics); it may run more than once.
+- `update`'s `fn` returning nil cancels the write and the call answers `(true, nil)` (Roblox
+  semantics); it may run more than once. An error raised inside `fn` is an error in the caller
+  (it raises; it does not return `false`), like the other caller errors above.
 - **Budget:** request units are counted per server per minute (a `range` costs one unit per row
   returned plus one for the partition scanned, Roblox's rule); over this server's share (`GameConfig.storeBudgets`, §23.5) a call
   returns `(false, "budget")` without calling Roblox. Throttled (`RequestThrottled`,
@@ -1263,7 +1267,10 @@ ctx.data.census() -> { servers: number, players: number, peakPlayers: number, at
   `5 + 2 x players`, read `60 + 40 x players`, write and remove `30 + 5 x players`, per server;
   an `update` uses one read and one write).
   Player saves use the standard DataStore request types, which ordered calls don't consume.
-- **MemoryStore request units:** the quota (`1000 + 120 x CCU` units per minute) is
+- **MemoryStore request units:** the cap is one per server, shared by every module (not per module;
+  only the memory below has per-module shares). A server with no players has `base` = 20 units a
+  minute: with a ledger operation at about 3 units, that is a handful of Notifications sends a
+  minute (about 3), so a server that is empty for long sends little. The quota (`1000 + 120 x CCU` units per minute) is
   experience-wide; there is no per-server budget to read, so each server caps itself at
   `base + perPlayer x playersInServer`. The bound, honestly: the experience uses at most
   `20 x servers + 20 x CCU`; with at least one player per server that is at most `40 x CCU`, a
@@ -1273,8 +1280,10 @@ ctx.data.census() -> { servers: number, players: number, peakPlayers: number, at
   current time bucket of a framework-owned sorted map (`SW/_/census`, an atomic `update`, expiry
   10 min) and reads the last complete bucket: `servers` and `players` (= CCU) for the whole
   experience, at most two buckets old. The day's peak player count is kept for 9 days, and
-  `peakPlayers` is the highest of the last 8 days. Cost: 2 request units per server per
-  `censusSeconds` (charged to the framework, not a module); one map partition takes about 10,000
+  `peakPlayers` is the highest of the last 8 days. Cost: about 3 request units per server per
+  `censusSeconds` (an `update` counts as a read and a write; charged to the framework, not a
+  module, and counted but never refused), plus 2 for each module that had new memory charges that
+  cycle and one range read on a server's first cycle; one map partition takes about 10,000
   servers at the default, more with a longer `censusSeconds`. `ctx.data.census()` gives modules the
   last reading, so they scale their cadences with the server count.
 - **MemoryStore memory:** the quota (`64 KB + 1.2 KB x users`) is experience-wide, and Roblox only

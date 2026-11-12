@@ -296,6 +296,15 @@ and, at most once per player per UTC day (`lastLaunchDay`), the analytics event
 | No server running at the due time | sent by the next server that polls, unless older than `staleAfterHours` |
 | `CanPromptOptInAsync` fails | no prompt; reported as not shown |
 
+**The request-unit cap sets how many a server can send.** Every ledger and due-list call is a
+MemoryStore call and counts against the server's cap, `storeBudgets.memoryUnits` =
+`base + perPlayer x players` per minute (default 20 + 20 per player, [module-api §23.5](../module-api.md)).
+A send costs about 6 units (reserve, send, record) and a due entry about 9, so a server with no
+players (20 units a minute) sends about 3 notifications a minute, and each player in the server adds
+about 3 more. Over the cap a call answers `store_busy` and a due entry waits for the next minute, or
+for another server. A game that sends many notifications from servers with few players should raise
+`storeBudgets.memoryUnits.base` (known issue O9).
+
 ## Tests (mocked; nothing calls Roblox)
 
 - `StudWork.test.fakes.openCloud()` records every request (method, path, body, the secret's
@@ -320,4 +329,4 @@ and, at most once per player per UTC day (`lastLaunchDay`), the analytics event
 
 The real Open Cloud response shapes and error codes, whether a non-opted-in recipient gives an
 error or a silent success, actual delivery, the launch data round trip (`GetJoinData`), and the
-prompt's look. These are on the live checklist in the round report.
+prompt's look. These are on the live checklist in [manual-qa.md](../../manual-qa.md).

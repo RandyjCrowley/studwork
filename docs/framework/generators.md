@@ -39,6 +39,7 @@ hand trimming:
   `"displayed"` only with Plot, `"owned"` otherwise; Streak rewards and the Friends multiplier only
   with Economy);
 - Items fields (`economy = { incomePerSec }` only with Economy), products, events, tuning;
+- (v1.7.0) the `Leaderboards`, `Badges`, `Notifications` and `TextFilter` config sections in `Balance.luau`, and their `optional` entries in the game module (a trimmed `--modules` list drops both), so a game made with `--modules` lists no module it doesn't use;
 - the client's action bar (upgrade, chest, egg, rebirth, mailbox buttons) and the HUD goal;
 - the world's plots (only with Plot).
 
@@ -48,7 +49,7 @@ marks module-specific code with comment markers that the generator resolves and 
 
 Proved for these subsets (each passed `tools/lint`, `tools/typecheck` and its boot test): none,
 `Items`, `Inventory`, `Rarity`, `Items,Rarity,Inventory`, `Economy`,
-`Economy,Upgrades,Rebirth,Offline`, Collection + Economy, `Friends,Mail`, `Streak`, `Plot`,
+`Economy,Upgrades,Rebirth,Offline`, Collection + Economy, `Friends,Mail`, `Streak`, `Plot`, each of the four v1.7.0 modules (`Leaderboards`, `Badges`, `Notifications`, `TextFilter`),
 `Mail,Inventory`, and all. The self-test (`tools/lune/NewGame.spec.luau`) resolves the template's
 markers for every single module, for all and for none, and checks the result compiles.
 
@@ -90,6 +91,15 @@ entries are generated: don't edit them by hand. The project's
 own `Modules` entries (the game module's server part, a game-local module from `make-module
 --game`) are kept as written. Module folders are found by `tools/lune/ModuleDiscovery.luau`, the
 same discovery the Lune testkit and the multi-server sim use.
+
+**Environments.luau (v1.7.0).** For every project with a `deploy.json` and a
+`src/shared/Config/` folder it also writes `src/shared/Config/Environments.luau` (`return { test = …,
+live = … }` from the ids in `deploy.json`; placeholder `0` ids are left out, the test universe id only
+when it differs from the live one), which `GameConfig.environments` requires. It fails when the test
+and live place ids are equal, and `--check` (run by `tools/lint`) fails when the file is missing or
+drifts from `deploy.json`. A project whose game has `src/shared/Localization` also gets a
+`LocalizationService` entry mapping that folder, so the CSV there becomes the game's
+LocalizationTable ([localization](kits/localization.md)).
 
 ## tools/make-migration
 

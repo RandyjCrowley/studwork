@@ -22,7 +22,7 @@ tools/doctor       # every line should say ok
 ## 1. Generate the game
 
 Pick a name: lowercase letters, digits and dashes, 2-32 characters, starting with a letter. Pick
-the kit modules the game uses (names below; leave the flag out for all eleven):
+the kit modules the game uses (names below; leave the flag out for all fifteen):
 
 ```
 tools/new-game my-game --modules Items,Rarity,Inventory,Economy
@@ -36,8 +36,8 @@ It prints `created games/my-game (servePort N)`. Missing hard dependencies are a
 | Collection | `Items`, `Rarity`, `Inventory` | Rarity and Inventory need Items |
 | Economy | `Economy`, `Upgrades`, `Rebirth`, `Offline` | Upgrades and Rebirth need Economy |
 | Base | `Plot` | needs Inventory |
-| Social | `Friends`, `Mail` | none |
-| Engagement | `Streak` | none |
+| Social | `Friends`, `Mail`, `TextFilter` | none |
+| Engagement | `Streak`, `Leaderboards`, `Badges`, `Notifications` | none (Badges triggers and Leaderboards sources use Streak, Rebirth, Inventory and Economy only when listed) |
 
 What you get in `games/my-game/`:
 
@@ -50,7 +50,7 @@ What you get in `games/my-game/`:
 | `src/server/Main.server.luau` | builds the world and calls `StudWork.start(Config, ServerConfig)` |
 | `src/client/Main.client.luau` | `StudWork.start(Config)`, the HUD, an action bar for the listed modules |
 | `src/server/Boot.spec.luau` | boots the real Config in the multi-server sim and pins the module list |
-| `deploy.json` | placeholder experience ids (0); `tools/publish` refuses them until you fill them in |
+| `deploy.json` | placeholder experience ids (0); `tools/publish` refuses them until you fill them in. After pasting real ids, run `tools/sync-projects`: it writes `src/shared/Config/Environments.luau` (`GameConfig.environments`, which makes the test and live places tell themselves apart) from them |
 
 Only the listed modules' code and config are written, so nothing needs trimming by hand. It also
 adds a row to `GAMES.md` (when the project has one) and creates `docs/games/my-game.md` (pass

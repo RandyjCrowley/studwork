@@ -1,5 +1,7 @@
 # Engagement kit: Streak
 
+This page is Streak. The kit's v1.7.0 modules have their own pages: [Leaderboards](leaderboards.md), [Badges](badges.md), [Notifications](notifications.md).
+
 Daily streaks with a grace window, counted in UTC days by default. Code: `packages/kits/engagement/<Module>/` (one folder per module: `module.luau`, `server/`, `client/`; Rojo `ReplicatedStorage.Modules.<Module>`, `ServerScriptService.Modules.<Module>`). Entries
 marked **(contract)** are part of the cross-module surface listed in
 [kit-contract.md](../kit-contract.md).

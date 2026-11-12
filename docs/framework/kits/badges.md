@@ -36,7 +36,7 @@ waits for `BadgeService`.
 | `"manual"` | none | game code calls `award(player, key)` | none |
 | `"join"` | none | the player's first load (`ctx.framework.sessions(player) == 1`) | none |
 | `"streak"` | `atLeast` | Streak's `StreakAdvanced` reaches `atLeast` | Streak |
-| `"rebirths"` | `atLeast` | Rebirth's `Rebirthed` count reaches `atLeast` | Rebirth |
+| `"rebirths"` | `atLeast` | Rebirth's `count(player)` (at join) or the `Rebirthed` count reaches `atLeast` | Rebirth |
 | `"item"` | `item` | Inventory's `ItemAdded` with that item id | Inventory |
 | `"currency"` | `currency?`, `atLeast` | Economy's `CurrencyChanged` balance reaches `atLeast` | Economy |
 | `"leaderboard"` | `board`, `rank` | the player is at or above `rank` on a board refresh | Leaderboards |
@@ -44,8 +44,8 @@ waits for `BadgeService`.
 Triggers on a module that isn't enabled are a boot error naming the badge and the module (so are
 a bad key, id, kind or trigger field). All of them are declared `optional` dependencies, so the
 kit itself needs none. A trigger that is already satisfied at join (a streak of 10 for a badge at
-7, a balance, an item already owned, a rank) fires on load, after every module's own load handlers.
-`rebirths` is the exception: Rebirth's API has no count to read, so it fires on `Rebirthed` only.
+7, a balance, an item already owned, a rank, a rebirth count read with `Rebirth.count(player)`)
+fires on load, after every module's own load handlers.
 
 ## API (server)
 
@@ -141,5 +141,4 @@ send; a placeholder id is never sent; `txApi.award` in a discarded transaction r
 ## Not verifiable offline
 
 Real `AwardBadgeAsync` results and Roblox's own badge notification, the per-minute limits under
-load, and badge ownership checks for players who recently left. Live checklist in the round
-report.
+load, and badge ownership checks for players who recently left. Live checklist: [manual-qa.md](../../manual-qa.md), "New in v1.7.0".

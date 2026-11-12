@@ -1,6 +1,6 @@
 # Kit contract: what each kit module offers other modules
 
-The eleven built-in kit modules talk to each other, and to your modules, only through the public
+The fifteen built-in kit modules talk to each other, and to your modules, only through the public
 module API ([module API reference](module-reference.md)). This page lists that cross-module
 surface in one place: for each kit module, its `api`, `txApi`, `purchaseOps`, `extensions`,
 `signals`, replicated keys and save section. The kit pages ([Collection](kits/collection.md),
@@ -110,7 +110,8 @@ Rules that hold for everything below:
 
 ### Rebirth (needs Economy)
 
-- **api:** `canRebirth(player)`, `rebirth(player) -> boolean`, `cost(player)`, `multiplier(player)`.
+- **api:** `canRebirth(player)`, `rebirth(player) -> boolean`, `cost(player)`, `multiplier(player)`,
+  `count(player) -> number` (v1.7.0, additive: rebirths done; 0 until the player's data is loaded).
 - **extensions:** `resetStep(id, fn(tx, player))`: runs inside Rebirth's single transaction, in
   registration order, before the count goes up. Each step writes only its own section through
   `ctx.section(tx)`.
@@ -161,14 +162,61 @@ Rules that hold for everything below:
   tx); an error retries with backoff and then dead-letters. `core_` kinds are allowed here.
 - **Replicated `extra`:** `mailbox`. **Save section:** `mail`, not replicated.
 
+### TextFilter (v1.7.0)
+
+- **api (all yield):** `filter(author, text, context) -> (ok, Filtered | reason)`, `textFor(viewer,
+  author, text, context) -> string?`, `store(author, text, context) -> (ok, Stored | reason)`,
+  `shown(stored, viewer?) -> string?`, `release(author, stored)` (doesn't yield). Contexts:
+  `"public"`, `"friends"`, `"private"`.
+- **Uses:** `ctx.policy.allows(player, "IsContentSharingAllowed")`, `ctx.services` (`TextService`,
+  `Players`). Friends isn't required.
+- **Save section:** `textfilter` (the stored originals; never replicated). The `textfilter` lint
+  check ([guardrails](guardrails.md)) expects a game to pass player text through this module.
+
 ## Engagement kit
 
 ### Streak
 
-- **api:** `onDaily(fn(player, streakDay)) -> Connection`, `get(player) -> { day, lastDay }`.
+- **api:** `onDaily(fn(player, streakDay)) -> Connection`, `get(player) -> { day, lastDay }`,
+  `expiresAt(player) -> number?` (v1.7.0, additive: the unix time the streak ends if the player
+  doesn't return, i.e. the first instant `advance` would answer reset; nil without a streak).
 - **signals:** `StreakAdvanced(player, day)`.
 - **Uses:** Economy's `txApi.grant` (optional) for day rewards, in the same tx as the streak write.
 - **Replicated `data`:** `streak`. **Save section:** `streak`.
+
+### Leaderboards (v1.7.0)
+
+- **api:** `submit(player, boardId, value) -> boolean`, `top(boardId, previous?) -> { rows, periodId?,
+  endsAt?, updatedAt }`, `rank(player, boardId) -> (rank?, value)`, `refresh(boardId) -> boolean`
+  (yields).
+- **txApi:** `submit(tx, boardId, value) -> boolean`. **extensions:** `registerSource(boardId,
+  fn(player) -> number)` (one per board).
+- **signals:** `BoardRefreshed(boardId)`. **Uses:** Economy (`balance`), Rebirth (`count`) and Streak
+  (`get`) for the built-in sources, all optional; `ctx.data.ordered`, `ctx.data.sortedMap`,
+  `ctx.data.census()`.
+- **Replicated `extra`:** `boards`, `mine`. **Save section:** `leaderboards`, not replicated.
+- **Client:** `board(boardId)`, `mine(boardId)`, `open(boardId?, options?)`, `attach(parent, boardId,
+  options?)`; screen `"Leaderboards"`.
+
+### Badges (v1.7.0)
+
+- **api:** `award(player, key) -> boolean` (new record), `has(player, key) -> boolean`.
+- **txApi / purchaseOps:** `award(tx, key) -> boolean` (the send follows the commit).
+- **signals:** `BadgeAwarded(player, key, badgeId)`. **Uses:** Streak, Rebirth, Inventory, Economy and
+  Leaderboards through their public APIs, for the matching trigger kinds only (optional).
+- **Replicated `data`:** `awarded`. **Save section:** `badges`. **Client:** `earned()`,
+  `onAwarded(fn(key))`.
+
+### Notifications (v1.7.0)
+
+- **api:** `send(userId, templateKey, params?) -> (ok, reason?)`, `schedule(userId, templateKey, at,
+  params?, key?) -> (ok, reason?)`, `cancel(userId, key) -> boolean` (all yield),
+  `suggestOptIn(player, reason) -> boolean`.
+- **signals:** `Sent(userId, templateKey)`, `OptInPrompted(player)`, `LaunchedFrom(player,
+  templateKey)` (untrusted: attribution only). **Uses:** `ctx.openCloud`, `ctx.data.sortedMap`,
+  Streak's `expiresAt` (optional).
+- **Save section:** `notifications` (not replicated); scheduled entries live in a shared sorted
+  map, not in a save. **Client:** `canPrompt()`.
 
 ## Client side
 

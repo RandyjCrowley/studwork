@@ -11,6 +11,64 @@ Identifiers like `R19` or `V1` are issue ids: open ones are listed in [docs/know
 
 ## [Unreleased]
 
+### Added
+
+- **Four kit modules**, all normal modules on the public module API (a game lists them in
+  `GameConfig.modules`; each works when left out):
+  - **Notifications** (engagement kit): experience notifications through Open Cloud with the key in
+    Roblox's secrets store. Opt-in prompt rules, message templates, per-player and per-server limits,
+    quiet hours, future sends on a shared due list that any running server sends, strict launch data.
+    API `send`, `schedule`, `cancel`, `suggestOptIn`; signals `Sent`, `OptInPrompted`, `LaunchedFrom`.
+  - **Leaderboards** (engagement kit): all-time boards on ordered stores and daily or weekly boards on
+    MemoryStore sorted maps, a top N shared by every server, the player's own rank, built-in sources
+    (Economy, Rebirth, Streak) and `registerSource`. API `submit`, `top`, `rank`, `refresh`,
+    `registerSource`; signal `BoardRefreshed`; client `board`, `mine`, `open`, `attach`.
+  - **Badges** (engagement kit): awards that are recorded first and sent once, with retries, an
+    ownership check at join and triggers (`manual`, `join`, `streak`, `rebirths`, `item`, `currency`,
+    `leaderboard`). API `award`, `has` (+ `txApi.award`, `purchaseOps.award`); signal `BadgeAwarded`;
+    client `earned`, `onAwarded`.
+  - **TextFilter** (social kit): `FilterStringAsync` by audience (`public`, `friends`, `private`),
+    `IsContentSharingAllowed`, a re-display cache and kept originals that never reach clients.
+    API `filter`, `textFor`, `store`, `shown`, `release`.
+- **Framework features** (not modules; always on):
+  - Environments and flags: `GameConfig.environments`, `StudWork.env` / `ctx.env`, `GameConfig.flags`
+    and `ServerConfig.flags`, `StudWork.flags` / `ctx.flags`, a live override through `ConfigService`
+    (`GameConfig.flagOverride`), and a `flags` console command. A `testOnly` flag that would be on in
+    live is a boot error.
+  - Localization: `defineModule.strings`, `GameConfig.strings` and `localization`, `ctx.text`,
+    `StudWork.text`, `UI.text` and `UI.useText`. The UI kit's English moved into `ui.*` keys; every
+    kit component label goes through them.
+  - Stores: `ctx.data.ordered(name)` and `ctx.data.sortedMap(name)` (per module, budgeted, retried,
+    memory-charged), `ctx.data.census()` and `GameConfig.storeBudgets`.
+  - `ctx.services.get(name)` (engine services a module may use, replaceable in specs),
+    `ctx.openCloud` (deny-by-default through `ServerConfig.openCloud`; data store, memory store,
+    config and Luau execution paths refused) and `ctx.policy.allows(player, field)`.
+- **API additions to existing modules:** `Streak.expiresAt(player)`; `Rebirth.count(player)`.
+- **UI kit:** `UI.Leaderboard` (own-row token `colors.leaderboardSelf`) and `UI.LeaderboardFormat`;
+  `UI.Odds.pityLine` and `luckLine` take an optional text resolver.
+- **Framework kick messages** are now the strings `framework.kick.saveFailed`, `.sessionEnded` and
+  `.legacyImport` (same English; `Server.KICK_*` still work), so a game can reword or translate them.
+- **Lint:** new `strings` check (hard-coded English in the UI kit, kit client parts and framework client
+  code) and `textfilter` check (client text reaching players or shared stores without TextFilter;
+  listable in `studwork-legacy.json`); the `purchases` check also covers `ConfigService`, `:GetSecret(`,
+  `:RequestAsync(` and `:PostAsync(`.
+- **Tools:** `tools/sync-projects` writes `src/shared/Config/Environments.luau` from `deploy.json`
+  (`--check` fails on drift) and maps a game's `src/shared/Localization` as `LocalizationService`.
+  `tools/new-game --modules` and `tools/new-project --modules` know the four new modules.
+- **Testing:** harness options `env`, `placeId`, `universeId`, `services`, `openCloud`, `secrets`,
+  `locale`, `translator`, `storeBudgets`, `census`, `strings`, `localization`; in-memory ordered stores
+  and sorted maps with Roblox's limits (`h:orderedStore`, `h:sortedMap`); fakes for BadgeService,
+  TextService, UserService, ConfigService, Open Cloud, translators and the experience notification
+  service. The sandbox and the new-game template show every new module, flag and string.
+- **Docs:** a page per new module and feature under `docs/framework/kits/`, module API section 23,
+  kit contract, guardrails, UI README, manual QA checklist ("New in v1.7.0") and known issues O8 to O12
+  and U5.
+
+### Fixed
+
+- `tools/net` no longer fails in roblox-core, where there is no `games/` folder: it only searches the
+  roots that exist.
+
 ## [1.6.2] - 2026-11-12
 
 UI polish and three fixes found by the first game built on StudWork. No new features; the module

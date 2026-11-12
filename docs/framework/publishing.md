@@ -62,7 +62,8 @@ Paste them into `games/<name>/deploy.json`:
 
 New games start with `0` ids (and an `idsNote` saying so). `0`, negative, fractional or string ids
 are placeholders: `tools/publish` refuses a real publish with them (a `--dry-run` only warns).
-Commit `deploy.json` after editing it.
+Commit `deploy.json` after editing it. Then run `tools/sync-projects` and commit the regenerated
+`src/shared/Config/Environments.luau` (v1.7.0: `GameConfig.environments`; `tools/lint` fails until you do).
 
 ## 4. Create the Open Cloud API key (minimum scope)
 

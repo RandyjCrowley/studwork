@@ -189,5 +189,4 @@ framework state and on every change.
 ## Not verifiable offline
 
 `ConfigService` itself (real propagation time, staged values in Studio, behaviour while
-disconnected), and `game.PlaceId` on real test and live places. Live checklist in the round
-report.
+disconnected), and `game.PlaceId` on real test and live places. Live checklist: [manual-qa.md](../../manual-qa.md), "New in v1.7.0".

@@ -40,8 +40,9 @@ module: you never list it.
 other: `dependsOn = { Items }`, `StudWork.use(Economy)`, `ctx.deps[Economy]`. Strings are refused,
 so a typo fails when the file is required, not at runtime.
 
-The built-in kits are eleven modules in five kits (Collection: Items, Rarity, Inventory; Economy:
-Economy, Upgrades, Rebirth, Offline; Base: Plot; Social: Friends, Mail; Engagement: Streak). They use
+The built-in kits are fifteen modules in five kits (Collection: Items, Rarity, Inventory; Economy:
+Economy, Upgrades, Rebirth, Offline; Base: Plot; Social: Friends, Mail, TextFilter; Engagement: Streak,
+Leaderboards, Badges, Notifications). Environments, flags and localization are framework features, not modules. They use
 the same API a third-party module gets ([philosophy §3](../philosophy.md)).
 
 ## The game is its own module

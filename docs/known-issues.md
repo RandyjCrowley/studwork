@@ -165,6 +165,49 @@ There are no open Critical or High issues.
 - **Workaround:** push the adoption commit and run `tools/lint --anchor-remote` in CI (the
   single-game CI template does).
 
+### O8. Notifications and badges send nothing real until you replace the placeholders
+- **Where:** `config.Notifications.templates.*.messageId`, `config.Badges.badges.*.id`.
+- **What fails:** a template with an empty `messageId` and a badge with `id = 0` are placeholders:
+  the framework records, logs once per server and never calls Roblox. A game that forgets to
+  replace them ships with silent no-ops.
+- **Workaround:** the first send or award logs a warning naming the key; check the Output on a
+  test place.
+
+### O9. Scheduled notifications need a running server, and an empty server sends very few
+- **Where:** `packages/kits/engagement/Notifications/`, `docs/framework/kits/notifications.md`.
+- **What fails:** a future send ("your egg is ready") is sent by whichever server polls the due
+  list; with none running at the due time it waits for the next server and is dropped once older
+  than `schedule.staleAfterHours`. Every store call also counts against the server's MemoryStore
+  request cap (`storeBudgets.memoryUnits`, module-api §23.5): a server with 0 players has 20
+  units a minute, and a send costs about 6 units and a due entry about 9, so it sends about 3
+  notifications a minute (each player adds 20 units). Over the cap a send answers `store_busy`.
+- **Workaround:** raise `storeBudgets.memoryUnits.base` if reserved or empty servers must send
+  many; keep the stale window longer than the longest expected gap between servers.
+
+### O10. A notification rescheduled during its own send can be lost
+- **Where:** Notifications due list, `Sender`/`Engine`.
+- **What fails:** if the same user and key is rescheduled while that key's send is in flight, the
+  removal after the 2xx deletes the new entry (the ledger still lists the key until it goes
+  stale).
+- **Workaround:** use a different `key` for a reschedule made at the moment of sending.
+
+### O11. The `textfilter` and `strings` lint checks are heuristics
+- **Where:** `tools/lune/GuardTextFilter.luau`, `tools/lune/GuardStrings.luau`.
+- **What fails:** `textfilter` follows a string through one function only and treats a name passed
+  to `filter`, `textFor` or `store` as clean from the next line, even if the raw name is sent
+  later; it misses text that crosses functions or tables. `strings` reads one line at a time, so a
+  text prop whose value continues on the next line is not followed.
+- **Workaround:** review player-text paths by hand; the TextFilter page lists the safe pattern.
+
+### O12. Store limits are only partly enforced from one server
+- **Where:** `ctx.data.ordered`, `ctx.data.sortedMap`, `GameConfig.storeBudgets`.
+- **What fails:** the experience-wide ordered-store throttle is recognised by its error text
+  (`HTTP 429` / `Too Many Requests`), which is assumed, not observed; a memory total lags by up to
+  `censusSeconds`; the census's own items are not charged to any module share; an ordered
+  `increment` is never retried and may or may not have applied after a failure.
+- **Workaround:** keep `orderedReserve` and the memory `reserve` at their defaults or higher; write
+  absolute values with `set`/`update`.
+
 ### U1. `UI.Modal` needs a ScreenGui with `ZIndexBehavior = Sibling`
 
 Under `Global` (the default of `Instance.new("ScreenGui")`) the backdrop draws over the panel's
@@ -188,6 +231,13 @@ desktop and tablet: "Rainbow Sword of"). The odds table shows the full name on t
 
 `OddsTable` scrolls its own list (`maxHeight`, default 320) and the Modal scrolls its content.
 Workaround: pass a larger `maxHeight` when the table is the only content of a window.
+
+### U5. React views of the v1.7.0 UI are not exercised in Lune
+- **Where:** `packages/ui/Leaderboard.luau`, `packages/kits/engagement/Leaderboards/client/Views.luau`, `UI.useText`/`UI.useLocale`.
+- **What fails:** Lune has no React renderer, so the components' trees, the `useText` re-render on a
+  language change and the Charm selectors are checked only through their pure helpers and fake
+  hooks. `tools/studio/ui-text-fit.luau` has not been run on `UI.Leaderboard` with long names.
+- **Workaround:** `docs/manual-qa.md` has the Studio checks; run the text-fit audit before a launch.
 
 ## Games-repo mode
 
@@ -247,6 +297,13 @@ hook environment broke the check's `git -C` calls).
 Some behaviour needs a person in Studio: Local Server with one and two clients, Device Emulator
 presets, listening to the sounds, and the real DataStore on a published test place.
 `docs/manual-qa.md` has the checklist; the automated cover is in `packages/framework/test/sim/`.
+
+The v1.7.0 modules have never run against the real services: the checks for Open Cloud notification
+delivery and response shapes, `AwardBadgeAsync`, real `FilterStringAsync` output by audience,
+OrderedDataStore and MemoryStore throttling and billing, ConfigService propagation, translators and
+`LocalizationTable`s, and two-server behaviour (the leaderboard reader lease, the notification claim
+race) are listed in `docs/manual-qa.md` under "New in v1.7.0", and each kit page names what it
+assumes under "Not verifiable offline".
 
 ## Fixed ids (index)
 

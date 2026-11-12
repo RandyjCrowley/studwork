@@ -50,8 +50,8 @@ finite; anything else is refused with a warning naming the board. A built-in sou
 isn't enabled is a boot error naming the board and the module to add, and so is any other bad
 board field (period, mode, order, `topN`, `shards`, a `shards` above 1 on an all-time board, a
 source kind), with the board's id in the message. A `flag` the game never declared is a boot error
-too. The `rebirths` source reads `Rebirth`'s `count(player)` when that module has it and otherwise
-follows its `Rebirthed` signal from the moment this server sees the player.
+too. The `rebirths` source reads `Rebirth`'s `count(player)` (v1.7.0), so a player's count is known from
+the join; the `Rebirthed` signal only keeps this server's cached count current.
 
 ## API (server)
 
@@ -230,4 +230,4 @@ with and without their modules (boot error); many sim servers keep the top map n
 ## Not verifiable offline
 
 Real OrderedDataStore and MemoryStore throttling under load, name lookup latency, the 3D
-board's look on devices. Live checklist in the round report.
+board's look on devices. Live checklist: [manual-qa.md](../../manual-qa.md), "New in v1.7.0".

@@ -175,6 +175,5 @@ as a model.
 ## Not verifiable offline
 
 Real translators and cloud tables, automatic text capture of kit labels, and text fit in long
-languages (live checklist in the round report). Whether Rojo-built `LocalizationTable`s under
-`LocalizationService` are seen by `GetTranslatorForPlayerAsync` is checked in the round's Studio
-block.
+languages (live checklist: [manual-qa.md](../../manual-qa.md)). Whether Rojo-built `LocalizationTable`s under
+`LocalizationService` are seen by `GetTranslatorForPlayerAsync` is on that checklist.

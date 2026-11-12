@@ -27,7 +27,7 @@ tools/dev
 | Option | Default | What |
 |---|---|---|
 | `--name <gameId>` | the folder name | the game id (lowercase, digits, dashes; same rule as `tools/new-game`) |
-| `--modules A,B,…` | every kit module | kit modules to enable; missing dependencies are added and reported (`tools/new-game --modules`) |
+| `--modules A,B,…` | every kit module (all fifteen, including the v1.7.0 ones) | kit modules to enable; missing dependencies are added and reported (`tools/new-game --modules`) |
 | `--url <studwork-url>` | `https://github.com/RandyjCrowley/studwork.git` | where the submodule is cloned from; a local path works too (git's `protocol.file.allow=always` is passed for it) |
 | `--tag vX.Y.Z` | `v<StudWork.VERSION>` of the checkout running the tool | the release tag the submodule is pinned at; refused if the tag doesn't exist there or predates v1.5.0 |
 | `--no-install` | install | skip `rokit install` / `wally install`; copy the running checkout's `deps/Packages` and `deps/ServerPackages` into `studwork/deps/` instead (tests, offline) |
@@ -116,7 +116,7 @@ tools/dev [--print]           # rojo serve default.project.json on the game's po
 tools/make-module <Name>      # modules/<name>/, mapped in default.project.json
 tools/make-screen <Name>      # src/client/Screens/<Name>.luau
 tools/make-migration <module>
-tools/sync-projects [--check] # the root *.project.json files
+tools/sync-projects [--check] # the root *.project.json files, and src/shared/Config/Environments.luau from deploy.json (v1.7.0)
 tools/net                     # Blink codegen in src/ and modules/
 tools/framework-status        # the pinned studwork/ tag vs the stamp in deploy.json
 tools/publish --test|--live [--dry-run]

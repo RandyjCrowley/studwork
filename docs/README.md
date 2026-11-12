@@ -1,6 +1,6 @@
 # StudWork docs
 
-StudWork is an opinionated Roblox game framework: a module API (`packages/framework`), eleven
+StudWork is an opinionated Roblox game framework: a module API (`packages/framework`), fifteen
 built-in kit modules in five kits (`packages/kits`), a UI kit (`packages/ui`), generators and
 offline tests. Start with the philosophy, then follow the framework pages in order.
 
@@ -44,8 +44,11 @@ offline tests. Start with the philosophy, then follow the framework pages in ord
 | [Collection](framework/kits/collection.md) | Items, Rarity, Inventory |
 | [Economy](framework/kits/economy.md) | Economy, Upgrades, Rebirth, Offline |
 | [Base](framework/kits/base.md) | Plot |
-| [Social](framework/kits/social.md) | Friends, Mail |
-| [Engagement](framework/kits/engagement.md) | Streak |
+| [Social](framework/kits/social.md) | Friends, Mail, [TextFilter](framework/kits/textfilter.md) |
+| [Engagement](framework/kits/engagement.md) | Streak, [Leaderboards](framework/kits/leaderboards.md), [Badges](framework/kits/badges.md), [Notifications](framework/kits/notifications.md) |
+
+Two v1.7.0 features are framework features, always on and not listed in `GameConfig.modules`:
+[Environments and flags](framework/kits/environments.md) and [Localization](framework/kits/localization.md).
 
 ## Project
 

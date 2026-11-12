@@ -133,7 +133,9 @@ The lint self-test plants each case; `-- guard: allow special` on a framework li
 | `modules` | game code using a kit module the game doesn't list; requiring framework internals |
 | `numbers` | balance-looking number literals outside `src/shared/Config` (heuristic) |
 | `remotes` | raw remotes and handlers that bypass the framework's Net |
-| `purchases` | `ProcessReceipt =`, `Prompt*PurchaseFinished`, `DataStoreService`/`ProfileStore` |
+| `purchases` | `ProcessReceipt =`, `Prompt*PurchaseFinished`, `DataStoreService`/`ProfileStore`/`MemoryStoreService`; from v1.7.0 also `ConfigService`, `:GetSecret(`, `:RequestAsync(` and `:PostAsync(` (use `ctx.data.sortedMap`, `ctx.flags`, `ctx.openCloud`; plain `HttpService` JSON calls stay allowed) |
+| `strings` (v1.7.0) | hard-coded English in the UI kit, kit client parts and framework client code, and string keys without an English default; not run on game code. See [localization](kits/localization.md). `-- guard: allow strings` skips a line |
+| `textfilter` (v1.7.0) | a client-supplied string (an action handler's `string` parameter, directly or through `..`, `string.sub`, `format`, `lower`, `upper`) reaching a player or a shared store without TextFilter: `ctx.replicate.set/setAll`, `ctx.net.fire/fireAll`, `ctx.data.messages.send`, Mail send, `ctx.data.shared.update`, sorted-map and ordered writes, Notifications `send/schedule`, instance `.Text`/`.Name`/`SetAttribute`; also a whole `Stored` record reaching one. A name passed to `filter`, `textFor` or `store` counts as clean from the next line. Best-effort and same-function only; server code of games, examples and kits, not specs or client code. See [textfilter](kits/textfilter.md). `-- guard: allow textfilter` goes on the sink line |
 | `packages` | game branches editing `packages/`; in a games repo also the framework pin: `roblox-core/` initialised, exactly at a release tag, no local changes, and its pointer never staged together with game edits ([games-repo.md](games-repo.md)); in a single-game project (v1.5.0) the same against `studwork/`, where any other staged file counts as game work, except in the project's first commit ([single-game-project.md](single-game-project.md)) |
 
 In this repo (not in a games repo), a maintainer committing a deliberate framework change on `main`
@@ -147,6 +149,8 @@ normalised copy of each file (comments and whitespace removed, so a statement sp
 is one expression; `"a" .. "b"` joined; `x["Name"]` read as `x.Name`), and `GetService` /
 `Instance.new` need a single string literal. Client code is decided by a `client` folder segment,
 not a substring.
+
+`--legacy-check` and the listed-file downgrade (below) also cover `textfilter`; `strings` is not scanned in game code and cannot be listed.
 
 A line ending in `-- guard: allow <check>` skips that check for that line; say why on the line
 above, and use it rarely.
