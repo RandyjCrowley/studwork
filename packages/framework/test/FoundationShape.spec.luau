@@ -278,11 +278,14 @@ describe("store, services and Open Cloud layers (shape)", function()
 		expect(pcall(map.range, "asc", 201)).toBe(false)
 	end)
 
-	it("the live store adapters are stubs that say so", function()
-		local ok, err = pcall(PlatformStores.live().ordered("x").get, "k")
-		expect(ok).toBe(false)
-		expect(string.find(tostring(err), "not implemented", 1, true) ~= nil).toBe(true)
-	end)
+	it(
+		"the live store adapters need the engine: outside it a call raises (the layers return failed)",
+		function()
+			local ok, err = pcall(PlatformStores.live().ordered("x").get, "k")
+			expect(ok).toBe(false)
+			expect(string.find(tostring(err), "DataStoreService", 1, true) ~= nil).toBe(true)
+		end
+	)
 
 	it("Services: allowed, refused with the surface to use, and no-fake stubs", function()
 		local fake = { marker = true }
