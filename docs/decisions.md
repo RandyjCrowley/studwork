@@ -608,6 +608,8 @@ these pages before relying on a limit.
 - **The `textfilter` lint never clears a name.** Only TextFilter's return values are clean: filtering
   the text and then sending the original anyway is the likeliest mistake, and the old "clean from
   the next line" rule passed it. Handlers named by a function defined in the same file are scanned,
+  plain or dotted (`handler = M.f`) and also wrapped in a call (`handler = guard(f)`: each argument
+  naming a same-file function is taken as the handler, since a wrapper passes the wire values on),
   and every wire parameter is a source unless annotated only `number`/`boolean`.
 - **`ctx.policy.allows` takes permission fields; `ctx.policy.restricted` takes restriction fields.**
   "Unknown" must read as the safe answer for both kinds: `false` from `allows` on a restriction
