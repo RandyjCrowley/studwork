@@ -184,6 +184,22 @@ describe("tools/test-migration end to end (example game)", function()
 		expect(r.code).toBe(1)
 		expect(r.stdout).toContain("old field 'lastLogin'")
 	end)
+	it("an import that errors: the reason, the Lua error and the import's print are shown", function()
+		local r = process.exec("lune", {
+			"run",
+			"tools/lune/test-migration",
+			"tools/lune/testdata/migration/import-error",
+			"--fixtures",
+			"tools/lune/testdata/migration/import-error/fixtures",
+		})
+		expect(r.code).toBe(1)
+		expect(r.stdout).toContain("mid-game.json")
+		expect(r.stdout).toContain("1-2. nothing lost field by field")
+		expect(r.stdout).toContain("LegacyImportFailed reason: import_error")
+		expect(r.stdout).toContain("error in the import: ")
+		expect(r.stdout).toContain("import-error example: planted failure")
+		expect(r.stdout).toContain("[print] import-error example: importing coins")
+	end)
 	it("no fixtures: exit 1", function()
 		local r = process.exec("lune", { "run", "tools/lune/test-migration", "examples/sandbox" })
 		expect(r.code).toBe(1)

@@ -1,0 +1,57 @@
+{
+  "description": "a mid-game player (synthetic)",
+  "userId": 1001,
+  "old": {
+    "coins": 75,
+    "level": 4,
+    "inventory": [
+      "pebble",
+      "gem"
+    ],
+    "settings": {
+      "music": false
+    },
+    "purchases": {
+      "synthetic-receipt-1": 1699990000
+    },
+    "lastLogin": 1699990500
+  },
+  "expect": {
+    "coins": "economy.currency.Coins",
+    "level": "legacy-game.level",
+    "inventory": {
+      "items": "inventory.inventory"
+    },
+    "settings.music": "legacy-game.music",
+    "purchases": "_framework.legacyPurchases"
+  },
+  "dropped": {
+    "lastLogin": "the framework keeps its own lastSeen"
+  },
+  "changed": {
+    "coins": 120,
+    "level": 5,
+    "inventory": [
+      "pebble",
+      "gem"
+    ],
+    "settings": {
+      "music": false
+    },
+    "purchases": {
+      "synthetic-receipt-1": 1699990000
+    },
+    "lastLogin": 1699999000
+  },
+  "afterMerge": {
+    "economy.currency.Coins": 120,
+    "legacy-game.level": 5
+  },
+  "sold": {
+    "coins": "currency"
+  },
+  "overCap": {
+    "path": "inventory",
+    "count": 10
+  }
+}

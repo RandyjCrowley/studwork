@@ -41,6 +41,8 @@
 	                                            "<Module>.<Signal>" (ctx.signals.new) or
 	                                            "framework.<Signal>"; framework.PlayerLoaded is
 	                                            recorded as (player, sections at load)
+	  server.output (v1.6.0)                    every print / warn of the server's code (framework,
+	                                            modules, game): { { kind, text, at } }
 	  server.runtime                            the framework server runtime
 	  server.partPaths[name]                    the source folder of each module's server part
 	                                            (ServerScriptService.Modules.<Name>; nil = injected
@@ -73,6 +75,7 @@ function Server.new(world: any, jobId: string, opts: any)
 	self.config = world.deepCopy(opts.config)
 	self.modules = opts.modules or self.config.modules
 	self.warnings = {}
+	self.output = {} -- (v1.6.0) every print/warn of this server's code: { kind = "print" | "warn", text, at }
 	self.feedback = {} -- { { player, kind, text } }
 	self.replicated = {} -- player -> key -> value
 	self.calls = {} -- recorded fake-service calls
@@ -329,11 +332,17 @@ function Server._buildEngine(self)
 		end
 		local text = table.concat(parts, " ")
 		table.insert(server.warnings, text)
+		table.insert(server.output, { kind = "warn", text = text, at = scheduler.now })
 		if server.world.verbose then
 			print("[" .. server.name .. " warn] " .. text)
 		end
 	end
 	local function simPrint(...)
+		local parts = {}
+		for i = 1, select("#", ...) do
+			table.insert(parts, tostring((select(i, ...))))
+		end
+		table.insert(server.output, { kind = "print", text = table.concat(parts, " "), at = scheduler.now })
 		if server.world.verbose then
 			print("[" .. server.name .. "]", ...)
 		end
