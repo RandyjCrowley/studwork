@@ -13,6 +13,11 @@
 	h:saved(p)                                           -- the stored save (deep copy)
 	h:fire(p, "StateInit")                               -- a framework Blink client event
 	h:fireCustom(event, p, ...)                          -- a module's own fake Blink event
+	h:console("module", "command", ...) -> string        -- one console line (docs/framework/testing.md)
+	h:sent("Module"?, "Event"?)                          -- (v1.7.0) what modules sent to clients on their
+	                                                     -- fake net events (built from net.blink by
+	                                                     -- StudWork.test.harness)
+	h.players[userId]                                    -- the mock players added so far
 	h.fake                                               -- recorded engine traffic: feedback,
 	                                                     -- serverEvents, analytics, receipts...
 	h:receipt({ ... }) -> "PurchaseGranted"|...          -- MarketplaceService.ProcessReceipt
@@ -32,6 +37,7 @@ Harness.__index = Harness
 export type Options = {
 	modules: { any },
 	servers: { [string]: any }?,
+	moduleNetLog: { any }?, -- (v1.7.0) set by StudWork.test: what the modules' fake net events were sent
 	config: { [string]: any }?,
 	items: { any }?,
 	gameId: string?,
@@ -237,6 +243,20 @@ local function fakePlatform(self: any, opts: Options): any
 	})
 end
 
+-- the fake game's Players service lists the players this harness has in game (the testkit stub)
+function Harness._syncPlayers(self: any)
+	pcall(function()
+		local list = {}
+		for p in self.inGame do
+			table.insert(list, p)
+		end
+		table.sort(list, function(a, b)
+			return a.UserId < b.UserId
+		end)
+		game:GetService("Players").__setStudWorkPlayers(list)
+	end)
+end
+
 function Harness.player(userId: number, name: string?): any
 	local p: any = { UserId = userId, Name = name or ("Player" .. userId), kicked = nil }
 	function p.Kick(self: any, msg: string)
@@ -262,6 +282,9 @@ local function build(opts: Options): (any, any)
 	end)
 	self.logs = {}
 	self.players = {}
+	self.netLog = opts.moduleNetLog or {}
+	self.inGame = self.inGame or {}
+	self:_syncPlayers()
 	local servers = opts.servers or {}
 	local gameConfig = {
 		gameId = opts.gameId or "test-game",
@@ -362,6 +385,7 @@ function Harness.addPlayer(
 		self.store.save(spec.userId, spec.data)
 	end
 	self.inGame[p] = true
+	self:_syncPlayers()
 	p.loaded = self.runtime.playerAdded(p)
 	syncJoin(self, p, spec.sync)
 	return p
@@ -370,6 +394,7 @@ end
 function Harness.removePlayer(self: any, p: any)
 	self.runtime.playerRemoving(p)
 	self.inGame[p] = nil
+	self:_syncPlayers()
 end
 
 function Harness.rejoin(self: any, p: any, opts: { secondsAway: number? }?)
@@ -391,6 +416,20 @@ function Harness.fireCustom(_self: any, event: any, p: any, ...: any)
 	for _, fn in event.listeners do
 		fn(p, ...)
 	end
+end
+
+-- (v1.7.0) What modules sent to clients through their fake net events (part.net.<Event>, built
+-- from the module's net.blink): { { event = "Module.Event", player = p, args = {...} } }, oldest
+-- first. h:sent("Notifications") / h:sent("Notifications", "PromptOptIn") filter by module / event.
+function Harness.sent(self: any, moduleName: string?, eventName: string?): { any }
+	local out = {}
+	for _, e in self.netLog do
+		local module, event = string.match(e.event, "^([^.]+)%.(.+)$")
+		if (moduleName == nil or module == moduleName) and (eventName == nil or event == eventName) then
+			table.insert(out, e)
+		end
+	end
+	return out
 end
 
 function Harness.receipt(self: any, receipt: any): any
