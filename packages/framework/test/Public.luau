@@ -11,6 +11,12 @@
 	  h:rejoin(p, { secondsAway = 3600 })                  -- save -> load -> migrate -> offline
 	  h:use(Economy).balance(p)
 	  h:saved(p)                                           -- the stored (sectioned) save
+	  h:console("economy", "grant", "100", "Coins")        -- a console line -> the reply text
+	  h:sent("Notifications", "PromptOptIn")               -- what a module sent to a client (v1.7.0)
+
+	The full list of options and methods: docs/framework/testing.md. Under the testkit's fake `game`,
+	Workspace is an empty world, Players lists the harness's players and HttpService has GenerateGUID
+	and JSON encode/decode.
 
 	Options beyond Harness.new: every module's server part is found like a live game finds it
 	(ServerScriptService.Modules.<Name>, module-api.md §19.9), so kit modules run for real; `servers = { Name = part }` injects
@@ -41,21 +47,52 @@ local NO_NET = { bindNet = false }
 
 local Test = {}
 
+-- (v1.7.0) No Blink wire under Lune, so a part loaded here has no generated Net module. Give it a
+-- fake one instead: one recording event per event in the module's net.blink, so a module that
+-- asks a client something (ctx.net.fire(player, part.net.PromptOptIn, ...)) works, and the spec
+-- reads what was sent with h:sent(...). A client's request goes the other way: h:action(p, ref,
+-- "name", ...) for a module action (an action backed by an event of the same name in net.blink).
+-- Only a part without its own `net` and whose folder has a net.blink gets one.
+local function withFakeNet(ref: any, part: any, log: { any }): any
+	if type(part) ~= "table" or part.net ~= nil then
+		return part
+	end
+	local ok, events = pcall(function(): any
+		local modules = game:GetService("ServerScriptService"):FindFirstChild("Modules")
+		local instance = modules and modules:FindFirstChild(ref.server)
+		return instance and instance.__blinkEvents
+	end)
+	if not ok or type(events) ~= "table" or #events == 0 then
+		return part
+	end
+	local net: { [string]: any } = {}
+	for _, e in events do
+		net[e.name] = Harness.fakeEvent(`{ref.name}.{e.name}`, log)
+	end
+	if table.isfrozen(part) then
+		part = table.clone(part)
+	end
+	part.net = net
+	return part
+end
+
 -- A plain table, built up front (Lune file reads yield, so no lazy metamethod lookup).
 local function withModules(opts: any): any
 	local injected = opts.servers or {}
 	local servers = {}
+	local netLog = {}
 	for _, ref in opts.modules or {} do
 		if type(ref) == "table" and type(ref.name) == "string" then
 			if injected[ref.name] ~= nil then
 				servers[ref.name] = injected[ref.name]
 			else
-				servers[ref.name] = Loader.defaultLoadServer(ref, nil, NO_NET)
+				servers[ref.name] = withFakeNet(ref, Loader.defaultLoadServer(ref, nil, NO_NET), netLog)
 			end
 		end
 	end
 	local o = table.clone(opts)
 	o.servers = servers
+	o.moduleNetLog = netLog
 	return o
 end
 

@@ -20,9 +20,12 @@ tools/doctor                  # checks the toolchain, packages, hook, framework 
 
 ```sh
 tools/dev                     # rojo serve on port {{port}} + Studio connect steps
-tools/lint                    # selene + stylua + sync-projects --check + guardrails + framework pin
-tools/typecheck               # luau-lsp strict
-tools/test                    # Lune specs (Boot.spec boots the game in the multi-server sim)
+tools/format                  # stylua: fixes the formatting tools/lint checks (--check only checks)
+tools/lint                    # selene + stylua --check + sync-projects --check + guardrails + framework pin
+tools/typecheck               # luau-lsp strict (the first run downloads the Roblox type definitions into
+                              # .cache/, git-ignored; `--offline` never downloads)
+tools/test                    # Lune specs (Boot.spec boots the game in the multi-server sim;
+                              # GameModule.spec shows how to spec the game module against the kits)
 tools/build                   # rojo build -> build/{{name}}.rbxl
 tools/make-module <Name>      # a new module in modules/<name>/, mapped in default.project.json
 tools/make-screen <Name>      # a React screen in src/client/Screens/
@@ -32,7 +35,8 @@ tools/net                     # Blink codegen after editing a .blink file
 tools/framework-status        # the pinned StudWork tag vs the version stamped in deploy.json
 ```
 
-The pre-commit hook runs `tools/lint` and `tools/test` before every commit.
+The pre-commit hook runs `tools/lint` and `tools/test` before every commit. Writing specs:
+`studwork/docs/framework/testing.md`.
 
 ## Publish
 

@@ -3,8 +3,16 @@
 	The game's own module (module-api.md §7 C4, §6): the game acting as a module. The framework
 	adds it to GameConfig.modules by itself; its save section key is the gameId (the v1.2
 	PlayerData.game[gameId] table). Rojo: this file -> ReplicatedStorage.GameModule.module,
-	server/ -> ServerScriptService.Modules.<name>. dependsOn: the kit modules the game code uses
-	(keep it in step with GameConfig.modules).
+	server/ -> ServerScriptService.Modules.<name>.
+
+	dependsOn vs optional (module-api.md §3, §5):
+	  - dependsOn: kit modules the game code calls unconditionally (ctx.deps[Kit]). Boot fails if
+	    one is missing from GameConfig.modules, so keep it in step with that list (tools/new-game
+	    --modules writes both).
+	  - optional: kit modules the code uses only when the game lists them: guard each use with
+	    ctx.isEnabled(Kit); ctx.deps[Kit] errors when the kit is off. To use one unconditionally
+	    (say Leaderboards), list it in GameConfig.modules and move it from optional to dependsOn.
+	The console commands this module registers are prefixed with its lower-case name.
 ]]
 
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
@@ -16,7 +24,7 @@ return StudWork.defineModule({
 	name = "Sandbox",
 	version = "1.0.0",
 	framework = "^1.7.0",
-	description = "The sandbox game: touch the block, collect, earn; products, gifts and events",
+	description = "This game's own module: touch the block, collect, earn; products, gifts and events",
 	dependsOn = {
 		require(KitDefs:WaitForChild("Rarity"):WaitForChild("module")),
 		require(KitDefs:WaitForChild("Inventory"):WaitForChild("module")),
@@ -28,7 +36,8 @@ return StudWork.defineModule({
 		require(KitDefs:WaitForChild("Friends"):WaitForChild("module")),
 		require(KitDefs:WaitForChild("Mail"):WaitForChild("module")),
 	},
-	-- kit modules the game code may use when the game lists them (ctx.isEnabled): none yet
+	-- kit modules used only when the game lists them (guard with ctx.isEnabled); move one up to
+	-- dependsOn once the game depends on it
 	optional = {
 		require(KitDefs:WaitForChild("Leaderboards"):WaitForChild("module")),
 		require(KitDefs:WaitForChild("Badges"):WaitForChild("module")),

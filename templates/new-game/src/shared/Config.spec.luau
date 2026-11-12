@@ -26,7 +26,7 @@ describe("sandbox Config", function()
 		local gameModule = StudWork.defineModule({
 			name = "Sandbox",
 			version = "1.0.0",
-			framework = "^1.3.0",
+			framework = "^" .. StudWork.VERSION, -- the framework this game is built on
 			data = { key = Config.gameId, version = 1, default = { blockTouches = 0 } },
 		})
 		local errors = bootErrors(gameModule)

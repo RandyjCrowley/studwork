@@ -10,7 +10,11 @@ that is where real games live. You can also try it inside a StudWork clone to ex
 scratch space (see "Removing a scratch game" at the end), never committed to the framework.
 Moving an existing game instead? See [adopting.md](adopting.md) and the agent playbook
 [adopt-existing-game.md](../agents/adopt-existing-game.md).
-The checks (`tools/lint`, `tools/typecheck`, `tools/test`) run offline in Lune, without Studio.
+The checks (`tools/lint`, `tools/typecheck`, `tools/test`) run without Studio. `tools/test` and `tools/lint`
+need no network. The **first** `tools/typecheck` in a clone downloads the Roblox type definitions
+(one request to `raw.githubusercontent.com`, about 1 MB) into the project's own git-ignored `.cache/`;
+`tools/new-project` copies them from the StudWork checkout that made the project, and
+`tools/typecheck --offline` never downloads (it fails with a message when they are missing).
 
 ## 0. Once per machine
 
@@ -64,8 +68,9 @@ tools/typecheck my-game
 tools/test games/my-game
 ```
 
-Expected endings: `lint: clean`, `typecheck: clean`, and `2 spec files, 2 tests passed, 0 failed`
-(the Config spec and the boot spec).
+Expected endings: `lint: clean`, `typecheck: clean`, and `3 spec files, 6 tests passed, 0 failed`
+(the Config spec, the boot spec and the game-module spec). `tools/lint` also fails on formatting:
+`tools/format` fixes it (`tools/format --check` only checks).
 
 ## 3. Run it in Studio
 
@@ -107,6 +112,11 @@ README) and maps it in `games/my-game/default.project.json`. Then:
    ```
 
    Expected: the module's own spec (2 tests) and the boot spec pass; typecheck and lint are clean.
+
+Your module's spec uses `StudWork.test.harness` (`tools/make-module` writes one). How a spec drives the
+game module against the kits (options, `h:console`, `h:action`, `h:sent`, the fake Workspace) is in
+[testing.md](testing.md). The console commands your module registers are typed with its
+**lower-case name** in front: module `Quests` -> `quests reset`.
 
 Next: [concepts](concepts.md), the [module API reference](module-reference.md), the
 [generators](generators.md), and the [example module](../../examples/modules/session-leaderboard/README.md).

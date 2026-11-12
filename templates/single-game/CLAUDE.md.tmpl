@@ -155,8 +155,18 @@ Go only as deep as you need:
 ## Server console (Studio / admin)
 
 `game.ServerScriptService.Framework.StudWorkConsole:Invoke("help")` from the Studio command bar
-(Server context during Play). Commands are module-prefixed: `economy grant 100 Coins <userId>`,
-`rarity roll Block <userId>`, `shop receipt EggRoll <purchaseId> <userId>`, `data dump <userId>`.
+(Server context during Play). Commands are module-prefixed with the module's **lower-case name**:
+`economy grant 100 Coins <userId>`, `rarity roll Block <userId>`, `shop receipt EggRoll <purchaseId> <userId>`,
+`data dump <userId>`; this game's own module `{{name}}` is `{{console}}`: `{{console}} <command>`. A handler is
+`fn(player, ...)`: name an unused first parameter `_player` (selene).
+
+## Testing (`studwork/docs/framework/testing.md`)
+
+Specs run in Lune with `StudWork.test.harness({ modules, config, flags, serverConfig, ... })`:
+`h:addPlayer`, `h:tick`, `h:use(Ref)`, `h:console("<module>", "<command>", ...)`, `h:action(p, Ref,
+"action", ...)` (a client's request), `h:sent(Module, Event)` (what the server sent a client). The game
+module's server part is found through `default.project.json`; `Workspace` is an empty fake world.
+Copy `src/server/GameModule.spec.luau`.
 
 ## How the game uses StudWork
 
@@ -176,9 +186,12 @@ Go only as deep as you need:
 ```sh
 tools/install                 # StudWork toolchain + Wally packages into studwork/deps/ + hook (--hooks-only)
 tools/doctor                  # toolchain, packages, hook, framework pin, .env keys (never values), port
+tools/format [--check]        # stylua over your Luau; run it after hand-writing code, or tools/lint fails
 tools/lint                    # selene + stylua --check + sync-projects --check + guardrails + framework pin
-tools/typecheck               # luau-lsp strict
-tools/test [paths]            # Lune specs (Boot.spec boots the game in the sim)
+tools/typecheck [--offline]   # luau-lsp strict; the FIRST run downloads the Roblox type definitions
+                              # (one network request) into .cache/ (git-ignored); --offline never does
+tools/test [paths]            # Lune specs (Boot.spec boots the game in the sim; GameModule.spec is the
+                              # worked example of a game-module spec against the kits)
 tools/build                   # rojo build -> build/<name>.rbxl
 tools/net                     # Blink codegen after editing a .blink file
 tools/sync-projects           # regenerate kit module entries after changing GameConfig.modules

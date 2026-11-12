@@ -4,6 +4,11 @@
 #   <game>  a game name (games/<g>; in the core repo also examples/<g> and examples/overrides/<g>)
 #           or a game folder path. Default (core repo): sandbox (examples/sandbox).
 #   --all   every game of the project (tools/lune/Roots.luau gameDirs).
+#   --offline  never download: the Roblox type definitions must already be in
+#           .cache/globalTypes-<luau-lsp version>.d.luau (tools/new-project copies them from the
+#           StudWork checkout that made the project); fails with that message when they are not.
+# The FIRST run downloads those definitions (one HTTPS request to raw.githubusercontent.com, ~1 MB)
+# into the project's own .cache/ (git-ignored); later runs need no network.
 # In the core repo each run also checks the framework, kits, ui and the example modules
 # (examples/modules/*, against their fixture games). In a games repo (docs/framework/games-repo.md)
 # it checks the game's src/ and modules/ only; the core is checked by the core's own CI.
@@ -11,13 +16,21 @@
 # check print as `warning: [legacy] <problem>` and don't count (see the end of this file).
 source "$(dirname "$0")/_common.sh"
 
+OFFLINE=0
+ARGS=()
+for arg in "$@"; do
+	if [ "$arg" = "--offline" ]; then OFFLINE=1; else ARGS+=("$arg"); fi
+done
+set -- ${ARGS[@]+"${ARGS[@]}"}
+
 LUAU_LSP_TAG="1.70.1"
 DEFS=".cache/globalTypes-$LUAU_LSP_TAG.d.luau"
 TESTKIT_DEFS="$(core_path tools/types/testkit.d.luau)"
 
 mkdir -p .cache
 if [ ! -f "$DEFS" ]; then
-	echo "downloading Roblox type definitions (luau-lsp $LUAU_LSP_TAG)"
+	[ "$OFFLINE" -eq 0 ] || die "--offline: the Roblox type definitions are not at $DEFS (copy globalTypes-$LUAU_LSP_TAG.d.luau from another StudWork checkout's .cache/, or run once without --offline)"
+	echo "downloading Roblox type definitions (luau-lsp $LUAU_LSP_TAG) into $DEFS"
 	curl -sfL -o "$DEFS" "https://raw.githubusercontent.com/JohnnyMorganz/luau-lsp/$LUAU_LSP_TAG/scripts/globalTypes.d.luau" \
 		|| die "could not download definitions"
 fi

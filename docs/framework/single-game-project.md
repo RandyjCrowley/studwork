@@ -33,6 +33,8 @@ tools/dev
 | `--no-install` | install | skip `rokit install` / `wally install`; copy the running checkout's `deps/Packages` and `deps/ServerPackages` into `studwork/deps/` instead (tests, offline) |
 | `--author-name`, `--author-email` | see below | the new repo's repo-local git identity |
 
+`tools/new-project --help` (or `-h`) prints this list and exits 0.
+
 It refuses a `<path>` that exists and is not empty, and removes what it created if a step fails.
 Steps:
 
@@ -109,7 +111,9 @@ tools/install                 # toolchain + Wally packages into studwork/deps/ +
 tools/doctor                  # toolchain, packages, hook, framework pin, .env keys (never values), port
 tools/lint                    # selene + stylua --check (every top-level folder and Luau file except
                               # studwork/, .git/, .cache/) + sync-projects --check + guardrails + framework pin
-tools/typecheck               # luau-lsp strict over src/ and modules/
+tools/format [--check]        # stylua over the project's Luau (tools/lint fails when it would change a file)
+tools/typecheck [--offline]   # luau-lsp strict over src/ and modules/; the first run downloads the Roblox
+                              # type definitions into .cache/ (network once; --offline never downloads)
 tools/test [paths]            # Lune specs of the project (never studwork/)
 tools/build                   # build/<deploy.json name>.rbxl
 tools/dev [--print]           # rojo serve default.project.json on the game's port

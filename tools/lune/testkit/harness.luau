@@ -104,6 +104,9 @@ if Roots.single then
 end
 local SKIP = { [".git"] = true, node_modules = true }
 
+-- dir -> the events its net.blink declares (read once, here: file reads yield, metamethods can't)
+local blinkEvents: { [string]: { { name: string, from: string? } } } = {}
+
 local function indexTree(dir: string)
 	if not fs.isDir(dir) then
 		return
@@ -120,6 +123,13 @@ local function indexTree(dir: string)
 			end
 		else
 			index[path] = "file"
+			if entry == "net.blink" then
+				local events = {}
+				for name, body in string.gmatch(fs.readFile(path), "event%s+([%w_]+)%s*(%b{})") do
+					table.insert(events, { name = name, from = string.match(body, "From:%s*(%w+)") })
+				end
+				blinkEvents[dir] = events
+			end
 		end
 	end
 end
@@ -193,6 +203,10 @@ makeNode = function(path: string)
 			return name
 		elseif key == "__path" then
 			return path
+		elseif key == "__blinkEvents" then
+			-- (v1.7.0) the events of the net.blink next to this server part's folder (read when the
+			-- tree was indexed: a metamethod can't read files): { { name, from = "Server" | "Client" } }
+			return blinkEvents[dirname(path)] or {}
 		elseif key == "Parent" then
 			local parentPath = dirname(path)
 			-- a file inside a folder that has init.luau: its parent is the folder node (the module)
@@ -302,11 +316,106 @@ local BASE_CHILDREN: { [string]: { [string]: any } } = {
 	},
 }
 
+-- (StudWork v1.7.0) Workspace and Players in a spec. A game module's server part reads both at the
+-- top of the file or in `start` (the scaffolded game module does), so they must exist under Lune:
+--   Workspace  an EMPTY world: FindFirstChild / FindFirstChildOfClass / FindFirstChildWhichIsA
+--              return nil, GetChildren / GetDescendants return {}; any other member errors (a
+--              spec that needs a real part builds it itself and injects it through a seam).
+--   Players    GetPlayers / GetPlayerByUserId see the players StudWork.test's harness added
+--              (h:addPlayer / h:removePlayer keep the list); GetPlayerFromCharacter is nil;
+--              PlayerAdded / PlayerRemoving accept Connect and never fire (use ctx.lifecycle).
+local function signalStub(): any
+	return {
+		Connect = function(_self: any, _fn: any): any
+			return { Disconnect = function() end, Connected = true }
+		end,
+	}
+end
+
+local function stubService(name: string, members: { [string]: any }): any
+	return setmetatable({ Name = name, ClassName = name }, {
+		__index = function(_, key)
+			local member = members[key]
+			if member ~= nil then
+				return member
+			end
+			error("harness: " .. name .. "." .. tostring(key) .. " is not available in Lune tests", 2)
+		end,
+	})
+end
+
+local function workspaceStub(): any
+	local function none()
+		return nil
+	end
+	local function empty()
+		return {}
+	end
+	return stubService("Workspace", {
+		FindFirstChild = none,
+		FindFirstChildOfClass = none,
+		FindFirstChildWhichIsA = none,
+		FindFirstAncestor = none,
+		GetChildren = empty,
+		GetDescendants = empty,
+	})
+end
+
+local harnessPlayers: { any } = {}
+local function playersStub(): any
+	return stubService("Players", {
+		GetPlayers = function(_self: any): { any }
+			return table.clone(harnessPlayers)
+		end,
+		GetPlayerByUserId = function(_self: any, userId: number): any
+			for _, p in harnessPlayers do
+				if p.UserId == userId then
+					return p
+				end
+			end
+			return nil
+		end,
+		GetPlayerFromCharacter = function(): any
+			return nil
+		end,
+		PlayerAdded = signalStub(),
+		PlayerRemoving = signalStub(),
+		-- the framework harness (packages/framework/test/harness.luau) keeps the list current
+		__setStudWorkPlayers = function(list: { any })
+			harnessPlayers = list
+		end,
+	})
+end
+
+local guidCounter = 0
+local function httpServiceStub(): any
+	return stubService("HttpService", {
+		GenerateGUID = function(_self: any, wrap: boolean?): string
+			guidCounter += 1
+			local guid = string.format("00000000-0000-4000-8000-%012d", guidCounter)
+			return if wrap == false then guid else "{" .. guid .. "}"
+		end,
+		JSONEncode = function(_self: any, value: any): string
+			return serde.encode("json", value)
+		end,
+		JSONDecode = function(_self: any, text: string): any
+			return serde.decode("json", text)
+		end,
+	})
+end
+
+local workspaceService = workspaceStub()
+local playersService = playersStub()
+local httpService = httpServiceStub()
+
 local function servicesFrom(children: { [string]: { [string]: any } }): { [string]: any }
 	local out = {}
 	for name, kids in children do
 		out[name] = folderNode(kids)
 	end
+	out.Workspace = workspaceService
+	out.Players = playersService
+	out.HttpService = httpService
 	return out
 end
 
@@ -414,6 +523,7 @@ Harness.game = fakeGame
 
 local baseGlobals = {
 	game = fakeGame,
+	workspace = workspaceService,
 	print = print,
 	warn = warn,
 	error = error,

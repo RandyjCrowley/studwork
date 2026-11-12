@@ -47,6 +47,17 @@ describe("NewProject.parseArgs", function()
 		expect(opts.authorEmail).toBe("someone@example.invalid")
 	end)
 
+	it("--help and -h are recognised anywhere, and the help lists every option", function()
+		expect(NewProject.wantsHelp({ "--help" })).toBe(true)
+		expect(NewProject.wantsHelp({ "proj", "-h" })).toBe(true)
+		expect(NewProject.wantsHelp({ "proj", "--name", "x" })).toBe(false)
+		for _, option in
+			{ "--name", "--modules", "--url", "--tag", "--no-install", "--author-name", "--author-email" }
+		do
+			expect(string.find(NewProject.HELP, option, 1, true)).never.toBeNil()
+		end
+	end)
+
 	it("refuses bad input with a clear message", function()
 		local _, err = parse({})
 		expect(string.find(err, "usage: tools/new-project", 1, true)).never.toBeNil()
@@ -153,7 +164,8 @@ describe("NewProject skeleton", function()
 		expect(ci).toContain("submodules: recursive")
 		-- setup-rokit installs tools itself: the manifest belongs to the submodule, not the game.
 		expect(ci).toContain("path: studwork")
-		local vars = { name = "my-game", tag = "v1.5.0", port = "34872", modules = "Items" }
+		local vars =
+			{ name = "my-game", tag = "v1.5.0", port = "34872", modules = "Items", console = "mygame" }
 		-- Privacy: only generic machine-path patterns live in this repo. Names that must never appear
 		-- in a template (your own projects, hosts, people) come from outside the repo: the env var
 		-- STUDWORK_PRIVATE_NAMES (comma-separated) and/or the git-ignored file .private-names at the

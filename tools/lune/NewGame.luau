@@ -38,6 +38,8 @@
 	  <code> -- @if A (end of a code line) keep just this line when the condition holds
 	  -- @unless A: <code>   (own line) emit <code> (uncommented, same indent) when the
 	                         condition does NOT hold: the replacement for a dropped `-- @if A` line
+	renameConsolePrefix(src, name)  -> string            the template's console prefix / log tag `sandbox` ->
+	                                                     the game module's lower-case name
 	moduleName(gameId)              -> string            "example-collector" -> "ExampleCollector"
 	deployJson(name, port)          -> table             ids 0 = placeholder (tools/publish refuses)
 	readme(name, port, designDoc)   -> string            README stub with a "Status: scaffolded" line
@@ -49,6 +51,38 @@ export type Opts = { name: string, modules: { string }?, designDoc: boolean, int
 
 local USAGE = "usage: tools/new-game <name> [--modules A,B,C] [--no-design-doc] [--into <folder>]"
 NewGame.USAGE = USAGE
+
+-- (v1.7.0) The template's server part says `sandbox` wherever the game module's console prefix
+-- (its lower-case name, module-api.md §5 ctx.console) or log tag shows. A generated game's module is
+-- named after the game, so those words become that name: `mygame giftme`, not `sandbox giftme`.
+function NewGame.renameConsolePrefix(source: string, moduleName: string): string
+	local out = string.gsub(source, "%f[%w]sandbox%f[%W]", string.lower(moduleName))
+	return out
+end
+
+-- `--help` / `-h` (anywhere in the arguments): the full usage, on stdout, exit 0
+NewGame.HELP = USAGE
+	.. [[
+
+
+Scaffolds a new game from templates/new-game (a working copy of the sandbox game).
+
+  <name>            the game id: lowercase letters, digits, dashes; 2-32 chars, starts with a letter
+  --modules A,B,C   the kit modules to scaffold (required dependencies are added); default: all
+  --no-design-doc   don't create docs/games/<name>.md
+  --into <folder>   create the game under <folder>/ instead of games/ (relative)
+  --help, -h        this text
+
+In a single-game project the root is the game: use tools/new-project to start one.]]
+
+function NewGame.wantsHelp(args: { string }): boolean
+	for _, a in args do
+		if a == "--help" or a == "-h" then
+			return true
+		end
+	end
+	return false
+end
 
 function NewGame.validName(name: any): boolean
 	return type(name) == "string" and string.match(name, "^[a-z][a-z0-9%-]+$") ~= nil and #name <= 32
