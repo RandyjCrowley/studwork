@@ -42,6 +42,12 @@ local fixtures = {
 		{ name = "mutation", text = "RAINBOW", size = tokens.text.small, autoWidth = true },
 		{ name = "income", text = "+999.99B/s", size = tokens.text.small, autoWidth = true },
 	},
+	["packages/ui/Leaderboard.luau"] = {
+		{ name = "rank", text = "Top 100+", size = tokens.text.body, width = tokens.text.body * 6 },
+		{ name = "name", text = longName, size = tokens.text.body, autoWidth = true }, -- Fill: the rest of the row
+		{ name = "value", text = "999,999,999,999", size = tokens.text.body, autoWidth = true },
+		{ name = "empty", text = "No scores yet", size = tokens.text.body, autoWidth = true },
+	},
 	["packages/ui/Modal.luau"] = {
 		{ name = "close", text = "X", size = tokens.text.title, width = tokens.touchTarget },
 	},
@@ -111,6 +117,7 @@ local options = {
 	truncation = {
 		["packages/ui/OddsTable.luau"] = "Tap a name to reveal its full value",
 		["packages/ui/ItemCard.luau"] = "Cards summarize names in two lines; the full name belongs in the odds table",
+		["packages/ui/Leaderboard.luau"] = "A display name is at most 20 characters and the row gives it all the room the rank and value leave",
 	},
 	modal = {
 		["packages/ui/Modal.luau"] = true,
@@ -175,6 +182,11 @@ local PROVENANCE = {
 		"TextSize = Theme.text.body",
 	},
 	["packages/ui/Modal.luau"] = { "ModalFit.contentHeight(", "UDim2.new(1, 0, 0, scrollHeight)" },
+	["packages/ui/Leaderboard.luau"] = {
+		"local rankWidth = Theme.text.body * 6",
+		"Size = UDim2.new(0, rankWidth, 1, 0)",
+		"FlexMode = Enum.UIFlexMode.Fill",
+	},
 }
 describe("text-fit fixtures match their component source", function()
 	for path, needles in PROVENANCE do

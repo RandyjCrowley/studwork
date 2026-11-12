@@ -34,14 +34,6 @@ local function boot(config: any, opts: any?)
 	return h
 end
 
-local function tick(servers: { any }, seconds: number)
-	for _ = 1, seconds do
-		for _, h in servers do
-			h:tick(1)
-		end
-	end
-end
-
 local function boardOf(h: any, p: any, boardId: string): any
 	local state = h:state(p)
 	return state.modules.Leaderboards.extra.boards[boardId]
