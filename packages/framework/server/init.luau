@@ -576,18 +576,39 @@ function Server.start(gameConfig: any, serverConfig: any?, opts: any?): any
 			log = warnLog,
 		})
 		rt.flags = rt.flagsState.api
-		rt.storeBudget = StoreBudget.new({ config = gameConfig.storeBudgets, now = now, log = warnLog })
-		rt.census = Census.new({ fixed = o.census, now = now, log = warnLog })
+		local function playerCount(): number
+			return #platform.players.list()
+		end
+		rt.storeBudget = StoreBudget.new({
+			config = gameConfig.storeBudgets,
+			players = playerCount,
+			now = now,
+			log = warnLog,
+		})
+		rt.census = Census.new({
+			fixed = o.census,
+			map = function()
+				return platform.stores.sortedMap(Census.MAP)
+			end,
+			budget = rt.storeBudget,
+			players = playerCount,
+			spawn = platform.spawn,
+			now = now,
+			log = warnLog,
+		})
 		rt.orderedStore = OrderedStore.new({
 			backend = platform.stores.ordered,
 			budget = rt.storeBudget,
 			isStudio = rt.isStudio,
+			wait = platform.wait,
 			now = now,
 			log = warnLog,
 		})
 		rt.sortedMapStore = SortedMapStore.new({
 			backend = platform.stores.sortedMap,
 			budget = rt.storeBudget,
+			wait = platform.wait,
+			now = now,
 			log = warnLog,
 		})
 		rt.services = Services.new({
@@ -908,6 +929,7 @@ function Server.start(gameConfig: any, serverConfig: any?, opts: any?): any
 		rt.lifecycle.tick(dt)
 		rt.events.tick(dt)
 		rt.shop.tick(dt) -- §7.1 ProcessReceipt owner check
+		rt.census.tick(dt) -- (v1.7.0, §23.5) report to and read the census every censusSeconds
 		rt.replication.step()
 	end
 
