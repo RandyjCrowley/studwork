@@ -125,6 +125,7 @@ describe("NewProject skeleton", function()
 				"_studwork",
 				"dev",
 				"lint",
+				"format",
 				"typecheck",
 				"test",
 				"build",

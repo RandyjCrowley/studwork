@@ -90,6 +90,11 @@ printed: fix code that finds it by its old name.
 Commit the generated files (`git -C <game> add` the new files, including `.studwork-from-place.json`,
 then commit "Extract code from the place file").
 
+`--from-place` copies the scripts out but **leaves them in the place file**. Never sync the project
+into the original place: the old scripts (the old save code too) would keep running next to
+StudWork. The audit lists them under "Extracted scripts still in the place", and
+`tools/adopt --verify` refuses until they're stripped (step 9).
+
 **Then audit** (every game):
 
 ```sh
@@ -172,6 +177,11 @@ client; StudWork saves only to its own store, so booting it next to the old scri
 guardrail. A service the old project maps with `"$path"` (e.g. `"ServerScriptService": {
 "$path": "src/server" }`) is fine: StudWork's entries are added next to it.
 
+**Init lists every old Luau source in `studwork-legacy.json` with the `style` check**: old code is
+never held to selene, StyLua or strict typing, so the first `tools/lint` and `tools/typecheck` pass
+without touching old files (typecheck prints their problems as `warning: [legacy] ...`). A
+`style`-only entry has `{}` in `legacyBaseline`; the file is deleted in step 9.
+
 **Init's GameConfig is empty on purpose** (when the game had no `src/shared/Config/`): the
 modules you chose at their defaults, no items, no starter items, no events,
 `paidCurrencies = {}`, and the audit's product and pass ids as `Product<id>` / `Pass<id>`
@@ -209,8 +219,8 @@ git commit -m "Adopt StudWork"
 commit exists. Old code shows up as `warning: [legacy] ...` lines, which is expected: files listed
 in `studwork-legacy.json` skip selene and StyLua (`warning: [legacy] <path>: selene/stylua skipped
 (legacy: <reason>)`), and their guardrail findings print as warnings. Don't reformat old files.
-If `tools/typecheck` fails on old code, fix the old code minimally (a type annotation, an `:: any`)
-or delete it if step 5-8 replaces it; note each in `MIGRATION_NOTES.md`.
+Format your own code with `tools/format` (never bare `stylua`: it ignores `studwork/stylua.toml`;
+`tools/format` skips old files too).
 
 ## 4. The save map
 
@@ -487,6 +497,14 @@ For each remote, write one line in `MIGRATION_NOTES.md`: old name -> action/even
 arguments, and what the server validates (type, range, ownership, cooldown). Remotes that only
 pushed state to clients usually become replicated section fields (`data.replicate`) instead of events.
 
+**Testing an action:** `modules/<gameId>/module.spec.luau` has a commented example (boot the
+game in the sim, join a player, call an action, read the save). Uncomment and adapt it for each
+ported remote. Sim players are plain tables: guard code that calls `player:FindFirstChild` or
+parents an `Instance.new(...)` to the player (leaderstats) with `typeof(player) == "Instance"`.
+
+A remote that passes a client argument into a grant or save write is the audit's high risk
+`client_value_trusted`: compute that value on the server in the action.
+
 **Check:** the audit shows no `OnServerEvent`/`OnServerInvoke` handlers outside listed legacy
 files you still plan to delete, and no `high` risk about client-sent amounts is left.
 
@@ -531,12 +549,13 @@ Each entry is an old file that still breaks a guardrail. For each one:
 3. Keep an entry only with a true reason (old UI code you decided to keep, say), and never with the
    `purchases` check: an entry listing `purchases` blocks `tools/adopt --verify`.
 
-**Place-file game:** scripts left in the place (the report's `notExtracted[]`, e.g. a shop screen's
-LocalScript that prompts a purchase) can't be deleted from the original place file, which is never
-modified. Once their job moved to StudWork, retire them:
+**Place-file game:** the original place file is never modified, so old code in it is retired in a
+copy. Once their jobs moved to StudWork, strip the scripts `--from-place` extracted (they still sit
+in the place) and the ones it left there (the report's `notExtracted[]`, e.g. a shop screen's
+LocalScript that prompts a purchase, or an old remotes folder):
 
 ```sh
-tools/adopt --strip-place . "StarterGui.ShopGui.ShopGuiClient" "ReplicatedStorage.Remotes"
+tools/adopt --strip-place . --extracted "StarterGui.ShopGui.ShopGuiClient" "ReplicatedStorage.Remotes"
 ```
 
 This writes `<name>.studwork.rbxlx` next to the place without those instances (paths as in
@@ -546,6 +565,9 @@ rollback. Run it again to remove more. Commit the copy and `studwork.json`.
 Lint fails if a listed file gets **more** findings than at init, so don't add old-style code to a
 listed file (reformatting can't raise a count: findings are counted per statement). Never edit
 `legacyBaseline`.
+
+After deleting old scripts, `tools/adopt --verify` names every `$path` in `default.project.json`
+that no longer exists: remove those entries.
 
 **Check:** `studwork-legacy.json` is `{ "files": [] }`, or each remaining entry has a real reason
 and none lists `purchases`.

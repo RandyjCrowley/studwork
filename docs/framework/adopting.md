@@ -72,7 +72,7 @@ Every finding that matters for a safe migration becomes a `risks[]` entry:
 | Level | Meaning | Examples |
 |---|---|---|
 | `critical` | Doing this part wrong loses saves or Robux. The plan handles it first. | a `ProcessReceipt` that grants without a purchase-history check; two scripts writing the same store/key (duplicated save logic); a player-save key that isn't derivable from the userId (the import can't find it); `RemoveAsync` on player data; a store another place of the universe also writes; a product handler that uses randomness; a store named `PlayerData_<x>` with key `Player_{userId}` (it would collide with StudWork's own store) |
-| `high` | A security or compliance problem the migration must fix. | a remote handler that takes an amount, price, item id or position from the client and writes it; a paid random item (a product or paid currency next to `math.random` / `Random.new`) with no odds shown; `SetAsync` on a player save without a session lock; a script left in the place (`notExtracted`) that uses DataStores or purchases |
+| `high` | A security or compliance problem the migration must fix. | a remote handler that takes an amount, price, item id or position from the client and writes it; a paid random item (a product or paid currency next to `math.random` / `Random.new`) with no odds shown; `SetAsync` on a player save without a session lock; a script left in the place (`notExtracted`) that uses DataStores or purchases (kinds include `client_value_trusted`: a client argument passed into a grant/save write; `place_duplicate`: an extracted script still in the place file). leaderstats created under `modules/**` (StudWork code, display only) aren't reported |
 | `medium` | Works, but StudWork does it differently; the agent decides. | `_G`/`shared` state; leaderstats as the source of truth; `wait()` loops; asset `require`s |
 | `low` | Notes. | unused remotes, empty scripts, very large scripts |
 
@@ -131,8 +131,9 @@ and how to check it. The order is fixed; steps with nothing to do are left out:
 
 Re-runs the audit and fails (exit 1) while any `critical` risk remains, while a `notExtracted`
 script (left in the place file) uses DataStores, `ProcessReceipt` or product prompts, while any
-`onLegacyProduct` call is left (§4.3), or while `studwork-legacy.json` has an entry listing the
-`purchases` check. It prints what's left, one line each, and writes no file (so `tools/publish`
+`onLegacyProduct` call is left (§4.3), while `studwork-legacy.json` has an entry listing the
+`purchases` check, while the place file still holds a script `--from-place` extracted, or while a
+`$path` in the project file doesn't exist. It prints what's left, one line each, and writes no file (so `tools/publish`
 can run it on a clean tree). It's the last automatic step of the plan.
 
 ### `tools/adopt --from-place <file> [--out <dir>]`
@@ -164,12 +165,17 @@ only**, so the map, models and UI stay in the place:
   `--verify` refuses to pass while one of them still uses DataStores or purchases.
 - `RunContext` and `Disabled` are kept as `.meta.json` properties.
 - `--out` defaults to the folder of the place file. The place file itself is never modified.
-- **`tools/adopt --strip-place <project> <instance path> [...]`** retires scripts left in the place
+- `--from-place` records the scripts it extracted in `.studwork-from-place.json`
+  (`"extracted": [ "<Service.Path>" ]`). They stay in the place file; the audit lists the ones
+  still there under `placeDuplicates: [{ path, class }]` (risk `place_duplicate`, high; plan step
+  `strip-place`), and `--verify` refuses while any is left.
+- **`tools/adopt --strip-place <project> [--extracted] [<instance path> ...]`** retires scripts left in the place
   once their job moved to StudWork (a shop screen's LocalScript, an old remotes folder): it writes
   `<name>.studwork.rbxlx` (or `.rbxl`) next to `studwork.json`'s `placeFile`, without the named
   instances (full paths as in `notExtracted[].path`), points `placeFile` at the copy and keeps the
-  original untouched for rollback. A path that doesn't exist stops it with nothing written; run
-  it again on the copy to remove more.
+  original untouched for rollback. `--extracted` adds every recorded extracted script still in the
+  place. A path that doesn't exist stops it with nothing written; run it again on the copy to
+  remove more.
 - A place-file game is published from Studio (open the place, sync with `tools/dev`, publish), not
   with `tools/publish` (its build has no map); `tools/publish` says so and stops for a project whose
   `studwork.json` has `"placeFile"`.
@@ -507,6 +513,10 @@ balance numbers). Lint must not fail on day one, and must not let more of it in:
   `warning: [legacy] <path>: selene/stylua skipped (legacy: <reason>)` for each (the list comes
   from `lune run tools/lune/guardrails --legacy-files`, which prints `<path>\t<reason>` per valid
   entry; a broken list skips nothing and fails in the guardrails step). Don't reformat old files.
+- **`style`:** init lists every old Luau source with the pseudo-check `"style"`: lint skips
+  selene/StyLua for it, `tools/typecheck` prints its problems as `warning: [legacy] ...`, and its
+  baseline entry is `{}` (nothing counted). A style-only entry never gets "nothing legacy left";
+  delete the file when its job moved. Like every entry, it can't be added after the adoption commit.
 - **Counts are per statement:** a re-wrap (StyLua splitting a call over lines) can't raise a
   listed file's count.
 - **Never downgraded:** an assignment to `ProcessReceipt` (Shop owns it; use §4.3), the `special`

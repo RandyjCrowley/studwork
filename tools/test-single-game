@@ -140,7 +140,7 @@ check "the game module at modules/proj/" test -f "$G/modules/proj/module.luau"
 check "docs/design.md" test -f "$G/docs/design.md"
 check "README.md names the game" grep -q '^# proj' "$G/README.md"
 check "CLAUDE.md for game agents" grep -q 'Never edit `studwork/`' "$G/CLAUDE.md"
-for w in dev lint typecheck test build publish install doctor framework-status net sync-projects make-module make-screen make-migration _studwork; do
+for w in dev lint format typecheck test build publish install doctor framework-status net sync-projects make-module make-screen make-migration _studwork; do
 	check "wrapper tools/$w" test -x "$G/tools/$w"
 done
 check "hook enabled (core.hooksPath = .githooks)" test "$(git -C "$G" config core.hooksPath)" = ".githooks"

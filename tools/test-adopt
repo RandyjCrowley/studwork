@@ -290,7 +290,7 @@ check "studwork-legacy.json: the remote file, reason from the audit" grep -q '"r
 check "studwork-legacy.json: a generic reason without an audit note" \
 	grep -q '"reason": "existing code before StudWork: numbers"' "$LEG"
 check "studwork-legacy.json: Shop lists numbers + remotes" sh -c "tr -d ' \n' <'$LEG' | grep -qF '\"path\":\"src/server/Shop.server.luau\",\"checks\":[$SHOP_CHECKS]'"
-for w in _studwork lint typecheck test dev install doctor sync-projects make-module make-migration adopt test-migration; do
+for w in _studwork lint format typecheck test dev install doctor sync-projects make-module make-migration adopt test-migration; do
 	check "wrapper tools/$w" test -x "$G/tools/$w"
 done
 check "the user's own tools/build is left alone" sh -c "grep -q 'the old game' '$G/tools/build' && grep -q 'left alone tools/build' '$INIT_LOG'"
