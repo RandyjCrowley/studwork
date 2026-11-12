@@ -64,6 +64,32 @@ describe("UI kit fit checker planted violations", function()
 		expect(has(Checker.scan("fixture", "", options), "single-line")).toBe(true)
 		options.fixtures.fixture = {}
 	end)
+	it("checks wrapped TextButton automatic sizing only in its own properties", function()
+		local unrelated =
+			'e("TextButton", { TextWrapped = true }); e("TextLabel", { AutomaticSize = Enum.AutomaticSize.Y })'
+		expect(has(Checker.scan("fixture", unrelated, options), "wrap")).toBe(false)
+		local offending = 'e("TextButton", { TextWrapped = true, AutomaticSize = Enum.AutomaticSize.XY })'
+		expect(has(Checker.scan("fixture", offending, options), "wrap")).toBe(true)
+	end)
+	it("allows documented two-line ellipsis but rejects a box shorter than two lines", function()
+		options.truncation.fixture = "Card summary; full name in odds"
+		options.fixtures.fixture = {
+			{
+				name = "name",
+				text = string.rep("A", 80),
+				size = 16,
+				width = 100,
+				height = 40,
+				wrapped = true,
+				truncateLines = 2,
+			},
+		}
+		expect(has(Checker.scan("fixture", "", options), "wrap")).toBe(false)
+		options.fixtures.fixture[1].height = 20
+		expect(has(Checker.scan("fixture", "", options), "wrap")).toBe(true)
+		options.fixtures.fixture = {}
+		options.truncation.fixture = nil
+	end)
 	it("rejects truncation with no documented full-text interaction", function()
 		local source = 'return e("TextLabel", { TextTruncate = Enum.TextTruncate.AtEnd })'
 		expect(has(Checker.scan("fixture", source, options), "truncation")).toBe(true)
