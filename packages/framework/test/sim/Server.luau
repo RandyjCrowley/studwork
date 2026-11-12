@@ -663,6 +663,7 @@ function Server._fixtureConfig(self): (any, any)
 		events = copy(fixture.events),
 		compliance = copy(fixture.compliance),
 		analytics = copy(fixture.analytics),
+		shop = copy(fixture.shop), -- (v1.6.1) GameConfig.shop (passPrefetchTimeout)
 	}
 	local data = fixture.data or {}
 	return gameConfig, { default = copy(data.default or {}), version = data.version or 1 }, refs
