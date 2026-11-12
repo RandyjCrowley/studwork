@@ -3,13 +3,14 @@
 -- resumed (a raw coroutine.yield, a sim task.wait on the spec's own thread) used to suspend the
 -- runner's main thread, so Lune exited 0 with no output. Each planted spec runs in a child
 -- `lune run tools/lune/testkit/run <dir>` over a throwaway folder under $TMPDIR.
+local PathUtil = require("tools/lune/testkit/pathutil.luau")
 local lune = (getmetatable(getfenv(1)) :: any).__index.require
 local fs = lune("@lune/fs")
 local process = lune("@lune/process")
 
 local function tmpDir(): string
-	local base = process.env.TMPDIR or (process.cwd .. "/.cache")
-	local dir = string.gsub(base, "/+$", "") .. "/studwork-runner-spec-" .. tostring(math.random(1, 1e9))
+	local base = process.env.TMPDIR or PathUtil.join(process.cwd, ".cache")
+	local dir = PathUtil.join(base, "studwork-runner-spec-" .. tostring(math.random(1, 1e9)))
 	fs.writeDir(dir)
 	return dir
 end

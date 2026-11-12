@@ -3,6 +3,7 @@
 -- projects in tools/lune/testdata/adopt/ (read-only) and throwaway projects in a temp folder.
 local Scan = require("tools/lune/AdoptScan.luau")
 local Audit = require("tools/lune/AdoptAudit.luau")
+local PathUtil = require("tools/lune/testkit/pathutil.luau")
 local lune = (getmetatable(getfenv(1)) :: any).__index.require
 local fs = lune("@lune/fs")
 local process = lune("@lune/process")
@@ -21,7 +22,7 @@ local env = {
 local DATA = Audit.normalize(process.cwd .. "/tools/lune/testdata/adopt")
 
 local function tmpRoot(): string
-	local base = process.env.TMPDIR or (process.cwd .. "/.cache")
+	local base = process.env.TMPDIR or PathUtil.join(process.cwd, ".cache")
 	local dir = Audit.normalize(base .. "/studwork-adopt-audit-spec-" .. tostring(math.random(1, 1e9)))
 	fs.writeDir(dir)
 	return dir
