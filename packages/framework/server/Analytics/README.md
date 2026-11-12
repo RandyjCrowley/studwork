@@ -12,3 +12,14 @@ Signatures verified against creator-docs (2026-11, none deprecated): `LogOnboard
 
 `funnel`: step must be in `analytics.funnel`, number = index, once per player (`PlayerData.funnel`); "Joined" auto-logged on load
 if configured. `economy`: finite amount > 0, ending balance from `Economy.balance`. `ClientFunnel` remote: `analytics.clientSteps` only.
+
+Framework events sent with `custom` (v1.6.1):
+
+- `PlayerLoadTiming`, once per join when the save loaded: value = join -> loaded seconds; fields
+  `totalSeconds`, `loadSeconds` (data load), `passSeconds` (how long the gamepass lookups took, or until
+  the wait ended), `passesPending` (lookups still open when the player loaded), `timedOut` (`"true"` when
+  `GameConfig.shop.passPrefetchTimeout` ran out first).
+- `LegacyCodeLive`, once per live (non-Studio) server, carried by its first loaded player, when
+  `ServerConfig.legacyList` still lists files or a `ctx.shop.onLegacyProduct` bridge is registered (the
+  boot also warns once): fields `entries`, `bridges`, `products` (comma list, cut to 100 characters),
+  `writesLegacyData` (`product:Owner` of every bridge that declared it).

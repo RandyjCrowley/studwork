@@ -495,7 +495,9 @@ So old product code keeps working **while the game is being migrated**, without 
 - Every `onLegacyProduct` logs a boot warning naming the product.
 
 Gamepasses need no bridge: ownership always comes from Roblox (`ctx.shop.ownsPass`), and perk
-flags the old save kept come over with `importLegacy`.
+flags the old save kept come over with `importLegacy`. A purchase whose handler asks a pass Roblox
+hasn't answered yet is retried, never granted on a guess (v1.6.1; the join waits at most
+`GameConfig.shop.passPrefetchTimeout`, default 2 s, for those answers).
 
 ## 5. Transitional guardrails (`studwork-legacy.json`)
 

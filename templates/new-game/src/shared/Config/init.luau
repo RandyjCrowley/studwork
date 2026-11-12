@@ -42,6 +42,7 @@ local Config = {
 	-- @end
 	items = require(script.Items),
 	products = require(script.Products),
+	-- shop = { passPrefetchTimeout = 2 }, -- seconds a join waits for gamepass lookups (0-5)
 	events = require(script.Events),
 	client = {
 		palette = require(script.Palette), -- legacy per-game colour overrides (hex), applied last

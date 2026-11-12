@@ -139,6 +139,69 @@ function Server.formatAdoptStatus(ids: { string }, markers: { [string]: any }): 
 	return table.concat(lines, "\n")
 end
 
+-- (added in 1.6.1, adopting.md §5) what a live server says when legacy code is still in the
+-- place: ServerConfig.legacyList (the decoded studwork-legacy.json, { files = { { path, checks } } })
+-- and every ctx.shop.onLegacyProduct bridge. nil when there is nothing to report. A missing or
+-- malformed list counts as no list (never a boot error). -> { message, fields, files, bridges }?
+Server.LEGACY_LIVE_SHOWN = 5
+function Server.legacyLiveReport(legacyList: any, bridges: { any }): any
+	local paths: { string } = {}
+	if type(legacyList) == "table" and type(legacyList.files) == "table" then
+		for _, entry in legacyList.files do
+			if type(entry) == "table" and type(entry.path) == "string" and entry.path ~= "" then
+				table.insert(paths, entry.path)
+			end
+		end
+	end
+	if #paths == 0 and #bridges == 0 then
+		return nil
+	end
+	local shown = {}
+	for i = 1, math.min(#paths, Server.LEGACY_LIVE_SHOWN) do
+		table.insert(shown, paths[i])
+	end
+	local bridgeText = {}
+	local products = {}
+	local writers = {}
+	for _, b in bridges do
+		table.insert(bridgeText, `{b.product} ({b.owner}, writesLegacyData = {tostring(b.writesLegacyData)})`)
+		table.insert(products, b.product)
+		if b.writesLegacyData then
+			table.insert(writers, `{b.product}:{b.owner}`)
+		end
+	end
+	local parts = {}
+	if #paths > 0 then
+		table.insert(
+			parts,
+			`{#paths} legacy file(s) in studwork-legacy.json ({table.concat(shown, ", ")}{if #paths
+					> #shown
+				then `, +{#paths - #shown} more`
+				else ""})`
+		)
+	end
+	if #bridges > 0 then
+		-- item 2: every bridge with the flag its author declared (a declaration, not verified)
+		table.insert(parts, `{#bridges} ctx.shop.onLegacyProduct bridge(s): {table.concat(bridgeText, "; ")}`)
+	end
+	local message =
+		`[StudWork] this LIVE server still runs legacy code that tools/adopt --verify would refuse: {table.concat(
+			parts,
+			"; "
+		)}. writesLegacyData is the author's declaration, not checked. Finish the cutover (docs/framework/adopting.md §5) before publishing.`
+	return {
+		message = message,
+		files = paths,
+		bridges = bridges,
+		fields = {
+			entries = tostring(#paths),
+			bridges = tostring(#bridges),
+			products = table.concat(products, ","),
+			writesLegacyData = table.concat(writers, ","),
+		},
+	}
+end
+
 function Server.start(gameConfig: any, serverConfig: any?, opts: any?): any
 	local o = opts or {}
 	local logSink = o.logSink
@@ -433,7 +496,17 @@ function Server.start(gameConfig: any, serverConfig: any?, opts: any?): any
 		rt.phase = "config"
 		local result = ConfigValidate.validate(order, gameConfig)
 		for _, w in result.warnings do
+			-- (v1.6.1) GameConfig.shop is a framework key, validated just below
+			if
+				string.sub(w, 1, 15) == "GameConfig.shop" and string.find(w, "unknown top-level key", 1, true)
+			then
+				continue
+			end
 			logSink("warn", "[StudWork] " .. w)
+		end
+		local shopError = Shop.validateShopConfig(gameConfig.shop)
+		if shopError ~= nil then
+			table.insert(result.errors, shopError)
 		end
 		if #result.errors > 0 then
 			error("invalid GameConfig:\n  - " .. table.concat(result.errors, "\n  - "), 0)
@@ -579,6 +652,11 @@ function Server.start(gameConfig: any, serverConfig: any?, opts: any?): any
 			log = warnLog,
 			isStudio = rt.isStudio,
 			guid = platform.guid,
+			-- (added in v1.6.1) GameConfig.shop.passPrefetchTimeout (validated in step 2)
+			passPrefetchTimeout = if type(gameConfig.shop) == "table"
+				then gameConfig.shop.passPrefetchTimeout
+				else nil,
+			clock = platform.clock,
 			-- (added in v1.6.0, adopting.md §4)
 			legacy = rt.legacy,
 			phase = function(): string
@@ -645,17 +723,49 @@ function Server.start(gameConfig: any, serverConfig: any?, opts: any?): any
 		rt.shop.claim() -- LAST: no module code that runs during boot can replace it (§7.1)
 		rt.phase = "running"
 		rt.state = "running"
+		rt.legacyLive = Server.legacyLiveReport(
+			if type(serverConfig) == "table" then serverConfig.legacyList else nil,
+			rt.shop.legacyBridges()
+		)
+		if rt.legacyLive ~= nil and not rt.isStudio then
+			logSink("warn", rt.legacyLive.message)
+		end
 	end
 
+	-- (v1.6.1) the join waits for its pass answers at most GameConfig.shop.passPrefetchTimeout
+	-- (default 2 s, was a fixed 5 s), then loads the save. Sequential on purpose: Data marks the
+	-- player loaded inside data.load (actions and receipts are accepted from then on), so a wait
+	-- after it would open a window where requests run before the PlayerLoaded handlers. A pass
+	-- still unknown after the wait is never guessed in a tx (Shop.ownsPass). Analytics
+	-- PlayerLoadTiming records the join -> loaded timings once per join.
+	local legacyEventSent = false
 	function rt.playerAdded(player: any): boolean
 		rt.assertUsable()
+		local clock: () -> number = platform.clock or os.clock
+		local joinedAt = clock()
 		platform.spawn(rt.policy.track, player)
-		rt.shop.playerAdded(player)
+		rt.shop.playerJoined(player)
+		local passes = rt.shop.awaitPasses(player)
+		local loadStart = clock()
 		local ok, err, kind = rt.data.load(player)
+		local loadedAt = clock()
 		if not ok then
 			logSink("warn", `[StudWork] {tostring(err)}`)
 			kick(player, if kind == "legacy" then Server.KICK_LEGACY_IMPORT else Server.KICK_MESSAGE)
 			return false
+		end
+		local total = clock() - joinedAt
+		pcall(rt.analytics.api.custom, player, "PlayerLoadTiming", total, {
+			totalSeconds = string.format("%.3f", total),
+			loadSeconds = string.format("%.3f", loadedAt - loadStart),
+			passSeconds = string.format("%.3f", passes.seconds),
+			passesPending = tostring(passes.pending),
+			timedOut = tostring(passes.timedOut),
+		})
+		if rt.legacyLive ~= nil and not rt.isStudio and not legacyEventSent then
+			-- AnalyticsService events need a player: the first loaded player carries the server's one
+			legacyEventSent = true
+			pcall(rt.analytics.api.custom, player, "LegacyCodeLive", 1, rt.legacyLive.fields)
 		end
 		rt.lifecycle.firePlayerLoaded(player)
 		rt.frameworkSignals.PlayerLoaded:Fire(player)

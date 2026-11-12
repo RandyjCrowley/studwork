@@ -365,6 +365,22 @@ export type ModuleName = string -- v1.3.1 (R19): any module's name (was the 11 k
 -- module under ServerScriptService/ServerStorage so clients never receive it.
 export type ServerConfig = {
 	admins: { number }?, -- user ids allowed to trigger events / admin commands on live servers
+	-- (added in 1.6.1, adopting.md §5) the decoded studwork-legacy.json (tools/adopt maps it into
+	-- the place); a live server with entries (or an onLegacyProduct bridge) warns once at boot
+	legacyList: LegacyList?,
+}
+
+-- (added in 1.6.1) studwork-legacy.json: the legacy files still in an adopted game.
+export type LegacyList = {
+	files: { { path: string, checks: { string } } },
+}
+
+-- (added in 1.6.1) GameConfig.shop: framework Shop tuning.
+export type ShopConfig = {
+	-- seconds a join waits (after its save loaded, counted from the join) for its gamepass
+	-- lookups before the player counts as loaded; default 2, range 0-5. Purchases never depend
+	-- on it: an unknown pass retries the receipt.
+	passPrefetchTimeout: number?,
 }
 
 export type GameConfig = {
@@ -381,6 +397,7 @@ export type GameConfig = {
 	data: GameDataConfig?,
 	analytics: AnalyticsConfig?,
 	mail: MailConfig?, -- Mail module delivery tuning (optional)
+	shop: ShopConfig?, -- (added in 1.6.1) framework Shop tuning (optional)
 	assetsFolderName: string?, -- child of ReplicatedStorage holding item models (default "GameAssets")
 }
 
