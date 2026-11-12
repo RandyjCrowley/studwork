@@ -1010,3 +1010,49 @@ registerRandomSource(id, { ..., oddsAt = fn(player, luck) -> OddsDetail })  -- o
 
 A paid roll with an item key needs that item's odds disclosed at exactly that (sanitized) luck,
 plus `luckDisclosed` for luck ≠ 1; free rolls may use any luck. Details: adopting.md §6.
+
+## 21. Additions in v1.6.1
+
+Patch release: safety hardening of the v1.6.0 additions. Every change is optional and additive.
+
+### 21.1 Gamepass lookups at join, and `ownsPass` inside a transaction (added in v1.6.1: a slow MarketplaceService held every join's save load for up to 5 s)
+
+```lua
+GameConfig.shop = { passPrefetchTimeout = 2 }  -- seconds, 0..5, default 2; anything else is a boot error
+```
+
+- A join waits at most `passPrefetchTimeout` for its `products.passes` lookups, then loads the
+  save. Lookups that miss it finish in the background; `onPassOwned` still fires.
+- `ctx.shop.ownsPass` inside a transaction never guesses an answer it doesn't have (pending,
+  failed, or a pass never looked up): in a purchase handler the receipt is retried
+  (`NotProcessedYet`, reason `pass_unknown`, nothing granted or recorded, even if the handler
+  pcalls it); in any other transaction it errors and the transaction is discarded.
+- Framework analytics event `PlayerLoadTiming` once per join (`totalSeconds`, `loadSeconds`,
+  `passSeconds`, `passesPending`, `timedOut`).
+
+### 21.2 Legacy code on a live server (added in v1.6.1: a place-file game can be published by hand without `tools/adopt --verify`)
+
+```lua
+ServerConfig.legacyList = { files = { { path = "src/server/Old.server.luau", checks = { "purchases" } } } }
+-- the decoded studwork-legacy.json; the adopted boot script passes StudWorkBoot.LegacyList
+```
+
+On a live (non-Studio) server with list entries or any `ctx.shop.onLegacyProduct` bridge: one
+`[StudWork]` warning at boot, naming the files and every bridge with its declared
+`writesLegacyData`, and the analytics event `LegacyCodeLive` once per server. A missing or
+malformed list is no list.
+
+### 21.3 The purchase bridge, checked where it can be (added in v1.6.1)
+
+```lua
+ctx.shop.legacyReceipts({ name, scope?, key, until?, checkDays? })  -- checkDays: default 90
+```
+
+- `checkDays`: how many days after `until` the old history store is still checked; after that an
+  old receipt grants normally. Positive numbers only.
+- An `onLegacyProduct` handler declared `writesLegacyData = false` that writes an old store
+  (other than the `legacyReceipts` history store) fails loudly in tests and in Studio: the receipt
+  answers `NotProcessedYet`, nothing is recorded, and `UNDECLARED LEGACY WRITE` names the product,
+  module, store and key. Tests: `StudWork.test.legacyStore(...)` gains `dataStoreService()` and
+  `watchWrites(fn)`. Live servers are not checked (adopting.md §4.3).
+

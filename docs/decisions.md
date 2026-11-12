@@ -341,3 +341,36 @@ Not used:
   broke the pin check's `git -C` calls on every commit. Games mode now clears git's hook environment
   before the pin check, and the games-repo test commits through the hook.
 - **A root `CHANGELOG.md`** covers the whole repo; the framework changelog stays with the package.
+
+## v1.6.1 (fixes from the v1.6.0 review)
+
+- **The join waits for gamepass lookups at most `GameConfig.shop.passPrefetchTimeout`** (default
+  2 s, was a fixed 5 s), then loads the save. Not in parallel: Data marks the player loaded inside
+  `data.load`, so a wait after it would let actions and receipts run before the PlayerLoaded
+  handlers. Correctness never depends on the wait: `ownsPass` inside a transaction never guesses
+  (a purchase retries with `pass_unknown`, any other transaction errors). A parallel load needs a
+  Data "loaded but gated" step (later).
+- **Kits that pcall a `capBonus` keep counting a failed bonus as 0.** Outside purchases that is the
+  refusing direction (a lower cap refuses an add or a trade), never an over-grant, so Inventory
+  wasn't changed (known-issues O5).
+- **`writesLegacyData` is checked where it can be.** Test mocks report writes (an observer on the
+  mock only; the live reader stays read-only). Studio compares the imported keys before and after
+  the handler, because real DataStores can't be intercepted. Live is declared only (a boot warning
+  listing every bridge and its flag, plus `--verify`). The `legacyReceipts` history store is
+  exempt: recording a receipt there is what old handlers do, and it isn't the save.
+- **The late-receipt window is `legacyReceipts.checkDays`** (default 90).
+  `_framework.legacyPurchases` pruning stays a fixed 90 days because it belongs to the import
+  (adopting.md §4.1), not to the history store.
+- **The adopted marker is sticky, anchored in history.** Any commit reachable from HEAD whose
+  `studwork.json` said adopted keeps the project adopted for lint and publishing; dropping the flag
+  ("graduating") needs `tools/adopt --verify .` to pass. Any commit rather than the first add:
+  adoption may come after the first commit and the file can be re-added. Only a history rewrite
+  drops it, which `tools/lint --anchor-remote` (in the project CI template) catches against the
+  remote default branch. Tools read local refs only and never fetch.
+- **A place file is "the copy" by recorded content, not by name.** `.studwork-from-place.json`
+  records the original's name, path and SHA-256; the adopt tools refuse to write a file with that
+  path or content.
+- **The v1.6.0 bench figure (0.866 ms/tick) was noise.** Alternated runs give v1.5.0 0.779 and
+  v1.6.0 0.792 ms/tick (medians of 7, fully overlapping spreads, identical allocations); no per-tick
+  code changed between them.
+

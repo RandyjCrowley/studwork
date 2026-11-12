@@ -137,6 +137,34 @@ There are no open Critical or High issues.
   the untouched loaded data (never defaults). Harmless, but it is a write.
 - **Workaround:** none needed.
 
+### O5. A failed `capBonus` counts as no bonus
+- **Where:** `packages/kits/collection/Inventory/server/init.luau` (`capOf`),
+  `packages/kits/economy/Economy/server/init.luau` (`recompute`, `rateFactor`).
+- **What fails:** both kits pcall a bonus function and treat an error as 0. A bonus that asks
+  `ctx.shop.ownsPass` for a pass whose lookup hasn't answered yet (v1.6.1: an error inside a
+  transaction) then counts as no bonus until it answers: a lower cap or rate, never a higher one.
+  Purchases are not affected (the retry survives the pcall).
+- **Workaround:** none needed for correctness; read pass perks after the player loaded, or track
+  them with `ctx.shop.onPassOwned`.
+
+### O6. Undeclared legacy writes are only caught in tests and Studio, and not every kind
+- **Where:** `packages/framework/server/Shop/` (`onLegacyProduct`, v1.6.1).
+- **What fails:** a write deferred past the old handler's return (`task.defer`, `task.delay`, a
+  later event) isn't caught. In Studio only the keys the registered `importLegacy` sources read are
+  compared (no import, no comparison), and nothing is compared with API access off. Live servers
+  only get the boot warning.
+- **Workaround:** the bridge is for test places only, and `tools/adopt --verify` refuses it before
+  a live publish.
+
+### O7. The legacy anchor and the adopted marker live in git history
+- **Where:** `tools/lune/guardrails.luau`, `tools/lune/AdoptedMarker.luau`.
+- **What fails:** a history rewrite resets both. In a project with no remote (or never pushed) that
+  can't be detected; `tools/lint --anchor-remote` needs a remote default branch and full history. In
+  a shallow clone, lint only notes that the marker's history can't be read (`tools/publish --live`
+  refuses there).
+- **Workaround:** push the adoption commit and run `tools/lint --anchor-remote` in CI (the
+  single-game CI template does).
+
 ## Games-repo mode
 
 ### V2. Generated module READMEs have a wrong docs link in a games repo
