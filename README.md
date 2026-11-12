@@ -25,17 +25,23 @@ return {
 ```
 
 ```luau
--- src/server/Main.server.luau (game script, outside a module's server part)
+-- src/client/Main.client.luau: game code reaches a module with StudWork.use
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local StudWork = require(ReplicatedStorage:WaitForChild("Framework"))
-local Economy = require(ReplicatedStorage.Modules.Economy.module)
-local Config = require(ReplicatedStorage.Game.Config)
-local ServerConfig = require(script.Parent.ServerConfig)
+local Config = require(ReplicatedStorage:WaitForChild("Game"):WaitForChild("Config"))
+local Modules = ReplicatedStorage:WaitForChild("Modules")
+local Economy = require(Modules:WaitForChild("Economy"):WaitForChild("module"))
 
-StudWork.start(Config, ServerConfig)
-assert(StudWork.use(Economy).primaryCurrency() == "Coins", "wrong primary currency")
--- Game scripts can also call StudWork.use(Economy).balance(player, "Coins") after a player loads.
+StudWork.start(Config)
+StudWork.Client.Hud.mount() -- the default HUD; Economy's client part adds the coin counter
+
+local economy = StudWork.use(Economy) -- Economy's frozen client API, typed
+local coins = economy.read.currency(StudWork.Client.state(), "Coins") -- from the server's save
+print("Coins:", coins)
 ```
+
+Inside a module, other modules come from `ctx.deps` instead of `StudWork.use`
+([module API §4](docs/framework/module-api.md#4-reaching-other-modules-studworkuse)).
 
 **StudWork** is an opinionated Roblox game framework written in Luau (`--!strict`). It makes good
 decisions for you, so a new game is playable within minutes: a game that sets only its name and
