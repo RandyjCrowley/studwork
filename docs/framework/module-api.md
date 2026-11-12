@@ -1067,9 +1067,12 @@ Patch release: UI kit fixes. Every addition is optional; existing props keep the
 GameConfig.theme = { metrics = { minTextSize = 11 } }  -- real on-screen pixels, 6..32, default 11
 ```
 
-No UI kit text renders below `minTextSize` after every UIScale (the responsive scale and a
-Modal's fit scale). `metrics.text.min` (design pixels, now 14 by default) stays the floor of scaled
-text. Pure helpers under `ReplicatedStorage.UI`: `ModalFit.minScale(tokens)` (the smallest scale
+With the default text sizes, no UI kit text renders below `minTextSize` after the kit's own
+scales (the responsive scale, at least 0.85, and a Modal's fit scale, never below
+`ModalFit.minScale`). The kit doesn't enlarge text to meet the metric: a theme that raises
+`minTextSize` must raise `metrics.text` to match (smallest size x 0.85 >= `minTextSize`), and text
+under a game's own extra UIScale is the game's to check. `metrics.text.min` (design pixels, now 14
+by default) stays the floor of scaled text. Pure helpers under `ReplicatedStorage.UI`: `ModalFit.minScale(tokens)` (the smallest scale
 `UI.Modal` applies) and `ModalFit.contentHeight(screenY, outerScale, fitScale, chrome, content, floor)`
 (the height of a Modal's scrolling content in design pixels).
 
@@ -1091,4 +1094,5 @@ with `TextWrapped` and `AutomaticSize`.
 - `UI.Modal`: content taller than 88% of the screen scrolls. Render it in a ScreenGui with
   `ZIndexBehavior = Sibling`; under `Global` the backdrop covers the panel and the Modal warns once.
 - `UI.ItemCard`: text rows keep readable sizes and the icon takes the space left
-  (`ItemCardLayout.iconSize`); give the card at least 120 x 160 design px for every optional row.
+  (`ItemCardLayout.iconSize`); give the card at least 120 x 160 design px for every optional row
+  (a smaller card clips its contents).

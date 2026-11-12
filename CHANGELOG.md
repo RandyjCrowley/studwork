@@ -22,8 +22,9 @@ API and the UI kit's props only grew.
   while `TextFits` still reported true. Multi-line kit text (the notice, the luck/pity/mutation
   lines, Toast messages) is measured with `TextService` at its real width instead of relying on
   `AutomaticSize`, through the new `UI.WrappedText`.
-- **Odds item names are readable on phones.** Text never renders below the new theme metric
-  `metrics.minTextSize` (default 11 real pixels, after the responsive and Modal scales). Names use a
+- **Odds item names are readable on phones.** With the default text sizes, kit text never renders
+  below the new theme metric `metrics.minTextSize` (default 11 real pixels, after the kit's
+  responsive and Modal scales; a theme that raises it must raise its text sizes too). Names use a
   fixed size, wrap to 2 lines and end in "…"; tapping a name shows it in full under the row. Rarity
   badges and percentages keep their columns.
 - **"Odds" appears once.** The default Odds screen, the sandbox, the new-game template and the
@@ -38,7 +39,8 @@ API and the UI kit's props only grew.
   ScreenGui. **Games: set `ZIndexBehavior = Enum.ZIndexBehavior.Sibling` on any ScreenGui that
   renders `UI.Modal`.**
 - **Item cards fit their size.** Long names clipped (scaled text in a box one line high); now they
-  wrap to 2 lines with "…", the text rows keep readable sizes and the icon takes the space left.
+  wrap to 2 lines with "…", the text rows keep readable sizes and the icon takes the space left
+  (at least 120×160 design px for every optional row; a smaller card clips its contents).
 - **Economy's client part loads**, so the coin counter is on the HUD again. Its definition never
   declared `client = "Economy"`. A test now checks that every kit module with a `client/` folder
   declares it. Games that registered `"Economy.currency"` themselves as a workaround can delete

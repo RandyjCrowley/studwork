@@ -29,6 +29,7 @@ describe("ItemCard fixed two-line name", function()
 		local source = fs.readFile("packages/ui/ItemCard.luau")
 		expect(string.find(source, "Size = UDim2.fromOffset(icon, icon)", 1, true) ~= nil).toBe(true)
 		expect(string.find(source, "Layout.ICON, Layout.ICON", 1, true)).toBeNil()
+		expect(string.find(source, "ClipsDescendants = true", 1, true) ~= nil).toBe(true) -- undersized cards clip
 		local inventory = fs.readFile("packages/ui/screens/Inventory.luau")
 		expect(string.find(inventory, "local CARD = Vector2.new(120, 160)", 1, true) ~= nil).toBe(true)
 	end)

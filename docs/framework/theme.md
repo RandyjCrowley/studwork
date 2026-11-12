@@ -103,7 +103,8 @@ a screen and registers it from `src/client/Screens/init.luau`.
   wrap to two lines and ellipsize; tapping reveals the full name. Rarity and percentages still
   use bounded TextScaled sizes. `metrics.minTextSize` defaults to 11 real on-screen pixels;
   `text.min` defaults to 14 design pixels. Modal content scrolls rather than scaling below that
-  floor. Multiline notices use `UI.WrappedText`, whose measured height follows width and text.
+  floor. The kit doesn't enlarge text to meet `minTextSize`: if you raise it, raise `metrics.text`
+  too (smallest size x 0.85, the smallest responsive scale, >= `minTextSize`). Multiline notices use `UI.WrappedText`, whose measured height follows width and text.
   Check 1280x720, 667x375, 926x428, and 1024x768 in Studio.
 - Paid random items: show the server's disclosed odds (`UI.OddsTable` with the replicated
   `odds[tableId]`) before rolling or prompting, and don't prompt players whose

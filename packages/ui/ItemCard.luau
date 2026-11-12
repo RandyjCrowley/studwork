@@ -8,7 +8,9 @@
 		icon: string?                rbxassetid image; nil = rarity-coloured placeholder initial
 		incomePerSec: number?        shown as "+1.2K/s"
 		mutation: string?            tag text (e.g. "Gold"); mutationColor: string? hex tint
-		size: UDim2?                 default 140 px wide (scaled by UIScale)
+		size: UDim2?                 default 140 px wide (scaled by UIScale); text rows keep fixed
+		                             readable sizes, so give at least 120 x 160 design px with every
+		                             optional row (the icon takes what is left; smaller cards clip)
 		layoutOrder: number?, onActivated: (() -> ())?  (card becomes tappable)
 ]]
 
@@ -64,6 +66,9 @@ local function ItemCard(props: Props)
 			return nil
 		end
 		local function measure()
+			if card.AbsoluteSize.X <= 0 or card.AbsoluteSize.Y <= 0 then
+				return -- not laid out yet; the AbsoluteSize signal measures again
+			end
 			local s = math.max(scaleOf(card), 0.01)
 			setIcon(
 				Layout.iconSize(
@@ -89,6 +94,7 @@ local function ItemCard(props: Props)
 			AutoButtonColor = if tappable then false else nil,
 			BackgroundColor3 = Theme.color("surfaceAlt"),
 			BorderSizePixel = 0,
+			ClipsDescendants = true, -- a card below its minimum size never spills onto its neighbours
 			Size = props.size or UDim2.fromOffset(Layout.WIDTH, Layout.WIDTH / Layout.ASPECT),
 			LayoutOrder = props.layoutOrder,
 			[React.Event.Activated] = if tappable then props.onActivated else nil,
