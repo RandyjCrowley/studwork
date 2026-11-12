@@ -30,7 +30,7 @@ local Friends = require(Modules:WaitForChild("Friends"):WaitForChild("module")) 
 local Mail = require(Modules:WaitForChild("Mail"):WaitForChild("module")) -- @if Mail
 local Tuning = require(ReplicatedStorage:WaitForChild("Game"):WaitForChild("Config"):WaitForChild("Tuning")) -- @if Economy
 
-local TOUCH_COOLDOWN = 1.5 -- seconds between block rewards per player (sandbox-only feel number)
+local TOUCH_COOLDOWN = 1.5 -- seconds between block rewards per player (a feel number for this game only)
 
 local Sandbox = {}
 
@@ -86,7 +86,9 @@ function Sandbox.init(ctx: any)
 	-- @end
 
 	-- @if Inventory|Mail
-	-- Studio-only test hooks (StudWorkConsole:Invoke("sandbox", "giftme", itemId?) and friends)
+	-- Studio-only test hooks. A command is typed with this module's lower-case name in front
+	-- (StudWorkConsole:Invoke("sandbox", "giftme", itemId?) and friends; Invoke("help") lists them all).
+	-- A handler's first parameter is the calling player: name it _player when unused (selene).
 	if ctx.isStudio then
 		-- @if Mail
 		ctx.console.register("giftme", function(_player: any, itemId: string?): string

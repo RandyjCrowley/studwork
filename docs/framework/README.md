@@ -10,6 +10,7 @@ overridable, nothing in core is special, guardrails you can't turn off.
 | [Concepts](concepts.md) | Modules, refs, `ctx`, save sections, the game's own module, boot |
 | [The five override levels](override-levels.md) | Defaults, config, replace a piece, switch a kit off, write a module; one example each |
 | [Module API reference](module-reference.md) | `defineModule`, the server and client parts, every `ctx` field, transactions, purchases, replication, testing |
+| [Testing a game](testing.md) | Spec the game's own module against the kits with `StudWork.test.harness`: options, every harness method, the client's side (`h:action`, `h:sent`), the fake Workspace/Players, console commands |
 | [Generators](generators.md) | `tools/new-game --modules`, `tools/make-module`, `tools/make-migration`, `tools/make-screen`, the `templates/` folder |
 | [Single-game projects](single-game-project.md) | `tools/new-project`: one repo per game, the root is the game, StudWork at `studwork/` (detection, commands, framework pin, bumping, publish, fresh clone) |
 | [Adopting StudWork](adopting.md) | Moving an existing game to StudWork (design): `tools/adopt`, `ctx.data.importLegacy`, the purchase bridge, `studwork-legacy.json`, the cutover. Agents follow the [playbook](../agents/adopt-existing-game.md); [AGENTS.md](../../AGENTS.md) routes any coding agent |

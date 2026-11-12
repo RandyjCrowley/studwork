@@ -88,8 +88,13 @@ tools/doctor    # every line should say ok
 tools/dev       # rojo serve + the Studio connect steps
 ```
 
-`tools/new-project` installs the toolchain and Wally packages, scaffolds a game that boots and
-passes lint, typecheck, test and build, enables the pre-commit hook and makes the first commit.
+`studwork/tools/new-project --help` lists every option. It installs the toolchain and Wally packages,
+scaffolds a game that boots and passes lint, typecheck, test and build, enables the pre-commit hook
+and makes the first commit. (The first `tools/typecheck` downloads the Roblox type definitions once,
+into the project's git-ignored `.cache/`; `tools/new-project` copies them from your StudWork clone
+when it has them, and `tools/typecheck --offline` never downloads.) Specs: `tools/test`; after
+hand-writing code run `tools/format`, then `tools/lint`. How to spec your game module against the
+kits: [docs/framework/testing.md](docs/framework/testing.md).
 Every tool in the project works without a game name: `tools/lint`, `tools/test`, `tools/build`,
 `tools/make-module <Name>`, `tools/publish --test --dry-run`. The project's `README.md` and
 `CLAUDE.md` explain the rest.

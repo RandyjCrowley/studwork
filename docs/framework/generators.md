@@ -11,6 +11,8 @@ tools/new-project <path> [--name <gameId>] [--modules A,B,C] [--url <studwork-ur
                   [--no-install] [--author-name <name>] [--author-email <email>]
 ```
 
+`tools/new-project --help` (or `-h`; also on `tools/new-game`) prints every option and exits 0.
+
 (v1.5.0) A complete single-game project at `<path>`: git repo, StudWork as the `studwork/`
 submodule at a tag, the game at the root (`tools/new-game`'s template, `$path`s into `studwork/`,
 `docs/design.md`), the skeleton from `templates/single-game/`, `tools/install`, and the first
@@ -50,7 +52,7 @@ marks module-specific code with comment markers that the generator resolves and 
 Proved for these subsets (each passed `tools/lint`, `tools/typecheck` and its boot test): none,
 `Items`, `Inventory`, `Rarity`, `Items,Rarity,Inventory`, `Economy`,
 `Economy,Upgrades,Rebirth,Offline`, Collection + Economy, `Friends,Mail`, `Streak`, `Plot`, each of the four v1.7.0 modules (`Leaderboards`, `Badges`, `Notifications`, `TextFilter`),
-`Mail,Inventory`, and all. The self-test (`tools/lune/NewGame.spec.luau`) resolves the template's
+`Mail,Inventory`, and all. The game module's console help text and log tags say the module's own lower-case name (`mygame giftme`, the command a player really types: [testing.md](testing.md#console-commands)); the scaffold ships `src/server/GameModule.spec.luau`, a worked spec of the game module against the kits ([testing.md](testing.md)). The self-test (`tools/lune/NewGame.spec.luau`) resolves the template's
 markers for every single module, for all and for none, and checks the result compiles.
 
 ## tools/make-module

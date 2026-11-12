@@ -177,7 +177,7 @@ Every field is scoped to the module that receives it.
 | `ctx.events` | `schedule(id, schedule?, fn(event))`, `trigger`, `isActive(id)`, `onEnded(id, fn)` (live events from `GameConfig.events`) |
 | `ctx.policy` | read-only: `paidRandomRestricted(player)`, `isKnown(player)`, `allows(player, field) -> boolean` (v1.7.0: a boolean `PolicyService` field such as `IsContentSharingAllowed`; false until the lookup succeeds) |
 | `ctx.analytics` | `funnel(player, step)`, `economy(...)`, `custom(player, name, value, fields?)` |
-| `ctx.console` | `register(command, fn(player, ...), help?)`; commands are prefixed with the module's lower-case name (`quests reset`) |
+| `ctx.console` | `register(command, fn(player, ...), help?)`; the command is typed with the module's lower-case name in front: module `DogfoodGame` -> `dogfoodgame points` (`Invoke("dogfoodgame", "points")`, `h:console("dogfoodgame", "points")`). Name an unused first parameter `_player` (selene's `unused_variable`) |
 | `ctx.log` | `info`, `warn`, `debug`, tagged `[<Module>]` |
 | `ctx.theme` | the merged theme tree, read-only |
 | `ctx.isStudio` | boolean |
@@ -439,6 +439,10 @@ v1.7.0 harness options: `env`, `placeId`, `universeId`, `services`, `openCloud`,
 `translator`, `storeBudgets`, `census`, `strings`, `localization`; `h:orderedStore(module, name)` and
 `h:sortedMap(module, name)` return the in-memory store behind a module's store; the fakes are in
 `StudWork.test.fakes` (module-api §23.10).
+
+A spec for a **game** module (the game's own module against the kits: the harness options, every
+harness method, `h:console`, `h:action` for a client's request, `h:sent` for what the server sent a
+client, the fake Workspace and Players) has its own page: [testing.md](testing.md).
 
 Run them with `tools/test <folder>`. Several servers, real ProfileStore session locks, crashes,
 latency and DataStore failures: `StudWork.test.sim` (`sim.world()`, `sim.server(world)`,
