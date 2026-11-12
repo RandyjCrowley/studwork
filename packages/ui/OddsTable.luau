@@ -33,6 +33,7 @@ local Panel = require(script.Parent.Panel)
 local RarityBadge = require(script.Parent.RarityBadge)
 local TextFit = require(script.Parent.TextFit)
 local Theme = require(script.Parent.Theme)
+local UIText = require(script.Parent.Text)
 local WrappedText = require(script.Parent.WrappedText)
 
 local e = React.createElement
@@ -53,8 +54,6 @@ export type Props = {
 }
 
 local ROW_HEIGHT = OddsLayout.ROW_HEIGHT
-local DEFAULT_RESTRICTED_TEXT = "Paid random items are restricted in your region. "
-	.. "You can still earn these rewards by playing."
 
 -- Text never clips (v1.6.1): every cell is a Scale fraction of the row (OddsLayout.columns) and
 -- every text is TextScaled with a UITextSizeConstraint from the theme (min = Theme.text.min).
@@ -174,6 +173,7 @@ end
 
 local function OddsTable(props: Props)
 	local detail = props.detail
+	local locale = UIText.useLocale() -- a locale change re-renders (and re-words the pity and luck lines)
 	local model = React.useMemo(function()
 		local itemOdds = if type(detail) == "table" and type(detail.items) == "table"
 			then detail.items
@@ -182,10 +182,10 @@ local function OddsTable(props: Props)
 			items = Odds.rows(itemOdds, props.items, Theme.tierOrder(), props.sortBy),
 			mutations = Odds.mutationRows(detail),
 			outcomes = Odds.outcomeRows(detail, props.items, Theme.tierOrder(), props.sortBy),
-			pity = Odds.pityLine(detail),
-			luck = Odds.luckLine(detail),
+			pity = Odds.pityLine(detail, UIText.text),
+			luck = Odds.luckLine(detail, UIText.text),
 		}
-	end, { detail, props.odds, props.items, props.sortBy } :: { any })
+	end, { detail, props.odds, props.items, props.sortBy, locale } :: { any })
 	local rows = model.items
 
 	local list: { [string]: any } = {
@@ -209,7 +209,7 @@ local function OddsTable(props: Props)
 	end
 	local showSections = #model.mutations > 0
 	if showSections then
-		addHeader("ItemsHeader", "Items")
+		addHeader("ItemsHeader", UIText.text("ui.odds.items"))
 	end
 	for _, row in rows do
 		add("Row_" .. row.id, e(Row, { row = row, layoutOrder = order + 1 }), ROW_HEIGHT)
@@ -219,8 +219,8 @@ local function OddsTable(props: Props)
 		for _, m in model.mutations do
 			table.insert(parts, m.name .. " " .. Format.percent(m.probability))
 		end
-		addHeader("MutationsHeader", "Mutations: " .. table.concat(parts, ", "))
-		addHeader("OutcomesHeader", "All outcomes")
+		addHeader("MutationsHeader", UIText.text("ui.odds.mutations", { list = table.concat(parts, ", ") }))
+		addHeader("OutcomesHeader", UIText.text("ui.odds.allOutcomes"))
 		for _, row in model.outcomes do
 			add("Outcome_" .. row.id, e(Row, { row = row, layoutOrder = order + 1 }), ROW_HEIGHT)
 		end
@@ -229,7 +229,7 @@ local function OddsTable(props: Props)
 	local listHeight = math.min(maxHeight, height)
 
 	return e(Panel, {
-		title = if props.title == false then nil else (props.title or "Odds"),
+		title = if props.title == false then nil else (props.title or UIText.text("ui.odds.title")),
 		size = props.size,
 		position = props.position,
 		anchorPoint = props.anchorPoint,
@@ -237,7 +237,7 @@ local function OddsTable(props: Props)
 	}, {
 		Notice = if props.restricted
 			then e(WrappedText, {
-				text = props.restrictedText or DEFAULT_RESTRICTED_TEXT,
+				text = props.restrictedText or UIText.text("ui.odds.restricted"),
 				font = "bold",
 				textSize = "small",
 				color = "outline",
@@ -248,7 +248,7 @@ local function OddsTable(props: Props)
 			else nil,
 		Empty = if #rows == 0
 			then e("TextLabel", {
-				Text = "No odds available.",
+				Text = UIText.text("ui.odds.empty"),
 				FontFace = Theme.font("body"),
 				TextSize = Theme.text.body,
 				TextColor3 = Theme.color("textMuted"),

@@ -22,6 +22,7 @@ local Layout = require(script.Parent.ItemCardLayout)
 local Primitives = require(script.Parent.Primitives)
 local RarityBadge = require(script.Parent.RarityBadge)
 local Theme = require(script.Parent.Theme)
+local UIText = require(script.Parent.Text)
 
 local e = React.createElement
 
@@ -52,6 +53,7 @@ local function scaleOf(inst: Instance): number
 end
 
 local function ItemCard(props: Props)
+	UIText.useLocale()
 	local color, glow, strength = Theme.rarity(props.rarity)
 	local tappable = props.onActivated ~= nil
 	local hasIncome, hasMutation = props.incomePerSec ~= nil, props.mutation ~= nil
@@ -147,7 +149,7 @@ local function ItemCard(props: Props)
 			Badge = e(RarityBadge, { rarity = props.rarity, layoutOrder = 3 }),
 			Income = if props.incomePerSec
 				then e("TextLabel", {
-					Text = "+" .. Format.abbreviate(props.incomePerSec) .. "/s",
+					Text = UIText.text("ui.perSecond", { amount = Format.abbreviate(props.incomePerSec) }),
 					FontFace = Theme.font("bold"),
 					TextSize = Theme.text.small,
 					TextColor3 = Theme.color("currency"),

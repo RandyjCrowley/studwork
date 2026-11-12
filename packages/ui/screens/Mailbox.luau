@@ -10,6 +10,7 @@ local React = require(ReplicatedStorage:WaitForChild("Packages"):WaitForChild("R
 local Button = require(script.Parent.Parent.Button)
 local Modal = require(script.Parent.Parent.Modal)
 local Theme = require(script.Parent.Parent.Theme)
+local UIText = require(script.Parent.Parent.Text)
 
 local e = React.createElement
 
@@ -18,10 +19,11 @@ local function defaultDescribe(msg: any): string
 	local item = if type(payload) == "table"
 		then (if type(payload.item) == "table" then payload.item.itemId else payload.itemId)
 		else nil
-	return "Claim " .. tostring(item or msg.kind)
+	return UIText.text("ui.mail.claim", { item = tostring(item or msg.kind) })
 end
 
 return function(props: any)
+	UIText.useLocale()
 	local messages: { any } = props.messages or {}
 	local describe = props.describe or defaultDescribe
 	local rows: { [string]: any } = {}
@@ -40,7 +42,7 @@ return function(props: any)
 	end
 	if #messages == 0 then
 		rows.Empty = e("TextLabel", {
-			Text = props.emptyText or "Your mailbox is empty.",
+			Text = props.emptyText or UIText.text("ui.mail.empty"),
 			FontFace = Theme.font("body"),
 			TextSize = Theme.text.body,
 			TextColor3 = Theme.color("textMuted"),
@@ -49,5 +51,9 @@ return function(props: any)
 			Size = UDim2.fromOffset(0, 0),
 		})
 	end
-	return e(Modal, { open = true, title = props.title or "Mailbox", onClose = props.onClose }, rows)
+	return e(
+		Modal,
+		{ open = true, title = props.title or UIText.text("ui.mail.title"), onClose = props.onClose },
+		rows
+	)
 end

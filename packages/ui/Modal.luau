@@ -22,6 +22,7 @@ local React = require(ReplicatedStorage:WaitForChild("Packages"):WaitForChild("R
 local Panel = require(script.Parent.Panel)
 local Primitives = require(script.Parent.Primitives)
 local Theme = require(script.Parent.Theme)
+local UIText = require(script.Parent.Text)
 
 local e = React.createElement
 
@@ -56,6 +57,7 @@ local function scaleAbove(inst: Instance): number
 end
 
 local function Modal(props: Props)
+	local closeGlyph = UIText.useText("ui.modal.closeGlyph")
 	local bodyRef = React.useRef(nil :: Frame?)
 	local listRef = React.useRef(nil :: UIListLayout?)
 	local scale, setScale = React.useState(1)
@@ -197,7 +199,7 @@ local function Modal(props: Props)
 			}),
 			Close = if props.onClose
 				then e("TextButton", {
-					Text = "X",
+					Text = closeGlyph,
 					FontFace = Theme.font("display"),
 					TextSize = Theme.text.title,
 					TextColor3 = Theme.color("text"),

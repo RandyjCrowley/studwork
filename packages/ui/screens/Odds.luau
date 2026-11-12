@@ -9,10 +9,12 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local React = require(ReplicatedStorage:WaitForChild("Packages"):WaitForChild("React"))
 local Modal = require(script.Parent.Parent.Modal)
 local OddsTable = require(script.Parent.Parent.OddsTable)
+local UIText = require(script.Parent.Parent.Text)
 
 local e = React.createElement
 
 return function(props: any)
+	UIText.useLocale()
 	local children: { [string]: any } = {
 		Table = e(OddsTable, {
 			detail = props.detail,
@@ -30,5 +32,9 @@ return function(props: any)
 			children[k] = v
 		end
 	end
-	return e(Modal, { open = true, title = props.title or "Odds", onClose = props.onClose }, children)
+	return e(
+		Modal,
+		{ open = true, title = props.title or UIText.text("ui.odds.title"), onClose = props.onClose },
+		children
+	)
 end

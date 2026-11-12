@@ -1,6 +1,6 @@
 --!strict
 --[[
-	Pure odds-row builder for OddsTable (zero dependencies).
+	Pure odds-row builder for OddsTable (depends only on the UI kit's pure Strings defaults).
 
 	Odds.rows(odds, defs, tierOrder, sortBy?) -> { OddsRow }
 		odds: { [itemId]: probability } (e.g. from Rarity.getOdds, sent by the server)
@@ -15,8 +15,13 @@
 	Odds.mutationRows(detail) -> { { id, name, probability } } most likely first (zero dropped)
 	Odds.outcomeRows(detail, defs, tierOrder, sortBy?) -> { OddsRow } one row per (item, mutation);
 		id = "<itemId>|<mutation or ->", name = "<Mutation> <Item>" (or just the item name).
-	Odds.pityLine(detail) -> string? "Guaranteed Legendary+ at least every 50 rolls"
+	Odds.pityLine(detail, text?) -> string? "Guaranteed Legendary+ at least every 50 rolls"
+	Odds.luckLine(detail, text?) -> string? "Includes your luck x1.5"
+		text: (key, args?) -> string resolves the `ui.odds.*` keys (a component passes UI.text);
+		without it the English defaults are used.
 ]]
+
+local UIStrings = require(script.Parent.Strings)
 
 export type ItemDefLike = { id: string, name: string, rarity: string }
 export type OddsRow = {
@@ -27,6 +32,7 @@ export type OddsRow = {
 	probability: number,
 }
 export type SortBy = "rarity" | "probability"
+export type Resolver = (key: string, args: { [any]: any }?) -> string
 
 local Odds = {}
 
@@ -157,7 +163,9 @@ function Odds.outcomeRows(
 	return Odds.rows(probs, pseudo, tierOrder, sortBy)
 end
 
-function Odds.pityLine(detail: any): string?
+-- `text` resolves a `ui.odds.*` key (UI.text, from a component); the default is the English default.
+function Odds.pityLine(detail: any, text: Resolver?): string?
+	local say: Resolver = text or UIStrings.english
 	if type(detail) ~= "table" or type(detail.pity) ~= "table" then
 		return nil
 	end
@@ -166,15 +174,15 @@ function Odds.pityLine(detail: any): string?
 		return nil
 	end
 	if p.threshold == 1 then
-		return "Guaranteed " .. p.minTier .. "+ on every roll"
+		return say("ui.odds.pityAlways", { tier = p.minTier })
 	end
-	return string.format("Guaranteed %s+ at least every %d rolls", p.minTier, p.threshold)
+	return say("ui.odds.pityEvery", { tier = p.minTier, count = p.threshold })
 end
 
 -- v1.2 (N4): "Includes your luck x1.5" when the server says these odds include the player's
 -- luck (detail.luckDisclosed and detail.luck ~= 1); nil otherwise. Display only: the
 -- probabilities themselves already come luck-adjusted from the server.
-function Odds.luckLine(detail: any): string?
+function Odds.luckLine(detail: any, text: Resolver?): string?
 	if type(detail) ~= "table" or detail.luckDisclosed ~= true then
 		return nil
 	end
@@ -182,10 +190,11 @@ function Odds.luckLine(detail: any): string?
 	if type(luck) ~= "number" or luck ~= luck or luck == 1 or luck <= 0 or luck == math.huge then
 		return nil
 	end
-	local text = string.format("%.2f", luck)
-	text = string.gsub(text, "0+$", "")
-	text = string.gsub(text, "%.$", "")
-	return "Includes your luck x" .. text
+	local shown = string.format("%.2f", luck)
+	shown = string.gsub(shown, "0+$", "")
+	shown = string.gsub(shown, "%.$", "")
+	local say: Resolver = text or UIStrings.english
+	return say("ui.odds.luck", { luck = shown })
 end
 
 return Odds
