@@ -11,6 +11,9 @@
 	The API key is never passed to this script (only whether it is set).
 	(v1.6.0) An adopted project (studwork.json "adopted": true): --live runs `tools/adopt --verify .`
 	and passes its exit code to PublishGate (refused unless 0); a "placeFile" project is refused.
+	(v1.6.1) The adopted marker is sticky (tools/lune/AdoptedMarker.luau): a project whose history
+	ever had "adopted": true counts as adopted whatever studwork.json says now (so --live still
+	runs --verify); a shallow clone can't be checked, so --live is refused there.
 	Build-relevant paths: the game folder (minus deploy.json), packages, deps (in a games repo: the
 	roblox-core submodule; in a single-game project, v1.5.0: the whole project + studwork/). <name> is a game name (tools/lune/Roots.luau findGame) or folder.
 ]]
@@ -19,6 +22,7 @@ local fs = require("@lune/fs")
 local process = require("@lune/process")
 local serde = require("@lune/serde")
 
+local AdoptedMarker = require("./AdoptedMarker")
 local PublishGate = require("./PublishGate")
 local Roots = require("./Roots")
 
@@ -109,8 +113,27 @@ if fs.isFile("studwork.json") then
 		print("error: cannot read studwork.json")
 		process.exit(1)
 	end
-	adopted = marker.adopted == true
+	adopted = AdoptedMarker.strict(marker)
 	placeFile = if type(marker.placeFile) == "string" then marker.placeFile else nil
+end
+-- (v1.6.1) sticky: any commit reachable from HEAD that said adopted (studwork.json deleted too)
+local adoptedFrom, historyShallow = nil, false
+if not adopted then
+	local history = AdoptedMarker.history(serde, function(a)
+		local r = process.exec("git", a)
+		return r.ok, if r.ok then r.stdout else r.stderr
+	end)
+	if history.status == "ok" and history.adopted then
+		adopted = true
+		adoptedFrom = history.commit
+		print(
+			'note: studwork.json no longer says "adopted": true, but '
+				.. string.sub(tostring(history.commit), 1, 12)
+				.. " did: the project counts as adopted (docs/framework/adopting.md §5)"
+		)
+	elseif history.status == "shallow" then
+		historyShallow = true
+	end
 end
 if adopted and target == "live" and placeFile == nil then
 	-- contract: the exit code of tools/adopt --verify decides (anything but 0 refuses)
@@ -130,6 +153,8 @@ end
 
 local decision = PublishGate.decide({
 	adopted = adopted,
+	adoptedFrom = adoptedFrom,
+	historyShallow = historyShallow,
 	placeFile = placeFile,
 	adoptVerify = adoptVerify,
 	target = target,

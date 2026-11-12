@@ -1696,6 +1696,8 @@ end
 --------------------------------------------------------------------------------
 
 Guard.LEGACY_LIST = "studwork-legacy.json"
+local AdoptedMarker = require("./AdoptedMarker")
+Guard.AdoptedMarker = AdoptedMarker
 -- checks a legacy entry may list (the scanGame checks); special and packages are never downgraded
 Guard.LEGACY_CHECKS = { modules = true, numbers = true, remotes = true, purchases = true, theme = true }
 Guard.LEGACY_NEVER = { special = true, packages = true }
@@ -2030,7 +2032,9 @@ local function gitIn(root: string, args: { string }): (boolean, string)
 end
 
 -- The baseline anchor: studwork.json's legacyBaseline in the FIRST commit that added it.
-function Guard.legacyAnchor(root: string): any
+-- (v1.6.1) rev: read the history of that commit-ish instead of HEAD (--anchor-remote passes the
+-- remote default branch's ref, e.g. refs/remotes/origin/main)
+function Guard.legacyAnchor(root: string, rev: string?): any
 	local serde = require("@lune/serde")
 	local okRepo, inside = gitIn(root, { "rev-parse", "--is-inside-work-tree" })
 	if not okRepo or not string.find(inside, "true", 1, true) then
@@ -2043,11 +2047,12 @@ function Guard.legacyAnchor(root: string): any
 	if string.find(shallow, "true", 1, true) then
 		return { status = "shallow" }
 	end
-	if not gitIn(root, { "rev-parse", "--verify", "-q", "HEAD" }) then
+	local at = rev or "HEAD"
+	if not gitIn(root, { "rev-parse", "--verify", "-q", at .. "^{commit}" }) then
 		return { status = "no-commit" }
 	end
 	local okL, log =
-		gitIn(root, { "log", "--diff-filter=A", "--reverse", "--format=%H", "--", "studwork.json" })
+		gitIn(root, { "log", "--diff-filter=A", "--reverse", "--format=%H", at, "--", "studwork.json" })
 	if not okL then
 		return { status = "unavailable", detail = "git log failed" }
 	end
@@ -2086,9 +2091,18 @@ function Guard.legacyInput(root: string): any
 	if fs.isFile(marker) then
 		local ok, decoded = pcall(serde.decode, "json", fs.readFile(marker))
 		if ok and type(decoded) == "table" then
-			input.adopted = decoded.adopted == true
+			input.adopted = AdoptedMarker.strict(decoded)
 			input.baseline = decoded.legacyBaseline
 		end
+	end
+	-- (v1.6.1) the adopted marker is sticky (tools/lune/AdoptedMarker.luau): any commit reachable
+	-- from HEAD whose studwork.json said adopted keeps the project adopted
+	input.currentAdopted = input.adopted
+	if not input.adopted then
+		input.history = AdoptedMarker.history(serde, function(a)
+			return gitIn(root, a)
+		end)
+		input.adopted = input.history.status == "ok" and input.history.adopted == true
 	end
 	if input.list ~= nil or input.listError ~= nil then
 		input.anchor = Guard.legacyAnchor(root)
@@ -2096,6 +2110,125 @@ function Guard.legacyInput(root: string): any
 	input.inspect = function(path: string): string
 		return Guard.inspectLegacyPath(root, path)
 	end
+	return input
+end
+
+-- (v1.6.1) the sticky adopted marker's findings for the project at `root` (input from
+-- Guard.legacyInput): when studwork.json no longer says adopted but history does, lint runs
+-- `tools/adopt --verify <root>` and fails unless it passes. -> (failures, notes)
+function Guard.stickyFindings(root: string, input: any): ({ string }, { string })
+	return AdoptedMarker.evaluate({
+		currentAdopted = input.currentAdopted,
+		history = input.history,
+		runVerify = function(): (boolean, string)
+			local Roots = require("./Roots")
+			local okV, res = pcall(process.exec, "bash", { Roots.core("tools/adopt"), "--verify", root })
+			if not okV then
+				return false, "tools/adopt --verify could not run: " .. tostring(res)
+			end
+			return res.code == 0, res.stdout .. res.stderr
+		end,
+	})
+end
+
+-- (v1.6.1) the remote default branch as a local remote-tracking ref (never fetched here):
+-- refs/remotes/origin/HEAD's target, else refs/remotes/origin/main, else refs/remotes/origin/master.
+-- nil when there is none.
+function Guard.remoteDefaultRef(root: string): string?
+	local okSym, sym = gitIn(root, { "symbolic-ref", "-q", "refs/remotes/origin/HEAD" })
+	if okSym then
+		local ref = string.gsub(sym, "%s+$", "")
+		if ref ~= "" and gitIn(root, { "rev-parse", "--verify", "-q", ref .. "^{commit}" }) then
+			return ref
+		end
+	end
+	for _, ref in { "refs/remotes/origin/main", "refs/remotes/origin/master" } do
+		if gitIn(root, { "rev-parse", "--verify", "-q", ref .. "^{commit}" }) then
+			return ref
+		end
+	end
+	return nil
+end
+
+--[[
+	(v1.6.1) Pure part of `guardrails --anchor-remote` (specs and --self-test plant every rule here):
+	  ref        the remote default branch's ref, nil = none
+	  shallow    the repository is shallow
+	  localAnchor / remoteAnchor   Guard.legacyAnchor of HEAD / of ref
+	  localSticky / remoteSticky   AdoptedMarker.history of HEAD / of ref
+	-> (failures, notes)
+]]
+function Guard.anchorRemoteFindings(input: any): ({ string }, { string })
+	local failures, notes = {}, {}
+	local function fail(msg: string)
+		table.insert(failures, "studwork.json: [legacy] --anchor-remote: " .. msg)
+	end
+	if input.ref == nil then
+		table.insert(
+			notes,
+			"guardrails --anchor-remote: no remote default branch (refs/remotes/origin/HEAD, origin/main or origin/master): nothing to compare (optional check)"
+		)
+		return failures, notes
+	end
+	if input.shallow then
+		fail(
+			"this is a shallow clone: the anchor can't be read from the history; fetch the full history (CI: actions/checkout with fetch-depth: 0)"
+		)
+		return failures, notes
+	end
+	local ra, la = input.remoteAnchor or {}, input.localAnchor or {}
+	local short = function(h: any): string
+		return string.sub(tostring(h), 1, 12)
+	end
+	if ra.status == "ok" then
+		if la.status ~= "ok" then
+			fail(
+				`{input.ref} anchors the legacy baseline in {short(ra.commit)}, but the local history has no commit that added studwork.json (history rewritten or a fresh repository?); start from the remote's history`
+			)
+		elseif canonicalJson(ra.baseline) ~= canonicalJson(la.baseline) then
+			fail(
+				`the legacyBaseline in the first commit that added studwork.json differs: local {short(
+					la.commit
+				)}, {input.ref} {short(ra.commit)} (history rewritten?); the remote's anchor stands`
+			)
+		end
+	elseif ra.status ~= "no-commit" then
+		fail(`can't read the anchor on {input.ref} ({tostring(ra.detail or ra.status)}); fails closed`)
+	end
+	local rs, ls = input.remoteSticky or {}, input.localSticky or {}
+	if rs.status == "ok" and rs.adopted then
+		if not (ls.status == "ok" and ls.adopted) then
+			fail(
+				`{input.ref} has "adopted": true in its history ({short(rs.commit)}), the local history doesn't (history rewritten?); the project stays adopted`
+			)
+		end
+	elseif rs.status ~= "ok" and rs.status ~= "no-commit" then
+		fail(
+			`can't read the adopted marker's history on {input.ref} ({tostring(rs.detail or rs.status)}); fails closed`
+		)
+	end
+	return failures, notes
+end
+
+-- (v1.6.1) the inputs of Guard.anchorRemoteFindings for the project at `root` (local refs only)
+function Guard.anchorRemoteInput(root: string): any
+	local serde = require("@lune/serde")
+	local input: any = { ref = Guard.remoteDefaultRef(root) }
+	if input.ref == nil then
+		return input
+	end
+	local okS, shallow = gitIn(root, { "rev-parse", "--is-shallow-repository" })
+	input.shallow = not okS or string.find(shallow, "true", 1, true) ~= nil
+	if input.shallow then
+		return input
+	end
+	local function g(a)
+		return gitIn(root, a)
+	end
+	input.localAnchor = Guard.legacyAnchor(root)
+	input.remoteAnchor = Guard.legacyAnchor(root, input.ref)
+	input.localSticky = AdoptedMarker.history(serde, g)
+	input.remoteSticky = AdoptedMarker.history(serde, g, input.ref)
 	return input
 end
 
@@ -2926,6 +3059,171 @@ local function selfTest(): boolean
 			table.insert(failures, "legacy: parseFinding must read the --raw format")
 		end
 	end
+	-- (v1.6.1) the sticky adopted marker (tools/lune/AdoptedMarker.luau): planted removals/evasions
+	do
+		local AM = Guard.AdoptedMarker
+		local serde = require("@lune/serde")
+		local function sticky(
+			name: string,
+			current: boolean,
+			history: any,
+			verifyOk: boolean,
+			wantFail: boolean
+		)
+			local ran = false
+			local f = AM.evaluate({
+				currentAdopted = current,
+				history = history,
+				runVerify = function()
+					ran = true
+					return verifyOk, if verifyOk then "tools/adopt --verify: clean" else "critical: x"
+				end,
+			})
+			if wantFail and #f == 0 then
+				table.insert(failures, `sticky: {name}: expected lint to fail`)
+			elseif not wantFail and #f > 0 then
+				table.insert(failures, `sticky: {name}: expected no failure, got {table.concat(f, " | ")}`)
+			end
+			return ran
+		end
+		local hist = { status = "ok", adopted = true, commit = "abc123" }
+		sticky("flag removed while --verify fails", false, hist, false, true)
+		sticky("flag removed after --verify passes (graduated)", false, hist, true, false)
+		if sticky("flag still set: --verify isn't run by lint", true, hist, false, false) then
+			table.insert(failures, "sticky: a flagged project must not run --verify in lint")
+		end
+		sticky("never adopted", false, { status = "ok", adopted = false }, false, false)
+		-- flag removed + list deleted: the list doesn't matter, only history and --verify
+		do
+			local input = { list = nil, currentAdopted = false, history = hist }
+			local f = AM.evaluate({
+				currentAdopted = input.currentAdopted,
+				history = input.history,
+				runVerify = function()
+					return false, "studwork-legacy.json: x"
+				end,
+			})
+			if #f == 0 then
+				table.insert(
+					failures,
+					"sticky: flag removed + list deleted must still fail while --verify fails"
+				)
+			end
+		end
+		-- evasions in the working copy: only "adopted": true (exactly) counts as still flagged
+		for label, decoded in
+			{
+				['"adopted": "true"'] = { adopted = "true" },
+				['"adopted": false'] = { adopted = false },
+				['"Adopted": true'] = { Adopted = true },
+			}
+		do
+			if AM.strict(decoded) then
+				table.insert(failures, `sticky: {label} in the working copy must count as the flag removed`)
+			end
+		end
+		-- ... while history reads every spelling
+		for label, text in
+			{
+				['"adopted": "true"'] = '{ "adopted": "true" }',
+				['"Adopted": true'] = '{ "Adopted": true }',
+				['"ADOPTED": 1'] = '{ "ADOPTED": 1 }',
+			}
+		do
+			if not AM.fromVersions(serde, { { commit = "c1", text = text } }) then
+				table.insert(failures, `sticky: {label} in history must count as adopted`)
+			end
+		end
+		-- deleted and re-added without the flag; a commit adding then one removing the flag
+		local a1, c1 = AM.fromVersions(serde, {
+			{ commit = "c1", text = '{ "adopted": true }' },
+			{ commit = "c2", text = nil },
+			{ commit = "c3", text = '{ "layout": "single-game" }' },
+		})
+		if not a1 or c1 ~= "c1" then
+			table.insert(failures, "sticky: studwork.json deleted and re-added must stay adopted")
+		end
+		if
+			not AM.fromVersions(serde, {
+				{ commit = "c1", text = '{ "layout": "single-game" }' },
+				{ commit = "c2", text = '{ "adopted": true }' },
+				{ commit = "c3", text = '{ "adopted": false }' },
+			})
+		then
+			table.insert(failures, "sticky: a flag added then removed must stay adopted")
+		end
+		-- a shallow clone notes (no history to read), never silently passes as adopted-free
+		local fSh, nSh = AM.evaluate({
+			currentAdopted = false,
+			history = { status = "shallow" },
+			runVerify = function()
+				return false, ""
+			end,
+		})
+		if #fSh > 0 or #nSh == 0 then
+			table.insert(failures, "sticky: a shallow clone must print a note")
+		end
+	end
+	-- (v1.6.1) --anchor-remote: planted rewrites against the remote default branch
+	do
+		local base1 = { files = { ["src/A.luau"] = { purchases = 1 } } }
+		local base2 = { files = { ["src/A.luau"] = { purchases = 5 } } }
+		local okA = function(b, c)
+			return { status = "ok", baseline = b, commit = c }
+		end
+		local yes = { status = "ok", adopted = true, commit = "r1" }
+		local no = { status = "ok", adopted = false }
+		local function remote(name: string, input: any, wantFail: boolean, needle: string?)
+			local f, n = Guard.anchorRemoteFindings(input)
+			if wantFail and #f == 0 then
+				table.insert(failures, `anchor-remote: {name}: expected a failure`)
+			elseif not wantFail and #f > 0 then
+				table.insert(failures, `anchor-remote: {name}: expected none, got {table.concat(f, " | ")}`)
+			elseif
+				needle and not string.find(table.concat(f, "\n") .. table.concat(n, "\n"), needle, 1, true)
+			then
+				table.insert(failures, `anchor-remote: {name}: expected '{needle}'`)
+			end
+		end
+		local ref = "refs/remotes/origin/main"
+		remote("no remote: note + pass", {}, false, "no remote default branch")
+		remote("same anchor", {
+			ref = ref,
+			localAnchor = okA(base1, "a"),
+			remoteAnchor = okA(base1, "a"),
+			localSticky = yes,
+			remoteSticky = yes,
+		}, false)
+		remote("rewritten history with a bigger baseline", {
+			ref = ref,
+			localAnchor = okA(base2, "b"),
+			remoteAnchor = okA(base1, "a"),
+			localSticky = yes,
+			remoteSticky = yes,
+		}, true, "differs")
+		remote("remote has an anchor, local doesn't", {
+			ref = ref,
+			localAnchor = { status = "no-commit" },
+			remoteAnchor = okA(base1, "a"),
+			localSticky = no,
+			remoteSticky = yes,
+		}, true, "no commit that added studwork.json")
+		remote("adopted marker dropped from local history", {
+			ref = ref,
+			localAnchor = okA(base1, "b"),
+			remoteAnchor = okA(base1, "a"),
+			localSticky = no,
+			remoteSticky = yes,
+		}, true, '"adopted": true in its history')
+		remote("shallow fails closed", { ref = ref, shallow = true }, true, "fetch-depth: 0")
+		remote("remote without studwork.json yet", {
+			ref = ref,
+			localAnchor = okA(base1, "a"),
+			remoteAnchor = { status = "no-commit" },
+			localSticky = yes,
+			remoteSticky = { status = "no-commit" },
+		}, false)
+	end
 	if #failures > 0 then
 		print("guardrails self-test FAILED:")
 		for _, f in failures do
@@ -2974,6 +3272,24 @@ if args[1] == "--legacy-files" or args[1] == "--legacy-style-files" then
 	end
 	process.exit(0)
 end
+-- (v1.6.1) --anchor-remote [<dir>]: compare the legacy baseline anchor and the sticky adopted
+-- marker with the remote default branch's history (local remote-tracking refs only; CI fetches)
+if args[1] == "--anchor-remote" then
+	local root = args[2] or "."
+	local failures, notes = Guard.anchorRemoteFindings(Guard.anchorRemoteInput(root))
+	for _, n in notes do
+		print(n)
+	end
+	for _, f in failures do
+		print(f)
+	end
+	if #failures > 0 then
+		print(`guardrails --anchor-remote: {#failures} finding(s)`)
+		process.exit(1)
+	end
+	print("guardrails --anchor-remote: clean")
+	process.exit(0)
+end
 -- (v1.6.0) --legacy-check <dir>: scan the project at <dir> as a root game and apply its
 -- studwork-legacy.json (paths relative to <dir>); the transitional rules' end-to-end hook (specs)
 if args[1] == "--legacy-check" and args[2] then
@@ -2985,7 +3301,12 @@ if args[1] == "--legacy-check" and args[2] then
 		end
 		table.insert(found, f)
 	end
-	local failures, warnings, notes = Guard.applyLegacy(found, Guard.legacyInput(root))
+	local input = Guard.legacyInput(root)
+	local failures, warnings, notes = Guard.applyLegacy(found, input)
+	-- (v1.6.1) the sticky adopted marker
+	local sf, sn = Guard.stickyFindings(root, input)
+	table.move(sf, 1, #sf, #failures + 1, failures)
+	table.move(sn, 1, #sn, #notes + 1, notes)
 	for _, w in warnings do
 		print(w)
 	end
@@ -3055,6 +3376,14 @@ if not raw then
 			print(n)
 		end
 		findings = failures
+	end
+	-- (v1.6.1) the sticky adopted marker: flag removed while history has it -> --verify must pass
+	local sf, sn = Guard.stickyFindings(".", input)
+	for _, n in sn do
+		print(n)
+	end
+	for _, f in sf do
+		table.insert(findings, f)
 	end
 end
 

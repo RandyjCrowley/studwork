@@ -143,6 +143,10 @@ check "CLAUDE.md for game agents" grep -q 'Never edit `studwork/`' "$G/CLAUDE.md
 for w in dev lint format typecheck test build publish install doctor framework-status net sync-projects make-module make-screen make-migration _studwork; do
 	check "wrapper tools/$w" test -x "$G/tools/$w"
 done
+# (v1.6.1) the CI template: tools/lint --anchor-remote on a full-history checkout
+check "CI template .github/workflows/ci.yml runs tools/lint --anchor-remote" sh -c \
+	"grep -q 'run: tools/lint --anchor-remote' '$G/.github/workflows/ci.yml' && grep -q 'fetch-depth: 0' '$G/.github/workflows/ci.yml'"
+check "CI template committed in the first commit" sh -c "git -C '$G' ls-files --error-unmatch .github/workflows/ci.yml >/dev/null 2>&1"
 check "hook enabled (core.hooksPath = .githooks)" test "$(git -C "$G" config core.hooksPath)" = ".githooks"
 check "repo-local user.name = $WANT_NAME" test "$(git -C "$G" config --local --get user.name)" = "$WANT_NAME"
 check "repo-local user.email = $WANT_EMAIL" test "$(git -C "$G" config --local --get user.email)" = "$WANT_EMAIL"
@@ -158,6 +162,9 @@ check "no absolute paths in committed files${ABS_HITS:+ ($ABS_HITS)}" test -z "$
 
 # the project's own tools, no game argument
 step lint tools/lint
+# (v1.6.1) without a remote: a note, and it passes
+step "lint --anchor-remote (no remote)" tools/lint --anchor-remote
+check "lint --anchor-remote: no remote default branch note" grep -q "no remote default branch" "$(logof "lint --anchor-remote (no remote)")"
 step typecheck tools/typecheck
 step test tools/test
 check "test: the game's specs ran (Boot.spec)" grep -q "src/server/Boot.spec.luau" "$(logof test)"

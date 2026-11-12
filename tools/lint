@@ -14,6 +14,22 @@
 # (v1.6.0) In an adopted project, files listed in studwork-legacy.json skip selene and stylua (one
 # `warning: [legacy] <path>: selene/stylua skipped` line each); the guardrails still apply the list.
 # The file set is tools/_luau-files' (shared with tools/format).
+# (v1.6.1) tools/lint --anchor-remote: also compare the legacy baseline anchor and the sticky
+# adopted marker with the remote default branch's history (refs/remotes/origin/HEAD, else
+# origin/main, else origin/master; local refs only: it never fetches). No remote default branch:
+# a note, and it passes. A shallow clone fails (CI checks out with fetch-depth: 0). See
+# docs/framework/guardrails.md.
+ANCHOR_REMOTE=0
+for arg in "$@"; do
+	case "$arg" in
+	--anchor-remote) ANCHOR_REMOTE=1 ;;
+	*)
+		echo "usage: tools/lint [--anchor-remote]" >&2
+		exit 2
+		;;
+	esac
+done
+set --
 source "$(dirname "$0")/_common.sh"
 
 # shellcheck source=tools/_luau-files
@@ -43,4 +59,8 @@ lune_tool sync-projects --check
 echo "== guardrails"
 lune_tool guardrails --self-test
 lune_tool guardrails
+if [ "$ANCHOR_REMOTE" -eq 1 ]; then
+	echo "== guardrails --anchor-remote"
+	lune_tool guardrails --anchor-remote
+fi
 echo "lint: clean"
