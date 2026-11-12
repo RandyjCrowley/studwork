@@ -10,7 +10,7 @@
 	  lune run tools/lune/new-project skeleton <projectDir> <templateDir> <name> <tag> <modules text>
 	      <projectDir> = the NEW project's absolute folder, <templateDir> relative to it: copies templates/single-game (from the
 	      project's studwork/ submodule) into it (NewProject.skeletonPlan: gitignore -> .gitignore,
-	      env.example -> .env.example, *.tmpl rendered with {{name}} {{tag}} {{port}} {{modules}};
+	      env.example -> .env.example, *.tmpl rendered with {{name}} {{tag}} {{port}} {{modules}} {{console}};
 	      the port comes from the scaffolded deploy.json). Never writes an absolute path.
 ]]
 
@@ -24,7 +24,10 @@ local NewGame = require("./NewGame")
 local args = table.clone(process.args)
 local cmd = table.remove(args, 1)
 
-if cmd == "parse" then
+if cmd == "help" then
+	print(NewProject.HELP)
+	process.exit(0)
+elseif cmd == "parse" then
 	local opts, err = NewProject.parseArgs(args, NewGame.validName)
 	if opts == nil then
 		print("error: " .. tostring(err))
@@ -92,7 +95,14 @@ elseif cmd == "skeleton" then
 			port = tostring(deploy.servePort)
 		end
 	end
-	local vars = { name = name, tag = tag, port = port, modules = modulesText or "template default (all)" }
+	local vars = {
+		name = name,
+		tag = tag,
+		port = port,
+		modules = modulesText or "template default (all)",
+		-- the game module's console prefix: its lower-case name (module-api.md §5 ctx.console)
+		console = string.lower(NewGame.moduleName(name)),
+	}
 	local function copy(src: string, dst: string)
 		if fs.isDir(src) then
 			if not fs.isDir(dst) then

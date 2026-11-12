@@ -28,6 +28,36 @@ NewProject.DEFAULT_URL = "https://github.com/RandyjCrowley/studwork.git"
 NewProject.USAGE = "usage: tools/new-project <path> [--name <gameId>] [--modules A,B,C] [--url <studwork-url>]"
 	.. " [--tag vX.Y.Z] [--no-install] [--author-name <name>] [--author-email <email>]"
 
+-- `--help` / `-h` (anywhere in the arguments): the full usage, printed on stdout with exit 0
+NewProject.HELP = NewProject.USAGE
+	.. [[
+
+
+Creates a complete single-game project at <path> (it must not exist or must be empty):
+the repo root is the game, StudWork is the git submodule studwork/ pinned at a release tag.
+
+  <path>                 the new project's folder; its last path part is the default game name
+  --name <gameId>        the game id: lowercase letters, digits, dashes; 2-32 chars (default: folder name)
+  --modules A,B,C        the kit modules to scaffold (required dependencies are added); default: all
+  --url <studwork-url>   where to clone StudWork from (default: the public repo; a local path works)
+  --tag vX.Y.Z           the StudWork release to pin (default: this checkout's version)
+  --no-install           skip rokit/wally: copy this checkout's packages (offline, tests)
+  --author-name <name>   the project's repo-local git identity (default: $STUDWORK_AUTHOR_NAME, else
+  --author-email <email> this checkout's own repo-local identity, else git's global one)
+  --help, -h             this text
+
+Run it from a StudWork checkout, e.g. studwork/tools/new-project ../my-game. See
+docs/framework/single-game-project.md.]]
+
+function NewProject.wantsHelp(args: { string }): boolean
+	for _, a in args do
+		if a == "--help" or a == "-h" then
+			return true
+		end
+	end
+	return false
+end
+
 export type Opts = {
 	path: string,
 	name: string,

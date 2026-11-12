@@ -48,10 +48,15 @@ if [ "${#SELENE_ARGS[@]}" -gt 0 ]; then
 fi
 echo "== stylua --check"
 if [ "${#STYLUA_ARGS[@]}" -gt 0 ]; then
+	STYLUA_OK=1
 	if is_single_game || is_games_repo; then
-		stylua --config-path "$STYLUA_CONFIG" --check "${STYLUA_GLOBS[@]}" "${STYLUA_ARGS[@]}"
+		stylua --config-path "$STYLUA_CONFIG" --check "${STYLUA_GLOBS[@]}" "${STYLUA_ARGS[@]}" || STYLUA_OK=0
 	else
-		stylua --check "${STYLUA_ARGS[@]}"
+		stylua --check "${STYLUA_ARGS[@]}" || STYLUA_OK=0
+	fi
+	if [ "$STYLUA_OK" -ne 1 ]; then
+		echo "lint: formatting differs from StyLua: run tools/format to fix it, then lint again" >&2
+		exit 1
 	fi
 fi
 echo "== sync-projects --check"

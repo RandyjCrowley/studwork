@@ -42,6 +42,10 @@ local Modules = KitModules.load(fs)
 
 local BASE_PORT = 34872
 
+if NewGame.wantsHelp(process.args) then
+	print(NewGame.HELP)
+	process.exit(0)
+end
 local opts, argError = NewGame.parseArgs(process.args)
 if opts == nil then
 	print("error: " .. tostring(argError))
@@ -169,6 +173,10 @@ local moduleName = NewGame.moduleName(name)
 local TEMPLATE_MODULE = "Sandbox"
 local moduleDir = at("modules/") .. name
 fs.move(at("modules/sandbox"), moduleDir)
+-- the console prefix / log tag in the server part is the module's lower-case name (item: a
+-- generated game's help text must say the command a player really types)
+local serverPath = moduleDir .. "/server/init.luau"
+fs.writeFile(serverPath, NewGame.renameConsolePrefix(fs.readFile(serverPath), moduleName))
 local modulePath = moduleDir .. "/module.luau"
 local moduleSource = fs.readFile(modulePath)
 local renamedModule, renames =

@@ -271,6 +271,34 @@ return StudWork.defineModule({
 		expect(NewGame.moduleName("zz-scratch")).toBe("ZzScratch")
 		expect(NewGame.moduleName("sandbox")).toBe("Sandbox")
 	end)
+
+	it("renameConsolePrefix turns the template's console prefix and log tag into the module's", function()
+		local src = 'help = "sandbox giftme [itemId]: x", tag = "[sandbox] hi", Sandbox = {}, "SandboxWorld"'
+		local out = NewGame.renameConsolePrefix(src, "DogfoodGame")
+		expect(out).toBe(
+			'help = "dogfoodgame giftme [itemId]: x", tag = "[dogfoodgame] hi", Sandbox = {}, "SandboxWorld"'
+		)
+	end)
+
+	it("the template's server part has no other lower-case `sandbox` than the prefix and tag", function()
+		local text = fs.readFile("templates/new-game/modules/sandbox/server/init.luau")
+		for line in string.gmatch(text, "[^\n]+") do
+			if string.find(line, "%f[%w]sandbox%f[%W]") then
+				local ok = string.find(line, "Invoke(", 1, true)
+					or string.find(line, "[sandbox]", 1, true)
+					or string.find(line, '"sandbox ', 1, true)
+				expect(ok ~= nil).toBe(true)
+			end
+		end
+	end)
+
+	it("--help and -h are recognised anywhere, and the help carries the usage", function()
+		expect(NewGame.wantsHelp({ "--help" })).toBe(true)
+		expect(NewGame.wantsHelp({ "game", "-h" })).toBe(true)
+		expect(NewGame.wantsHelp({ "game", "--modules", "Items" })).toBe(false)
+		expect(NewGame.HELP).toContain(NewGame.USAGE)
+		expect(NewGame.HELP).toContain("--into")
+	end)
 end)
 
 describe("NewGame.applyMarkers (tools/new-game --modules)", function()

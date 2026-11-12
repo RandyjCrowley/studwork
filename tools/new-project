@@ -23,6 +23,14 @@
 # fixtures; before sharing such a project: git submodule set-url studwork <public-url>.
 source "$(dirname "$0")/_common.sh"
 
+# --help / -h: the full usage, exit 0
+case " $* " in
+*" --help "* | *" -h "*)
+	lune_tool new-project help
+	exit 0
+	;;
+esac
+
 is_games_repo && die "run tools/new-project from a StudWork checkout itself (e.g. studwork/tools/new-project <path>), not through a project's tools/"
 
 # (Lune runs from this checkout: rokit picks the pinned versions from its rokit.toml)
