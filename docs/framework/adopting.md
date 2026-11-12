@@ -487,6 +487,10 @@ So old product code keeps working **while the game is being migrated**, without 
   is required. If any module has an `importLegacy` and any legacy product has
   `writesLegacyData = true`, boot fails: *"legacy product CoinPack writes the old save, but <id>
   imports it (importLegacy); migrate CoinPack to ctx.shop.onProduct first"*.
+  `writesLegacyData` is the author's declaration; nothing checks the handler's code (final
+  review M1). A wrong `false` on a handler that writes the old save loses that purchase's grant
+  in a test place (the save was imported before the write). That's one reason the bridge is test
+  places only: `--verify` and `tools/publish --live` refuse while any `onLegacyProduct` is left.
 - A product has one handler: `onProduct` or `onLegacyProduct`, not both (boot error).
 - Every `onLegacyProduct` logs a boot warning naming the product.
 

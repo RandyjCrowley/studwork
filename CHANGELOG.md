@@ -11,6 +11,81 @@ Identifiers like `R19` or `V1` are issue ids: open ones are listed in [docs/know
 
 ## [Unreleased]
 
+## [1.6.0] - 2026-11-11
+
+Agent-driven adoption of existing Roblox games, plus two framework requests (odds preview at any
+luck, per-item luck). The module API only grows; `framework = "^1.3.0"` ranges still match.
+
+### Added
+
+- **Adopting an existing game** (`docs/framework/adopting.md`, the agent playbook
+  `docs/agents/adopt-existing-game.md`, the copy-paste prompt `docs/agents/migrate-prompt.md`, and
+  `AGENTS.md` at the repo root, an index for any coding agent):
+  - `tools/adopt --audit <project|place> [...]`: a read-only static audit of a Rojo repo or a
+    place file (DataStores and save libraries with their key patterns, purchases with what each
+    product sells and where its history lives, remotes, leaderstats, UI, globals, shared stores
+    across places), rated risks (`critical` / `high` / `medium` / `low`) and a numbered plan, in
+    `studwork-adopt-report.json` + `.md`. Blink-generated files and vendored save libraries are
+    skipped; product ids resolve through constant modules.
+  - `tools/adopt --from-place <file> [--out <dir>]`: a Studio-only game's code containers become a
+    Rojo project (the place file is never modified; the extracted scripts are recorded).
+  - `tools/adopt --init <project> [--name] [--modules A,B|none] [--tag] [--url] [--dry-run]`: adds
+    StudWork to an existing game (the `studwork/` submodule at a tag, `studwork.json` with
+    `"adopted": true`, wrappers and hook, the game module `modules/<gameId>/` with server and
+    client parts and a sim-boot spec, the boot scripts `studwork-boot/`, a minimal GameConfig with
+    the audit's product ids when the game has none, a merged `default.project.json` that keeps
+    every existing entry, and `studwork-legacy.json`).
+  - `tools/adopt --verify <project>`: fails while anything unsafe for going live is left (a
+    critical risk, an `onLegacyProduct`, a `purchases` legacy entry, a script left in or
+    extracted from the place file that still uses DataStores or purchases, a stale `$path`).
+    `tools/publish --live` runs it.
+  - `tools/adopt --strip-place <project> [--extracted] [<instance path> ...]`: retires scripts
+    left in a place file into `<name>.studwork.rbxlx` and repoints `studwork.json`; the original
+    place is kept for rollback.
+- **`ctx.data.importLegacy`**: a module imports its players' old saves once, at join, read-only
+  (raw DataStore, ProfileService / ProfileStore, DataStore2 with Combine, or a map of sources), in
+  one non-yielding transaction with the session lock re-checked; a failure kicks with nothing
+  written. Optional `merge` for old saves changed after the import, `receipts` for old purchase
+  ids, `itemTag` for imported items. Old stores are only ever read.
+- **Purchase bridge** in Shop: `ctx.shop.legacyReceipts({ name, key, until? })` reads an old
+  purchase-history store so an old receipt never grants twice; `_framework.legacyPurchases` keeps
+  imported receipt ids (by age, 90 days); `ctx.shop.onLegacyProduct` runs an old product handler
+  through Shop's duplicate checks in test places only.
+- **Transitional guardrails**: `studwork-legacy.json` lists old files with the checks they still
+  break (warnings, counts may only shrink against `legacyBaseline`, anchored to the adoption
+  commit; `ProcessReceipt`, `special` and `packages` are never downgraded). The pseudo-check
+  `style` (every old source, at init) skips selene and StyLua in `tools/lint` and turns
+  `tools/typecheck` problems into warnings.
+- `tools/test-migration`: runs every legacy import against synthetic sample saves
+  (`tests/legacy/*.json`): field coverage, idempotence, failure kicks, partial saves, merge, items
+  over the cap, sold fields and paid currencies; prints the import's failure reason and output.
+  `tools/test` runs it in an adopted project.
+- `tools/format [--check]`: formats with the core's StyLua config, over the files lint checks.
+- `tools/test-adopt`: `tools/adopt --init` end to end on the three fixture games
+  (`examples/legacy/legacy-example-a` place file, `-b` ProfileService, `-c` DataStore2), run by
+  `tools/test`.
+- Sim: sim players support leaderstats (`FindFirstChild`, `WaitForChild`, `Instance.new` Folder and
+  value classes); `server:action(player, module, name, ...) -> (ok, result | reason)`;
+  `{ legacy = "world" }` reads the World's mock DataStores as old stores.
+- **Rarity / Compliance** (framework requests): `getOddsDetail(tableId, player?, luck?)` previews
+  the odds at any luck; per-item luck (`discloseItem`, `clearItem`, `opts.item` on rolls, client
+  `read.itemOdds`) for paid rolls whose luck belongs to one item.
+
+### Changed
+
+- `ctx.shop.ownsPass` never yields for a loaded player: every `products.passes` entry is looked up
+  at join, before the save loads (a join can wait up to 5 s for MarketplaceService); inside a
+  transaction an unknown pass errors instead of yielding.
+- The `remotes` guardrail message points to module actions instead of the v1.2 `Core.Net.handle`.
+
+### Fixed
+
+- Economy: a currency listed in `currencies` can be granted without a `startingCurrency` key.
+- `tools/test`: a test that never completes (a yield nothing resumes) fails with its reason after
+  `STUDWORK_TEST_TIMEOUT` seconds (default 60); the run could exit 0 with no output before.
+- The legacy reader treats an unpublished place in Studio ("publish this place to access
+  DataStore") as no API access: the import is skipped for the session instead of kicking.
+
 ## [1.5.0] - 2026-11-11
 
 Single-game projects. No module API change; `framework = "^1.3.0"` ranges still match.
