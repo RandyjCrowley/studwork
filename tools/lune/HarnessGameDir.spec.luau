@@ -61,6 +61,13 @@ show(H.findGameDir("/abs/x.spec.luau", has({ ["default.project.json"] = true }))
 ]])).toBe("nil\nnil\nnil")
 	end)
 
+	it("prefers a nested project under src over the root project", function()
+		expect(probe(HAS .. [[
+show(H.findGameDir("src/feature/tests/x.spec.luau", has({
+	["src/feature/default.project.json"] = true, ["default.project.json"] = true })))
+]])).toBe("src/feature")
+	end)
+
 	it("this repo has no root default.project.json, so its specs keep their mapping", function()
 		expect(fs.isFile("default.project.json")).toBe(false)
 	end)

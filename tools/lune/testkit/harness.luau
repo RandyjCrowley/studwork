@@ -672,6 +672,14 @@ end
 
 -- Runs one spec file; returns passed, failed, failure messages.
 function Harness.runSpec(specPath: string): (number, number, { string })
+	-- The indexed tree uses project-relative paths. Explicit absolute paths inside the
+	-- current project must use those same keys for both loading and Rojo mapping.
+	if string.sub(specPath, 1, 1) == "/" then
+		local cwd = string.gsub(process.exec("pwd", {}).stdout, "%s+$", "")
+		if string.sub(specPath, 1, #cwd + 1) == cwd .. "/" then
+			specPath = string.sub(specPath, #cwd + 2)
+		end
+	end
 	local tests: { { name: string, fn: () -> () } } = {}
 	local prefix: { string } = {}
 	local befores: { () -> () } = {}

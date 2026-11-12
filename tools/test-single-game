@@ -166,7 +166,25 @@ step lint tools/lint
 step "lint --anchor-remote (no remote)" tools/lint --anchor-remote
 check "lint --anchor-remote: no remote default branch note" grep -q "no remote default branch" "$(logof "lint --anchor-remote (no remote)")"
 step typecheck tools/typecheck
+# A spec under src/ must see the root Rojo project, with relative and absolute arguments.
+cat >"$G/src/server/GameMapping.spec.luau" <<'LUA'
+--!strict
+local storage = game:GetService("ReplicatedStorage")
+local config = require(storage:WaitForChild("Game"):WaitForChild("Config"))
+local economy = require(storage:WaitForChild("Modules"):WaitForChild("Economy"):WaitForChild("module"))
+describe("root project mapping", function()
+	it("loads the mapped game config and a kit module", function()
+		expect(config.gameId).toBe("proj")
+		expect(economy.client).toBe("Economy")
+	end)
+end)
+LUA
+step "test root map relative" tools/test src/server/GameMapping.spec.luau
+check "test root map relative: spec passed" grep -q "1 tests passed, 0 failed" "$(logof "test root map relative")"
+step "test root map absolute" tools/test "$G/src/server/GameMapping.spec.luau"
+check "test root map absolute: spec passed" grep -q "1 tests passed, 0 failed" "$(logof "test root map absolute")"
 step test tools/test
+check "test: root mapping spec ran" grep -q "src/server/GameMapping.spec.luau" "$(logof test)"
 check "test: the game's specs ran (Boot.spec)" grep -q "src/server/Boot.spec.luau" "$(logof test)"
 check "test: nothing from studwork/" sh -c "! grep -q 'studwork/' '$(logof test)'"
 step build tools/build

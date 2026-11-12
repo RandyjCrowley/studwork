@@ -51,7 +51,8 @@ Paid currencies are framework config: `GameConfig.compliance.paidCurrencies = { 
 - **Save data:** section `economy`: `{ currency = { [id] = number }, multipliers = { [id] = {
   mult, expiresAt? } } }` (saved boosts; session boosts are memory only).
 
-**Client part (`Economy/client/`):** the HUD currency widget `"Economy.currency"`
+**Client part (`Economy/client/`):** declared as `client = "Economy"` so the client runtime
+loads it; the HUD currency widget `"Economy.currency"`
 (topCenter, order 1: `config.Economy.primaryCurrency` + its rate unless `HudOptions.showRate ==
 false`), registered with `UI.registerWidget` at start (it used to be built into the framework HUD;
 same id, so `client.hud.widgets["Economy.currency"]` overrides work unchanged). Client actions:

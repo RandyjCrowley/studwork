@@ -78,7 +78,10 @@ one; before sharing such a project, run `git submodule set-url studwork <public-
 
 The game's modules live in `modules/<name>/` (not a single `module/`): module discovery,
 `tools/make-module`, `tools/sync-projects`, the guardrails and the new-game template all use
-`modules/*`, and a game can have more than one module (`docs/decisions.md`).
+`modules/*`, and a game can have more than one module (`docs/decisions.md`). Specs under `src/`
+load the root `default.project.json` in the Lune harness, including when `tools/test` receives an
+absolute spec path within the project; `ReplicatedStorage.Game.*` and mapped module definitions
+resolve without a copied project file under `modules/<game-id>/tests/`.
 
 ## How the tools know (detection)
 
