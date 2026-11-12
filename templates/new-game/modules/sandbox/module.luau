@@ -5,13 +5,15 @@
 	PlayerData.game[gameId] table). Rojo: this file -> ReplicatedStorage.GameModule.module,
 	server/ -> ServerScriptService.Modules.<name>.
 
-	dependsOn vs optional (module-api.md §3, §5):
-	  - dependsOn: kit modules the game code calls unconditionally (ctx.deps[Kit]). Boot fails if
-	    one is missing from GameConfig.modules, so keep it in step with that list (tools/new-game
-	    --modules writes both).
-	  - optional: kit modules the code uses only when the game lists them: guard each use with
-	    ctx.isEnabled(Kit); ctx.deps[Kit] errors when the kit is off. To use one unconditionally
-	    (say Leaderboards), list it in GameConfig.modules and move it from optional to dependsOn.
+	dependsOn vs optional (module-api.md §3, §5). tools/new-game and new-project --modules list
+	every chosen kit in GameConfig.modules; here the core kits go in dependsOn and the chosen
+	Leaderboards, Badges, Notifications and TextFilter stay in optional. Both give ctx.deps[Kit]:
+	  - dependsOn: boot fails if the kit is missing from GameConfig.modules, and the kit's init
+	    runs before this module's (an ordering edge).
+	  - optional: ctx.deps[Kit] works while the game lists the kit and errors when it is off; it
+	    is not an ordering edge, so call it from start or later, and guard with ctx.isEnabled(Kit)
+	    if the game may drop the kit. Move a kit up to dependsOn when the game can't run without
+	    it or this module's init needs it.
 	The console commands this module registers are prefixed with its lower-case name.
 ]]
 

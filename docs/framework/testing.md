@@ -53,6 +53,10 @@ How the pieces are found:
   double, a stub, or a part you built by hand); it wins over the lookup.
 - **`Plot` and anything else that builds instances** needs a world Lune doesn't have: leave it out of
   a spec's module list (the scaffold's spec does) and let `Boot.spec` boot it in the sim.
+- **A kit in the game module's `optional`** (the scaffold puts Leaderboards, Badges, Notifications
+  and TextFilter there) runs in the spec whenever `GameConfig.modules` lists it, and
+  `ctx.deps[Kit]` works; it errors only for a kit the game doesn't list. `dependsOn` vs `optional`:
+  [getting-started.md](getting-started.md#1-generate-the-game).
 - `StudWork.test.boot(opts)` is `harness` that returns `(h?, err?)` instead of raising: for a spec
   that expects a boot error (a bad config must fail closed).
 
@@ -66,11 +70,11 @@ of `StudWork.start`: admins, hidden flags, `openCloud.secrets`) and these test-o
 | Option | What |
 |---|---|
 | `servers = { Name = part }` | inject a module's server part (wins over the project lookup) |
-| `services = { Name = fake }` | `ctx.services.get("Name")` fakes: `StudWork.test.fakes.badgeService()`, `textService()`, `userService()`, `configService()`, `translator()`, `experienceNotificationService()` (module-api §23.6, §23.10) |
+| `services = { Name = fake }` | `ctx.services.get("Name")` fakes: `StudWork.test.fakes.badgeService()`, `textService()`, `userService()`, `configService()`, `translator()`, `experienceNotificationService()` (module-api §23.6, §23.10). What each kit needs: **Badges** `BadgeService = badgeService()`; **Leaderboards** `UserService = userService()` (names in `top`); **TextFilter** `TextService = textService()`; **Notifications** no service but `openCloud`, `secrets = { OpenCloudNotifications = true }` and the allow-list in `serverConfig` ([notifications.md](kits/notifications.md#tests-mocked-nothing-calls-roblox)). The scaffold's `GameModule.spec.luau` adds the first three for the kits the game lists |
 | `openCloud = StudWork.test.fakes.openCloud()` | the `ctx.openCloud` transport; its `requests` list records every call |
 | `secrets = { [name] = true }` | secrets-store names that "exist" |
 | `env = "studio" \| "test" \| "live"`, `placeId`, `universeId`, `isStudio` | the environment the server believes it is in |
-| `flags`, `flagOverride` | GameConfig flags (above) and the live override |
+| `flags`, `flagOverride` | GameConfig flags (above) and the live override. A testOnly feature: the kit's `flag` key for a kit, `StudWork.flags.isOn` for your own code ([environments.md](kits/environments.md#flags)); a spec picks the environment with `env = "test"` or `"live"` |
 | `locale`, `translator` | the players' locale and translator fake |
 | `census = { servers, players, peakPlayers? }` | a fixed census reading |
 | `instancePlayers = false` | `h:addPlayer` returns plain table players. The default is a userdata proxy: `type(p)` is `"userdata"`, `typeof(p)` is `"Instance"`, `p:IsA("Player")` is true, like a live `Player`, so a check written `type(p) == "table"` fails in a spec instead of refusing every real player in Studio. `StudWork.test.player(userId, name?, true)` makes one by hand |

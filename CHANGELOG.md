@@ -109,7 +109,10 @@ Identifiers like `R19` or `V1` are issue ids: open ones are listed in [docs/know
   spec. A spec that uses `pairs`, `rawget`, `setmetatable` or `table.clone` on a player breaks:
   pass `instancePlayers = false` to keep plain table players.
 - The scaffolded game module's description, version check and `dependsOn` comment are neutral;
-  `new-game` rewrites the console prefix in the scaffold's help text.
+  `new-game` rewrites the console prefix in the scaffold's help text. The scaffold's console
+  commands take an optional last `[userId]` (a handler's `player` is nil from the command bar and
+  `h:console`), and its `GameModule.spec` fakes `BadgeService`, `UserService` and `TextService` for
+  the kits the game lists.
 - Tick cost with every v1.7.0 module on (bench `KITS-ALL`): a Leaderboards `max`/`sum` submit is
   combined in memory and joins the save within 30 s (and on each store write, leave and shutdown)
   instead of one save transaction per call; Leaderboards visits a player only when a write, source
