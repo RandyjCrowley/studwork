@@ -38,7 +38,7 @@ registered source function. The client only receives the rows.
 |---|---|---|
 | `period` | `"allTime"` | `"allTime"` (OrderedDataStore), `"daily"` or `"weekly"` (sorted maps) |
 | `source` | `{ kind = "submit" }` | where the value comes from: `{ kind = "submit" }` (server code calls `submit`), `{ kind = "registered" }` (a module's `registerSource`), `{ kind = "currency", currency? }` (Economy balance; needs Economy), `{ kind = "rebirths" }` (needs Rebirth), `{ kind = "streak" }` (current streak day; needs Streak) |
-| `mode` | `"max"` | how a new value combines with the player's saved one: `"max"` (best ever / best this period), `"set"` (latest), `"sum"` (adds; for "earned today") |
+| `mode` | `"max"` | how a new value combines with the player's saved one: `"max"` (the better by `order`: best ever / best this period; the larger for `"desc"`, the smaller for `"asc"`), `"set"` (latest), `"sum"` (adds; for "earned today"; needs a `submit` source, since a built-in source reports a total) |
 | `order` | `"desc"` | `"desc"` (highest first) or `"asc"` (lowest first, e.g. fastest time) |
 | `topN` | `50` | rows kept and shown, 1..100 (an OrderedDataStore page is at most 100) |
 | `minValue` | `1` | values below this are not written |
@@ -47,18 +47,22 @@ registered source function. The client only receives the rows.
 
 Values are whole numbers: OrderedDataStore stores integers, so a value is floored and must be
 finite; anything else is refused with a warning naming the board. A built-in source whose module
-isn't enabled is a boot error naming the board and the module to add.
+isn't enabled is a boot error naming the board and the module to add, and so is any other bad
+board field (period, mode, order, `topN`, `shards`, a `shards` above 1 on an all-time board, a
+source kind), with the board's id in the message. A `flag` the game never declared is a boot error
+too. The `rebirths` source reads `Rebirth`'s `count(player)` when that module has it and otherwise
+follows its `Rebirthed` signal from the moment this server sees the player.
 
 ## API (server)
 
 - `submit(player, boardId, value) -> boolean`: doesn't yield. Combines `value` into the player's
   saved value for the board (by `mode`) and marks it dirty; the write follows on the next
-  cadence. `false` for an unknown board, a board whose source isn't `submit`, or a bad value.
-  **(contract)**
+  cadence. `false` for an unknown board, a board whose source isn't `submit`, a bad value, a
+  player whose save isn't loaded, or while the board's `flag` is off. **(contract)**
 - `top(boardId, previous?) -> { rows: { { rank, userId, name, value } }, periodId?, endsAt?, updatedAt }`:
   the cached rows (frozen); doesn't yield. **(contract)**
-- `rank(player, boardId) -> (rank?, value)`: the player's own value and, if they are in the
-  cached top N, their rank. A rank beyond `topN` is not computed (neither store returns a rank
+- `rank(player, boardId) -> (rank?, value)`: the player's own value (0 when they have none yet,
+  or none in the current period) and, if they are in the cached top N, their rank. A rank beyond `topN` is not computed (neither store returns a rank
   cheaply); the UI shows "Top 50+" and the value. **(contract)**
 - `refresh(boardId) -> boolean`: yields; re-reads the shared top N now (and re-reads the store if
   it is older than `refreshSeconds`), still within the store budgets (`false` when over them).
@@ -67,7 +71,8 @@ isn't enabled is a boot error naming the board and the module to add.
 - **extensions:** `registerSource(boardId, fn(player) -> number)`: the value of a
   `{ kind = "registered" }` board, read on the write cadence. One source per board; a second
   registration errors. **(contract)**
-- **signals:** `BoardRefreshed(boardId)`. **(contract)**
+- **signals:** `BoardRefreshed(boardId)`: fires when this server's rows for the board changed.
+  **(contract)**
 - **Console:** `leaderboards refresh <boardId>`, `leaderboards submit <boardId> <value> [userId]`
   (Studio or admins).
 
@@ -95,8 +100,8 @@ crash can't count twice. The kit never calls `increment`.
   (`cut` = the `topN`-th value once the board is full). Expiry: the period's end + grace; for
   all-time `max(10 x refreshSeconds, 3600)` s, renewed by each re-read.
 
-**Refresh (one elected reader per board):** every refresh interval (staggered per board by a
-random offset at start) a server `get`s the board's top item: 1 request unit. If the item is older
+**Refresh (one elected reader per board):** every refresh interval (the first one staggered per board by a
+random offset of up to a tenth of `refreshSeconds` after start) a server `get`s the board's top item: 1 request unit. If the item is older
 than `refreshSeconds`, has no live lease, and this server has the budget for the source read, it
 takes the lease with an atomic `update` (lease 30 s; the update cancels when another server got
 there first), reads the source (all-time: one `top(topN, order)` list plus one batched name lookup
@@ -141,8 +146,11 @@ A refused or throttled call never errors: the kit keeps the last rows and backs 
 ## Replication
 
 - `extra.boards` (setAll): `{ [boardId] = { period, periodId?, endsAt?, title, rows, updatedAt,
-  previous? } }`. **(contract)**
-- `extra.mine` (per player): `{ [boardId] = { value, rank? } }`. **(contract)**
+  previous? } }`; `rows` are `{ rank, userId, name, value }`, `title` is a string key (the client
+  resolves it with `UI.text`, so it follows the player's language), `periodId` is the day index
+  of the period's first day. **(contract)**
+- `extra.mine` (per player): `{ [boardId] = { value, rank? } }`, refreshed after each write and
+  each refresh. **(contract)**
 - Players receive only names, user ids and values: nothing private.
 
 ## Save data
@@ -156,16 +164,22 @@ are idempotent).
 ## Client part and UI
 
 - `UI.Leaderboard` (UI kit, `packages/ui/Leaderboard.luau`): props `{ title, rows, selfUserId?,
-  selfValue?, selfRank?, format = "number" | "time", emptyText? }`. Theme tokens only (row colours
+  selfValue?, selfRank?, format = "number" | "time", emptyText?, size?, layoutOrder? }`. Numbers
+  read with thousands separators, `"time"` as `m:ss` / `h:mm:ss` (`packages/ui/LeaderboardFormat.luau`).
+  The player's own row is highlighted in the list or, outside it, pinned under it with the rank
+  or "Top N+". Theme tokens only (row colours
   from `colors.surface` / `surfaceAlt`, the player's own row `colors.leaderboardSelf`, default
   `#FFD23F`, in the **base theme** so the component works with or without this module; not
   `leaderboardHighlight`, which the example SessionLeaderboard module already contributes). Names
   are rendered with `AutoLocalize = false`. Every label goes through `UI.text`.
 - Screen `"Leaderboards"` (`UI.registerScreen`): a tab per board, the player's own row pinned at
   the bottom when outside the top N.
-- `StudWork.use(Leaderboards).board(boardId) -> rows` (client, from state) and
-  `.attach(parent: Instance, boardId)`: mounts a `UI.Leaderboard` in a `SurfaceGui` the game
-  placed in the world (a lobby board).
+- `StudWork.use(Leaderboards).board(boardId) -> rows` (client, from state), `.mine(boardId) ->
+  { value, rank? }?`, `.open(boardId?, options?)` (opens the screen; `options.formats =
+  { [boardId] = "number" | "time" }`) and `.attach(parent: Instance, boardId, options?) -> () ->
+  ()`: mounts a `UI.Leaderboard` in a `SurfaceGui` the game placed in the world (a lobby board)
+  and returns a function that unmounts it (`options = { format?, title? }`). `.read` holds the pure
+  state readers. The screen is registered at start unless the game registered its own first.
 
 ## Guardrails it relies on
 
@@ -191,9 +205,16 @@ are idempotent).
 | Write fails or the memory share is full | the value stays dirty and is retried on the next cadence, then on the next load |
 | Shutdown | `onShutdown` flushes dirty values within the store budget; the rest are written on the player's next load |
 | Studio without API access | the framework's in-memory fallback with one warning (like `ctx.data.shared`) |
+| A name lookup fails | the rows show the user id with one warning per board until the next read; nothing else stops |
+| The `flag` is off | nothing is written or read, `submit` returns `false`, `top` is empty and the replicated boards are `{}` until it is on again |
 | Period rolls over while a server runs | the next refresh reads the new period's top item; the old rows move to `previous` |
 
 ## Tests (mocked)
+
+Specs: `packages/kits/engagement/tests/Leaderboards*.spec.luau` (harness: `Leaderboards`,
+`LeaderboardsBoards`; pure rules: `LeaderboardsPure`; client: `LeaderboardsClient`; sim:
+`LeaderboardsSim`; the sandbox wiring: `LeaderboardsDemo`), `Leaderboards/client/State.spec.luau`
+and `packages/ui/Leaderboard.spec.luau`.
 
 The harness backs `ctx.data.ordered` and `ctx.data.sortedMap` with in-memory stores (§23.10)
 that count requests, apply the budgets and Roblox's per-structure limits, and inject failures; the
