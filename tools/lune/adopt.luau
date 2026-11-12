@@ -44,7 +44,7 @@ local USAGE = "usage: tools/adopt --audit <project|place> [...] | --from-place <
 local function studworkVersion(): string
 	local ok, text = pcall(fs.readFile, Roots.core("packages/framework/shared/init.luau"))
 	local v = ok and string.match(text, 'StudWork%.VERSION%s*=%s*"([^"]+)"')
-	return v or "1.6.0"
+	return v or "1.6.1"
 end
 
 local env = {

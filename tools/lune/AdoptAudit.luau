@@ -807,7 +807,7 @@ function Audit.build(env, projects, reportDir: string)
 	local report = {
 		reportVersion = 1,
 		tool = "studwork-adopt",
-		studwork = env.version or "1.6.0",
+		studwork = env.version or "1.6.1",
 		projects = A(),
 		scripts = A(),
 		notExtracted = A(),
