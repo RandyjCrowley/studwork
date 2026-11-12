@@ -482,6 +482,36 @@ describe("Badges: transactions and console", function()
 		expect(h:use(Badges).has(p, "first")).toBe(true)
 	end)
 
+	it(
+		"a product handler records through tx.use(Badges).award; the send follows the receipt's commit",
+		function()
+			local Probe = probe()
+			local events = {}
+			local fake = fakes.badgeService()
+			local h = StudWork.test.harness({
+				modules = { Badges, Probe },
+				config = { Badges = { badges = { buyer = { id = 111, trigger = MANUAL } } } },
+				services = { BadgeService = fake },
+				products = { passes = {}, devProducts = { Pack = 3001 } },
+				servers = {
+					Badges = badgesPart(events),
+					Probe = {
+						init = function(ctx)
+							ctx.shop.onProduct("Pack", function(tx)
+								expect(tx.use(Badges).award("buyer")).toBe(true)
+								expect(calls(fake, "AwardBadgeAsync")).toBe(0) -- records only
+							end)
+						end,
+					},
+				},
+			})
+			local p = h:addPlayer({ userId = 1 })
+			expect(h:purchase(p, "Pack")).toBe("PurchaseGranted")
+			expect(h:use(Badges).has(p, "buyer")).toBe(true)
+			expect(fake.owns(1, 111)).toBe(true)
+		end
+	)
+
 	it("txApi.award in a discarded transaction records nothing and sends nothing", function()
 		local captured
 		local Probe = probe()
