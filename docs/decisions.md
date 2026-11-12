@@ -585,6 +585,45 @@ these pages before relying on a limit.
   (delivery, throttling, real filter output, ConfigService propagation) is listed per page under
   "Not verifiable offline".
 
+### v1.7.0: fixes from the final review
+
+- **Quiet hours reach offline recipients through the ledger, not a per-player record.** The
+  recipient's UTC offset rides in their shared Notifications ledger entry (`o`): every ledger write
+  made while they are online stamps it, and `setUtcOffset` and leaving refresh an entry that exists.
+  No entry is created just to hold an offset: one per player who leaves (about 96,000 items over
+  two days at 1,000 CCU with 30-minute sessions) would need many times the module's memory share. A
+  recipient with no entry gets `quiet.defaultUtcOffsetHours`; the page says to set it to the main
+  audience. A durable per-player record (`ctx.data.shared`) was rejected: it has no read without a
+  write, and every send to an offline player would spend a DataStore write.
+- **Notifications limit the player who caused a send** (`actor`, `limits.perActorPerDay`, counted in
+  that player's save). The other limits are per recipient and per server, so a client-chosen
+  recipient could have every target's daily send spent by one player.
+- **A TextFilter re-display that misses the cache counts against the author's rate.** Otherwise
+  text a client sends straight to `textFor` reaches `FilterStringAsync` with no bound.
+- **The `textfilter` lint never clears a name.** Only TextFilter's return values are clean: filtering
+  the text and then sending the original anyway is the likeliest mistake, and the old "clean from
+  the next line" rule passed it. Handlers named by a function defined in the same file are scanned,
+  and every wire parameter is a source unless annotated only `number`/`boolean`.
+- **`ctx.policy.allows` takes permission fields; `ctx.policy.restricted` takes restriction fields.**
+  "Unknown" must read as the safe answer for both kinds: `false` from `allows` on a restriction
+  read as "not restricted". Each call refuses the other kind, so the mistake is an error.
+- **A test universe is trusted only once the live universe is listed.** A live universe written
+  under `test` (hand-written config, no live list) made every live server `"test"` and turned
+  `testOnly` flags on in live. Resolving to live (with a warning) was chosen over a boot error: it
+  fails safe and doesn't stop a game whose deploy.json still has a placeholder live universe.
+  `StudWork.start`'s `env`/`isStudio`/`placeId`/`universeId` options count only with an injected
+  platform, for the same reason.
+- **The census bucket is split across maps past 500 servers.** A sorted map is one partition, so
+  keys split inside one map would add read cost without adding throughput; each shard `k > 0` is
+  its own map. Below 500 servers nothing changes (one key, one get). The usage items stay single
+  keys: their update answers the experience-wide total the memory budget needs.
+- **Placeholders are named at boot as a log line, not a warning** (Badges id 0, Notifications
+  `messageId = ""`): a game in development boots clean, and a placeholder left in is still visible
+  before the first send.
+- **Defaults:** the Badges award budget is 80% of Roblox's limit (room for other `BadgeService`
+  callers); TextFilter's `shownMaxDays` is 7 (a string filtered under older rules isn't shown for a
+  month).
+
 ## v1.6.2 (UI polish and game-found fixes)
 
 - **Text has a floor in real pixels, `metrics.minTextSize` (default 11).** `text.min` alone was a
