@@ -458,6 +458,8 @@ live place and universe ids; generated into `src/shared/Config/Environments.luau
 `ServerConfig.openCloud` (secrets and allow-list, server only) and `ServerConfig.flags` (hidden
 flags). The four kit modules (Leaderboards, Badges, Notifications, TextFilter) are normal modules
 with their own `config.<Name>` ([kit contract](kit-contract.md)).
+`Notifications.suggestOptIn(player, reason) -> (boolean, reason?)`: whether a prompt was requested,
+and why not (reasons in [the Notifications page](kits/notifications.md)).
 
 ## Errors you will see
 

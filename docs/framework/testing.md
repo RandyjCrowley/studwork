@@ -73,6 +73,7 @@ of `StudWork.start`: admins, hidden flags, `openCloud.secrets`) and these test-o
 | `flags`, `flagOverride` | GameConfig flags (above) and the live override |
 | `locale`, `translator` | the players' locale and translator fake |
 | `census = { servers, players, peakPlayers? }` | a fixed census reading |
+| `instancePlayers = false` | `h:addPlayer` returns plain table players. The default is a userdata proxy: `type(p)` is `"userdata"`, `typeof(p)` is `"Instance"`, `p:IsA("Player")` is true, like a live `Player`, so a check written `type(p) == "table"` fails in a spec instead of refusing every real player in Studio. `StudWork.test.player(userId, name?, true)` makes one by hand |
 | `startTime` | the fake clock's start (default `1_700_000_000`) |
 | `store = StudWork.test.memoryStore()` | share one save store between harnesses (several servers); `store.failNext(n)` makes the next n loads/saves raise |
 | `legacy = StudWork.test.legacyStore(seed)` | an adopted game's old stores, read-only |

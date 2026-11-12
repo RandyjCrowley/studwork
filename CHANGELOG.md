@@ -18,7 +18,8 @@ Identifiers like `R19` or `V1` are issue ids: open ones are listed in [docs/know
   - **Notifications** (engagement kit): experience notifications through Open Cloud with the key in
     Roblox's secrets store. Opt-in prompt rules, message templates, per-player and per-server limits,
     quiet hours, future sends on a shared due list that any running server sends, strict launch data.
-    API `send`, `schedule`, `cancel`, `suggestOptIn`; signals `Sent`, `OptInPrompted`, `LaunchedFrom`.
+    API `send`, `schedule`, `cancel`, `suggestOptIn` (returns `(boolean, reason?)`: a live `Player` is
+    accepted, and a refusal says why); signals `Sent`, `OptInPrompted`, `LaunchedFrom`.
   - **Leaderboards** (engagement kit): all-time boards on ordered stores and daily or weekly boards on
     MemoryStore sorted maps, a top N shared by every server, the player's own rank, built-in sources
     (Economy, Rebirth, Streak) and `registerSource`. API `submit`, `top`, `rank`, `refresh`,
