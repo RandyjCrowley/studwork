@@ -547,8 +547,8 @@ So old product code keeps working **while the game is being migrated**, without 
       `IncrementAsync`, `RemoveAsync`, ordered-store writes, and ProfileService / DataStore2
       writes that go through the same mock) made while the handler runs, including from a task it
       spawned that writes before the handler returns. Not caught: a write deferred past the
-      handler's return (`task.defer`, `task.delay`, a later event). Writes to the registered
-      `legacyReceipts` history store are allowed (recording the purchase there isn't the save).
+      handler's return (`task.defer`, `task.delay`, a later event). The receipt-history store is
+      not exempt: a bridge declared read-only must not mutate its deduplication history either.
     - In Studio (real DataStores, which can't be intercepted): before the handler, Shop reads the
       player's keys that every registered `importLegacy` source reads (value and `UpdatedTime`,
       `UseCache = false`, through the read-only reader), and reads them again after it. A change

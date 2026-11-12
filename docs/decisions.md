@@ -357,7 +357,7 @@ Not used:
   mock only; the live reader stays read-only). Studio compares the imported keys before and after
   the handler, because real DataStores can't be intercepted. Live is declared only (a boot warning
   listing every bridge and its flag, plus `--verify`). The `legacyReceipts` history store is
-  exempt: recording a receipt there is what old handlers do, and it isn't the save.
+  not exempt: a bridge declared read-only must not mutate its deduplication history either.
 - **The late-receipt window is `legacyReceipts.checkDays`** (default 90).
   `_framework.legacyPurchases` pruning stays a fixed 90 days because it belongs to the import
   (adopting.md §4.1), not to the history store.

@@ -232,16 +232,18 @@ describe("LegacyBridgeWrites: undeclared old-store writes fail loudly (tests)", 
 		expect(loud(w)).toBeNil()
 	end)
 
-	it("writing the registered legacyReceipts history store is not the old save -> granted", function()
+	it("undeclared writes to receipt-history keys also fail loudly", function()
 		local w = setup({
 			handler = function(world, receiptInfo)
 				world.oldStores:GetDataStore(HISTORY):SetAsync(`1_{receiptInfo.PurchaseId}`, true)
+				world.oldStores:GetDataStore(HISTORY):RemoveAsync("2_another-player")
 				return "PurchaseGranted"
 			end,
 		})
 		local p = w.h:addPlayer({ userId = 1 })
-		expect(w.h:receipt(receipt("h-1"))).toBe("PurchaseGranted")
-		expect(recorded(w, p, "h-1")).toBe(true)
+		expect(w.h:receipt(receipt("h-1"))).toBe("NotProcessedYet")
+		expect(recorded(w, p, "h-1")).toBe(false)
+		expect(loud(w)).never.toBeNil()
 	end)
 
 	it("onProduct receipts are untouched by the check", function()

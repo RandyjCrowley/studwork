@@ -590,8 +590,8 @@ function Server._platform(self): any
 							local plain = string.gsub(ev.storeName, "^ordered:", "")
 							if
 								ev.writer ~= server.jobId
-								or string.find(plain, "^PlayerData_")
-								or string.find(plain, "^StudWorkShared_")
+								or ev.storeName == "PlayerData_" .. server.config.gameId
+								or ev.storeName == "StudWorkShared_" .. server.config.gameId
 							then
 								return
 							end

@@ -209,8 +209,6 @@ function Shop.new(opts: any): any
 		if reader == nil then
 			return entry.fn
 		end
-		local history = legacyStore
-		local historyId = if history then Legacy.storeId(history.name, history.scope) else nil
 		local function fail(where: string): any
 			local msg =
 				`[StudWork.Shop] UNDECLARED LEGACY WRITE: legacy product {tag} ({entry.owner}) declared writesLegacyData = false but its old handler wrote {where}; receipt NOT granted (NotProcessedYet). Declare writesLegacyData = true or remove the write (adopting.md §4.3)`
@@ -221,9 +219,7 @@ function Shop.new(opts: any): any
 			return function(receiptInfo: any, p: any): any
 				local hits: { string } = {}
 				local stop = reader.watchWrites(function(ev: any)
-					if ev.store ~= historyId then
-						table.insert(hits, `store {ev.store} key {ev.key} ({ev.op})`)
-					end
+					table.insert(hits, `store {ev.store} key {ev.key} ({ev.op})`)
 				end)
 				local ok, answer = pcall(entry.fn, receiptInfo, p)
 				stop()

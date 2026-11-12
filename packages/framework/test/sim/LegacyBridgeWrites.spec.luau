@@ -24,7 +24,8 @@ local function bridgePart(holder, writes: boolean, doWrite: boolean)
 				holder.runs += 1
 				if doWrite then
 					local ds = holder.world:dataStoreService(holder.server)
-					ds:GetDataStore("OldData"):SetAsync(`Player_{receiptInfo.PlayerId}`, { coins = 1 })
+					ds:GetDataStore(if type(doWrite) == "string" then doWrite else "OldData")
+						:SetAsync(`Player_{receiptInfo.PlayerId}`, { coins = 1 })
 				end
 				return "PurchaseGranted"
 			end, { writesLegacyData = writes })
@@ -77,6 +78,16 @@ describe("legacy bridge writes (multi-server sim)", function()
 			expect(string.find(msg, "store OldData key Player_71", 1, true)).never.toBeNil()
 		end
 	)
+
+	it("a framework-looking legacy store name cannot bypass write detection", function()
+		for _, name in { "PlayerData_OldGame", "StudWorkShared_OldGame" } do
+			local _world, s, p, h = run(name)
+			expect(h.result).toBe("NotProcessedYet")
+			local purchases = s.runtime.data.frameworkField(p, "purchases")
+			expect(purchases == nil or purchases["sim-1"] == nil).toBe(true)
+			expect(loud(s)).never.toBeNil()
+		end
+	end)
 
 	it("a handler that doesn't write -> granted (the framework's own saves don't count)", function()
 		local _world, s, p, h = run(false)

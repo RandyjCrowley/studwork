@@ -1051,7 +1051,7 @@ ctx.shop.legacyReceipts({ name, scope?, key, until?, checkDays? })  -- checkDays
 - `checkDays`: how many days after `until` the old history store is still checked; after that an
   old receipt grants normally. Positive numbers only.
 - An `onLegacyProduct` handler declared `writesLegacyData = false` that writes an old store
-  (other than the `legacyReceipts` history store) fails loudly in tests and in Studio: the receipt
+  fails loudly in tests and, for the observed import keys, in Studio: the receipt
   answers `NotProcessedYet`, nothing is recorded, and `UNDECLARED LEGACY WRITE` names the product,
   module, store and key. Tests: `StudWork.test.legacyStore(...)` gains `dataStoreService()` and
   `watchWrites(fn)`. Live servers are not checked (adopting.md §4.3).
