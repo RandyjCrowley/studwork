@@ -496,12 +496,6 @@ function Server.start(gameConfig: any, serverConfig: any?, opts: any?): any
 		rt.phase = "config"
 		local result = ConfigValidate.validate(order, gameConfig)
 		for _, w in result.warnings do
-			-- (v1.6.1) GameConfig.shop is a framework key, validated just below
-			if
-				string.sub(w, 1, 15) == "GameConfig.shop" and string.find(w, "unknown top-level key", 1, true)
-			then
-				continue
-			end
 			logSink("warn", "[StudWork] " .. w)
 		end
 		local shopError = Shop.validateShopConfig(gameConfig.shop)

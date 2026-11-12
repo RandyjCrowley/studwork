@@ -680,8 +680,21 @@ the report.
    servers running while they have players), so no old server writes the old store after its
    players are imported. The import also refuses to read a save written in the last 120 seconds,
    which covers the old servers' final saves.
-6. `tools/publish --live` refuses while `tools/adopt --verify` would fail.
-7. Watch the logs and analytics for `LegacyImportFailed`, `LegacyChangedAfterImport` and the share
+6. `tools/publish --live` refuses while `tools/adopt --verify` would fail. A **place-file game
+   is published from Studio by hand**, which nothing can gate: run `tools/adopt --verify .` yourself
+   first and publish only when it passes. A live (non-Studio) server that still has legacy list
+   entries or an `onLegacyProduct` bridge warns once at boot ("this LIVE server still runs legacy
+   code") and sends the analytics event `LegacyCodeLive` once per server: check the test place
+   from step 2 shows neither before going live.
+7. If you set `until` on `ctx.shop.legacyReceipts`, keep the old history store readable until
+   `until + checkDays` days have passed (default 90): late re-delivered old receipts are still
+   checked against it. After that window an old receipt Roblox re-delivers grants normally.
+8. Never remove `"adopted": true` from `studwork.json` to make something pass: it is sticky (lint
+   fails and `tools/publish --live` still runs `tools/adopt --verify .` until it passes). Keep
+   `studwork-legacy.json` (even `{ "files": [] }`; the place maps it as `StudWorkBoot.LegacyList`).
+   If the project has a remote, push the adoption commit, keep `tools/lint --anchor-remote` green
+   in CI (`.github/workflows/ci.yml`), and never rewrite the project's history.
+9. Watch the logs and analytics for `LegacyImportFailed`, `LegacyChangedAfterImport`, `LegacyCodeLive` and the share
    of `LegacyNotFound` for a few days.
 
 **Rollback:** StudWork never changes the old store, so publishing the previous place version

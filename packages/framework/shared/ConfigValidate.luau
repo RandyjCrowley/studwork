@@ -32,6 +32,7 @@ ConfigValidate.TOP_LEVEL = table.freeze({
 	data = true,
 	compliance = true,
 	analytics = true, -- framework Analytics' funnel/clientSteps (read by server/Analytics)
+	shop = true, -- (v1.6.1) framework Shop tuning (passPrefetchTimeout; server/Shop validates it)
 })
 
 export type Result = {
