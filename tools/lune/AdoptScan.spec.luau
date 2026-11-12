@@ -421,4 +421,80 @@ end
 		expect(res.valueTrusts[1].method).toBe("SetAsync")
 		expect(Scan.writeCallWith("x:Get(a)", "a")).toBeNil()
 	end)
+	it(
+		"(r4) randomFns: a roll through a local function, fields written; property writes aren't grants",
+		function()
+			local res = Scan.scan([[
+local rng = Random.new()
+local function pick()
+	local total = 0
+	total += 5
+	return rng:NextNumber() * total
+end
+Remotes.Hatch.OnServerEvent:Connect(function(player)
+	local data = profiles[player].Data
+	data.gems -= 50
+	table.insert(data.pets, { id = pick() })
+end)
+local function placeOrb(orb)
+	orb.Transparency = 0
+	orb.Position = Vector3.new(math.random(-5, 5), 2, 0)
+end
+]])
+			local hatch = nil
+			for _, fn in res.randomFns do
+				if fn.line == 7 then
+					hatch = fn
+				end
+			end
+			expect(hatch ~= nil).toBe(true)
+			expect(hatch.allFields).toEqual({ "gems", "pets" })
+			local orbs = Scan.scan([[
+local function placeOrb(orb)
+	orb.Transparency = 0
+	orb.Anchored = true
+	orb.Position = Vector3.new(math.random(-5, 5), 2, 0)
+end
+]])
+			expect(orbs.randomGrants).toBe(false)
+		end
+	)
+
+	it("(r4) codeUi: a ScreenGui built in code", function()
+		local res = Scan.scan('local gui = Instance.new("ScreenGui")\nlocal f = Instance.new("Frame")\n')
+		expect(#res.codeUi).toBe(1)
+		expect(res.codeUi[1].class).toBe("ScreenGui")
+		expect(res.codeUi[1].line).toBe(1)
+	end)
+
+	it("(r4) historyIn: the save (with its field), a store of its own, or none", function()
+		local save = Scan.scan([[
+MarketplaceService.ProcessReceipt = function(receipt)
+	if profile.Data.Purchases[receipt.PurchaseId] then return Enum.ProductPurchaseDecision.PurchaseGranted end
+	profile.Data.Purchases[receipt.PurchaseId] = true
+end
+]])
+		expect(save.purchases.processReceipt[1].historyIn).toBe("save")
+		expect(save.purchases.processReceipt[1].historyField).toBe("Purchases")
+		local store = Scan.scan([[
+MarketplaceService.ProcessReceipt = function(receipt)
+	local key = receipt.PlayerId .. "_" .. receipt.PurchaseId
+	if purchaseHistoryStore:GetAsync(key) then return Enum.ProductPurchaseDecision.PurchaseGranted end
+	purchaseHistoryStore:SetAsync(key, true)
+end
+]])
+		expect(store.purchases.processReceipt[1].historyIn).toBe("store")
+		local none = Scan.scan([[
+MarketplaceService.ProcessReceipt = function(receipt)
+	coins += 10
+end
+]])
+		expect(none.purchases.processReceipt[1].historyIn).toBeNil()
+	end)
+	it("(r4) blockEnd: an if-expression has no end", function()
+		local code = "local function pick()\n\treturn if a then 1 else 2\nend\nlocal z = 1\n"
+		expect(string.sub(code, 1, Scan.blockEnd(code, 7))).toBe(
+			"local function pick()\n\treturn if a then 1 else 2\nend"
+		)
+	end)
 end)

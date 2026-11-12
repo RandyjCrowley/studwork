@@ -27,11 +27,13 @@ describe("{{Module}} game module", function()
 	end)
 
 	-- Testing an action (uncomment once the server part has one, e.g. the claimReward example in
-	-- server/init.luau). The sim boots the real game; server.runtime.action calls the action the way
-	-- the client's request arrives (the framework's loaded check, rate limit and pcall), like the
-	-- harness's h:action. Mock players are plain tables, not Instances: server code that calls
-	-- player:FindFirstChild or parents an Instance.new(...) to the player (leaderstats) must guard
-	-- it with `if typeof(player) == "Instance" then ... end`.
+	-- server/init.luau). The sim boots the real game; server:action(player, module, action, ...)
+	-- sends the request the way a client's arrives (the framework's loaded check, rate limit and
+	-- pcall) and returns (ok, result): ok = true when the handler ran, result = the handler's first
+	-- return value (nil if none); ok = false with result = the reason ("not_loaded",
+	-- "rate_limited", "left" or the handler's error). Sim players support leaderstats
+	-- (player:FindFirstChild, an Instance parented to the player), so server code needs no
+	-- sim-only guard.
 	-- it("claimReward adds a reward to the save", function()
 	-- 	local sim = StudWork.test.sim
 	-- 	local world = sim.world()
@@ -40,9 +42,9 @@ describe("{{Module}} game module", function()
 	-- 	expect(world:advanceUntil(function()
 	-- 		return server:isLoaded(player)
 	-- 	end, 30)).toBe(true)
-	-- 	local ok, err = server.runtime.action(player, server:ref("{{Module}}"), "claimReward")
-	-- 	expect(err).toBe(nil)
+	-- 	local ok, result = server:action(player, "{{Module}}", "claimReward")
 	-- 	expect(ok).toBe(true)
+	-- 	expect(result).toBe(nil) -- claimReward returns nothing; else the handler's return value
 	-- 	expect(server:section(player, "{{gameId}}").rewards).toBe(1) -- the live save
 	-- 	server:leave(player)
 	-- 	world:advance(10)

@@ -861,6 +861,7 @@ function Audit.build(env, projects, reportDir: string)
 	local writers = {} -- store|key -> { [file] = line }
 	local fileScan = {} -- file -> { scan, script }
 	local productMap = {}
+	local paidRandomFiles = {}
 
 	local function noteStore(name: string, proj: string, writes: boolean)
 		if name == Scan.DYNAMIC then
@@ -974,6 +975,18 @@ function Audit.build(env, projects, reportDir: string)
 			local file = fileLabel(s.path)
 			local scan = Scan.scan(s.source, constants)
 			fileScan[file] = { scan = scan, script = s }
+			-- (v1.6.0 dogfood r4) UI a script builds in code (Instance.new("ScreenGui")): listed in
+			-- ui[] with the script, `builtIn = "code"`, so the plan's keep-or-port-the-UI step sees it
+			if #scan.codeUi > 0 and s.side ~= "server" then
+				for _, u in scan.codeUi do
+					table.insert(report.ui, {
+						path = file .. ":" .. u.line,
+						class = u.class,
+						scripts = A({ file }),
+						builtIn = "code",
+					})
+				end
+			end
 			if item.extracted then
 				table.insert(report.scripts, {
 					path = file,
@@ -1161,10 +1174,13 @@ function Audit.build(env, projects, reportDir: string)
 			-- purchases
 			local pur = scan.purchases
 			for _, r in pur.processReceipt do
-				table.insert(
-					report.purchases.processReceipt,
-					{ file = file, line = r.line, historyCheck = r.historyCheck }
-				)
+				table.insert(report.purchases.processReceipt, {
+					file = file,
+					line = r.line,
+					historyCheck = r.historyCheck,
+					historyIn = r.historyIn or NULL,
+					historyField = r.historyField,
+				})
 				if not r.historyCheck then
 					risk(
 						"receipt_no_history",
@@ -1178,9 +1194,24 @@ function Audit.build(env, projects, reportDir: string)
 			for _, pr in pur.products do
 				local e = productMap[pr.id]
 				if e == nil then
-					e = { id = pr.id, file = file, line = pr.line, sold = A(), random = false }
+					e = {
+						id = pr.id,
+						file = file,
+						line = pr.line,
+						sold = A(),
+						random = false,
+						historyIn = NULL,
+					}
 					productMap[pr.id] = e
 					table.insert(report.purchases.products, e)
+				end
+				-- (v1.6.0 dogfood r4) where this product's purchase history lives: the receipt
+				-- handler of the same file ("save" -> importLegacy.receipts, "store" ->
+				-- ctx.shop.legacyReceipts, null -> none found)
+				local rcpt = pur.processReceipt[1]
+				if rcpt and rcpt.historyIn and e.historyIn == NULL then
+					e.historyIn = rcpt.historyIn
+					e.historyField = rcpt.historyField
 				end
 				for _, f in pr.sold do
 					if not table.find(e.sold, f) then
@@ -1237,9 +1268,17 @@ function Audit.build(env, projects, reportDir: string)
 			for _, pr in pur.products do
 				productRandom = productRandom or pr.random
 			end
+			local clientPart = string.find("/" .. file, "/client/", 1, true) ~= nil
+				or string.match(file, "%.client%.luau?$") ~= nil
+			paidRandomFiles[file] = {
+				scan = scan,
+				server = s.side ~= "client" and not clientPart,
+				productRandom = productRandom,
+			}
 			if
 				sells
 				and s.side ~= "client"
+				and not clientPart
 				and scan.randomGrants
 				and not productRandom
 				and not scan.mentionsOdds
@@ -1248,6 +1287,7 @@ function Audit.build(env, projects, reportDir: string)
 				for _, pr in pur.products do
 					rl = rl or pr.line
 				end
+				paidRandomFiles[file].flagged = true
 				risk(
 					"paid_random_no_odds",
 					"high",
@@ -1458,6 +1498,43 @@ function Audit.build(env, projects, reportDir: string)
 					nil,
 					nil
 				)
+			end
+		end
+	end
+	-- (v1.6.0 dogfood r4) a server function (a remote handler) that writes a currency a product
+	-- sells (spends or grants it) and rolls: a paid random item even with no product handler in
+	-- the file (agent b's Hatch: gems sold for Robux, spent on a Random roll)
+	local paidFields = {}
+	for _, pr in report.purchases.products do
+		for _, f in pr.sold do
+			paidFields[string.lower(f)] = f
+		end
+	end
+	local prFiles = {}
+	for f in paidRandomFiles do
+		table.insert(prFiles, f)
+	end
+	table.sort(prFiles)
+	for _, file in prFiles do
+		local e = paidRandomFiles[file]
+		if e.server and not e.flagged and not e.productRandom and not e.scan.mentionsOdds then
+			for _, fn in e.scan.randomFns do
+				local hit = nil
+				for _, f in fn.allFields do
+					hit = hit or paidFields[string.lower(f)]
+				end
+				if hit then
+					risk(
+						"paid_random_no_odds",
+						"high",
+						"a function that spends or grants the sold currency "
+							.. hit
+							.. " uses randomness (a paid random item: odds must be shown; Rarity's roll with a cost spends through spendForRoll)",
+						file,
+						fn.line
+					)
+					break
+				end
 			end
 		end
 	end
@@ -1941,6 +2018,9 @@ for i, k in
 		"key",
 		"detail",
 		"historyCheck",
+		"historyIn",
+		"historyField",
+		"builtIn",
 		"sold",
 		"random",
 		"processReceipt",
@@ -2212,6 +2292,14 @@ function Audit.markdown(report): string
 					.. at(r.file, r.line)
 					.. ": history check "
 					.. (if r.historyCheck then "yes" else "**no**")
+					.. (
+						if r.historyIn == "save"
+							then ", history in the save" .. (if r.historyField
+								then " (field `" .. r.historyField .. "`)"
+								else "")
+							elseif r.historyIn == "store" then ", history in a store of its own"
+							else ""
+					)
 			)
 		end
 		for _, p in pur.products do
@@ -2222,6 +2310,14 @@ function Audit.markdown(report): string
 					.. at(p.file, p.line)
 					.. (if #p.sold > 0 then ", sells " .. table.concat(p.sold, ", ") else "")
 					.. (if p.random then ", **uses randomness**" else "")
+					.. (
+						if p.historyIn == "save"
+							then ", history in the save" .. (if p.historyField
+								then " (field `" .. p.historyField .. "`)"
+								else "")
+							elseif p.historyIn == "store" then ", history in a store of its own"
+							else ""
+					)
 			)
 		end
 		for _, p in pur.passes do
@@ -2290,6 +2386,7 @@ function Audit.markdown(report): string
 					.. "` ("
 					.. u.class
 					.. (if u.children then ", " .. u.children .. " children" else "")
+					.. (if u.builtIn == "code" then ", built in code" else "")
 					.. ")"
 					.. (if #u.scripts > 0 then ": " .. table.concat(u.scripts, ", ") else "")
 			)

@@ -2749,6 +2749,24 @@ local function selfTest(): boolean
 				"legacy: a listed finding must print as a [legacy] warning with its reason"
 			)
 		end
+		-- (v1.6.0 dogfood r4) a baseline entry for a file that was deleted (and left the list) is
+		-- ignored with no warning: the baseline must equal the first commit's, so the entry can
+		-- never be removed and a warning about it could never be fixed
+		do
+			local stale = {
+				files = {
+					[SAVE] = { purchases = 2, numbers = 1 },
+					["src/server/Gone.luau"] = { purchases = 1 },
+				},
+			}
+			local fs1, ws1 = legacyCase({ baseline = stale, anchored = stale })
+			expectClean("legacy: a deleted file's baseline entry is ignored", fs1)
+			for _, wl in ws1 do
+				if string.find(wl, "Gone.luau", 1, true) then
+					table.insert(failures, "legacy: a deleted file's baseline entry must not warn")
+				end
+			end
+		end
 		expectLegacy("legacy: growing count", (legacyCase({
 			findings = {
 				finding(SAVE, 1, "purchases", ds),

@@ -389,6 +389,15 @@ awk '/^-- local moduleCtx/{f=1} f{sub(/^-- ?/,"")} f && /^}$/{f=0} {sub(/^\t-- m
 	"$SRV" >"$SRV.new" && mv "$SRV.new" "$SRV"
 SPEC="$G/modules/legacy-example-a/module.spec.luau"
 awk '/^\t-- it\("claimReward/{f=1} f{sub(/^\t-- ?/,"\t")} f && /^\tend\)$/{f=0} {print}' "$SPEC" >"$SPEC.new" && mv "$SPEC.new" "$SPEC"
+# (v1.6.0 dogfood r4) the example calls the sim's server:action(player, module, action, ...)
+# -> (ok, result); a StudWork without it (before that sim call existed) runs the same assertions
+# through server.runtime.action(player, ref, action), which returns the same (ok, result)
+if ! grep -q '^function Server\.action' "$CORE_ROOT/packages/framework/test/sim/Server.luau"; then
+	sed -i.bak 's/server:action(player, "LegacyExampleA", "claimReward")/server.runtime.action(player, server:ref("LegacyExampleA"), "claimReward")/' \
+		"$SPEC" && rm -f "$SPEC.bak"
+fi
+check "the action example asserts (ok, result), not err == nil" sh -c \
+	"grep -q 'local ok, result = server' '$SPEC' && ! grep -q 'expect(err)' '$SPEC' && ! grep -q 'typeof(player)' '$SPEC'"
 TAB="$(printf '\t')"
 check "the action example uncommented (server part + spec)" sh -c \
 	"grep -q '^${TAB}claimReward = {' '$SRV' && grep -q '^${TAB}moduleCtx = _ctx' '$SRV' && grep -q '^${TAB}it(\"claimReward' '$SPEC'"
@@ -489,6 +498,51 @@ EOF
 }
 fixture b
 fixture c
+# (v1.6.0 dogfood r4) the audit on fixture b: the Hatch remote spends gems (sold by product 4444)
+# on a Random roll = a paid random item (high); the HUD a LocalScript builds in code is in ui[];
+# the receipt history is in the save (field Purchases)
+BREP="$WORK/fx-b/studwork-adopt-report.json"
+check "fixture b audit: the gems-spending Hatch roll is paid_random_no_odds (high)" sh -c \
+	"tr -d ' \n' <'$BREP' | grep -q '\"id\":\"paid_random_no_odds:src/server/Pets.server.luau:[0-9]*\",\"level\":\"high\"'"
+check "fixture b audit: the HUD built in code is in ui[]" sh -c \
+	"tr -d ' \n' <'$BREP' | grep -q '\"path\":\"src/client/Hud.client.luau:[0-9]*\",\"class\":\"ScreenGui\",\"builtIn\":\"code\"'"
+check "fixture b audit: product 4444's history is in the save (field Purchases)" sh -c \
+	"tr -d ' \n' <'$BREP' | grep -q '\"id\":4444,[^}]*\"historyIn\":\"save\",\"historyField\":\"Purchases\"'"
+# (v1.6.0 dogfood r4) agent c's false positive: a game module's client part with product prompts
+# and random orb positions in another function is not a paid random item
+FP="$WORK/audit-orbs"
+mkdir -p "$FP/modules/my-game/client"
+printf '%s\n' '{ "name": "my-game", "tree": { "$className": "DataModel", "ReplicatedStorage": { "Game": { "my-game": { "$path": "modules/my-game" } } } } }' >"$FP/default.project.json"
+cat >"$FP/modules/my-game/client/init.luau" <<'EOF'
+local MarketplaceService = game:GetService("MarketplaceService")
+local Client = {}
+function Client.start(_ctx)
+	local plr = game:GetService("Players").LocalPlayer
+	local gui = Instance.new("ScreenGui")
+	gui.ResetOnSpawn = false
+	local b = Instance.new("TextButton")
+	b.Parent = gui
+	b.MouseButton1Click:Connect(function()
+		MarketplaceService:PromptProductPurchase(plr, 5555)
+	end)
+	for _ = 1, 8 do
+		local orb = Instance.new("Part")
+		orb.Anchored = true
+		orb.Position = Vector3.new(math.random(-40, 40), 2, math.random(-40, 40))
+		orb.Touched:Connect(function()
+			orb.Transparency = 1
+			task.delay(5, function()
+				orb.Position = Vector3.new(math.random(-40, 40), 2, math.random(-40, 40))
+				orb.Transparency = 0
+			end)
+		end)
+	end
+end
+return Client
+EOF
+(cd "$FP" && "$ADOPT" --audit .) >"$LOGS/audit-orbs.log" 2>&1 || fail "audit-orbs: --audit"
+check "audit: random orb positions next to product prompts are no paid_random_no_odds" sh -c \
+	"test -f '$FP/studwork-adopt-report.json' && ! grep -q paid_random_no_odds '$FP/studwork-adopt-report.json'"
 fixture a
 A_DIR="$WORK/fx-a"
 G="$A_DIR"
