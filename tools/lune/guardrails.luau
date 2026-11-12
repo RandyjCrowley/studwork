@@ -14,6 +14,8 @@
 	                                              adopted project's studwork-legacy.json
 	  lune run tools/lune/guardrails --legacy-files [<dir>] (v1.6.0) the list's valid entries,
 	                                              `<path>\t<reason>` per line (tools/lint)
+	  lune run tools/lune/guardrails --legacy-style-files [<dir>] (v1.6.0) the same, only the
+	                                              entries that list "style" (tools/typecheck)
 	  lune run tools/lune/guardrails --legacy-check <dir>  (v1.6.0) scan the project at <dir> as a
 	                                              root game and apply its studwork-legacy.json
 	(v1.6.0) Transitional guardrails (docs/framework/adopting.md §5): in an adopted project
@@ -21,6 +23,11 @@
 	is a warning `warning: [legacy] <finding> (legacy: <reason>)`, within the per-file per-check
 	baseline (studwork.json legacyBaseline, anchored to the first commit that added studwork.json).
 	ProcessReceipt assignments, special and packages are never downgraded. See Guard.applyLegacy.
+	(v1.6.0) An entry may also list the pseudo-check "style": the file fails selene / StyLua /
+	luau-lsp as old code. tools/lint skips selene/StyLua for it, tools/typecheck prints its
+	problems as warnings (--legacy-style-files lists them), it has no count in the baseline (the
+	file still needs a legacyBaseline entry, `{}` for a style-only one, so a later entry is refused),
+	and a style-only entry never gets the "nothing legacy left" warning.
 
 	Checks (each finding: path:line: [check] message):
 	  modules   game code uses a core module that is not in its GameConfig.modules:
@@ -37,7 +44,8 @@
 	            call, or a cost/price/reward/income/luck/chance/weight/amount/... name = number).
 	  remotes   a remote that bypasses core's validated Net: OnServerEvent / OnServerInvoke,
 	            Instance.new("RemoteEvent"|"RemoteFunction"|"UnreliableRemoteEvent"), or a Blink
-	            `.On(` / `.SetCallback(` in server code (use Core.Net.handle).
+	            `.On(` / `.SetCallback(` in server code (use a module action: net.blink + ctx.net,
+	            module-api.md §9).
 	  purchases (v1.3.0, module-api.md §7.1) only the framework may assign
 	            MarketplaceService.ProcessReceipt or use Prompt*PurchaseFinished, and only framework
 	            Data (and its shared store) may touch DataStoreService / ProfileStore / MemoryStoreService. Checked in game code AND in
@@ -355,8 +363,18 @@ local NORMALIZED_RULES = {
 		"MemoryStoreService only inside the framework: use ctx.data.shared",
 		true,
 	},
-	{ "OnServerEvent", "remotes", "raw remote handler: route game remotes through Core.Net.handle", true },
-	{ "OnServerInvoke", "remotes", "raw remote handler: route game remotes through Core.Net.handle", true },
+	{
+		"OnServerEvent",
+		"remotes",
+		"raw remote handler: use a module action (net.blink + ctx.net, module-api.md §9)",
+		true,
+	},
+	{
+		"OnServerInvoke",
+		"remotes",
+		"raw remote handler: use a module action (net.blink + ctx.net, module-api.md §9)",
+		true,
+	},
 	{
 		"RemoteEvent",
 		"remotes",
@@ -499,7 +517,7 @@ function Guard.normalizedFindings(codeLines: { string }, rawLines: { string }, c
 				hit(
 					pos,
 					"remotes",
-					"Blink listener outside client code: use Core.Net.handle(name, event, limit, fn)"
+					"Blink listener outside client code: declare a module action (actions in the server part, net.blink + ctx.net, module-api.md §9)"
 				)
 			end
 		end
@@ -1681,6 +1699,10 @@ Guard.LEGACY_LIST = "studwork-legacy.json"
 -- checks a legacy entry may list (the scanGame checks); special and packages are never downgraded
 Guard.LEGACY_CHECKS = { modules = true, numbers = true, remotes = true, purchases = true, theme = true }
 Guard.LEGACY_NEVER = { special = true, packages = true }
+-- (v1.6.0) pseudo-checks an entry may list that no guardrail scan produces: "style" = the file
+-- fails selene / StyLua / luau-lsp as old code (lint skips it, typecheck warns). Never counted in
+-- the baseline; the file must still be in the baseline (so an entry added later is refused).
+Guard.LEGACY_PSEUDO = { style = true }
 
 -- "<path>:<line>: [<check>] <message>" -> (path, line, check, message); nil for other shapes
 function Guard.parseFinding(f: string): (string?, number?, string?, string?)
@@ -1770,7 +1792,7 @@ function Guard.legacyEntries(input: any, fail: (string) -> ()): ({ [string]: any
 			for _, c in e.checks do
 				if Guard.LEGACY_NEVER[c] then
 					fail(`{label}: the {tostring(c)} check is never downgraded; it can't be listed`)
-				elseif not Guard.LEGACY_CHECKS[c] then
+				elseif not Guard.LEGACY_CHECKS[c] and not Guard.LEGACY_PSEUDO[c] then
 					fail(`{label}: unknown check {tostring(c)}`)
 				else
 					checks[c] = true
@@ -1895,7 +1917,9 @@ function Guard.applyLegacy(findings: { string }, input: any): ({ string }, { str
 		local any = false
 		local names = {}
 		for c in entry.checks do
-			table.insert(names, c)
+			if not Guard.LEGACY_PSEUDO[c] then
+				table.insert(names, c)
+			end
 		end
 		table.sort(names)
 		for _, c in names do
@@ -1912,7 +1936,16 @@ function Guard.applyLegacy(findings: { string }, input: any): ({ string }, { str
 				)
 			end
 		end
-		if not any then
+		-- a "style" entry: the guardrails can't tell whether selene/StyLua would pass now (step 9
+		-- deletes such files anyway), so a style-only entry never warns
+		if not any and entry.checks.style then
+			if #names > 0 then
+				table.insert(
+					warnings,
+					`warning: [legacy] {path}: no guardrail findings left; keep only "style" in its entry in {L}`
+				)
+			end
+		elseif not any then
 			table.insert(warnings, `warning: [legacy] {path}: nothing legacy left; remove the entry from {L}`)
 		end
 	end
@@ -2749,6 +2782,32 @@ local function selfTest(): boolean
 		if not staleWarned then
 			table.insert(failures, "legacy: a listed file with no findings left must warn")
 		end
+		-- (v1.6.0) the "style" pseudo-check: valid, no count, no stale warning, still anchored
+		local styleBase =
+			{ files = { [SAVE] = { purchases = 2, numbers = 1 }, ["src/server/Old.luau"] = {} } }
+		local fStyle, wStyle = legacyCase({
+			list = {
+				files = {
+					{ path = SAVE, checks = { "purchases", "numbers", "style" }, reason = "old save code" },
+					{ path = "src/server/Old.luau", checks = { "style" }, reason = "not StyLua-formatted" },
+				},
+			},
+			baseline = styleBase,
+			anchored = styleBase,
+			inspect = function()
+				return "file"
+			end,
+		})
+		expectClean("legacy: style entries are valid", fStyle)
+		for _, w in wStyle do
+			if string.find(w, "Old.luau: nothing legacy left", 1, true) then
+				table.insert(failures, "legacy: a style-only entry must not warn 'nothing legacy left'")
+			end
+		end
+		expectLegacy("legacy: style entry added later", (legacyCase({
+			list = { files = { { path = "src/server/Other.luau", checks = { "style" }, reason = "r" } } },
+			findings = {},
+		})), "not in studwork.json's legacyBaseline")
 		expectLegacy("legacy: edited baseline", (legacyCase({
 			baseline = { files = { [SAVE] = { purchases = 5, numbers = 1 } } },
 		})), "differs from the one in the commit that first added studwork.json")
@@ -2858,14 +2917,19 @@ end
 -- (v1.6.0) --legacy-files [<dir>]: the valid entries of the project's studwork-legacy.json, one
 -- `<path>\t<reason>` line each (tools/lint skips selene/stylua for them). Prints nothing for no list,
 -- a non-adopted project or an unreadable list (the guardrails step of lint fails those); always exits 0.
-if args[1] == "--legacy-files" then
+-- (v1.6.0) --legacy-style-files [<dir>]: the same, only the entries that list "style"
+-- (tools/typecheck prints their problems as warnings).
+if args[1] == "--legacy-files" or args[1] == "--legacy-style-files" then
+	local styleOnly = args[1] == "--legacy-style-files"
 	local root = args[2] or "."
 	local input = Guard.legacyInput(root)
 	if input.adopted and input.list ~= nil and input.listError == nil then
 		local entries = Guard.legacyEntries(input, function() end)
 		local paths = {}
-		for path in entries do
-			table.insert(paths, path)
+		for path, entry in entries do
+			if not styleOnly or entry.checks.style then
+				table.insert(paths, path)
+			end
 		end
 		table.sort(paths)
 		for _, path in paths do

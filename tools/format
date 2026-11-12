@@ -1,0 +1,33 @@
+#!/usr/bin/env bash
+# tools/format [--check]: format the project's Luau with StyLua and the CORE's stylua.toml, over
+# the same file set tools/lint's `stylua --check` checks (tools/_luau-files): in the core repo the
+# core's own folders, in a games repo games/, in a single-game project every folder except
+# studwork/. In an adopted project the files listed in studwork-legacy.json are skipped (one
+# `warning: [legacy] ...` line each, as in lint): don't reformat old code you're about to delete.
+#   --check   check only (lint's stylua step alone); exit 1 when a file isn't formatted.
+source "$(dirname "$0")/_common.sh"
+# shellcheck source=tools/_luau-files
+source "$(dirname "$0")/_luau-files"
+
+CHECK=()
+case "${1:-}" in
+"") ;;
+--check) CHECK=(--check) ;;
+*) die "usage: tools/format [--check]" ;;
+esac
+
+luau_file_set
+if [ "${#STYLUA_ARGS[@]}" -eq 0 ]; then
+	echo "format: nothing to format"
+	exit 0
+fi
+if is_single_game || is_games_repo; then
+	stylua --config-path "$STYLUA_CONFIG" ${CHECK[@]+"${CHECK[@]}"} "${STYLUA_GLOBS[@]}" "${STYLUA_ARGS[@]}"
+else
+	stylua ${CHECK[@]+"${CHECK[@]}"} "${STYLUA_ARGS[@]}"
+fi
+if [ "${#CHECK[@]}" -gt 0 ]; then
+	echo "format: clean"
+else
+	echo "format: done"
+fi
