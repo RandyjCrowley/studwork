@@ -32,6 +32,24 @@ local function boot(overrides: { [string]: any }?): any
 		serverConfig = ServerConfig,
 		isStudio = true, -- the game's Studio-only console commands are registered
 	}
+	-- Every other GameConfig key the kits read, forwarded as the game declares it, so a kit's
+	-- `flag`, a string table or a store budget added later works here without editing this spec.
+	for _, key in
+		{
+			"theme",
+			"analytics",
+			"storeBudgets",
+			"flags",
+			"flagOverride",
+			"environments",
+			"strings",
+			"localization",
+		}
+	do
+		if (Config :: any)[key] ~= nil then
+			options[key] = (Config :: any)[key]
+		end
+	end
 	for key, value in overrides or {} do
 		options[key] = value
 	end

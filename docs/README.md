@@ -17,7 +17,7 @@ offline tests. Start with the philosophy, then follow the framework pages in ord
 | [Getting started](framework/getting-started.md) | From `tools/new-game` to a game that boots, then your first module |
 | [Concepts](framework/concepts.md) | Modules, refs, `ctx`, save sections, the game's own module, boot |
 | [The five override levels](framework/override-levels.md) | Defaults, config, replace a piece, switch a kit off, write a module |
-| [Module API reference](framework/module-reference.md) | `defineModule`, server and client parts, every `ctx` field, transactions, purchases, testing |
+| [Module API reference](framework/module-reference.md) | The current API summary (the source of truth is module-api.md): `defineModule`, server and client parts, every `ctx` field, transactions, purchases, testing |
 | [Kit contract](framework/kit-contract.md) | What each kit module offers other modules |
 | [Generators](framework/generators.md) | `tools/new-game`, `tools/make-module`, `tools/make-migration`, `tools/make-screen`, `templates/` |
 | [Theme guide](framework/theme.md) | Theme tree, presets, rarity look, HUD slots and widgets, screens |
@@ -27,7 +27,7 @@ offline tests. Start with the philosophy, then follow the framework pages in ord
 | [Games repo](framework/games-repo.md) | Using StudWork as a submodule of your own games repo |
 | [Publishing](framework/publishing.md) | Publishing a game from your games repo to Roblox: Open Cloud key, test and live experiences, launch checklist |
 | [FAQ](framework/faq.md) | Short answers to common questions |
-| [Module API design](framework/module-api.md) | The design behind the module API, with the reasoning for each rule |
+| [Module API design](framework/module-api.md) | The source of truth for the module API: the design behind the module API, with the reasoning for each rule |
 
 ## For coding agents
 

@@ -27,12 +27,17 @@ local function boot(extra)
 		items = Config.items, products = Config.products, events = Config.events,
 		serverConfig = ServerConfig, isStudio = true,
 	}
+	-- the rest of GameConfig the kits read (a kit's `flag` needs the game's `flags`): the scaffold's spec
+	-- does this, so a flag you declare in Config works in specs; `boot({ flags = ... })` overrides it
+	for _, key in { "theme", "analytics", "storeBudgets", "flags", "flagOverride", "environments", "strings", "localization" } do
+		if Config[key] ~= nil then options[key] = Config[key] end
+	end
 	for key, value in extra or {} do options[key] = value end
 	return StudWork.test.harness(options)
 end
 
 it("scores a point", function()
-	local h = boot({ flags = { pointsBoard = { default = true } } })
+	local h = boot()
 	local p = h:addPlayer({ userId = 1 })
 	-- a console command, typed with the module's lower-case name; the reply is the handler's return
 	expect(h:console("mygame", "points")).toBe("points=1")

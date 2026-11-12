@@ -15,6 +15,22 @@ local Leaderboards = require(ReplicatedStorage:WaitForChild("Modules"):WaitForCh
 is read from a module's data (a built-in source), set by server code (`submit`), or produced by a
 registered source function. The client only receives the rows.
 
+## Quick start
+
+In `GameConfig.modules` add `Leaderboards`. Needs no other module for a `submit` board.
+
+```lua
+-- GameConfig.config
+Leaderboards = { boards = { bestScore = { period = "allTime", mode = "max" } } },  -- or "daily" / "weekly"
+-- game module (server): the value only ever comes from the server
+Leaderboards.submit(player, "bestScore", 120)            -- written on the cadence (writeSeconds)
+local top = Leaderboards.top("bestScore")                -- { rows = { { rank, userId, name, value } } }
+-- spec (mirrored by KitQuickStarts.spec.luau): the harness needs a UserService fake for the names
+local h = StudWork.test.harness({ modules = { Leaderboards }, services = { UserService = StudWork.test.fakes.userService() },
+	config = { Leaderboards = { boards = { bestScore = { mode = "max" } } } } })
+local api = h:use(Leaderboards); h:tick(121); api.refresh("bestScore")
+```
+
 ## Config (`config.Leaderboards`)
 
 | Key | Default | Meaning |
