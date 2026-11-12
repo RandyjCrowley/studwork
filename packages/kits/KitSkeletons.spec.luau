@@ -116,8 +116,9 @@ describe("v1.7.0 kit skeletons boot", function()
 		expect(n.cancel(1, "x")).toBe(false)
 		expect(n.suggestOptIn(p, "test")).toBe(false)
 		local lb = h:use(Leaderboards)
-		expect(lb.submit(p, "coins", 5)).toBe(false)
-		expect(lb.top("coins").rows).toEqual({})
+		expect(lb.submit(p, "coins", 5)).toBe(true) -- a configured submit board accepts it
+		expect(lb.submit(p, "nope", 5)).toBe(false)
+		expect(lb.top("coins").rows).toEqual({}) -- nothing read from the stores yet
 		local b = h:use(Badges)
 		expect(b.award(p, "first")).toBe(false)
 		expect(b.has(p, "first")).toBe(false)
