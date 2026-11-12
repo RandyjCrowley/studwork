@@ -19,9 +19,10 @@
 	                                    v1.7.0 its `optional = { ... }`): drops the refs of modules
 	                                    not in `list` (adds none). (v1.7.1) `named` = the kits the
 	                                    user named in --modules: their `optional` lines move to
-	                                    dependsOn (the game asked for them); a kit only added as
-	                                    another kit's dependency stays optional, and a kit the
-	                                    module doesn't refer to isn't added
+	                                    dependsOn (the game asked for them), and a named kit the
+	                                    module doesn't refer to gets a ref line there in the
+	                                    block's style; a kit only added as another kit's
+	                                    dependency keeps the template's place
 	pruneKitLocals(src)             -> src               drops the kit locals nothing uses any more:
 	                                    `local Modules = ReplicatedStorage:WaitForChild("Modules")`,
 	                                    `local X = require(Modules:WaitForChild("X"):WaitForChild(
@@ -325,6 +326,27 @@ function NewGame.trimDependsOn(source: string, list: { string }, named: { string
 		end
 	end
 	local dependsLines = blockLines(source, "dependsOn")
+	-- a named kit the module doesn't refer to at all (e.g. Items): a ref line in the block's own
+	-- style, made from one of its lines (needs a line to copy; a module with none adds nothing)
+	local sampleName: string?, sampleLine: string? = next(dependsLines)
+	if sampleLine == nil then
+		sampleName, sampleLine = next(optionalLines)
+	end
+	if sampleName and sampleLine and string.find(sampleLine, "require(", 1, true) then
+		local needle = 'WaitForChild("' .. sampleName .. '")'
+		for _, n in named or {} do
+			if inList[n] and dependsLines[n] == nil and promoted[n] == nil then
+				local s, e = string.find(sampleLine, needle, 1, true)
+				if s and e then
+					promoted[n] = string.sub(sampleLine, 1, s - 1)
+						.. 'WaitForChild("'
+						.. n
+						.. '")'
+						.. string.sub(sampleLine, e + 1)
+				end
+			end
+		end
+	end
 	local dependsList: { string } = {}
 	local optionalList: { string } = {}
 	for _, n in list do

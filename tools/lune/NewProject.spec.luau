@@ -240,13 +240,14 @@ describe("new-project --modules: named kits in the game module's dependsOn", fun
 		local out = assert(NewGame.trimDependsOn(template, order, named))
 		local depends, optional = block(out, "dependsOn"), block(out, "optional")
 		for _, kit in named do
-			if string.find(template, 'WaitForChild("' .. kit .. '")', 1, true) then
-				expect(depends).toContain('WaitForChild("' .. kit .. '")')
-			end
+			expect(depends).toContain('WaitForChild("' .. kit .. '")')
 			expect(string.find(optional, '"' .. kit .. '"', 1, true)).toBeNil()
 		end
-		-- the game module refers to no kit it doesn't use: Items (reached through Inventory) isn't added
-		expect(string.find(out, 'WaitForChild("Items")', 1, true)).toBeNil()
+		-- a named kit the template doesn't refer to (Items) gets a ref in the block's style, once
+		expect(string.find(template, 'WaitForChild("Items")', 1, true)).toBeNil()
+		local _, items =
+			string.gsub(out, 'require%(KitDefs:WaitForChild%("Items"%):WaitForChild%("module"%)%),', "")
+		expect(items).toBe(1)
 		-- the promoted line is the template's own (same ref form), once
 		local _, count = string.gsub(
 			out,

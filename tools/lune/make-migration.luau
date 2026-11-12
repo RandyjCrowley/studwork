@@ -144,6 +144,19 @@ if not plan.bumped then
 	elseif bump then
 		table.insert(writes, bump)
 		bumpNote = "data.version (`" .. resolved.expr .. "`, set in " .. bump.path .. ")"
+	elseif from == nil then
+		-- a computed version (`Base.VERSION + 1`): refuse rather than leave a migration whose
+		-- version the module never reaches; --from <n> is the explicit opt-in to bump by hand
+		fail(
+			string.format(
+				"data.version is `%s` and make-migration can't bump it (%s): nothing was written.\n"
+					.. "Run again with --from %d to write the migration anyway, then set data.version to %d yourself",
+				resolved.expr,
+				tostring(bumpErr),
+				resolved.version,
+				plan.version
+			)
+		)
 	else
 		bumpNote = nil
 		print(

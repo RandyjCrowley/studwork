@@ -724,3 +724,21 @@ these pages before relying on a limit.
   (`tools/lune/testkit/pathutil.luau`: collapse `//`, `.`, trailing `/`), the specs join through it,
   and `tools/test` always runs the runner self-test with `$TMPDIR` unset, a `<repo>/` cwd and a
   doubled-slash spec path, with or without path arguments.
+
+- **make-migration reads a referenced `data.version` and maps `migrations/` itself (v1.7.1).** A
+  game's save version is often a constant shared with its save code (`version = Save.VERSION`), which
+  a pattern can't follow. The tool evaluates `module.luau` under Lune (the module's own folder is
+  real; `game`, the framework and kit refs are inert stand-ins), reads `data.version` from the
+  definition and rewrites the one number literal it comes from. A version it can't bump (a computed
+  `Base.VERSION + 1`) is refused with nothing written, because a migration the module's version never
+  reaches is worse than no migration; `--from <n>` is the explicit way through, with the bump left to
+  the user. The game module is mapped as `GameModule.module` only, so its `migrations/` never reached
+  the place: the tool now adds `migrations` next to whatever node maps the module in each of the
+  game's project files (order-preserving JSON, so `tools/sync-projects` stays clean), and refuses a
+  module no project maps before writing anything. A lint rule would only fire after an unmapped
+  migration had shipped.
+- **`--modules` puts every named kit in the game module's `dependsOn` (v1.7.1).** Naming a kit says
+  the game needs it. Leaving it in `optional` (the template's default for the four v1.7.0 kits) gave
+  no init ordering and an `isEnabled` guard the game doesn't need. A named kit the template doesn't
+  refer to gets a ref line in the block's own style; a kit added only as another kit's dependency
+  keeps the template's place.

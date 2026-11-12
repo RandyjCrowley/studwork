@@ -35,10 +35,10 @@ template for the game's depth (in a games repo: into `roblox-core/`, see
 `--modules` writes code and config for the listed modules only, so `tools/lint` passes with no
 hand trimming:
 
-- `GameConfig.modules` and the game module's `dependsOn`: (v1.7.1) a kit named in `--modules` that
-  the game module refers to goes in `dependsOn`, also the four the template lists as `optional` (a
-  kit only added as a dependency of another keeps the template's place; none is added that the
-  game module doesn't use);
+- `GameConfig.modules` and the game module's `dependsOn`: (v1.7.1) every kit named in `--modules`
+  goes in `dependsOn`: the four the template lists as `optional` move there, and a named kit the
+  template doesn't refer to (e.g. `Items`) gets a ref line in the same style (a kit only added as a
+  dependency of another keeps the template's place);
 - the game module's server code (product handlers, events, console commands, signal hooks);
 - `Balance.luau` sections, and values that depend on another module (`income.source` is
   `"displayed"` only with Plot, `"owned"` otherwise; Streak rewards and the Friends multiplier only
@@ -130,8 +130,9 @@ the module's own folder (`version = Save.VERSION` with
 `module.luau` under Lune the way the game requires it (files of the module's folder load for real;
 `game`, the framework and kit refs are inert stand-ins), and the one number literal it comes from
 (`Save.VERSION = 2`, `VERSION = 2,` or `local VERSION = 2`) is bumped. When there isn't exactly one
-such literal (`version = Base.VERSION + 1`) the migration is still written and the tool says which
-value to set by hand. `--from <n>` gives the current version instead of reading it (a positive
+such literal (`version = Base.VERSION + 1`) the tool refuses and writes nothing; run it again with
+`--from <current version>` to write the migration anyway and set the new version by hand (the tool
+says which value). `--from <n>` gives the current version instead of reading it (a positive
 integer; a warning when it disagrees with the version read from the module); use it when the
 definition can't be evaluated outside Roblox.
 
