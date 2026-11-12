@@ -89,7 +89,9 @@ file it would write already exists. Every renamed instance (a name that isn't a 
 printed: fix code that finds it by its old name.
 
 Commit the generated files (`git -C <game> add` the new files, including `.studwork-from-place.json`,
-then commit "Extract code from the place file").
+then commit "Extract code from the place file"). `.studwork-from-place.json` also records the
+original place (`"original"`: its name, path and SHA-256): the tools never write over a file with
+that content, whatever it's called.
 
 `--from-place` copies the scripts out but **leaves them in the place file**. Never sync the project
 into the original place: the old scripts (the old save code too) would keep running next to
@@ -175,7 +177,9 @@ GitHub), `studwork.json` (`"adopted": true`), the `tools/` wrappers, the game mo
 client; StudWork saves only to its own store, so booting it next to the old scripts is safe),
 `src/shared/Config/` when missing (mapped as `ReplicatedStorage.Game.Config`), merges
 `default.project.json`, and writes `studwork-legacy.json` with every old file that breaks a
-guardrail. A service the old project maps with `"$path"` (e.g. `"ServerScriptService": {
+guardrail (mapped into the place as `ServerScriptService.StudWorkBoot.LegacyList`: the server boot
+passes it as `ServerConfig.legacyList`; keep the file, even as `{ "files": [] }`), plus the CI
+workflow `.github/workflows/ci.yml` (`tools/lint --anchor-remote`). A service the old project maps with `"$path"` (e.g. `"ServerScriptService": {
 "$path": "src/server" }`) is fine: StudWork's entries are added next to it.
 
 **Init lists every old Luau source in `studwork-legacy.json` with the `style` check**: old code is
@@ -209,12 +213,15 @@ cd <game>
 tools/install
 tools/doctor
 tools/lint && tools/typecheck && tools/test && tools/build
-git add studwork studwork.json studwork-legacy.json .gitmodules .gitignore .githooks tools modules studwork-boot src default.project.json studwork-adopt-report.json studwork-adopt-report.md
+git add studwork studwork.json studwork-legacy.json .gitmodules .gitignore .githooks .github tools modules studwork-boot src default.project.json studwork-adopt-report.json studwork-adopt-report.md
 git commit -m "Adopt StudWork"
 ```
 
 (Add only what init created or changed; `--dry-run` printed the list.) **This first commit fixes
-`legacyBaseline`.** Lint compares it with this commit from now on.
+`legacyBaseline` and `"adopted": true`.** Lint compares the baseline with this commit from now on,
+and the project stays adopted even if the flag is removed later (step 10). Never rewrite this
+history (squash, filter-repo, a fresh repo from a copy): it resets the anchor, and
+`tools/lint --anchor-remote` (the CI workflow) fails against the remote.
 
 **Check:** `tools/lint`, `tools/typecheck`, `tools/test`, `tools/build` pass in `<game>`, and the
 commit exists. Old code shows up as `warning: [legacy] ...` lines, which is expected: files listed
@@ -584,7 +591,10 @@ tools/adopt --strip-place . --extracted "StarterGui.ShopGui.ShopGuiClient" "Repl
 
 This writes `<name>.studwork.rbxlx` next to the place without those instances (paths as in
 `notExtracted[].path`), points `studwork.json` `placeFile` at the copy and keeps the original for
-rollback. Run it again to remove more. Commit the copy and `studwork.json`.
+rollback. Run it again to remove more. Commit the copy, `studwork.json` and
+`.studwork-from-place.json` (it records the original's hash). It refuses to write a file that is
+the original (same path or same content), whatever its name: never point `placeFile` back at the
+original by hand.
 
 Lint fails if a listed file gets **more** findings than at init, so don't add old-style code to a
 listed file (reformatting can't raise a count: findings are counted per statement). Never edit
@@ -594,7 +604,8 @@ After deleting old scripts, `tools/adopt --verify` names every `$path` in `defau
 that no longer exists: remove those entries.
 
 **Check:** `studwork-legacy.json` is `{ "files": [] }`, or each remaining entry has a real reason
-and none lists `purchases`.
+and none lists `purchases`. Keep the file even when empty (the project file maps it as
+`StudWorkBoot.LegacyList`); never remove `"adopted": true` to make lint pass (step 10).
 
 ## 10. Verify
 
@@ -622,6 +633,11 @@ tools/build
    or raw remotes.
 7. Everything is committed on `studwork-migration` (small commits, one per step or system, only
    your files).
+
+`"adopted": true` stays. It is sticky: removing it (or `studwork-legacy.json`) fails lint until
+`tools/adopt --verify .` passes, and even then it's the user's call to "graduate" the project
+(adopting.md §5), not part of the migration. If the project has a remote, `tools/lint
+--anchor-remote` must pass too (it compares the anchor with the remote default branch).
 
 If a command fails, read "When you're stuck" below, fix, and run all six again.
 
@@ -689,6 +705,11 @@ again: the module's `merge` runs, and without a `merge` those players can't join
 | lint: a listed file has more findings than its baseline | you added old-style code to a listed file | move the new code into a module |
 | lint: `legacyBaseline` differs from the first commit | `studwork.json`'s baseline was edited | `git checkout` the baseline back; never raise it |
 | lint: history not available | a shallow clone | `git fetch --unshallow` |
+| lint: *"studwork.json no longer says \"adopted\": true"* | the flag (or the list) was removed, and `tools/adopt --verify` still fails | put `"adopted": true` back (the project stays adopted until verify passes) |
+| `lint --anchor-remote`: the baseline differs / only the remote has an anchor / the remote says adopted | the local history was rewritten (squash, new repo) | restore the remote's history; never rewrite an adopted project's history |
+| `lint --anchor-remote`: shallow clone | CI checked out with a depth | `fetch-depth: 0` in the checkout step |
+| `--strip-place` / `--from-place`: *"... is the original place"* or *"its content is the original place's"* | the file it would write is the original (by its recorded hash), whatever its name | point `placeFile` at the original (not named `*.studwork.rbxlx`); the copy is written next to it |
+| `--verify`: stale `$path` `StudWorkBoot.LegacyList -> studwork-legacy.json` | the list file was deleted | restore it as `{ "files": [] }` (or remove the `LegacyList` entry too) |
 | lint: *"remove it from studwork-legacy.json"* | a listed file no longer exists | remove the entry |
 | lint: *"nothing legacy left; remove the entry"* (warning) | the file is clean now | remove the entry |
 | lint: an entry without a reason | every entry needs a non-empty `reason` | add one, or remove the entry |
