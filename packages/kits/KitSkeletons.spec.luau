@@ -53,7 +53,7 @@ describe("v1.7.0 kit definitions", function()
 		expect(l.topReadsPerMinute).toBe(6000)
 		expect(l.weekStartsOn).toBe("monday")
 		local b = Badges.config.defaults
-		expect(b.budget.perMinute).toEqual({ base = 50, perPlayer = 35 })
+		expect(b.budget.perMinute).toEqual({ base = 40, perPlayer = 28 })
 		expect(b.retry.attempts).toBe(6)
 		local t = TextFilter.config.defaults
 		expect(t.maxLength).toBe(40)

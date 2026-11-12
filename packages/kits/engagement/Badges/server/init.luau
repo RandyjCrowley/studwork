@@ -650,6 +650,19 @@ function Badges.new(): any
 			keysById[def.id] = keysById[def.id] or {}
 			table.insert(keysById[def.id], key)
 		end
+		-- placeholders are allowed (recorded, never sent), but named once at boot so none ships by
+		-- mistake (a log line, not a warning: a game in development boots clean)
+		local placeholders: { string } = {}
+		for _, key in BadgeRules.sortedKeys(defs) do
+			if defs[key].id == 0 then
+				table.insert(placeholders, key)
+			end
+		end
+		if #placeholders > 0 then
+			ctx.log.info(
+				`placeholder badges (id 0): {table.concat(placeholders, ", ")}: recorded, never sent; set each config.Badges.badges.<key>.id (Creator Dashboard) before publishing`
+			)
+		end
 
 		ctx.console.register("list", function(_player: any, userId: any): string
 			local player = targetPlayer(userId)
