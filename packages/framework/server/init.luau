@@ -598,8 +598,9 @@ function Server.start(gameConfig: any, serverConfig: any?, opts: any?): any
 		})
 		rt.census = Census.new({
 			fixed = o.census,
-			map = function()
-				return platform.stores.sortedMap(Census.MAP)
+			map = function(name: string?)
+				-- (bucket shards past Census.SHARD_SERVERS servers each get their own map: partition)
+				return platform.stores.sortedMap(name or Census.MAP)
 			end,
 			budget = rt.storeBudget,
 			players = playerCount,

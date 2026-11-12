@@ -1282,13 +1282,19 @@ ctx.data.census() -> { servers: number, players: number, peakPlayers: number, at
   (reserved servers waiting for players) can push it higher: each costs `base`.
 - **The census:** every `censusSeconds` each server adds `{ servers = 1, players = n }` to the
   current time bucket of a framework-owned sorted map (`SW/_/census`, an atomic `update`, expiry
-  10 min) and reads the last complete bucket: `servers` and `players` (= CCU) for the whole
+  10 min) and reads the last complete bucket. Past 500 servers (the last reading) the bucket is
+  split so no one key takes every server's update: `ceil(servers / 500)` shards (at most 16), shard
+  `k > 0` in its own map `SW/_/census/<k>` (its own partition); each server writes one and reads them
+  all (one get each) and adds them up. The bucket gives `servers` and `players` (= CCU) for the whole
   experience, at most two buckets old. The day's peak player count is kept for 9 days, and
   `peakPlayers` is the highest of the last 8 days. Cost: about 3 request units per server per
   `censusSeconds` (an `update` counts as a read and a write; charged to the framework, not a
-  module, and counted but never refused), plus 2 for each module that had new memory charges that
-  cycle and one range read on a server's first cycle; one map partition takes about 10,000
-  servers at the default, more with a longer `censusSeconds`. `ctx.data.census()` gives modules the
+  module, and counted but never refused), plus one per extra bucket shard, plus 2 for each module
+  that had new memory charges that cycle and one range read on a server's first cycle. Each census
+  map takes about `servers x (1 + 2 / shards)` units a minute at the default (every server reads
+  every shard; a shard's writers are `servers / shards`): about 11,000 at 10,000 servers, under a
+  partition's limit of about 30,000. The usage items `u/<Module>` stay single keys (their update
+  answers the experience-wide total): a server updates one only in a cycle with new charges. `ctx.data.census()` gives modules the
   last reading, so they scale their cadences with the server count.
 - **MemoryStore memory:** the quota (`64 KB + 1.2 KB x users`) is experience-wide, and Roblox only
   lowers it 8 days after the users leave, so the framework estimates it as
