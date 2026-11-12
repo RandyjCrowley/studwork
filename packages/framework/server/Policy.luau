@@ -1,7 +1,13 @@
 --!strict
 --[[
 	Framework Policy (ported from v1.2 core/server/Policy). Framework internal; modules see the
-	read-only ctx.policy = { paidRandomRestricted(player), isKnown(player) }.
+	read-only ctx.policy = { paidRandomRestricted(player), isKnown(player), allows(player, field) }.
+
+	allows(player, field) (added in v1.7.0, module-api.md §23.8): a boolean field of the player's
+	PolicyService info (Policy.BOOLEAN_FIELDS; any other name errors). FAIL CLOSED: false until the
+	lookup succeeded and false for a field the answer doesn't carry as `true`. It reads the answer
+	track() already got at join: no extra request. The Studio console override changes only
+	paidRandomRestricted, never allows.
 
 	paidRandomRestricted(player) -> PolicyService ArePaidRandomItemsRestricted. FAIL CLOSED: true
 	until a lookup succeeds, and true if every attempt fails. Lookup: up to MAX_ATTEMPTS tries with
@@ -25,6 +31,7 @@ Policy.BOOLEAN_FIELDS = table.freeze({
 	AreAdsAllowed = true,
 	IsPaidItemTradingAllowed = true,
 	IsSubjectToChinaPolicies = true,
+	IsEligibleToPurchaseSubscription = true,
 })
 
 Policy.MAX_ATTEMPTS = 4

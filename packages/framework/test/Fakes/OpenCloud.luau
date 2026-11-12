@@ -11,6 +11,7 @@
 	request({ secret, method, path, body? }) -> (ok, status, body).
 	Test surface:
 	  requests                      { { secret (the NAME), method, path, body } } in order
+	  secretChecks                  { secret name } every hasSecret call, in order
 	  respond(status, body?)        every later request answers with this (default 200, {})
 	  respondNext(status, body?)    only the next request
 	  failNext(n, status?)          the next n requests answer `status` (default 503)
@@ -40,9 +41,10 @@ function OpenCloudFake.new(opts: any?): any
 	local nextResponses: { any } = {}
 	local fails, failStatus = 0, 503
 	local raises = 0
-	local fake: any = { requests = {} }
+	local fake: any = { requests = {}, secretChecks = {} }
 
 	function fake.hasSecret(name: string): boolean
+		table.insert(fake.secretChecks, name)
 		return secrets[name] == true
 	end
 
