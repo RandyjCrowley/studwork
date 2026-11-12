@@ -85,7 +85,8 @@ local FRAMEWORK_DEFAULT = Freeze.freezeCopy({
 		padding = 12,
 		strokeThickness = 2,
 		minTouchTarget = 44,
-		text = { small = 14, body = 18, title = 24, number = 28, min = 9 },
+		minTextSize = 11,
+		text = { small = 14, body = 18, title = 24, number = 28, min = 14 },
 	},
 	sounds = {
 		rarity_common = { id = 15675055424, volume = 0.4 },
@@ -138,6 +139,8 @@ local function check(theme: any, where: string, errors: { string })
 				if type(m) ~= "table" then
 					table.insert(errors, `{where}.metrics.text must be a table`)
 				end
+			elseif name == "minTextSize" and (type(m) ~= "number" or m ~= m or m < 6 or m > 32) then
+				table.insert(errors, `{where}.metrics.minTextSize must be between 6 and 32`)
 			elseif type(m) ~= "number" then
 				table.insert(errors, `{where}.metrics.{tostring(name)} must be a number`)
 			end

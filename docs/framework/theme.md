@@ -31,7 +31,7 @@ theme = {
 |---|---|---|
 | `colors` | `background` `#1E2235`, `surface` `#2B3050`, `surfaceAlt` `#3A4170`, `outline` `#14172A`, `text` `#FFF8EC`, `textMuted` `#B9BEDA`, `accent` `#FFB547`, `accentAlt` `#5ED1C9`, `currency` `#FFD23F`, `success` `#6BD66B`, `danger` `#FF5D6C`, `warning` `#FFD23F`, `sunlight` `#FFE7B8`, `shadow` `#5A6AA8`, `backdrop` `#000000`, `dropShadow` `#000000` | modules add their own (`leaderboardHighlight`) |
 | `fonts` | `display` Fredoka One, `displayFallback` Builder Sans, `body` Builder Sans | `rbxasset://fonts/families/*.json` |
-| `metrics` | `cornerRadius` 12, `padding` 12, `strokeThickness` 2, `minTouchTarget` 44, `text.small` 14, `text.body` 18, `text.title` 24, `text.number` 28, `text.min` 9 | pixels; 44 px is the mobile touch minimum; `text.min` (v1.6.1) is the smallest size scaled UI kit text shrinks to |
+| `metrics` | `cornerRadius` 12, `padding` 12, `strokeThickness` 2, `minTouchTarget` 44, `text.small` 14, `text.body` 18, `text.title` 24, `text.number` 28, `text.min` 14, `minTextSize` 11 | pixels; 44 px is the mobile touch minimum; `text.min` is the design-pixel floor for scaled text; `minTextSize` is the minimum real on-screen pixel size after responsive and Modal scales |
 | `sounds` | `rarity_common` ... `rarity_secret`, `coin_tick`, `purchase`, `rebirth`, `ui_click`, `ui_error`, `streak`, `event_start` | `{ id, volume?, pitch? }` (id 0 = silent) |
 | `rarity` | contributed by Collection's Rarity: `{ tiers = <resolved list> }` | tier order is list order |
 
@@ -99,13 +99,12 @@ a screen and registers it from `src/client/Screens/init.luau`.
   and asset ids in UI and client code outside theme and config files (the `theme` guardrail).
 - UI kit buttons fit their text for any theme font (`TextScaled` with the theme size as the
   maximum), so a wider display font doesn't overflow.
-- Table cells (v1.6.1, `UI.OddsTable`) are Scale fractions of the row (`UI.OddsLayout.columns`),
-  and their text is `TextScaled` (item names also `TextWrapped`) with a `UITextSizeConstraint` from
-  `text.min` to the theme size; nothing uses `TextTruncate`. The odds panel fits at these
-  viewports (landscape, plus phone portrait): Studio default (1280x720 stand-in), small phone
-  667x375 (iPhone SE), large phone 926x428 (iPhone 14 Pro Max), tablet 1024x768 (iPad).
-  `OddsTable.spec` checks the structure; the rendered check is a Studio playtest
-  (`TextLabel.TextFits` on every label).
+- Table cells (`UI.OddsTable`) keep Scale-fraction columns. Names stay at a fixed readable size,
+  wrap to two lines and ellipsize; tapping reveals the full name. Rarity and percentages still
+  use bounded TextScaled sizes. `metrics.minTextSize` defaults to 11 real on-screen pixels;
+  `text.min` defaults to 14 design pixels. Modal content scrolls rather than scaling below that
+  floor. Multiline notices use `UI.WrappedText`, whose measured height follows width and text.
+  Check 1280x720, 667x375, 926x428, and 1024x768 in Studio.
 - Paid random items: show the server's disclosed odds (`UI.OddsTable` with the replicated
   `odds[tableId]`) before rolling or prompting, and don't prompt players whose
   `state.framework.paidRandomRestricted` isn't `false`.

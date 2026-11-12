@@ -20,7 +20,7 @@
 local TextFit = {}
 
 -- Smallest size fixed-width text may shrink to (readable on a phone).
-TextFit.MIN_TEXT_SIZE = 9
+TextFit.MIN_TEXT_SIZE = 14
 
 export type LabelFit = {
 	TextScaled: boolean,

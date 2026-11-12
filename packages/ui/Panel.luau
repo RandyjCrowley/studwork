@@ -27,6 +27,7 @@ export type Props = {
 	anchorPoint: Vector2?,
 	layoutOrder: number?,
 	color: string?,
+	zIndex: number?,
 	automaticSize: Enum.AutomaticSize?,
 	children: any,
 }
@@ -42,6 +43,7 @@ local function Panel(props: Props)
 		Position = props.position,
 		AnchorPoint = props.anchorPoint,
 		LayoutOrder = props.layoutOrder,
+		ZIndex = props.zIndex,
 	}, {
 		Corner = Primitives.corner(),
 		Stroke = Primitives.stroke(),

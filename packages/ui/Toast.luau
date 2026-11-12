@@ -7,11 +7,11 @@
 ]]
 
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
-local TweenService = game:GetService("TweenService")
 
 local React = require(ReplicatedStorage:WaitForChild("Packages"):WaitForChild("React"))
 local Primitives = require(script.Parent.Primitives)
 local Theme = require(script.Parent.Theme)
+local WrappedText = require(script.Parent.WrappedText)
 
 local e = React.createElement
 
@@ -23,34 +23,23 @@ export type Props = {
 	onDismiss: (() -> ())?,
 }
 
-local IN_INFO = TweenInfo.new(0.22, Enum.EasingStyle.Back, Enum.EasingDirection.Out)
-
 local function Toast(props: Props)
-	local scaleRef = React.useRef(nil :: UIScale?)
-	React.useEffect(function()
-		local s = scaleRef.current
-		if s then
-			s.Scale = 0.6
-			TweenService:Create(s, IN_INFO, { Scale = 1 }):Play()
-		end
-	end, {})
+	local measured, setMeasured = React.useState(Theme.touchTarget)
 	local strokeColor = if props.rarity then (Theme.rarity(props.rarity)) else Theme.color("accent")
 	local text = props.text
 	if props.count and props.count > 1 then
 		text ..= "  x" .. tostring(props.count)
 	end
 	return e("TextButton", {
-		Text = text,
+		Text = "",
 		AutoButtonColor = false,
 		FontFace = Theme.font("bold"),
 		TextSize = Theme.text.body,
-		TextWrapped = true,
 		TextColor3 = Theme.color("text"),
 		BackgroundColor3 = Theme.color("surface"),
 		BackgroundTransparency = 0.05,
 		BorderSizePixel = 0,
-		Size = UDim2.fromScale(1, 0),
-		AutomaticSize = Enum.AutomaticSize.Y,
+		Size = UDim2.new(1, 0, 0, math.max(Theme.touchTarget, measured)),
 		LayoutOrder = props.layoutOrder,
 		[React.Event.Activated] = function()
 			if props.onDismiss then
@@ -58,10 +47,16 @@ local function Toast(props: Props)
 			end
 		end,
 	}, {
-		Scale = e("UIScale", { ref = scaleRef }),
 		Corner = Primitives.corner(),
 		Stroke = Primitives.stroke(strokeColor, 2),
-		Padding = Primitives.padding(10),
+		Message = e(WrappedText, {
+			text = text,
+			textSize = "body",
+			font = "bold",
+			color = "text",
+			padding = 10,
+			onHeight = setMeasured,
+		}),
 		Height = e("UISizeConstraint", { MinSize = Vector2.new(0, Theme.touchTarget) }),
 	})
 end

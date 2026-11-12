@@ -29,6 +29,7 @@ UI.HudLayout = require(script.HudLayout)
 
 UI.Button = require(script.Button)
 UI.Panel = require(script.Panel)
+UI.WrappedText = require(script.WrappedText)
 UI.ItemCard = require(script.ItemCard)
 UI.RarityBadge = require(script.RarityBadge)
 UI.Toast = require(script.Toast)
