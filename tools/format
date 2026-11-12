@@ -6,6 +6,7 @@
 # `warning: [legacy] ...` line each, as in lint): don't reformat old code you're about to delete.
 #   --check   check only (lint's stylua step alone); exit 1 when a file isn't formatted.
 source "$(dirname "$0")/_common.sh"
+help_if_asked "$0" "$@"
 # shellcheck source=tools/_luau-files
 source "$(dirname "$0")/_luau-files"
 

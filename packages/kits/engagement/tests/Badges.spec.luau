@@ -307,6 +307,59 @@ describe("Badges: record, then send", function()
 		expect(h:saved(p).badges.awarded.first.sent).toBe(false)
 	end)
 
+	it(
+		"Studio feedback: the client gets Awarded and a marked toast once, the record stays pending",
+		function()
+			local h, fake, events =
+				boot({ badges = { badges = { first = { id = 101, trigger = MANUAL } } }, isStudio = true })
+			local p = h:addPlayer({ userId = 1 })
+			local signals = 0
+			h:use(Badges).signals.BadgeAwarded:Connect(function()
+				signals += 1
+			end)
+			h:use(Badges).award(p, "first")
+			h:tick(30)
+			expect(#events).toBe(1)
+			expect(events[1].args[1]).toBe("first")
+			expect(toasts(h, p)).toEqual({ "Badge earned: first (Studio preview, not sent)" })
+			expect(signals).toBe(0) -- Roblox did not confirm anything
+			expect(calls(fake, "AwardBadgeAsync")).toBe(0)
+			h:use(Badges).award(p, "first") -- already recorded: never twice
+			h:tick(30)
+			expect(#events).toBe(1)
+			expect(#toasts(h, p)).toBe(1)
+			h:removePlayer(p)
+			expect(h:saved(p).badges.awarded.first.sent).toBe(false)
+		end
+	)
+
+	it("Studio feedback also covers a placeholder id 0, and studioFeedback = false turns it off", function()
+		local h, _, events =
+			boot({ badges = { badges = { first = { id = 0, trigger = MANUAL } } }, isStudio = true })
+		local p = h:addPlayer({ userId = 1 })
+		h:use(Badges).award(p, "first")
+		h:tick(30)
+		expect(#events).toBe(1)
+		local h2, _, events2 = boot({
+			badges = { badges = { first = { id = 0, trigger = MANUAL } }, studioFeedback = false },
+			isStudio = true,
+		})
+		local p2 = h2:addPlayer({ userId = 1 })
+		h2:use(Badges).award(p2, "first")
+		h2:tick(30)
+		expect(#events2).toBe(0)
+		expect(toasts(h2, p2)).toEqual({})
+	end)
+
+	it("live (not Studio) never shows the preview: a placeholder id sends nothing to the client", function()
+		local h, _, events = boot({ badges = { badges = { first = { id = 0, trigger = MANUAL } } } })
+		local p = h:addPlayer({ userId = 1 })
+		h:use(Badges).award(p, "first")
+		h:tick(30)
+		expect(#events).toBe(0)
+		expect(toasts(h, p)).toEqual({})
+	end)
+
 	it("Studio with awardInStudio = true sends like live", function()
 		local h, fake = boot({
 			badges = { badges = { first = { id = 101, trigger = MANUAL } }, awardInStudio = true },

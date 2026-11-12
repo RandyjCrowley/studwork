@@ -175,7 +175,7 @@ Every field is scoped to the module that receives it.
 | `ctx.compliance` | `registerRandomSource`, `roll`, `spendForRoll`, `tagPaid`, `isPaidCurrency`, `paidCurrencies`, `disclose`, `disclosed`, `registerCurrencySpender` ([Compliance](#random-outcomes-compliance)) |
 | `ctx.shop` | `onProduct(product, fn(tx))`, `onPassOwned(pass, fn(player))`, `ownsPass(player, pass)` ([Purchases](#purchases)) |
 | `ctx.events` | `schedule(id, schedule?, fn(event))`, `trigger`, `isActive(id)`, `onEnded(id, fn)` (live events from `GameConfig.events`) |
-| `ctx.policy` | read-only: `paidRandomRestricted(player)`, `isKnown(player)`, `allows(player, field) -> boolean` (v1.7.0: a boolean `PolicyService` field such as `IsContentSharingAllowed`; false until the lookup succeeds) |
+| `ctx.policy` | read-only: `paidRandomRestricted(player)`, `isKnown(player)`, `allows(player, field) -> boolean` (v1.7.0: a boolean `PolicyService` permission field such as `IsContentSharingAllowed`; false until the lookup succeeds), `restricted(player, field) -> boolean` (v1.7.0: `ArePaidRandomItemsRestricted` or `IsSubjectToChinaPolicies`; true until the lookup succeeds) |
 | `ctx.analytics` | `funnel(player, step)`, `economy(...)`, `custom(player, name, value, fields?)` |
 | `ctx.console` | `register(command, fn(player, ...), help?)`; the command is typed with the module's lower-case name in front: module `MyGame` -> `mygame points` (`Invoke("mygame", "points")`, `h:console("mygame", "points")`). Name an unused first parameter `_player` (selene's `unused_variable`) |
 | `ctx.log` | `info`, `warn`, `debug`, tagged `[<Module>]` |

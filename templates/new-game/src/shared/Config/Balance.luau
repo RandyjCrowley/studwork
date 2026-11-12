@@ -173,7 +173,7 @@ local Balance = {
 		-- templates = { eggReady = { messageId = "" } }, -- "" is a placeholder: scheduled and limited, never sent
 		templates = {},
 		-- secret = "OpenCloudNotifications", -- also allow it in ServerConfig.openCloud
-		-- defaults: sendInStudio = false, optIn = { minSessionSeconds = 180, cooldownDays = 30 }, limits = { perPlayerPerDay = 1 }
+		-- defaults: sendInStudio = false, optIn = { minSessionSeconds = 180, cooldownDays = 30 }, limits = { perPlayerPerDay = 1, perActorPerDay = 10 }
 	},
 	-- @end
 	-- @if Friends

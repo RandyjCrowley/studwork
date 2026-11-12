@@ -653,6 +653,9 @@ ctx.compliance.tagPaid(source) -- "paid:<id>" / "paidcur:<id>", applied automati
 
 ## 15. Testing modules
 
+(The full guide, with a worked game-module spec and every harness option, is
+[testing.md](testing.md).)
+
 `StudWork.test` runs in Lune, with no Studio needed:
 
 ```lua
@@ -823,6 +826,9 @@ a module's client `start` or from a game's client script. Games hide a widget wi
 `GameConfig.client.hud = { widgets = { [id] = false } }`.
 
 ### 19.5 `StudWork.test` in full (added in v1.3.0: §15 sketched the harness; real specs needed shared stores, failure injection and several servers)
+
+(See also [testing.md](testing.md): the method table and a worked example. v1.7.0 added `h:sent`
+and the Workspace, Players and HttpService fakes, §23.10.)
 
 `StudWork.test` is Lune-only: the test kit serves it (`packages/framework/test/Public.luau`), and
 it's never in a game build (outside Lune it errors).
@@ -1454,6 +1460,13 @@ UI.text(key, args?) -> string ; UI.useText(key, args?) -> string   -- UI kit (ho
   `configService(opts)`, `openCloud(opts)`, `translator(opts)`,
   `experienceNotificationService(opts)` (for client-part specs). Each records its calls and
   takes `failNext(n)`. Options are on the module pages.
+- (Guide: [testing.md](testing.md).) The fake `game` now has `Workspace` (an empty world, also the
+  `workspace` global), `Players` (lists the harness's players; `h:addPlayer` / `h:removePlayer`
+  keep it) and `HttpService` (`GenerateGUID`, JSON). A module whose `net.blink` declares events
+  gets a fake `part.net` with one recording event per Blink event, and
+  `h:sent(Module?, Event?)` returns what the server sent through them (`{ event, player, args }`),
+  so `suggestOptIn` and other server-to-client calls are testable. `h:action(p, Ref, name, ...)`
+  is the client calling an action.
 - Client runtime test options: `env`, `placeId`, `locale`, `translator`, `flags` (the replicated
   values), so client parts and `UI.text` are testable in Lune.
 

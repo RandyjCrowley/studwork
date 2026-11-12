@@ -1000,6 +1000,28 @@ function Server.start(gameConfig: any, serverConfig: any?, opts: any?): any
 			rest = 2
 		end
 		if cmd == nil then
+			local near = {}
+			local typed = string.lower(words[1] or "")
+			if typed ~= "" then
+				for key in rt.console do
+					local first, second = string.match(key, "^(%S+)%s*(%S*)")
+					if first ~= nil and first ~= typed and string.sub(first, 1, #typed) == typed then
+						-- `dogfood points` -> `dogfoodgame points` (the prefix is the lower-case module name)
+						if words[2] == nil or second == "" or second == words[2] then
+							table.insert(near, key)
+						end
+					end
+				end
+			end
+			table.sort(near)
+			if #near > 0 then
+				local shown = {}
+				for k = 1, math.min(#near, 4) do
+					shown[k] = `'{near[k]}'`
+				end
+				return false,
+					`unknown command '{line}': did you mean {table.concat(shown, ", ")}? (try 'help')`
+			end
 			return false, `unknown command '{line}' (try 'help')`
 		end
 		return pcall(cmd.fn, player, table.unpack(words, rest))

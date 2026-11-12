@@ -31,6 +31,8 @@ local EconomyDef = require(Modules:WaitForChild("Economy"):WaitForChild("module"
 local Upgrades = require(Modules:WaitForChild("Upgrades"):WaitForChild("module"))
 local Rebirth = require(Modules:WaitForChild("Rebirth"):WaitForChild("module"))
 local Mail = require(Modules:WaitForChild("Mail"):WaitForChild("module"))
+local Leaderboards = require(Modules:WaitForChild("Leaderboards"):WaitForChild("module"))
+local HudRules = require(ReplicatedStorage:WaitForChild("Game"):WaitForChild("HudRules"))
 
 local e = React.createElement
 
@@ -42,6 +44,16 @@ local upgrades = StudWork.use(Upgrades)
 local rebirth = StudWork.use(Rebirth)
 local rarity = StudWork.use(Rarity)
 local mail = StudWork.use(Mail)
+-- optional modules: the sandbox runs without them (the button then never shows)
+local function listed(ref: any): boolean
+	for _, m in Config.modules do
+		if m == ref then
+			return true
+		end
+	end
+	return false
+end
+local leaderboards = if listed(Leaderboards) then StudWork.use(Leaderboards) else nil
 local PRIMARY = Balance.Economy.primaryCurrency
 
 -- The mailbox: the HUD shows "Mailbox (N)" while gifts wait (full inventory); tapping opens this.
@@ -83,6 +95,17 @@ local function ActionBar()
 	local mailSlice = ReactCharm.useAtom(mail.state)
 	local oddsFor_, setOddsFor = React.useState("")
 	local showMailbox = ReactCharm.useAtom(mailboxOpen)
+	-- Flag-gated elements (HudRules): the replicated flags are part of `state`, so a live
+	-- `flags set leaderboardButton false` re-renders this without a restart
+	local replicatedFlags = if state.framework then state.framework.flags else nil
+	local visible = HudRules.visible(function(name: string): boolean
+		if type(replicatedFlags) == "table" and replicatedFlags[name] ~= nil then
+			return replicatedFlags[name] == true -- this render's snapshot: never a step behind
+		end
+		return StudWork.flags.isOn(name)
+	end)
+	local boardLabel = UI.useText("game.leaderboards")
+	local debugLabel = UI.useText("game.debug", { env = StudWork.env.name() })
 	local restricted = if state.framework then state.framework.paidRandomRestricted ~= false else true
 	local mailRows: { [string]: any } = {}
 	local mailbox: { any } = (mailSlice.extra and mailSlice.extra.mailbox) or {}
@@ -150,6 +173,26 @@ local function ActionBar()
 					rebirth.actions.rebirth()
 				end,
 			}),
+			-- opens the Leaderboards screen on the dailyTouches board (a tab per board, the
+			-- player's own row highlighted and pinned when outside the top N)
+			Leaderboards = if leaderboards ~= nil and visible.leaderboards
+				then e(UI.Button, {
+					text = boardLabel,
+					variant = "secondary",
+					layoutOrder = 5,
+					onActivated = function()
+						leaderboards.open(HudRules.BOARD)
+					end,
+				})
+				else nil,
+			-- debug-only (testOnly flag): never shown in live
+			Debug = if visible.debug
+				then e(UI.WrappedText, {
+					text = debugLabel,
+					textSize = 14,
+					layoutOrder = 6,
+				})
+				else nil,
 		}),
 		Mailbox = e(UI.Modal, {
 			open = showMailbox and #mailbox > 0,

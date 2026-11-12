@@ -190,6 +190,21 @@ die() {
 	exit 1
 }
 
+# help_if_asked <script> "$@": with --help or -h anywhere in the arguments, print the script's
+# leading comment block (its usage) and exit 0 (v1.7.0). Works in core, games-repo and
+# single-game modes alike (the usage is the tool's own header).
+help_if_asked() {
+	local script="$1"
+	shift
+	local a
+	for a in "$@"; do
+		if [ "$a" = "--help" ] || [ "$a" = "-h" ]; then
+			awk 'NR == 1 { next } /^#/ { sub(/^# ?/, ""); print; next } { exit }' "$script"
+			exit 0
+		fi
+	done
+}
+
 # Load the PROJECT's git-ignored .env if present (KEY=VALUE lines). Never echo values: xtrace is
 # switched off while it is sourced (a `bash -x` trace would otherwise print every assignment) and
 # restored after.

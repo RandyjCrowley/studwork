@@ -242,6 +242,9 @@
       "$properties": {
         "Technology": "Future"
       }
+    },
+    "LocalizationService": {
+      "$path": "src/shared/Localization"
     }
   }
 }

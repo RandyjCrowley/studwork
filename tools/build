@@ -5,6 +5,7 @@
 # foundation-only.project.json) are built too, as build/<name>-<extra>.rbxl. In a single-game
 # project (v1.5.0) the root game is built to build/<deploy.json name>.rbxl (no argument needed).
 source "$(dirname "$0")/_common.sh"
+help_if_asked "$0" "$@"
 
 DIRS=""
 if is_single_game; then

@@ -22,6 +22,7 @@ waits for `BadgeService`.
 |---|---|---|
 | `flag` | none | a feature flag ([environments](environments.md)); while off, triggers are still recorded as pending but nothing is sent or checked; switching it on sends the queue. An undeclared flag is a boot error |
 | `badges` | `{}` | `{ [key] = { id = <badge id>, trigger = Trigger, toast = true } }`; `key` matches `^[%w_]{1,32}$`. `id = 0` is a placeholder: allowed, recorded as usual, never sent or checked. Every placeholder is named in one log line at boot (`placeholder badges (id 0): <keys>: ...`; a log line, not a warning, so a game in development boots clean), and once more as a warning per server the first time it would be sent |
+| `studioFeedback` | `true` | in Studio, a record that is not sent (`awardInStudio = false`, or a placeholder id) still fires the client `Awarded` event and shows the toast, marked `Badges.awardedStudio` ("... (Studio preview, not sent)"), once per player and key per session; the record stays pending and the `BadgeAwarded` signal does not fire (it means Roblox confirmed). Lets a game see and test its badge UI. Live never does this |
 | `awardInStudio` | `false` | in Studio, an award is recorded in the (Studio) save like live and logged (`would award ...`), but never sent: it stays pending. Studio saves are separate from live ones |
 | `ownershipCheck` | `true` | at join, check which configured badges the player already owns or has pending (batches of 10) and record those as awarded without sending |
 | `retry` | `{ base = 5, factor = 2, max = 300, attempts = 6 }` | backoff between send attempts; after `attempts` failures in a session the badge stays pending for the next session |
@@ -124,7 +125,7 @@ state) and `StudWork.use(Badges).onAwarded(fn(key)) -> Connection` (the server-f
 | Badge disabled on the dashboard | skipped, stays pending, one warning per server |
 | Over `budget.perMinute` | queued until the next minute |
 | Player leaves mid-queue | stays pending; queued again on their next join |
-| Studio (`awardInStudio = false`) | recorded in the Studio save, logged, never sent (stays pending); the join ownership check still reads |
+| Studio (`awardInStudio = false`) | recorded in the Studio save, logged, never sent (stays pending); the client still gets `Awarded` and a toast marked as a Studio preview once per session (`studioFeedback`); the join ownership check still reads |
 | Placeholder `id = 0` | recorded, never sent or checked; named in one log line at boot, then one warning per server on first use |
 
 ## Tests (mocked)

@@ -5,6 +5,7 @@
 # Core-only: it tests the framework itself. A games repo's game boot specs (src/server/Boot.spec.luau)
 # already run the sim through tools/test.
 source "$(dirname "$0")/_common.sh"
+help_if_asked "$0" "$@"
 
 if is_games_repo; then
 	echo "test-sim: framework suite; run it in the core repo (games' Boot specs run in tools/test)"

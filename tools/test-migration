@@ -7,5 +7,6 @@
 # tools/lune/MigrationCheck.luau. In a single-game project the game is the root (no game
 # argument); in the core repo / a games repo give the game folder. Exit 1 on any failure.
 source "$(dirname "$0")/_common.sh"
+help_if_asked "$0" "$@"
 
 lune_tool test-migration "$@"

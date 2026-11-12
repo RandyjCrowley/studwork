@@ -64,10 +64,54 @@ Identifiers like `R19` or `V1` are issue ids: open ones are listed in [docs/know
   kit contract, guardrails, UI README, manual QA checklist ("New in v1.7.0") and known issues O8 to O12
   and U5.
 
+  - Added after review and dogfooding: `ctx.policy.restricted(player, field)` (restriction fields,
+    true until known); Notifications `actor` on `send` and `schedule` with
+    `limits.perActorPerDay` (default 10, answer `"actor_limit"`); one boot log line naming every
+    placeholder badge id and Notifications `messageId`; a console reply that suggests near matches
+    for an unknown command (`dogfood points` -> `dogfoodgame points`).
+  - Docs and tools for game authors: `docs/framework/testing.md` (worked game-module spec, every
+    harness option) and a scaffolded `src/server/GameModule.spec.luau`; `--help` / `-h` on
+    `tools/new-project`, `new-game`, `build`, `dev`, `typecheck`, `make-module` and
+    `make-migration` (usage, exit 0, in core, games-repo and single-game modes);
+    `tools/typecheck --offline`; `tools/lint` says "run tools/format" when stylua fails.
+  - Testing: the harness's fake `game` has `Workspace`, `Players` and `HttpService`; a part with a
+    `net.blink` gets a recording `part.net`; `h:sent(Module?, Event?)` reads what the server sent
+    to clients.
+
+### Changed
+
+- Badges: in Studio a record that is not sent (`awardInStudio = false`, or a placeholder id) now
+  fires the client `Awarded` event and shows a toast marked "(Studio preview, not sent)", once per
+  player and key per session; new config `studioFeedback` (default `true`) turns it off, and the
+  `BadgeAwarded` signal still means Roblox confirmed. Live behaviour is unchanged.
+- The sandbox shows each new module in Studio: a flag-gated HUD Leaderboards button
+  (`leaderboardButton`), a testOnly debug label, the notifications opt-in reachable in a first
+  session (`optIn.minSessions = 0` and `minSessionSeconds = 30` as demo values, `sandbox optin`) and
+  a mapped `src/shared/Localization/game.csv` with English and `es` rows. The template's
+  `game.csv` has one example row.
+- `ctx.policy.allows` takes permission fields only; restriction fields use `ctx.policy.restricted`.
+- Environments: a test universe id counts only once `live.universeIds` lists the live universe
+  (otherwise it is ignored with one boot warning and the server resolves live). The order is
+  studio, test place, live place, test universe, live.
+- `StudWork.start` environment options (`env`, `isStudio`) count only with an injected platform
+  (tests); in production they are ignored with one warning.
+- The `textfilter` lint: only TextFilter's return values count as clean (a name stays tainted after
+  a filter call); named handlers (`handler = f`, `actions.x = f`) and untyped parameters are scanned.
+- The census bucket splits into up to 16 shards past 500 servers, each in its own sorted map.
+- Notifications: a quiet-hours offset is kept in the ledger for offline recipients; a malformed
+  `messageId` is a boot error. Badges: the default award budget is 80% of Roblox's limit
+  (`base = 40`, `perPlayer = 28`). TextFilter: `shownMaxDays` defaults to 7, and a `textFor` cache
+  miss counts against the author's rate limit.
+- The scaffolded game module's description, version check and `dependsOn` comment are neutral;
+  `new-game` rewrites the console prefix in the scaffold's help text.
+
 ### Fixed
 
 - `tools/net` no longer fails in roblox-core, where there is no `games/` folder: it only searches the
   roots that exist.
+- `--help` and `-h` now print usage and exit 0 on every tool. `tools/build`, `dev` and `typecheck`
+  answered "no such game", `make-module`, `make-migration` and `make-screen` reported an unknown
+  option, and `tools/sync-projects`, `test-adopt` and `test-games-repo` ran instead of helping.
 
 ## [1.6.2] - 2026-11-12
 

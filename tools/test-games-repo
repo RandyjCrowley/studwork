@@ -13,6 +13,7 @@
 # (normal, partial, and a refused submodule bump mixed with game files). Exit 1 if any step
 # fails. --keep leaves the temp repo for inspection.
 source "$(dirname "$0")/_common.sh"
+help_if_asked "$0" "$@"
 
 is_games_repo && die "run tools/test-games-repo in the roblox-core repo itself"
 KEEP=0
@@ -134,6 +135,21 @@ check "framework-status: the pinned tag" grep -q "at $TAG" "$LOGS/framework-stat
 step doctor tools/doctor
 check "doctor: framework pin ok" grep -q "framework pin .*$TAG, clean" "$LOGS/doctor.log"
 step dev-print tools/dev demo --print
+step "help: build" tools/build --help
+step "help: dev" tools/dev --help
+step "help: typecheck" tools/typecheck --help
+step "help: make-module" tools/make-module --help
+step "help: make-migration" tools/make-migration --help
+step "help: make-screen" tools/make-screen --help
+step "help: sync-projects" tools/sync-projects --help
+step "help: lint" tools/lint --help
+step "help: test" tools/test --help
+step "help: format" tools/format --help
+step "help: doctor" tools/doctor --help
+step "help: net" tools/net --help
+step "help: publish" tools/publish --help
+step "help: install" tools/install --help
+check "help: usage printed (exit 0 for every tool)" grep -q "usage: tools/make-module" "$LOGS/help: make-module.log"
 check "dev: serves the game's project" grep -q "rojo serve games/demo/default.project.json" "$LOGS/dev-print.log"
 
 # the checks really look at the game's files (each planted problem is caught, then reverted)

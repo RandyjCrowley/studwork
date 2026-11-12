@@ -129,6 +129,10 @@ local Balance = {
 	},
 	Notifications = {
 		-- messageId = "" is a placeholder: scheduled and limited as usual, never sent
+		-- Demo values so the opt-in is reachable in Studio: the defaults are minSessionSeconds = 180
+		-- and minSessions = 1 (a first-session player is never asked). Here the prompt can be
+		-- requested 30 s into the first session (`sandbox optin`, or the 30 s loop); never on join.
+		optIn = { minSessionSeconds = 30, minSessions = 0 },
 		templates = {
 			eggReady = { messageId = "", params = {}, category = "egg" },
 			streakEnding = { messageId = "", hoursBefore = 4, minStreak = 3 },

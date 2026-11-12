@@ -372,6 +372,17 @@ for another server. A game that sends many notifications from servers with few p
   grows (`max(pollSeconds, 60 x servers / (shards x pollsPerShardPerMinute))`, above). A due entry
   inside the recipient's quiet hours is moved to their `endHour`, not sent, so pick due times in
   open hours (or set `quiet = { startHour = 0, endHour = 0 }`, no quiet hours).
+- **The opt-in without stubbing the part.** The harness gives the part a recording `net`
+  (testing.md), so no hand-made part is needed:
+
+  ```lua
+  expect(api.suggestOptIn(p, "egg")).toBe(true)
+  local asked = h:sent("Notifications", "PromptOptIn")      -- { { event, player, args = { requestId } } }
+  expect(#asked).toBe(1)
+  h:action(p, Notifications, "optInShown", asked[1].args[1], true)   -- the client's answer
+  ```
+
+  Guide: [testing.md](../testing.md).
 - Specs drive the whole flow: `suggestOptIn` before `minSessionSeconds` (refused) and after
   (client event fired); `optInShown` with the right and a wrong `requestId`; `send` within/over the
   limits; quiet hours move a send; `schedule` + `h:tick` past the due time + poll -> one Open Cloud
