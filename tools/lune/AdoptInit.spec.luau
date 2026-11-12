@@ -482,3 +482,38 @@ describe("AdoptInit (v1.6.0 dogfood r2)", function()
 		expect(again).toBe(merged)
 	end)
 end)
+
+-- (v1.6.0 dogfood r3) every old Luau source lists the "style" pseudo-check
+describe("AdoptInit.legacyList with the old sources (style)", function()
+	it(
+		"adds style to every old source; a style-only file gets {} in the baseline and the style reason",
+		function()
+			local findings = AdoptInit.parseFindings(
+				"src/server/Shop.server.luau:3: [numbers] balance number in game code\n"
+			)
+			local list, baseline = AdoptInit.legacyList(
+				findings,
+				nil,
+				{ "src/server/Shop.server.luau", "src/client/Main.client.lua" }
+			)
+			expect(#list.files).toBe(2)
+			expect(list.files[1]).toEqual({
+				path = "src/client/Main.client.lua",
+				checks = { "style" },
+				reason = AdoptInit.STYLE_REASON,
+			})
+			expect(list.files[2].checks).toEqual({ "numbers", "style" })
+			expect(list.files[2].reason).toBe("existing code before StudWork: numbers")
+			expect(baseline.files["src/client/Main.client.lua"]).toEqual({})
+			expect(baseline.files["src/server/Shop.server.luau"]).toEqual({ numbers = 1 })
+			local text = AdoptInit.renderStudworkJson(SyncProjects, nil, baseline)
+			expect(text).toContain('"src/client/Main.client.lua": {}')
+		end
+	)
+	it("without old sources nothing changes (older guardrails don't know style)", function()
+		local list = AdoptInit.legacyList(AdoptInit.parseFindings(FINDINGS), nil, nil)
+		for _, e in list.files do
+			expect(table.find(e.checks, "style")).toBeNil()
+		end
+	end)
+end)

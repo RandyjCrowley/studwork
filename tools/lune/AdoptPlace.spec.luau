@@ -418,3 +418,113 @@ describe("AdoptPlace.strip", function()
 		fs.removeDir(root2)
 	end)
 end)
+
+-- (v1.6.0 dogfood r3) the extracted scripts stay in the place: --from-place records them,
+-- the audit lists them (placeDuplicates), --verify refuses, --strip-place --extracted removes them
+describe("AdoptPlace: extracted scripts left in the place", function()
+	local function project(): (string, string)
+		local root = tmpRoot()
+		local game = Instance.new("DataModel")
+		local sss = game:GetService("ServerScriptService")
+		local saver = new("Script", "DataManager", sss, "print('save')\n")
+		new("ModuleScript", "Helper", saver, "return 1\n") -- goes with its script
+		local systems = new("Folder", "Systems", sss)
+		new("Script", "Combat", systems, "print('combat')\n")
+		local rs = game:GetService("ReplicatedStorage")
+		new("ModuleScript", "Items", rs, "return {}\n")
+		new("RemoteEvent", "Buy", rs) -- not a script: never recorded
+		local ws = game:GetService("Workspace")
+		local pad = new("Part", "Pad", ws)
+		new("Script", "PadScript", pad, "print('pad')\n") -- not extracted (not a code container)
+		fs.writeFile(root .. "/my-game.rbxlx", roblox.serializePlace(game, true))
+		local res, err = Place.run(env, root .. "/my-game.rbxlx", root)
+		assert(res, err)
+		fs.writeFile(
+			root .. "/studwork.json",
+			'{\n  "layout": "single-game",\n  "framework": "studwork",\n  "adopted": true,\n  "placeFile": "my-game.rbxlx"\n}\n'
+		)
+		return root, "my-game.rbxlx"
+	end
+	local EXTRACTED = {
+		"ReplicatedStorage.Items",
+		"ServerScriptService.DataManager",
+		"ServerScriptService.Systems.Combat",
+	}
+
+	it("--from-place records every extracted script (topmost only) in the manifest", function()
+		local root = project()
+		expect(readJson(root .. "/" .. Audit.MANIFEST).extracted).toEqual(EXTRACTED)
+		fs.removeDir(root)
+	end)
+
+	it("the audit lists them as placeDuplicates (high risk, a plan step); --verify refuses", function()
+		local root = project()
+		local report = Audit.run(env, { root }, { write = false })
+		local paths = {}
+		for _, d in report.placeDuplicates do
+			table.insert(paths, d.path)
+		end
+		expect(paths).toEqual(EXTRACTED)
+		local high = {}
+		for _, r in report.risks do
+			if r.level == "high" then
+				high[string.match(r.id, "^([^:]+)")] = true
+			end
+		end
+		expect(high.place_duplicate).toBe(true)
+		local ids = {}
+		for _, s in report.plan do
+			ids[s.id] = true
+		end
+		expect(ids["strip-place"]).toBe(true)
+		expect(Audit.markdown(report)).toContain("## Extracted scripts still in the place")
+		local issues = Audit.verifyIssues(env, root)
+		expect(table.concat(issues, "\n")).toContain(
+			"`ServerScriptService.DataManager` is still in my-game.rbxlx (old code runs next to StudWork): run tools/adopt --strip-place . --extracted"
+		)
+		fs.removeDir(root)
+	end)
+
+	it(
+		"--strip-place --extracted removes every recorded one still there; then --verify passes that check",
+		function()
+			local root, file = project()
+			local original = fs.readFile(root .. "/" .. file)
+			local res, err = Place.strip(env, root, {}, { extracted = true })
+			expect(err).toBeNil()
+			expect(#res.removed).toBe(3)
+			expect(res.out).toBe("my-game.studwork.rbxlx")
+			expect(fs.readFile(root .. "/" .. file)).toBe(original)
+			local copy = roblox.deserializePlace(fs.readFile(root .. "/my-game.studwork.rbxlx"))
+			for _, p in EXTRACTED do
+				expect(#Place.find(copy, p)).toBe(0)
+			end
+			expect(#Place.find(copy, "ReplicatedStorage.Buy")).toBe(1)
+			expect(#Place.find(copy, "Workspace.Pad.PadScript")).toBe(1)
+			local issues = Audit.verifyIssues(env, root)
+			expect(string.find(table.concat(issues, "\n"), "is still in", 1, true)).toBeNil()
+			-- a rerun is a no-op (nothing left), never an error
+			local again, err2 = Place.strip(env, root, {}, { extracted = true })
+			expect(err2).toBeNil()
+			expect(again.nothing).toBe(true)
+			fs.removeDir(root)
+		end
+	)
+
+	it("--extracted with named paths strips both; an older manifest without the list is refused", function()
+		local root = project()
+		local res = Place.strip(env, root, { "Workspace.Pad.PadScript" }, { extracted = true })
+		expect(#res.removed).toBe(4)
+		fs.removeDir(root)
+		local root2 = project()
+		local m = readJson(root2 .. "/" .. Audit.MANIFEST)
+		m.extracted = nil
+		fs.writeFile(root2 .. "/" .. Audit.MANIFEST, serde.encode("json", m))
+		local none, e = Place.strip(env, root2, {}, { extracted = true })
+		expect(none).toBeNil()
+		expect(e).toContain('has no "extracted" list')
+		-- the audit still finds them (derived: every script --from-place would extract)
+		expect(#Audit.run(env, { root2 }, { write = false }).placeDuplicates).toBe(3)
+		fs.removeDir(root2)
+	end)
+end)

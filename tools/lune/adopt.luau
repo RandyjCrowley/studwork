@@ -18,6 +18,10 @@
 	                                    report's notExtracted[].path) -> <name>.studwork.rbxlx next
 	                                    to it, studwork.json pointed at the copy. The original is
 	                                    never modified; run again to remove more from the copy.
+	                                    (r3) --extracted: also every instance --from-place recorded
+	                                    in .studwork-from-place.json's "extracted" still in the place.
+	  --verify also fails while the place holds a recorded extracted script, and on a $path of the
+	  project file that doesn't exist.
 	Usage errors exit 2. Never touches live data, never publishes.
 ]]
 local fs = require("@lune/fs")
@@ -32,7 +36,7 @@ local Audit = require("./AdoptAudit")
 local Place = require("./AdoptPlace")
 
 local USAGE = "usage: tools/adopt --audit <project|place> [...] | --from-place <file> [--out <dir>]"
-	.. " | --verify <project> | --strip-place <project> <instance path> [...]"
+	.. " | --verify <project> | --strip-place <project> [--extracted] [<instance path> ...]"
 
 local function studworkVersion(): string
 	local ok, text = pcall(fs.readFile, Roots.core("packages/framework/shared/init.luau"))
@@ -196,23 +200,34 @@ elseif mode == "--verify" then
 	print("tools/adopt --verify: clean")
 	process.exit(0)
 elseif mode == "--strip-place" then
-	if #args < 3 then
-		usage("--strip-place needs the project and at least one instance path")
-	end
 	local paths = {}
+	local extracted = false
 	for i = 3, #args do
-		if string.sub(args[i], 1, 2) == "--" then
+		if args[i] == "--extracted" then
+			extracted = true
+		elseif string.sub(args[i], 1, 2) == "--" then
 			usage("unknown option " .. args[i])
+		else
+			table.insert(paths, args[i])
 		end
-		table.insert(paths, args[i])
+	end
+	if #args < 2 or string.sub(args[2], 1, 2) == "--" or (#paths == 0 and not extracted) then
+		usage("--strip-place needs the project and --extracted and/or at least one instance path")
 	end
 	local projectAbs = resolve(args[2])
 	if not fs.isDir(projectAbs) then
 		fail(args[2] .. " is not a folder", 1)
 	end
-	local res, err = Place.strip(env, projectAbs, paths)
+	local res, err = Place.strip(env, projectAbs, paths, { extracted = extracted })
 	if res == nil then
 		fail(tostring(err), 1)
+	end
+	if res.nothing then
+		print(
+			"tools/adopt --strip-place: nothing to strip; no recorded extracted instance is left in "
+				.. res.source
+		)
+		process.exit(0)
 	end
 	for _, r in res.removed do
 		print(

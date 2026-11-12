@@ -392,3 +392,33 @@ end
 		expect(grants.randomGrants).toBe(true)
 	end)
 end)
+
+-- (v1.6.0 dogfood r3) a client argument passed straight into a grant/save write call
+describe("AdoptScan valueTrusts", function()
+	it("finds a handler param passed into Increment/Set/SetAsync, not a local or a read", function()
+		local res = Scan.scan([[
+local ev = Instance.new("RemoteEvent")
+ev.Name = "GiveXP"
+ev.OnServerEvent:Connect(function(plr, n, note)
+	local fixed = 5
+	store.xp:Increment(n, 0)
+	store.level:Set(fixed)
+	print(note)
+end)
+]])
+		expect(#res.valueTrusts).toBe(1)
+		expect(res.valueTrusts[1]).toEqual({ name = "GiveXP", param = "n", method = "Increment", line = 3 })
+	end)
+	it("covers OnServerInvoke and a DataStore write", function()
+		local res = Scan.scan([[
+local rf = game.ReplicatedStorage.Save
+rf.OnServerInvoke = function(player, blob)
+	store:SetAsync(player.UserId, blob)
+end
+]])
+		expect(#res.valueTrusts).toBe(1)
+		expect(res.valueTrusts[1].param).toBe("blob")
+		expect(res.valueTrusts[1].method).toBe("SetAsync")
+		expect(Scan.writeCallWith("x:Get(a)", "a")).toBeNil()
+	end)
+end)

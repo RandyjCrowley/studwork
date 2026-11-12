@@ -526,3 +526,85 @@ end)
 		fs.removeDir(root)
 	end)
 end)
+
+-- (v1.6.0 dogfood r3) a client value passed into a grant/save write; leaderstats in modules/**;
+-- a stale $path fails --verify
+describe("AdoptAudit round 3", function()
+	it("rates a client argument passed into a write call high (client_value_trusted)", function()
+		local root = tmpRoot()
+		write(
+			root .. "/default.project.json",
+			'{ "name": "x", "tree": { "$className": "DataModel", "ServerScriptService": { "$path": "src" } } }'
+		)
+		write(
+			root .. "/src/remotes.server.lua",
+			[[local giveXp = Instance.new("RemoteEvent")
+giveXp.Name = "GiveXP"
+giveXp.OnServerEvent:Connect(function(plr, n)
+	local s = _G.Stores[plr]
+	if s then
+		s.xp:Increment(n, 0)
+	end
+end)
+]]
+		)
+		local report = Audit.run(env, { root }, { write = false })
+		local found = nil
+		for _, r in report.risks do
+			if string.match(r.id, "^client_value_trusted:") then
+				found = r
+			end
+		end
+		expect(found ~= nil).toBe(true)
+		expect(found.level).toBe("high")
+		expect(found.message).toContain("GiveXP")
+		expect(found.message).toContain("`n`")
+		expect(found.message).toContain("Increment")
+		fs.removeDir(root)
+	end)
+
+	it("leaderstats a StudWork module creates (modules/**) are not a risk; old code's still are", function()
+		local root = tmpRoot()
+		write(
+			root .. "/default.project.json",
+			'{ "name": "x", "tree": { "$className": "DataModel", "ServerScriptService": { "Old": { "$path": "src" }, "Mod": { "$path": "modules/my-game/server" } } } }'
+		)
+		local ls = [[local Players = game:GetService("Players")
+Players.PlayerAdded:Connect(function(player)
+	local stats = Instance.new("Folder")
+	stats.Name = "leaderstats"
+	stats.Parent = player
+	local coins = Instance.new("IntValue")
+	coins.Name = "Coins"
+	coins.Parent = stats
+end)
+]]
+		write(root .. "/modules/my-game/server/init.luau", "--!strict\n" .. ls .. "return {}\n")
+		local report = Audit.run(env, { root }, { write = false })
+		expect(riskKinds(report).leaderstats).toBeNil()
+		expect(#report.leaderstats).toBe(0)
+		write(root .. "/src/Stats.server.luau", ls)
+		local report2 = Audit.run(env, { root }, { write = false })
+		expect(riskKinds(report2, "medium").leaderstats).toBe(true)
+		expect(#report2.leaderstats).toBe(1)
+		expect(report2.leaderstats[1].file).toBe("src/Stats.server.luau")
+		fs.removeDir(root)
+	end)
+
+	it("--verify names a $path that doesn't exist (an optional one may be missing)", function()
+		local root = tmpRoot()
+		write(
+			root .. "/default.project.json",
+			'{ "name": "x", "tree": { "$className": "DataModel", "ServerScriptService": { "Server": { "$path": "src/server" }, "Gone": { "$path": "src/old" }, "Maybe": { "$path": { "optional": "src/maybe" } } } } }'
+		)
+		write(root .. "/src/server/Main.server.luau", "print(1)\n")
+		local issues = Audit.verifyIssues(env, root)
+		local text = table.concat(issues, "\n")
+		expect(text).toContain(
+			"stale $path: ServerScriptService.Gone -> src/old doesn't exist; remove the entry from default.project.json"
+		)
+		expect(string.find(text, "src/maybe", 1, true)).toBeNil()
+		expect(string.find(text, "src/server", 1, true)).toBeNil()
+		fs.removeDir(root)
+	end)
+end)

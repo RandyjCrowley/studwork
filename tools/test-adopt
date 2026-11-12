@@ -13,7 +13,9 @@
 # user's own tools/build left alone, the game module, Config, the merged project file keeping the
 # old entries, no commit, no absolute paths, old files untouched); the project's tools/build,
 # tools/test, tools/typecheck, tools/sync-projects --check; a second --init and a --dry-run change
-# nothing; after a commit, more legacy findings never rewrite the baseline.
+# nothing; after a commit, more legacy findings never rewrite the baseline. (r3) The three
+# examples/legacy fixtures: init's "style" list makes the first lint + typecheck pass; fixture a's
+# extracted scripts fail --verify until --strip-place . --extracted; a stale $path fails --verify.
 # Exit 1 if any step fails. --keep leaves the temp folder for inspection.
 source "$(dirname "$0")/_common.sh"
 
@@ -25,6 +27,10 @@ KEEP=0
 VERSION="$(sed -n 's/^StudWork\.VERSION = "\(.*\)"$/\1/p' "$CORE_ROOT/packages/framework/shared/init.luau")"
 [ -n "$VERSION" ] || die "could not read StudWork.VERSION"
 TAG="v$VERSION"
+# (v1.6.0 dogfood r3) guardrails that know the "style" pseudo-check: init then lists every old Luau
+# source with it (older guardrails refuse an unknown check, and init doesn't write it)
+STYLE_OK=0
+grep -q 'LEGACY_PSEUDO\|legacy-style-files' "$CORE_ROOT/tools/lune/guardrails.luau" && STYLE_OK=1
 WORK="$(mktemp -d "${TMPDIR:-/tmp}/studwork-adopt.XXXXXX")"
 WORK="$(cd "$WORK" && pwd -P)"
 LOGS="$WORK/logs"
@@ -249,8 +255,18 @@ check "no commit made (HEAD unchanged)" test "$(git -C "$G" rev-parse HEAD)" = "
 check "the old game's files are untouched" test "$(legacy_hash)" = "$LEGACY_HASH"
 check "studwork.json: adopted single-game" sh -c "grep -q '\"layout\": \"single-game\"' '$G/studwork.json' && grep -q '\"adopted\": true' '$G/studwork.json'"
 check "studwork.json: no placeFile (a Rojo game)" sh -c "! grep -q placeFile '$G/studwork.json'"
+STYLE_ONLY_BASELINE=""
+LEG_FILES=3
+SHOP_CHECKS='"numbers","remotes"'
+if [ "$STYLE_OK" -eq 1 ]; then
+	# Main.client.luau has no guardrail finding: a style-only entry, {} in the baseline
+	STYLE_ONLY_BASELINE='
+      "src/client/Main.client.luau": {},'
+	LEG_FILES=4
+	SHOP_CHECKS='"numbers","remotes","style"'
+fi
 EXPECTED_BASELINE='  "legacyBaseline": {
-    "files": {
+    "files": {'"$STYLE_ONLY_BASELINE"'
       "src/server/SaveManager.server.luau": {
         "purchases": 2
       },
@@ -265,15 +281,15 @@ EXPECTED_BASELINE='  "legacyBaseline": {
   }'
 printf '%s\n' "$EXPECTED_BASELINE" >"$LOGS/expected-baseline.txt"
 check "legacyBaseline: per file, per check counts" sh -c \
-	"grep -A13 '\"legacyBaseline\"' '$G/studwork.json' | diff - '$LOGS/expected-baseline.txt' >/dev/null"
+	"grep -A$(($(wc -l <"$LOGS/expected-baseline.txt") - 1)) '\"legacyBaseline\"' '$G/studwork.json' | diff - '$LOGS/expected-baseline.txt' >/dev/null"
 LEG="$G/studwork-legacy.json"
-check "studwork-legacy.json: 3 files" test "$(grep -c '"path":' "$LEG")" = 3
+check "studwork-legacy.json: $LEG_FILES files" test "$(grep -c '"path":' "$LEG")" = "$LEG_FILES"
 check "studwork-legacy.json: the DataStore file, reason from the audit" \
 	grep -q '"reason": "old save code (DataStore PlayerSave) before StudWork (audit)' "$LEG"
 check "studwork-legacy.json: the remote file, reason from the audit" grep -q '"reason": "old remote handlers before StudWork' "$LEG"
 check "studwork-legacy.json: a generic reason without an audit note" \
 	grep -q '"reason": "existing code before StudWork: numbers"' "$LEG"
-check "studwork-legacy.json: Shop lists numbers + remotes" sh -c "tr -d ' \n' <'$LEG' | grep -q '\"path\":\"src/server/Shop.server.luau\",\"checks\":\\[\"numbers\",\"remotes\"\\]'"
+check "studwork-legacy.json: Shop lists numbers + remotes" sh -c "tr -d ' \n' <'$LEG' | grep -qF '\"path\":\"src/server/Shop.server.luau\",\"checks\":[$SHOP_CHECKS]'"
 for w in _studwork lint typecheck test dev install doctor sync-projects make-module make-migration adopt test-migration; do
 	check "wrapper tools/$w" test -x "$G/tools/$w"
 done
@@ -367,6 +383,20 @@ check "the scaffold spec boots the game in the sim" grep -q "modules/legacy-exam
 	"$(logof "test (server part with a top-level GetService)")"
 (cd "$G" && tgit checkout -q -- modules) >>"$LOGS/setup.log" 2>&1
 
+# (v1.6.0 dogfood r3) the scaffold's commented action example works as written: uncomment the
+# claimReward action (server part) and its test (module.spec.luau), run tools/test
+awk '/^-- local moduleCtx/{f=1} f{sub(/^-- ?/,"")} f && /^}$/{f=0} {sub(/^\t-- moduleCtx = _ctx/,"\tmoduleCtx = _ctx")} {print}' \
+	"$SRV" >"$SRV.new" && mv "$SRV.new" "$SRV"
+SPEC="$G/modules/legacy-example-a/module.spec.luau"
+awk '/^\t-- it\("claimReward/{f=1} f{sub(/^\t-- ?/,"\t")} f && /^\tend\)$/{f=0} {print}' "$SPEC" >"$SPEC.new" && mv "$SPEC.new" "$SPEC"
+TAB="$(printf '\t')"
+check "the action example uncommented (server part + spec)" sh -c \
+	"grep -q '^${TAB}claimReward = {' '$SRV' && grep -q '^${TAB}moduleCtx = _ctx' '$SRV' && grep -q '^${TAB}it(\"claimReward' '$SPEC'"
+step "test (the scaffold's action example uncommented)" tools/test
+check "the scaffold's action example passes (boot, join, action, save)" grep -q "modules/legacy-example-a/module.spec.luau .*3 passed, 0 failed" \
+	"$(logof "test (the scaffold's action example uncommented)")"
+(cd "$G" && tgit checkout -q -- modules) >>"$LOGS/setup.log" 2>&1
+
 # --modules choices: each minimal Config boots (tools/test runs the scaffold spec's sim boot) and
 # typechecks; the audit's product ids land under placeholder names; an untracked audit report
 # never blocks init and is named in the next steps; a ProcessReceipt file gets the exact advice
@@ -411,6 +441,75 @@ check "--modules none: no kit in Config.modules" sh -c "! grep -q 'WaitForChild(
 variant Economy
 variant Items,Inventory,Economy
 variant Items,Rarity,Inventory,Economy
+
+# (v1.6.0 dogfood r3) the three legacy fixtures (examples/legacy/, copied; never changed):
+#   - init lists every old Luau source with the "style" pseudo-check, so after the one port the
+#     playbook requires before the first commit (the ProcessReceipt assignment, simulated here by
+#     renaming it) the first tools/lint and tools/typecheck pass (needs guardrails that know
+#     "style"; older ones refuse it, then init doesn't write it and these checks are skipped)
+#   - fixture a (a place file): --from-place records the extracted instances, --verify fails while
+#     the place still holds them and passes that check after --strip-place . --extracted
+#   - a stale $path in the project file fails --verify, naming it
+FX="$CORE_ROOT/examples/legacy"
+fixture() {
+	local name="$1" dir="$WORK/fx-$1"
+	mkdir -p "$dir"
+	if [ "$name" = a ]; then
+		cp "$FX/legacy-example-a/legacy-example-a.rbxlx" "$dir/"
+		(cd "$dir" && "$ADOPT" --from-place legacy-example-a.rbxlx --out .) >"$LOGS/fx-a-from-place.log" 2>&1 ||
+			fail "fixture a: --from-place | $(tail -3 "$LOGS/fx-a-from-place.log" | tr '\n' ' ')"
+	else
+		rsync -a --exclude saves --exclude FEATURES.md "$FX/legacy-example-$name/" "$dir/"
+		(cd "$dir" && "$ADOPT" --audit .) >"$LOGS/fx-$name-audit.log" 2>&1 || fail "fixture $name: --audit"
+	fi
+	(cd "$dir" && tgit init -q && tgit add -A && tgit commit -q -m "the old game") >>"$LOGS/setup.log" 2>&1
+	local before="$G"
+	G="$dir"
+	step "fixture $name: init" "$ADOPT" --init "$dir" --name "legacy-example-$name" --url "$WORK/studwork" --tag "$TAG" --no-install
+	local leg="$dir/studwork-legacy.json" missing=""
+	if [ "$STYLE_OK" -eq 1 ]; then
+		local f
+		while IFS= read -r f; do
+			case "$f" in studwork/* | studwork-boot/* | modules/* | src/shared/Config/*) continue ;; esac
+			tr -d ' \n' <"$leg" | grep -q "\"path\":\"$f\",\"checks\":\\[[^]]*\"style\"" || missing="$missing $f"
+		done <<EOF
+$(cd "$dir" && git ls-files -- '*.lua' '*.luau')
+EOF
+		check "fixture $name: every old Luau source lists \"style\"${missing:+ (missing:$missing)}" test -z "$missing"
+		# the one port the playbook requires before the first commit (a never-downgraded finding)
+		grep -rl 'MarketplaceService.ProcessReceipt = ' "$dir/src" 2>/dev/null | while IFS= read -r f; do
+			sed -i.bak 's/MarketplaceService.ProcessReceipt = /local oldReceiptHandler = /' "$f" && rm -f "$f.bak"
+		done
+		step "fixture $name: first tools/lint" tools/lint
+		step "fixture $name: first tools/typecheck" tools/typecheck
+	else
+		pass "fixture $name: SKIP the style checks (these guardrails don't know the style pseudo-check)"
+	fi
+	G="$before"
+}
+fixture b
+fixture c
+fixture a
+A_DIR="$WORK/fx-a"
+G="$A_DIR"
+check "fixture a: --from-place records the extracted instances" \
+	grep -q '"ServerScriptService.DataManager"' "$A_DIR/.studwork-from-place.json"
+check "fixture a: studwork.json has the placeFile" grep -q '"placeFile": "legacy-example-a.rbxlx"' "$A_DIR/studwork.json"
+check "fixture a: the audit report lists placeDuplicates" sh -c \
+	"tr -d ' \n' <'$A_DIR/studwork-adopt-report.json' | grep -q '\"placeDuplicates\":\\[{\"path\":\"ReplicatedStorage.ShopItems\"'"
+expect_fail "fixture a: --verify refuses while the place holds an extracted script" \
+	"ServerScriptService.DataManager\` is still in legacy-example-a.rbxlx" "$ADOPT" --verify "$A_DIR"
+step "fixture a: --strip-place . --extracted" "$ADOPT" --strip-place . --extracted
+check "fixture a: studwork.json points at the stripped copy" \
+	grep -q '"placeFile": "legacy-example-a.studwork.rbxlx"' "$A_DIR/studwork.json"
+(cd "$A_DIR" && "$ADOPT" --verify .) >"$LOGS/fx-a-verify-after.log" 2>&1 || true
+check "fixture a: --verify no longer names an extracted script" sh -c "! grep -q 'is still in' '$LOGS/fx-a-verify-after.log'"
+step "fixture a: --strip-place --extracted again is a no-op" "$ADOPT" --strip-place . --extracted
+check "fixture a: the original place is untouched" cmp -s "$A_DIR/legacy-example-a.rbxlx" "$FX/legacy-example-a/legacy-example-a.rbxlx"
+# a stale $path (the old scripts' folder deleted, its entry left in the project file)
+rm -rf "$A_DIR/src/StarterPlayer"
+expect_fail "fixture a: --verify names a stale \$path" "StarterPlayer.StarterPlayerScripts -> src/StarterPlayer/StarterPlayerScripts doesn't exist; remove the entry" \
+	"$ADOPT" --verify "$A_DIR"
 
 if [ "$FAIL" -eq 0 ]; then
 	echo "test-adopt: all passed (tools/adopt --init with StudWork $VERSION as studwork/ at $TAG)"

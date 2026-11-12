@@ -18,7 +18,8 @@
 #      added after the existing ones) and .gitignore; then the project's tools/sync-projects
 #   4. Wally packages: tools/install, or with --no-install a copy of this checkout's deps/
 #   5. studwork-legacy.json + legacyBaseline from the guardrails' findings (only on the run that
-#      creates studwork.json: a baseline is never rewritten)
+#      creates studwork.json: a baseline is never rewritten); every old Luau source also lists the
+#      "style" pseudo-check (not held to selene/StyLua/strict typing), when the guardrails know it
 # No commit: review `git status`, then commit (the hook runs lint + tests). A second run changes
 # nothing. --dry-run prints every file it would create or change (a diff for merged files) and
 # writes nothing, not even the submodule. Every write target is checked to be inside <project>
@@ -273,8 +274,23 @@ if [ "$ADOPTED" -eq 0 ]; then
 		'source studwork/tools/_common.sh; lune run "$(core_path tools/lune/guardrails)" $STUDWORK_GUARD_RAW' \
 		>"$FINDINGS" 2>&1
 	set -e
-	(cd "$CORE_ROOT" && lune run "$ADOPT_LUNE" legacy "$TARGET" "$FINDINGS" apply "$P_NAME")
+	# (v1.6.0 dogfood r3) every old Luau source (tracked or untracked-not-ignored, outside studwork/,
+	# not a file init just wrote) gets the "style" pseudo-check, so the first tools/lint and
+	# tools/typecheck pass: old code is never held to selene/StyLua/strict typing. Only when the
+	# pinned guardrails know "style" (older ones refuse an unknown check).
+	OLD_SOURCES="-"
+	if grep -q 'LEGACY_PSEUDO\|legacy-style-files' studwork/tools/lune/guardrails.luau; then
+		OLD_SOURCES="$TARGET/.cache/adopt-init-old-sources.txt"
+		WROTE="$(targets "$PLAN")"
+		git ls-files --cached --others --exclude-standard -- '*.luau' '*.lua' | while IFS= read -r f; do
+			case "$f" in studwork/* | .cache/* | build/*) continue ;; esac
+			echo "$WROTE" | grep -qxF -- "$f" && continue
+			echo "$f"
+		done >"$OLD_SOURCES"
+	fi
+	(cd "$CORE_ROOT" && lune run "$ADOPT_LUNE" legacy "$TARGET" "$FINDINGS" apply "$P_NAME" "$OLD_SOURCES")
 	rm -f "$FINDINGS"
+	[ "$OLD_SOURCES" = "-" ] || rm -f "$OLD_SOURCES"
 fi
 
 echo "adopt --init: done ($P_NAME, StudWork $P_TAG). Nothing is committed. Next:"

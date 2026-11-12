@@ -8,6 +8,23 @@
 
 local {{Module}} = {}
 
+-- 4. Actions (client requests, module-api.md §9): uncomment to add one (and `moduleCtx = _ctx` in
+--    init); the client part calls it with StudWork.use(<this module>).actions.claimReward().
+--    module.spec.luau shows how to test it in the sim. An action computes every value on the
+--    server: never trust an amount the client sends.
+-- local moduleCtx: any = nil
+-- {{Module}}.actions = {
+-- 	claimReward = {
+-- 		limit = { rate = 2, burst = 4 },
+-- 		handler = function(player: any)
+-- 			moduleCtx.tx(player, function(tx: any)
+-- 				local s = moduleCtx.section(tx)
+-- 				s.rewards = (s.rewards or 0) + 1
+-- 			end)
+-- 		end,
+-- 	},
+-- }
+
 function {{Module}}.init(_ctx: any)
 	-- 1. The old saves (adopting.md §3): a one-time, read-only import at join. Never reuse an id.
 	--    Test it with sample saves in tests/legacy/*.json and tools/test-migration.
@@ -33,6 +50,8 @@ function {{Module}}.init(_ctx: any)
 	-- _ctx.shop.onLegacyProduct("<Product>", function(receiptInfo, player)
 	-- 	return "NotProcessedYet"
 	-- end, { writesLegacyData = false })
+
+	-- moduleCtx = _ctx -- 4. actions (above) use it
 end
 
 function {{Module}}.start(_ctx: any) end
