@@ -43,11 +43,15 @@ function DemoNotifications.init(ctx: any)
 			local ok, reason = notifications.schedule(userId, "eggReady", ctx.now() + delay)
 			ctx.log.info(`demo egg for {userId} in {delay}s: {tostring(ok)} {tostring(reason)}`)
 		end)
-		local prompted = notifications.suggestOptIn(player, "eggStarted")
-		return `eggReady scheduled in {delay}s; opt-in prompt requested: {tostring(prompted)}`
+		local prompted, why = notifications.suggestOptIn(player, "eggStarted")
+		local refused = if prompted then "" else ` ({DemoNotifications.explain(why)})`
+		return `eggReady scheduled in {delay}s; opt-in prompt requested: {tostring(prompted)}{refused}`
 	end, "sandbox egg [seconds]: schedule the eggReady notification and suggest the opt-in (Studio)")
 	ctx.console.register("optin", function(player: any): string
-		local target = if type(player) == "table" then player else Players:GetPlayers()[1]
+		-- the console's caller is a Player (an Instance) from the chat/admin path, nil from the command bar
+		local target = if typeof(player) == "Instance" or type(player) == "table"
+			then player
+			else Players:GetPlayers()[1]
 		if target == nil then
 			return "no player"
 		end
@@ -55,15 +59,37 @@ function DemoNotifications.init(ctx: any)
 	end, "sandbox optin: ask for the notifications opt-in now, if the rules allow it (Studio)")
 end
 
+-- suggestOptIn's refusal reason, in words, with the Balance.luau optIn line that decides it
+local REASONS: { [string]: string } = {
+	too_early = "the session is younger than optIn.minSessionSeconds (never on join)",
+	sessions = "fewer finished sessions than optIn.minSessions",
+	asked = "already requested once this session",
+	pending = "the last request is still waiting for the client's answer",
+	max_prompts = "already shown optIn.maxPrompts times",
+	cooldown = "asked within optIn.cooldownDays",
+	not_suggested = "optIn.onSuggest = false",
+	disabled = "the Notifications flag is off",
+	no_event = "the PromptOptIn Blink event isn't bound",
+	not_loaded = "the player's save isn't loaded yet",
+	save_failed = "the request couldn't be written to the save",
+	bad_params = "not a player",
+}
+
+function DemoNotifications.explain(why: string?): string
+	local reason = why or "unknown"
+	local text = REASONS[reason]
+	return if text then `{reason}: {text}` else reason
+end
+
 -- `sandbox optin`: never on join, never past the module's rules (the prompt is only requested when
--- suggestOptIn says yes; the reply names the rule that is still open)
+-- suggestOptIn says yes; the reply names the exact rule that refused it)
 function DemoNotifications.optIn(ctx: any, player: any): string
 	local notifications = ctx.deps[Notifications]
-	if notifications.suggestOptIn(player, "console") then
+	local prompted, why = notifications.suggestOptIn(player, "console")
+	if prompted then
 		return "opt-in prompt requested (the client asks Roblox's own prompt)"
 	end
-	return "opt-in not allowed yet: the session must be optIn.minSessionSeconds old (Balance.luau), "
-		.. "and it is refused once asked this session, when opted in, or over the cooldown"
+	return "opt-in refused: " .. DemoNotifications.explain(why)
 end
 
 function DemoNotifications.start(ctx: any)

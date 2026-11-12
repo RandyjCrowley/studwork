@@ -102,7 +102,7 @@ describe("sandbox notifications opt-in", function()
 			expect(#h:sent("Notifications", "PromptOptIn")).toBe(1) -- the sandbox's 30 s loop asked
 			-- `sandbox optin` never asks twice in a session
 			local reply = h:console("sandbox", "optin")
-			expect(string.find(reply, "not allowed yet", 1, true) ~= nil).toBe(true)
+			expect(string.find(reply, "refused: asked", 1, true) ~= nil).toBe(true)
 			expect(#h:sent("Notifications", "PromptOptIn")).toBe(1)
 		end
 	)
@@ -110,7 +110,9 @@ describe("sandbox notifications opt-in", function()
 	it("`sandbox optin` asks now when the rules allow it, and says why when they don't", function()
 		local early = boot()
 		early:addPlayer({ userId = 1 })
-		expect(string.find(early:console("sandbox", "optin"), "not allowed yet", 1, true) ~= nil).toBe(true)
+		local why = early:console("sandbox", "optin")
+		expect(string.find(why, "refused: too_early", 1, true) ~= nil).toBe(true)
+		expect(string.find(why, "optIn.minSessionSeconds", 1, true) ~= nil).toBe(true)
 		expect(#early:sent("Notifications", "PromptOptIn")).toBe(0)
 
 		local balance = table.clone(Config.config)

@@ -82,20 +82,25 @@ function Server.new(): any
 	--------------------------------------------------------------------------
 	-- Opt-in
 	--------------------------------------------------------------------------
-	local function requestPrompt(player: any, viaSuggest: boolean): boolean
-		if not engine.enabled() or part.net == nil or part.net.PromptOptIn == nil then
-			return false
+	-- Whether the prompt was requested, and why not: "disabled" (the flag is off), "no_event" (no
+	-- Blink PromptOptIn), "not_loaded" (no save or join time yet), "save_failed", or an OptInRules reason.
+	local function requestPrompt(player: any, viaSuggest: boolean): (boolean, string?)
+		if not engine.enabled() then
+			return false, "disabled"
+		end
+		if part.net == nil or part.net.PromptOptIn == nil then
+			return false, "no_event"
 		end
 		local s = section(player)
 		local joined = joinedAt[player]
 		if s == nil or joined == nil then
-			return false
+			return false, "not_loaded"
 		end
 		local now = ctx.now()
 		local pending = if type(s.promptRequest) == "table" and type(s.promptRequest.at) == "number"
 			then s.promptRequest.at
 			else nil
-		local allowed = OptInRules.check(ctx.config.optIn, {
+		local allowed, why = OptInRules.check(ctx.config.optIn, {
 			now = now,
 			joinedAt = joined,
 			sessions = tonumber(s.sessions) or 0,
@@ -105,7 +110,7 @@ function Server.new(): any
 			promptedThisSession = promptedThisSession[player] == true,
 		}, viaSuggest)
 		if not allowed then
-			return false
+			return false, why
 		end
 		requestCounter += 1
 		local id = string.format("%d-%d", math.floor(now), requestCounter)
@@ -114,11 +119,11 @@ function Server.new(): any
 				sec.promptRequest = { id = id, at = now }
 			end)
 		then
-			return false
+			return false, "save_failed"
 		end
 		promptedThisSession[player] = true
 		ctx.net.fire(player, part.net.PromptOptIn, id)
-		return true
+		return true, nil
 	end
 
 	local function onOptInShown(player: any, requestId: any, shown: any)
@@ -361,9 +366,14 @@ function Server.new(): any
 		return engine.cancel(userId, key)
 	end
 
-	function api.suggestOptIn(player: any, _reason: string): boolean
-		if type(player) ~= "table" or not ctx.data.isLoaded(player) then
-			return false
+	-- A live Player is an Instance (type "userdata"); spec and sim players are tables: accept both.
+	-- The second value says why no prompt was requested (requestPrompt's reasons, "bad_params").
+	function api.suggestOptIn(player: any, _reason: string): (boolean, string?)
+		if type(player) ~= "table" and type(player) ~= "userdata" then
+			return false, "bad_params"
+		end
+		if not ctx.data.isLoaded(player) then
+			return false, "not_loaded"
 		end
 		return requestPrompt(player, true)
 	end
