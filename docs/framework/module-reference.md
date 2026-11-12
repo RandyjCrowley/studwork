@@ -200,7 +200,9 @@ Every field is scoped to the module that receives it.
   `function(old) -> new` and turns version NNN-1 into NNN. They run on load, in order, before the
   section is used; `data.sanitize` runs after them. If a migration errors or returns a non-table,
   nothing is saved and the player gets the friendly kick with their data kept. A save written by
-  newer code (a higher version) is left untouched. `tools/make-migration` writes the next one.
+  newer code (a higher version) is left untouched. `tools/make-migration` writes the next one,
+  bumps `data.version` (a literal, or the literal a `Save.VERSION`-style reference comes from) and
+  maps `migrations/` in the game's project ([generators.md](generators.md#toolsmake-migration)).
 - A disabled module's section is carried through saves as-is. `_framework._owners` records which
   module created each section; another module claiming the key is a load error unless it declares
   `data.adopts = "<OldModule>"`.

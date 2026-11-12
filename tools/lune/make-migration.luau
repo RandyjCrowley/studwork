@@ -1,11 +1,19 @@
 --!nocheck
 --[[
-	tools/make-migration <module-dir | ModuleName> [--name <label>]
+	tools/make-migration <module-dir | ModuleName> [--name <label>] [--from <n>]
 	Writes the module's next save migration, migrations/NNN_<label>.luau (NNN = data.version + 1),
 	a test stub tests/MigrationNNN.spec.luau, and bumps data.version in module.luau (declaring
-	`migrations = script.Parent.migrations` the first time). module-api.md §6. Pure parts:
-	MakeGen.luau (self-test: MakeGen.spec.luau).
-	A ModuleName is looked up in games/*/modules/*/module.luau and examples/modules/*/module.luau.
+	`migrations = script.Parent.migrations` the first time). module-api.md §6,
+	docs/framework/generators.md. Pure parts: MakeGen.luau (the generated text; MakeGen.spec.luau)
+	and MakeMigration.luau (v1.7.1: version, bump, Rojo mapping; MakeMigration.spec.luau).
+	A ModuleName is looked up in every game's modules/ (games/*, the core's examples, or the
+	single-game project's root) and examples/modules/*.
+	(v1.7.1) data.version may be a reference (`version = Save.VERSION`, a local): the definition is
+	evaluated to read it and the literal it comes from is bumped; --from <n> gives the current
+	version instead (a warning when it disagrees). A module inside a game must be mapped in the
+	game's *.project.json: its node (ReplicatedStorage.Modules.<Name>, or the game module's
+	ReplicatedStorage.GameModule) gets `migrations` unless a $path already covers the folder; a
+	module the projects don't map is refused before anything is written.
 ]]
 
 local fs = require("@lune/fs")
@@ -13,9 +21,10 @@ local process = require("@lune/process")
 
 local MakeGen = require("./MakeGen")
 
-local USAGE = "usage: tools/make-migration <module-dir | ModuleName> [--name <label>]"
+local USAGE =
+	"usage: tools/make-migration <module-dir | ModuleName> [--name <label>] [--from <current data.version>]"
 
-local target, label = nil, nil
+local target, label, from = nil, nil, nil
 local args = process.args
 local i = 1
 while i <= #args do
@@ -27,6 +36,17 @@ while i <= #args do
 	if a == "--name" then
 		label = args[i + 1]
 		i += 1
+	elseif a == "--from" or string.sub(a, 1, 7) == "--from=" then
+		local value = if a == "--from" then args[i + 1] else string.sub(a, 8)
+		if a == "--from" then
+			i += 1
+		end
+		local n, fromErr = require("./MakeMigration").parseFrom(value)
+		if n == nil then
+			print("error: " .. tostring(fromErr) .. "\n" .. USAGE)
+			process.exit(1)
+		end
+		from = n
 	elseif string.sub(a, 1, 2) == "--" then
 		print("error: unknown option " .. a .. "\n" .. USAGE)
 		process.exit(1)
@@ -78,40 +98,116 @@ if not fs.isFile(dir .. "/module.luau") then
 	dir = found[1]
 end
 
-local plan, err = MakeGen.writeMigration(fs, dir, label)
-if plan == nil then
-	print("error: " .. tostring(err))
+local MakeMigration = require("./MakeMigration")
+local SyncProjects = require("./SyncProjects")
+local luau = require("@lune/luau")
+
+local function fail(message: string)
+	print("error: " .. message)
 	process.exit(1)
 end
--- a module inside a game: make sure its Rojo mapping carries the migrations folder
-local gameDir, folder = string.match(dir, "^(.+)/modules/([^/]+)$")
-if gameDir and not fs.isFile(gameDir .. "/default.project.json") then
-	gameDir = nil
+
+local modulePath = dir .. "/module.luau"
+local source = fs.readFile(modulePath)
+
+-- 1. the current data.version: a literal as written, otherwise the definition evaluated (v1.7.1);
+-- --from <n> overrides both
+local resolved, resolveErr = MakeMigration.resolveVersion(fs, luau, dir, source, from, MakeGen)
+if resolved == nil then
+	fail(tostring(resolveErr))
 end
-if gameDir then
-	-- order-preserving JSON (tools/sync-projects), so lint's sync-projects --check stays clean
-	local SyncProjects = require("./SyncProjects")
-	local projectPath = gameDir .. "/default.project.json"
-	local project = SyncProjects.decode(fs.readFile(projectPath))
-	local rs = project.vals.tree.vals.ReplicatedStorage
-	local rsModules = rs and rs.vals.Modules
-	local entry = rsModules and rsModules.vals[plan.name]
-	if entry and entry.vals.migrations == nil then
-		local node = SyncProjects.newObject()
-		SyncProjects.set(node, "$path", "modules/" .. folder .. "/migrations")
-		SyncProjects.set(entry, "migrations", node)
-		fs.writeFile(projectPath, SyncProjects.encode(project))
-		print("mapped " .. plan.name .. ".migrations in " .. projectPath)
-	elseif entry == nil then
+if resolved.warning then
+	print("warning: " .. resolved.warning)
+end
+
+-- 2. the migration, the test stub and module.luau (planned, nothing written yet)
+local existing = {}
+if fs.isDir(dir .. "/migrations") then
+	for _, entry in fs.readDir(dir .. "/migrations") do
+		if string.match(entry, "%.luau$") then
+			table.insert(existing, entry)
+		end
+	end
+end
+local plan, err = MakeGen.nextMigration(source, existing, label, dir, { from = resolved.version })
+if plan == nil then
+	fail(tostring(err))
+end
+local writes = { { path = modulePath, text = plan.module } }
+local bumpNote = nil
+if not plan.bumped then
+	-- a referenced data.version (`Save.VERSION`, a local): bump the one literal it comes from
+	local bump, bumpErr = MakeMigration.bumpReference(fs, luau, dir, plan.module, resolved.expr, plan.version)
+	if bump and bump.path == modulePath then
+		writes[1].text = bump.text
+		bumpNote = "data.version (`" .. resolved.expr .. "`, set in module.luau)"
+	elseif bump then
+		table.insert(writes, bump)
+		bumpNote = "data.version (`" .. resolved.expr .. "`, set in " .. bump.path .. ")"
+	else
+		bumpNote = nil
 		print(
-			"note: "
-				.. plan.name
-				.. " isn't mapped under ReplicatedStorage.Modules in "
-				.. projectPath
-				.. "; map migrations/ next to module.luau"
+			string.format(
+				"warning: data.version is `%s` and make-migration couldn't bump it (%s): set it to %d yourself",
+				resolved.expr,
+				tostring(bumpErr),
+				plan.version
+			)
 		)
 	end
-else
+end
+
+-- 3. the game's Rojo projects must carry migrations/ (a game module's ReplicatedStorage.GameModule
+-- maps only module.luau): checked before anything is written, so an unmapped module fails clean
+local gameDir, rel = MakeMigration.projectFor(dir)
+local projects = {}
+if gameDir then
+	local prefix = if gameDir == "." then "" else gameDir .. "/"
+	if fs.isDir(gameDir) then
+		for _, entry in fs.readDir(gameDir) do
+			if string.match(entry, "%.project%.json$") and fs.isFile(prefix .. entry) then
+				table.insert(projects, prefix .. entry)
+			end
+		end
+	end
+	table.sort(projects)
+end
+local projectWrites, mapped, mappedAnywhere = {}, {}, false
+for _, projectPath in projects do
+	local newText, status = MakeMigration.mapMigrations(SyncProjects, fs.readFile(projectPath), rel)
+	if status == "added" then
+		table.insert(projectWrites, { path = projectPath, text = newText })
+		table.insert(mapped, projectPath)
+	end
+	mappedAnywhere = mappedAnywhere or status ~= "unmapped"
+end
+if #projects > 0 and not mappedAnywhere then
+	fail(
+		string.format(
+			"%s/module.luau isn't mapped in %s, so a migration would never reach the place. Map the module"
+				.. " first, and next to its `module` entry add\n  %s\n(nothing was written)",
+			dir,
+			table.concat(projects, ", "),
+			MakeMigration.mappingSnippet(rel :: string)
+		)
+	)
+end
+
+-- 4. write
+fs.writeDir(dir .. "/migrations")
+fs.writeDir(dir .. "/tests")
+fs.writeFile(`{dir}/migrations/{plan.file}.luau`, plan.source)
+fs.writeFile(`{dir}/tests/Migration{string.format("%03d", plan.version)}.spec.luau`, plan.spec)
+for _, w in writes do
+	fs.writeFile(w.path, w.text)
+end
+for _, w in projectWrites do
+	fs.writeFile(w.path, w.text)
+end
+for _, projectPath in mapped do
+	print("mapped " .. plan.name .. " migrations/ in " .. projectPath)
+end
+if #projects == 0 then
 	print(
 		"note: map "
 			.. dir
@@ -136,11 +232,25 @@ print(
 		plan.version - 1
 	)
 )
-print(
-	"updated "
-		.. dir
-		.. "/module.luau: data.version = "
-		.. plan.version
-		.. "; update data.default to the new shape too"
-)
+if plan.bumped or bumpNote then
+	-- the bumped version, read back the way the game reads it
+	local check = MakeMigration.resolveVersion(fs, luau, dir, fs.readFile(modulePath), nil, MakeGen)
+	if check and check.version ~= plan.version then
+		print(
+			string.format(
+				"warning: data.version now reads %d, not %d: check `%s`",
+				check.version,
+				plan.version,
+				check.expr
+			)
+		)
+	end
+	print(
+		"updated "
+			.. (bumpNote or (dir .. "/module.luau: data.version"))
+			.. " = "
+			.. plan.version
+			.. "; update data.default to the new shape too"
+	)
+end
 print("next: tools/test " .. dir)

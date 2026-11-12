@@ -253,7 +253,8 @@ if chosenModules then
 		process.exit(1)
 	end
 	replaced = NewGame.pruneKitLocals(rewritten)
-	local trimmed, trimError = NewGame.trimDependsOn(renamedModule, chosenModules)
+	-- (v1.7.1) the kits named in --modules go in dependsOn, even where the template has them optional
+	local trimmed, trimError = NewGame.trimDependsOn(renamedModule, chosenModules, opts.modules)
 	if trimmed == nil then
 		print("error: " .. tostring(trimError) .. " (" .. modulePath .. ")")
 		process.exit(1)

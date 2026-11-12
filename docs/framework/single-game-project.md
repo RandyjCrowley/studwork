@@ -119,7 +119,7 @@ tools/build                   # build/<deploy.json name>.rbxl
 tools/dev [--print]           # rojo serve default.project.json on the game's port
 tools/make-module <Name>      # modules/<name>/, mapped in default.project.json
 tools/make-screen <Name>      # src/client/Screens/<Name>.luau
-tools/make-migration <module>
+tools/make-migration <module> [--from <n>]   # the next save migration; maps migrations/ in default.project.json
 tools/sync-projects [--check] # the root *.project.json files, and src/shared/Config/Environments.luau from deploy.json (v1.7.0)
 tools/net                     # Blink codegen in src/ and modules/
 tools/framework-status        # the pinned studwork/ tag vs the stamp in deploy.json
@@ -202,7 +202,7 @@ tools/doctor
 
 `tools/test-single-game [--keep]` (run by `tools/test` with no arguments, so by CI) builds a
 throwaway project in `$TMPDIR`: a snapshot of the working tree tagged `v<StudWork.VERSION>` as a
-local fixture remote, then `tools/new-project … --url <fixture> --modules Items,Rarity,Inventory,Economy
+local fixture remote, then `tools/new-project … --url <fixture> --modules Items,Rarity,Inventory,Economy,Leaderboards
 --no-install`, and checks the submodule tag, the `$path`s, that no committed file has an absolute
 path, the identity and the first commit; then the project's own wrappers with no game argument
 (lint, typecheck, test, build, make-module, make-screen, sync-projects, publish `--test --dry-run`,
