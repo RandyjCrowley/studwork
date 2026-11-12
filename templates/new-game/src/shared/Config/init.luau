@@ -57,7 +57,11 @@ local Config = {
 	-- flagOverride = { enabled = true, keyPrefix = "flag_", refreshSeconds = 30 }, -- live override from Roblox configs
 	-- Strings (docs/framework/kits/localization.md): reword any string key or add your own game.*
 	-- keys. Translations come from src/shared/Localization/*.csv (mapped into LocalizationService).
-	strings = {},
+	-- The example key below has a Spanish row in src/shared/Localization/game.csv; use it with
+	-- StudWork.text("game.welcome", { name = "Sam" }) (client) or ctx.text.format (server).
+	strings = {
+		["game.welcome"] = "Welcome back, {name}!",
+	},
 	-- localization = { sourceLocale = "en", useTranslators = true },
 	-- storeBudgets = { orderedReserve = 0.25, memory = { reserve = 0.2, defaultShare = 0.25, shares = {} } }, -- module-api.md §23.5
 	client = {

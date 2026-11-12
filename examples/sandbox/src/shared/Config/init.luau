@@ -46,19 +46,24 @@ local Config = {
 	-- (docs/framework/kits/environments.md): one normal flag and one testOnly flag.
 	environments = require(script.Environments),
 	flags = {
+		-- gates the HUD's Leaderboards button (src/shared/HudRules.luau): `flags set leaderboardButton
+		-- false` in the Studio console hides it live, without a restart
+		leaderboardButton = { default = true, description = "the HUD Leaderboards button" },
 		newShop = { default = false, studio = true, test = true, description = "the redesigned shop screen" },
 		debugPanel = {
 			default = false,
 			studio = true,
 			test = true,
 			testOnly = true,
-			description = "developer overlay",
+			description = "developer overlay (a debug-only label in the HUD; never on in live)",
 		},
 	},
 	-- Strings (docs/framework/kits/localization.md): a rewording of a UI kit key, and a game key.
 	strings = {
 		["ui.close"] = "Done",
 		["game.welcome"] = "Welcome back, {name}!",
+		["game.leaderboards"] = "Leaderboards", -- the HUD button; src/shared/Localization/game.csv has the es text
+		["game.debug"] = "debug: {env}",
 	},
 	client = { palette = require(script.Palette) },
 	analytics = {
