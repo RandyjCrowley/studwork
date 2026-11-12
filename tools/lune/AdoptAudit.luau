@@ -441,6 +441,7 @@ local function loadRojo(env, root: string, projectFile: string)
 	if placeRel then
 		p.placeFile = Audit.join(root, placeRel)
 	end
+	p.manifest = manifest
 	return p
 end
 
@@ -490,6 +491,46 @@ function Audit.codeContainer(inst): number?
 		end
 	end
 	return nil
+end
+
+-- (v1.6.0 dogfood r3) the scripts --from-place extracts, as the instances to strip from the place
+-- afterwards: every script in a code container with no script above it (a script's own child
+-- scripts go with it), full dotted paths, sorted
+function Audit.extractedPaths(place): { string }
+	local out = {}
+	local function walk(inst)
+		for _, child in inst:GetChildren() do
+			if SCRIPT_CLASSES[child.ClassName] then
+				if Audit.codeContainer(child) ~= nil then
+					table.insert(out, instPathOf(child))
+				end
+			else
+				walk(child)
+			end
+		end
+	end
+	walk(place)
+	table.sort(out)
+	return out
+end
+
+-- every instance under `root` whose full dotted path is `path` (an instance name may hold dots)
+function Audit.findPath(root, path: string): { any }
+	local out = {}
+	local function walk(node, rest: string)
+		for _, child in node:GetChildren() do
+			local name = child.Name
+			if rest == name then
+				table.insert(out, child)
+			elseif string.sub(rest, 1, #name + 1) == name .. "." then
+				walk(child, string.sub(rest, #name + 2))
+			end
+		end
+	end
+	if path ~= "" then
+		walk(root, path)
+	end
+	return out
 end
 
 local function enumName(v): string?
@@ -617,6 +658,7 @@ function Audit.loadProject(env, absPath: string)
 		return nil, err
 	end
 	p.notExtracted = {}
+	p.placeDuplicates = {}
 	if p.placeFile then
 		if fs.isFile(p.placeFile) then
 			local place, perr = readPlace(env, p.placeFile)
@@ -628,6 +670,23 @@ function Audit.loadProject(env, absPath: string)
 				if not s.extract then
 					s.path = "place:" .. s.path
 					table.insert(p.notExtracted, s)
+				end
+			end
+			-- (v1.6.0 dogfood r3) the extracted scripts the place still holds: syncing the project
+			-- into it would run the old code next to its project copy. The manifest's `extracted`
+			-- (written by --from-place); an older manifest without it: every script --from-place
+			-- would extract (the same rule)
+			local recorded = if type(p.manifest) == "table" and type(p.manifest.extracted) == "table"
+				then p.manifest.extracted
+				else Audit.extractedPaths(place)
+			local seenDup = {}
+			for _, path in recorded do
+				if type(path) == "string" and not seenDup[path] then
+					seenDup[path] = true
+					local found = Audit.findPath(place, path)
+					if #found > 0 then
+						table.insert(p.placeDuplicates, { path = path, class = found[1].ClassName })
+					end
 				end
 			end
 			for _, r in remotes do
@@ -752,6 +811,7 @@ function Audit.build(env, projects, reportDir: string)
 		projects = A(),
 		scripts = A(),
 		notExtracted = A(),
+		placeDuplicates = A(),
 		datastores = A(),
 		libraries = A(),
 		sharedStores = A(),
@@ -856,6 +916,19 @@ function Audit.build(env, projects, reportDir: string)
 				"the place file listed for this project is missing; scripts left in it can't be checked",
 				fileLabel(Audit.relative(p.root, p.placeFile)),
 				nil
+			)
+		end
+		for _, d in p.placeDuplicates or {} do
+			table.insert(report.placeDuplicates, { path = d.path, class = d.class })
+			risk(
+				"place_duplicate",
+				"high",
+				"`"
+					.. d.path
+					.. "` was extracted into the project but is still in the place file: syncing the project into it runs the old code next to StudWork; run tools/adopt --strip-place . --extracted",
+				fileLabel(Audit.relative(p.root, p.placeFile)),
+				nil,
+				d.path
 			)
 		end
 		for _, r in p.remotes do
@@ -1221,8 +1294,28 @@ function Audit.build(env, projects, reportDir: string)
 				)
 			end
 
-			-- leaderstats, globals, notes
-			for _, ls in scan.leaderstats do
+			-- (v1.6.0 dogfood r3) a client value passed straight into a grant/save write
+			for _, t in scan.valueTrusts or {} do
+				risk(
+					"client_value_trusted",
+					"high",
+					"remote "
+						.. t.name
+						.. ": the handler passes the client-sent `"
+						.. t.param
+						.. "` into "
+						.. t.method
+						.. " (a grant/save write); compute the value on the server (a module action)",
+					file,
+					t.line,
+					t.param
+				)
+			end
+
+			-- leaderstats, globals, notes. (v1.6.0 dogfood r3) leaderstats a StudWork module
+			-- (modules/**) creates are the display-only pattern itself: not a risk, not a plan step
+			local inModules = string.sub(s.path, 1, 8) == "modules/"
+			for _, ls in if inModules then {} else scan.leaderstats do
 				local values = A()
 				for _, v in ls.values do
 					table.insert(values, { name = v.name, class = v.class })
@@ -1390,6 +1483,7 @@ function Audit.build(env, projects, reportDir: string)
 	end
 	sortBy(report.scripts, "path")
 	sortBy(report.notExtracted, "path")
+	sortBy(report.placeDuplicates, "path")
 	sortBy(report.datastores, "name", "scope", "kind")
 	sortBy(report.libraries, "name", "store", "file", "line")
 	sortBy(report.purchases.processReceipt, "file", "line")
@@ -1742,6 +1836,22 @@ function Audit.plan(report, fileScan)
 		)
 	end
 
+	if #report.placeDuplicates > 0 then
+		local names = {}
+		for _, d in report.placeDuplicates do
+			table.insert(names, d.path)
+		end
+		step(
+			"strip-place",
+			"Strip the extracted scripts from the place",
+			true,
+			{ "studwork.json" },
+			"The place file still holds the scripts --from-place extracted ("
+				.. table.concat(names, ", ")
+				.. "): syncing the project into it would run the old code (old saves included) next to StudWork. Once their code is ported or listed, run `tools/adopt --strip-place . --extracted` (writes <place>.studwork.rbxlx and points studwork.json at it; the original is never modified).",
+			"`tools/adopt --verify .` no longer names any extracted script."
+		)
+	end
 	step(
 		"shrink-legacy",
 		"Shrink the legacy list",
@@ -1792,6 +1902,7 @@ for i, k in
 		"projects",
 		"scripts",
 		"notExtracted",
+		"placeDuplicates",
 		"datastores",
 		"libraries",
 		"sharedStores",
@@ -2193,6 +2304,18 @@ function Audit.markdown(report): string
 		end
 		w()
 	end
+	if #report.placeDuplicates > 0 then
+		w("## Extracted scripts still in the place")
+		w()
+		w(
+			"The project has these scripts' code, and the place file still holds them: syncing the project into it runs both. Strip them with `tools/adopt --strip-place . --extracted`."
+		)
+		w()
+		for _, d in report.placeDuplicates do
+			w("- `" .. d.path .. "` (" .. d.class .. ")")
+		end
+		w()
+	end
 	if #report.notExtracted > 0 then
 		w("## Scripts left in the place (not extracted)")
 		w()
@@ -2311,6 +2434,45 @@ local function luauFiles(env, root: string): { string }
 	return out
 end
 
+-- (v1.6.0 dogfood r3) every `$path` of the project file that doesn't exist (left behind after the
+-- old scripts were deleted): { instance, path, projectFile }, in tree order
+function Audit.stalePaths(env, root: string, projectFile: any): { any }
+	local out = {}
+	if type(projectFile) ~= "string" then
+		return out
+	end
+	local project = readJson(env, root .. "/" .. projectFile)
+	if type(project) ~= "table" or type(project.tree) ~= "table" then
+		return out
+	end
+	local function walk(node, instPath: string)
+		-- (an `{ "optional": ... }` $path may be missing by design)
+		local p = node["$path"]
+		if type(p) == "string" and string.sub(p, 1, 1) ~= "/" then
+			local ok, m = pcall(env.fs.metadata, root .. "/" .. p)
+			if not (ok and m.exists) then
+				table.insert(out, {
+					instance = if instPath == "" then "<root>" else instPath,
+					path = p,
+					projectFile = projectFile,
+				})
+			end
+		end
+		local keys = {}
+		for k, v in node do
+			if type(k) == "string" and string.sub(k, 1, 1) ~= "$" and type(v) == "table" then
+				table.insert(keys, k)
+			end
+		end
+		table.sort(keys)
+		for _, k in keys do
+			walk(node[k], if instPath == "" then k else instPath .. "." .. k)
+		end
+	end
+	walk(project.tree, "")
+	return out
+end
+
 -- What `tools/adopt --verify` still refuses (empty = clean), one line each.
 function Audit.verifyIssues(env, absPath: string)
 	local report, err, reportDir = Audit.run(env, { absPath }, { write = false })
@@ -2335,6 +2497,22 @@ function Audit.verifyIssues(env, absPath: string)
 			table.insert(issues, "place file missing: " .. r.file)
 		end
 	end
+	local placeRel = nil
+	for _, pr in report.projects do
+		if pr.placeFile ~= NULL then
+			placeRel = pr.placeFile
+		end
+	end
+	for _, d in report.placeDuplicates do
+		table.insert(
+			issues,
+			"`"
+				.. d.path
+				.. "` is still in "
+				.. tostring(placeRel)
+				.. " (old code runs next to StudWork): run tools/adopt --strip-place . --extracted"
+		)
+	end
 	for _, n in report.notExtracted do
 		if unsafeFindings(n.findings) then
 			table.insert(
@@ -2344,6 +2522,20 @@ function Audit.verifyIssues(env, absPath: string)
 		end
 	end
 	if not Audit.isPlaceFile(absPath) then
+		for _, stale in
+			Audit.stalePaths(env, reportDir, report.projects[1] and report.projects[1].projectFile)
+		do
+			table.insert(
+				issues,
+				"stale $path: "
+					.. stale.instance
+					.. " -> "
+					.. stale.path
+					.. " doesn't exist; remove the entry from "
+					.. stale.projectFile
+					.. " (Rojo builds anyway, so nothing else catches it)"
+			)
+		end
 		for _, rel in luauFiles(env, reportDir) do
 			local ok, src = pcall(env.fs.readFile, reportDir .. "/" .. rel)
 			if ok then

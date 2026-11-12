@@ -1093,10 +1093,38 @@ local function remoteName(ctx, expr: string, depth: number?): string?
 	return string.match(expr, "%.([%a_][%w_]*)$")
 end
 
+-- (v1.6.0 dogfood r3) the grant/save write methods a client value must never reach unchecked
+Scan.WRITE_METHODS = {
+	"Increment",
+	"Set",
+	"Update",
+	"Add",
+	"Give",
+	"Grant",
+	"Award",
+	"Deposit",
+	"Save",
+	"IncrementAsync",
+	"SetAsync",
+	"UpdateAsync",
+}
+
+-- the first write method in `body` called with `param` among its arguments (`x:Increment(amount)`,
+-- `store:SetAsync(key, amount)`), or nil
+function Scan.writeCallWith(body: string, param: string): string?
+	local p = "%f[%w_]" .. param .. "%f[^%w_]"
+	for method, args in string.gmatch(body, "[:%.]%s*([%a_][%w_]*)%s*(%b())") do
+		if table.find(Scan.WRITE_METHODS, method) and string.find(args, p) then
+			return method
+		end
+	end
+	return nil
+end
+
 local function scanRemotes(ctx, res)
 	local m = ctx.m
 	local code = m.code
-	local created, handlers, fires, trusts = {}, {}, {}, {}
+	local created, handlers, fires, trusts, valueTrusts = {}, {}, {}, {}, {}
 	for pos, n in string.gmatch(code, "()Instance%s*%.%s*new%s*%(%s*__S(%d+)__") do
 		local class = m.strings[tonumber(n)].value
 		if Scan.REMOTE_CLASSES[class] then
@@ -1151,6 +1179,13 @@ local function scanRemotes(ctx, res)
 					if param == nil then
 						continue
 					end
+					local method = Scan.writeCallWith(body, param)
+					if method then
+						table.insert(
+							valueTrusts,
+							{ name = name, param = param, method = method, line = lineOf(m, pos) }
+						)
+					end
 					local low = string.lower(param)
 					local suspicious = false
 					for _, w in TRUST_WORDS do
@@ -1197,6 +1232,7 @@ local function scanRemotes(ctx, res)
 	end
 	res.remotes = { created = created, handlers = handlers, fires = fires }
 	res.trusts = trusts
+	res.valueTrusts = valueTrusts
 end
 
 local function scanLeaderstats(ctx, res)

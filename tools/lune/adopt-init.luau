@@ -19,7 +19,7 @@
 	        note<TAB><text>
 	      Never overwrites a file it doesn't merge; the merged files are the project file and
 	      .gitignore.
-	  lune run tools/lune/adopt-init legacy <project> <findings file> dry|apply [<gameId>]
+	  lune run tools/lune/adopt-init legacy <project> <findings file> dry|apply [<gameId>] [<old sources>]
 	      the guardrails findings (the text `guardrails --raw` prints) -> studwork-legacy.json and
 	      studwork.json's legacyBaseline. The bash side calls it only on the run that created
 	      studwork.json (a committed baseline is never rewritten).
@@ -359,13 +359,23 @@ if cmd == "legacy" then
 	local project = absProject(args[1])
 	local findingsFile, mode = args[2], args[3]
 	if findingsFile == nil or (mode ~= "dry" and mode ~= "apply") then
-		print("usage: adopt-init legacy <project> <findings file> dry|apply [<gameId>]")
+		print("usage: adopt-init legacy <project> <findings file> dry|apply [<gameId>] [<old sources file>]")
 		process.exit(2)
 	end
 	local findings = AdoptInit.parseFindings(fs.readFile(findingsFile))
 	local report = readJson(project .. "/studwork-adopt-report.json")
 	local gameId = args[4]
-	local list, baseline, mustFix, mustFixChecks = AdoptInit.legacyList(findings, report)
+	-- (v1.6.0 dogfood r3) args[5]: a file of the old game's Luau sources, one per line ("style")
+	local oldSources = nil
+	if args[5] and args[5] ~= "-" then
+		oldSources = {}
+		for line in string.gmatch(fs.readFile(args[5]), "[^\r\n]+") do
+			if fs.isFile(project .. "/" .. line) then
+				table.insert(oldSources, line)
+			end
+		end
+	end
+	local list, baseline, mustFix, mustFixChecks = AdoptInit.legacyList(findings, report, oldSources)
 	local marker = readJson(project .. "/studwork.json")
 	if type(marker) ~= "table" or marker.adopted ~= true then
 		print("error: studwork.json is missing or not adopted")

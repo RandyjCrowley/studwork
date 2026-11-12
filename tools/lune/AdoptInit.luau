@@ -25,7 +25,9 @@
 	    (`<path>:<line>: [<check>] <message>`), "./" stripped
 	mustFix(finding) -> boolean          never downgraded by the legacy list (adopting.md §5): the
 	                                     ProcessReceipt assignment, `special`, `packages`
-	legacyList(findings, report?) -> (list, baseline, mustFixFiles, mustFixChecks { [path]: { check } })
+	legacyList(findings, report?, oldSources?) -> (list, baseline, mustFixFiles, mustFixChecks { [path]: { check } })
+	    (r3) every path in oldSources (the old game's Luau files) also lists "style"; a style-only
+	    file gets the baseline entry {} and AdoptInit.STYLE_REASON
 	    list = { files = { { path, checks, reason } } } sorted by path; baseline = { files = {
 	    [path] = { [check] = count } } }; reasons from the audit report when it explains the file
 	storeCollision(report, gameId) -> string?   an old store named PlayerData_<gameId>(_Studio)
@@ -407,11 +409,25 @@ local function auditNotes(report: any?): { [string]: { [string]: boolean } }
 	return notes
 end
 
+-- (v1.6.0 dogfood r3) the reason of an entry that lists only the "style" pseudo-check
+AdoptInit.STYLE_REASON =
+	"old code before StudWork: not held to selene/StyLua/strict typing (style); port or delete it"
+
 function AdoptInit.legacyList(
 	findings: { any },
-	report: any?
+	report: any?,
+	oldSources: { string }?
 ): (any, any, { string }, { [string]: { string } })
 	local byFile = {}
+	-- (v1.6.0 dogfood r3) every old Luau source gets the "style" pseudo-check: old code is never held
+	-- to selene/StyLua/strict typing, so a fresh project's first tools/lint and tools/typecheck
+	-- pass. "style" has no count: a style-only file's baseline entry is {} (so a later entry is
+	-- still refused)
+	local style = {}
+	for _, p in oldSources or {} do
+		style[p] = true
+		byFile[p] = byFile[p] or {}
+	end
 	local mustFix = {}
 	local mustFixChecks = {}
 	for _, f in findings do
@@ -442,9 +458,16 @@ function AdoptInit.legacyList(
 		for c in byFile[p] do
 			table.insert(checks, c)
 		end
+		local counted = table.clone(checks)
+		table.sort(counted)
+		if style[p] then
+			table.insert(checks, "style")
+		end
 		table.sort(checks)
 		local reason
-		if notes[p] then
+		if #counted == 0 then
+			reason = AdoptInit.STYLE_REASON
+		elseif notes[p] then
 			local parts = {}
 			for what in notes[p] do
 				table.insert(parts, what)
@@ -452,7 +475,7 @@ function AdoptInit.legacyList(
 			table.sort(parts)
 			reason = table.concat(parts, "; ") .. " before StudWork (audit); port it, then remove this entry"
 		else
-			reason = "existing code before StudWork: " .. table.concat(checks, ", ")
+			reason = "existing code before StudWork: " .. table.concat(counted, ", ")
 		end
 		table.insert(list.files, { path = p, checks = checks, reason = reason })
 		baseline.files[p] = byFile[p]

@@ -414,6 +414,8 @@ function Place.run(env, placeAbs: string, outAbs: string)
 		placeFile = Audit.relative(outAbs, placeAbs),
 		files = Audit.object(),
 		renamed = Audit.object(),
+		-- (v1.6.0 dogfood r3) the instances extracted, for --strip-place --extracted and --verify
+		extracted = Audit.extractedPaths(place),
 	}
 	for _, r in plan.renamed do
 		manifest.renamed[r.path] = r.name
@@ -498,14 +500,51 @@ local function readMarker(env, projectAbs: string): (any?, string?)
 	return { text = text, rel = rel }, nil
 end
 
-function Place.strip(env, projectAbs: string, paths: { string })
+-- (v1.6.0 dogfood r3) the instance paths --from-place recorded in the project's manifest
+function Place.recordedExtracted(env, projectAbs: string): ({ string }?, string?)
+	local manifestPath = projectAbs .. "/" .. env.Audit.MANIFEST
+	if not env.fs.isFile(manifestPath) then
+		return nil,
+			"no " .. env.Audit.MANIFEST .. " in the project (it was not made by tools/adopt --from-place)"
+	end
+	local ok, m = pcall(env.serde.decode, "json", env.fs.readFile(manifestPath))
+	if not ok or type(m) ~= "table" then
+		return nil, env.Audit.MANIFEST .. " is not valid JSON"
+	end
+	if type(m.extracted) ~= "table" then
+		return nil,
+			env.Audit.MANIFEST
+				.. ' has no "extracted" list (made by an older tools/adopt): rerun tools/adopt --from-place <place> --out . to record it, or name the instance paths'
+	end
+	local out = {}
+	for _, p in m.extracted do
+		if type(p) == "string" then
+			table.insert(out, p)
+		end
+	end
+	return out, nil
+end
+
+-- opts.extracted (v1.6.0 dogfood r3): also strip every instance the manifest's `extracted` lists
+-- that the place still holds (already-stripped ones are skipped; one recorded path matching
+-- several instances strips them all: --from-place extracted each)
+function Place.strip(env, projectAbs: string, paths: { string }, opts: any?)
 	local fs = env.fs
-	if #paths == 0 then
+	local withExtracted = type(opts) == "table" and opts.extracted == true
+	if #paths == 0 and not withExtracted then
 		return nil, "name at least one instance path (e.g. StarterGui.ShopGui.ShopGuiClient)"
 	end
 	local marker, err = readMarker(env, projectAbs)
 	if marker == nil then
 		return nil, err
+	end
+	local recorded = {}
+	if withExtracted then
+		local rec, rerr = Place.recordedExtracted(env, projectAbs)
+		if rec == nil then
+			return nil, tostring(rerr) .. ". Nothing was written."
+		end
+		recorded = rec
 	end
 	local sourceRel = marker.rel
 	local sourceAbs = projectAbs .. "/" .. sourceRel
@@ -546,6 +585,23 @@ function Place.strip(env, projectAbs: string, paths: { string })
 	end
 	if #problems > 0 then
 		return nil, table.concat(problems, "\n") .. "\nNothing was written."
+	end
+	local named = {}
+	for _, p in paths do
+		named[p] = true
+	end
+	local seenRec = {}
+	for _, p in recorded do
+		if not named[p] and not seenRec[p] then
+			seenRec[p] = true
+			for _, inst in Place.find(place, p) do
+				table.insert(targets, { path = p, inst = inst })
+			end
+		end
+	end
+	if #targets == 0 then
+		-- only --extracted gets here (a named path is either found or refused above): a no-op rerun
+		return { source = sourceRel, out = sourceRel, removed = {}, markerChanged = false, nothing = true }
 	end
 	local removed = {}
 	for _, t in targets do
