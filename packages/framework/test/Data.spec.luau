@@ -128,6 +128,38 @@ describe("sections: migrations, sanitize, defaults", function()
 		expect(saved._framework.firstJoin).toBe(h.clock - 100)
 	end)
 
+	it("the kick text comes from the framework.kick.* strings (GameConfig.strings can reword it)", function()
+		local Broken = def({
+			name = "BrokenText",
+			version = "1.0.0",
+			framework = "^1.3.0",
+			data = {
+				key = "brokenText",
+				version = 2,
+				default = {},
+				migrations = {
+					[2] = function()
+						error("boom")
+					end,
+				},
+			},
+		})
+		local h = Harness.new({
+			modules = { Broken },
+			servers = {},
+			strings = { ["framework.kick.saveFailed"] = "Try again soon." },
+		})
+		local p = h:addPlayer({
+			userId = 5,
+			data = {
+				_framework = { schemaVersion = 2, _owners = {} },
+				_versions = { brokenText = 1 },
+				brokenText = { v = 1 },
+			},
+		})
+		expect(p.kicked).toBe("Try again soon.")
+	end)
+
 	it("a failing migration loads nothing, kicks, and never saves over the stored data", function()
 		local Broken = def({
 			name = "Broken",

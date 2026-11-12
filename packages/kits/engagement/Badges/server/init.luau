@@ -467,9 +467,8 @@ function Badges.new(): any
 				local rank = ctx.deps[Leaderboards].rank(player, t.board)
 				return type(rank) == "number" and rank <= t.rank
 			elseif t.kind == "rebirths" then
-				-- Rebirth's public API has no count getter (yet): then only Rebirthed fires this one
-				local count = ctx.deps[Rebirth].count
-				return type(count) == "function" and count(player) >= t.atLeast
+				-- Rebirth.count (v1.7.0): already satisfied at join; Rebirthed handles the rest
+				return ctx.deps[Rebirth].count(player) >= t.atLeast
 			end
 			return false
 		end)

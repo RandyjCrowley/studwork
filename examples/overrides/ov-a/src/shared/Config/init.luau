@@ -34,6 +34,8 @@ local Config = {
 		require(Modules:WaitForChild("Plot"):WaitForChild("module")), -- per-player plots with item display slots (needs Inventory)
 	} :: { any },
 	config = require(script.Balance),
+	-- generated from deploy.json by tools/sync-projects (docs/framework/kits/environments.md)
+	environments = require(script.Environments),
 	-- Coins are sold for Robux (CoinPack), so the Coin-priced Chest is a paid random item too.
 	-- List every currency players can buy with Robux: rolls priced in one follow the paid
 	-- random item rules (odds disclosure, PolicyService). compliance = {} if none is sold.
