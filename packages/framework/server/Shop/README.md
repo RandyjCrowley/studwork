@@ -93,5 +93,18 @@ v1.3.0" (CHANGELOG, Breaking). Tested in `packages/framework/test/Items.spec.lua
 Config: `products.devProducts`, `products.passes` (name -> id; 0 = not created yet: never owned, receipts can't
 match, warned once).
 
+Gamepasses (v1.6.1): every `products.passes` entry is looked up when the player joins; the join waits
+for the answers at most `GameConfig.shop.passPrefetchTimeout` seconds (default 2, range 0-5, boot error
+outside it) before the save loads, and lookups that miss it keep running in the background (the cache
+fills, `onPassOwned` fires). Purchases never depend on the timeout: inside a transaction a pass whose
+answer isn't known (still pending, failed, or a raw id) is never guessed. In a purchase transaction the
+receipt is retried (`retry_later` reason `pass_unknown`: NotProcessedYet, nothing written, a background
+lookup starts; it holds even if the handler pcalls `ownsPass`); in any other transaction (or a
+non-yieldable context) `ownsPass` errors and the transaction is refused. Outside a transaction it yields
+and looks the pass up. Analytics `PlayerLoadTiming` (one per join): value = join -> loaded seconds,
+fields `totalSeconds`, `loadSeconds`, `passSeconds`, `passesPending`, `timedOut`.
+`s.legacyBridges()` returns a copy of the `onLegacyProduct` registrations (`{ product, owner,
+writesLegacyData }`) for the runtime's live boot warning.
+
 Console (Studio): `shop receipt <productName> [purchaseId] [userId]` runs the flow twice with the same
 PurchaseId and prints both decisions (expect `granted` then `duplicate`).

@@ -423,7 +423,9 @@ For **every** product in the report's `purchases.products`:
    `EggRoll`. Never `math.random` in a product handler.
 3. Passes: `ctx.shop.onPassOwned("VIP", function(player) ... end)` and
    `ctx.shop.ownsPass(player, "VIP")` instead of `UserOwnsGamePassAsync`. Perk flags the old save
-   kept come over with the import.
+   kept come over with the import. Inside a purchase handler an unanswered pass retries the
+   receipt (never a guess); elsewhere in a transaction it errors. Leave
+   `GameConfig.shop.passPrefetchTimeout` at its default (2 s) unless the user asks.
 4. Delete the old `ProcessReceipt` assignment and the old product code. (An assignment to
    `ProcessReceipt` fails lint even in a listed file: Shop owns it.)
 

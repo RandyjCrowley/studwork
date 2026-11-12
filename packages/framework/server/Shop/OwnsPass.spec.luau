@@ -72,35 +72,39 @@ describe("ctx.shop.ownsPass (v1.6.0: non-yielding for a loaded player)", functio
 		expect(inside).toBe(true)
 	end)
 
-	it(
-		"a lookup that failed at join reads as not owned inside a tx (no error) until a retry works",
-		function()
-			local world, server = boot()
-			local down = true
-			local real = server.MarketplaceService.UserOwnsGamePassAsync
-			server.MarketplaceService.UserOwnsGamePassAsync = function(self, userId, id)
-				if down then
-					error("sim: UserOwnsGamePassAsync down (injected)")
-				end
-				return real(self, userId, id)
+	-- v1.6.1 (Changed): a failed lookup is no longer read as "not owned" inside a tx (a guess);
+	-- the tx is refused instead (a purchase tx retries the receipt: PassPrefetch.spec.luau)
+	it("a lookup that failed at join refuses a tx that asks it (no guess) until a retry works", function()
+		local world, server = boot()
+		local down = true
+		local real = server.MarketplaceService.UserOwnsGamePassAsync
+		server.MarketplaceService.UserOwnsGamePassAsync = function(self, userId, id)
+			if down then
+				error("sim: UserOwnsGamePassAsync down (injected)")
 			end
-			local p = joinLoaded(world, server, 1)
-			local shop = server.runtime.shop
-			local inside
-			expect(server:update(p, function()
-				inside = shop.ownsPass(p, "Vip")
-			end)).toBe(true)
-			expect(inside).toBe(false)
-			down = false
-			local h = server:spawn(shop.ownsPass, p, "Vip")
-			world:advanceUntil(function()
-				return h.done
-			end, 10)
-			expect(h.result).toBe(true)
+			return real(self, userId, id)
+		end
+		local p = joinLoaded(world, server, 1)
+		local shop = server.runtime.shop
+		world:advance(10) -- every join-time retry has failed by now
+		local inside
+		local ok, err = pcall(function()
 			server:update(p, function()
 				inside = shop.ownsPass(p, "Vip")
 			end)
-			expect(inside).toBe(true)
-		end
-	)
+		end)
+		expect(ok).toBe(false)
+		expect(tostring(err)).toContain("its lookup failed")
+		expect(inside).toBe(nil)
+		down = false
+		local h = server:spawn(shop.ownsPass, p, "Vip")
+		world:advanceUntil(function()
+			return h.done
+		end, 10)
+		expect(h.result).toBe(true)
+		server:update(p, function()
+			inside = shop.ownsPass(p, "Vip")
+		end)
+		expect(inside).toBe(true)
+	end)
 end)

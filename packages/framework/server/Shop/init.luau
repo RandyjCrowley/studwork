@@ -34,11 +34,17 @@
 	would be exactly the silent fight the design rejects. See decisions.md, "Purchases and receipts".
 
 	Gamepasses: ownsPass(player, pass) cached per player per pass (UserOwnsGamePassAsync once, with
-	retries; failures not cached); every products.passes entry is fetched at join, before the save
-	loads (v1.6.0, at most PASS_PREFETCH_SECONDS), so ownsPass of a loaded player never yields; a call that WOULD yield inside a tx (or a
-	non-yieldable context) errors "ctx.shop.ownsPass yields: call it outside a transaction ...";
-	PromptGamePassPurchaseFinished(true) marks it owned;
+	retries; failures not cached); every products.passes entry is fetched at join, while the save
+	loads (v1.6.1: in parallel; the loaded step waits at most GameConfig.shop.passPrefetchTimeout,
+	default 2 s, range 0-5, counted from the join). Lookups that miss it keep running and fill the
+	cache. A pass whose answer isn't known (still pending, failed, or a raw id) is never guessed
+	inside a transaction (v1.6.1): in a purchase tx the receipt is retried (tx.retryLater
+	"pass_unknown": NotProcessedYet, nothing written, even if the handler pcalls it) and a
+	background lookup starts; in any other tx (or a non-yieldable context) the call errors
+	"ctx.shop.ownsPass yields: call it outside a transaction ..." (the tx is discarded). Outside a
+	tx it yields and looks the pass up. PromptGamePassPurchaseFinished(true) marks it owned;
 	onPassOwned(pass, fn) runs once per player per pass (owned at join, after data load, or bought).
+	opts.passPrefetchTimeout (seconds, validated by Shop.validateShopConfig), opts.clock.
 
 	Shop.new(opts): opts.data, opts.policy, opts.products, opts.marketplace (platform), opts.players
 	({ byUserId, list }), opts.isPlayer, opts.feedback, opts.analytics, opts.signals, opts.purchaseOps
@@ -64,7 +70,11 @@ local Shop = {}
 
 Shop.PASS_CHECK_ATTEMPTS = 3
 Shop.PASS_RETRY_DELAY = 1
-Shop.PASS_PREFETCH_SECONDS = 5 -- (v1.6.0) longest a join waits for its pass answers before loading
+-- (v1.6.0) deprecated in 1.6.1: the upper bound of GameConfig.shop.passPrefetchTimeout (kept so
+-- code that reads it keeps working); the wait itself is opts.passPrefetchTimeout
+Shop.PASS_PREFETCH_SECONDS = 5
+Shop.PASS_PREFETCH_MAX = Shop.PASS_PREFETCH_SECONDS -- (added in 1.6.1)
+Shop.PASS_PREFETCH_DEFAULT = 2 -- (added in 1.6.1) GameConfig.shop.passPrefetchTimeout default
 Shop.PURCHASES_CAP = 200
 Shop.RECEIPT_CHECK_SECONDS = 2 -- §7.1 runtime ProcessReceipt owner check interval
 
@@ -90,6 +100,17 @@ function Shop.new(opts: any): any
 	local passCache: { [any]: { [number]: boolean } } = {}
 	local passFailed: { [any]: { [number]: boolean } } = {} -- (v1.6.0) lookups that failed at join
 	local passFired: { [any]: { [any]: boolean } } = {}
+	-- (v1.6.1) per player: lookups in flight by pass id, and the join prefetch's progress
+	local passLooking: { [any]: { [number]: boolean } } = {}
+	type Prefetch = { open: number, started: number, finished: number? }
+	local prefetchState: { [any]: Prefetch } = {}
+	local clock: () -> number = opts.clock or os.clock
+	local prefetchTimeout: number = if type(opts.passPrefetchTimeout) == "number"
+		then opts.passPrefetchTimeout
+		else Shop.PASS_PREFETCH_DEFAULT
+	-- (v1.6.1) the purchase tx running right now (its player + Receipt control), so ownsPass can
+	-- retry the receipt instead of guessing a pass it doesn't know yet
+	local currentPurchase: { player: any, live: any }? = nil
 	local inFlight: { [string]: boolean } = {}
 	local pending: { [string]: Receipt.Pending } = {}
 	local parkedProduct: { [string]: number } = {} -- PurchaseId -> ProductId of a parked grant
@@ -234,10 +255,16 @@ function Shop.new(opts: any): any
 			end,
 		}
 		local function update(p: any, fn: (data: any) -> ()): boolean
-			local committed = data.runTx(p, function(tx: any)
+			local outer = currentPurchase
+			currentPurchase = { player = p, live = live }
+			local ok, committed = pcall(data.runTx, p, function(tx: any)
 				handle = tx
 				fn(data.section(tx, "_framework"))
 			end, { extras = extras, meta = { purchase = true, product = tag } })
+			currentPurchase = outer
+			if not ok then
+				error(committed, 0)
+			end
 			return committed
 		end
 		local function buildTx(_p: any, _r: any, _data: any, queue: { () -> () }, ctl: any): any
@@ -454,21 +481,36 @@ function Shop.new(opts: any): any
 		-- (v1.6.0 dogfood) not cached yet: answering would yield (UserOwnsGamePassAsync). Inside a
 		-- transaction (a capBonus / rateFactor / roll runs in one) or any non-yieldable context
 		-- that would discard the change with a confusing "fn must not yield", or (in the sim)
-		-- park the caller forever. Every pass in products.passes is fetched when the player
-		-- joins, so this only happens before that answer arrived, or for a raw pass id.
+		-- park the caller forever. v1.6.1: never a guess either (a failed or pending lookup used
+		-- to read as not owned): a purchase tx retries the receipt, anything else errors.
 		local inTx = data ~= nil and data.openTxPlayer ~= nil and data.openTxPlayer() ~= nil
-		if (inTx or not coroutine.isyieldable()) and passFailed[player] and passFailed[player][id] then
-			warnOnce(
-				`passfail:{id}`,
-				`ownsPass: the lookup of pass {id} failed at join; read as not owned inside a transaction until a retry outside one succeeds`
-			)
-			return false
-		end
 		if inTx or not coroutine.isyieldable() then
+			local failed = passFailed[player] ~= nil and passFailed[player][id] == true
+			local looking = passLooking[player] ~= nil and passLooking[player][id] == true
+			local state = if failed
+				then "its lookup failed"
+				elseif looking then "its lookup hasn't answered yet"
+				else "it was never looked up"
+			local purchase = currentPurchase
+			if
+				inTx
+				and purchase ~= nil
+				and purchase.live.control ~= nil
+				and purchase.player == data.openTxPlayer()
+			then
+				s.lookupPass(player, id)
+				warnOnce(
+					`passretry:{id}`,
+					`ownsPass: pass {id} isn't known yet for a purchase ({state}); the receipt is retried (NotProcessedYet) until the lookup answers`
+				)
+				purchase.live.control.retry = true
+				purchase.live.control.reason = "pass_unknown"
+				error("[StudWork.Shop] retryLater", 0)
+			end
 			error(
 				`ctx.shop.ownsPass yields: call it outside a transaction (pass '{tostring(pass)}' isn't known yet for {tostring(
 					player
-				)}; StudWork fetches every products.passes entry at join, so read it after the player loaded, or track ownership with ctx.shop.onPassOwned)`,
+				)}: {state}; StudWork fetches every products.passes entry at join, so read it after the player loaded, or track ownership with ctx.shop.onPassOwned; the transaction is refused rather than guessing)`,
 				2
 			)
 		end
@@ -503,55 +545,138 @@ function Shop.new(opts: any): any
 		return false
 	end
 
+	-- A loaded player's pass: fire now when cached as owned; otherwise one background lookup
+	-- (s.lookupPass, defined below) fires onPassOwned when it answers (v1.6.1: no second lookup
+	-- while the join prefetch is still running).
 	local function checkPass(player: any, id: number)
+		local cache = passCache[player]
+		if cache ~= nil and cache[id] ~= nil then
+			if cache[id] then
+				firePassOwned(player, id)
+			end
+			return
+		end
+		s.lookupPass(player, id)
+	end
+
+	-- (v1.6.1) one background lookup per player per pass at a time (outside any tx: it waits a
+	-- frame first, so a lookup started from inside a purchase tx runs after the tx closed).
+	function s.lookupPass(player: any, id: number, onDone: (() -> ())?)
+		local looking = passLooking[player]
+		if looking == nil or looking[id] then
+			return
+		end
+		looking[id] = true
 		spawn(function()
-			if s.ownsPass(player, id) then
+			if data ~= nil and data.openTxPlayer ~= nil and data.openTxPlayer() ~= nil and opts.wait then
+				opts.wait(0)
+			end
+			local cache = passCache[player]
+			if cache ~= nil and cache[id] == nil then
+				pcall(s.ownsPass, player, id)
+			end
+			if passLooking[player] == looking then
+				looking[id] = nil
+			end
+			if onDone then
+				onDone()
+			end
+			-- answered late (after the player loaded): onPassOwned fires as usual
+			if passCache[player] ~= nil and passCache[player][id] == true and data.isLoaded(player) then
 				firePassOwned(player, id)
 			end
 		end)
 	end
 
-	-- (v1.6.0 dogfood) every pass in products.passes is fetched once per player at join, in
-	-- parallel, and playerAdded waits for the answers (at most Shop.PASS_PREFETCH_SECONDS) before
-	-- the runtime loads the save: so by the time the player is loaded, ownsPass is a cache read that
-	-- never yields, even inside a tx. A pass whose lookup failed is remembered in passFailed: inside
-	-- a tx it reads as not owned (logged) instead of erroring, and is retried outside.
-	local function prefetchPasses(player: any)
-		local open = 0
+	-- (v1.6.0 dogfood, v1.6.1) every pass in products.passes is fetched once per player at join, in
+	-- parallel, without blocking: the runtime loads the save meanwhile and then waits (awaitPasses)
+	-- only for what is left of passPrefetchTimeout. A pass whose answer isn't known by then is
+	-- never guessed inside a transaction (see ownsPass).
+	local function startPrefetch(player: any)
+		local st: Prefetch = { open = 0, started = clock(), finished = nil }
+		prefetchState[player] = st
 		for _, id in products.passes do
 			if type(id) == "number" and id > 0 then
-				open += 1
-				spawn(function()
-					local cache = passCache[player]
-					if cache ~= nil and cache[id] == nil then
-						pcall(s.ownsPass, player, id)
+				st.open += 1
+				s.lookupPass(player, id, function()
+					st.open -= 1
+					if st.open == 0 then
+						st.finished = clock()
 					end
-					open -= 1
 				end)
 			end
 		end
-		if open > 0 and opts.wait ~= nil and coroutine.isyieldable() then
-			local waited = 0
-			while open > 0 and waited < Shop.PASS_PREFETCH_SECONDS and passCache[player] ~= nil do
-				waited += opts.wait(0.05) or 0.05
-			end
+		if st.open == 0 then
+			st.finished = st.started
 		end
 	end
 
-	function s.playerAdded(player: any)
+	-- Joins a player without waiting (v1.6.1): starts the pass prefetch.
+	function s.playerJoined(player: any)
 		local first = passCache[player] == nil
 		passCache[player] = passCache[player] or {}
 		passFired[player] = passFired[player] or {}
+		passLooking[player] = passLooking[player] or {}
 		if first then
-			prefetchPasses(player)
+			startPrefetch(player)
+		end
+	end
+
+	-- (v1.6.1) waits until every join lookup answered, at most `seconds` (default: the whole
+	-- passPrefetchTimeout); returns { seconds (how long the prefetch took, or until now when
+	-- still open), pending (lookups still open), timedOut }.
+	function s.awaitPasses(
+		player: any,
+		seconds: number?
+	): { seconds: number, pending: number, timedOut: boolean }
+		local st = prefetchState[player]
+		if st == nil then
+			return { seconds = 0, pending = 0, timedOut = false }
+		end
+		local budget = if seconds ~= nil then seconds else prefetchTimeout
+		if st.open > 0 and budget > 0 and opts.wait ~= nil and coroutine.isyieldable() then
+			local waited = 0
+			while st.open > 0 and waited < budget and passCache[player] ~= nil do
+				waited += opts.wait(0.05) or 0.05
+			end
+		end
+		local finished = st.finished
+		return {
+			seconds = math.max(0, (if finished ~= nil then finished else clock()) - st.started),
+			pending = st.open,
+			timedOut = st.open > 0,
+		}
+	end
+
+	function s.passPrefetchTimeout(): number
+		return prefetchTimeout
+	end
+
+	-- Joins and waits for the pass answers (at most passPrefetchTimeout): the v1.6.0 behaviour,
+	-- kept for callers outside the runtime.
+	function s.playerAdded(player: any)
+		local first = passCache[player] == nil
+		s.playerJoined(player)
+		if first then
+			s.awaitPasses(player)
 		end
 	end
 
 	function s.playerLoaded(player: any)
-		s.playerAdded(player)
+		s.playerJoined(player)
 		for id in passHandlers do
 			checkPass(player, id)
 		end
+	end
+
+	-- (added in 1.6.1) a copy of every ctx.shop.onLegacyProduct registration, in order:
+	-- { product, owner, writesLegacyData } (the live boot warning lists them).
+	function s.legacyBridges(): { { product: string, owner: string, writesLegacyData: boolean } }
+		local out = {}
+		for _, lp in legacyProducts do
+			table.insert(out, { product = lp.product, owner = lp.owner, writesLegacyData = lp.writes })
+		end
+		return out
 	end
 
 	-- N9 (v1.3.0): a player leaving while a grant's save is still unconfirmed. Called by the
@@ -604,6 +729,8 @@ function Shop.new(opts: any): any
 		passCache[player] = nil
 		passFailed[player] = nil
 		passFired[player] = nil
+		passLooking[player] = nil
+		prefetchState[player] = nil
 		-- anything settleOnLeave didn't see (it runs first): v1.2 behaviour, effects dropped
 		for id, p in pending do
 			if p.userId == player.UserId then
@@ -795,6 +922,28 @@ function Shop.new(opts: any): any
 	end
 
 	return s
+end
+
+-- (added in 1.6.1) validates GameConfig.shop. -> error message or nil.
+function Shop.validateShopConfig(shop: any): string?
+	if shop == nil then
+		return nil
+	end
+	if type(shop) ~= "table" then
+		return "GameConfig.shop must be a table ({ passPrefetchTimeout = seconds })"
+	end
+	for k in shop do
+		if k ~= "passPrefetchTimeout" then
+			return `GameConfig.shop.{tostring(k)}: unknown key (passPrefetchTimeout)`
+		end
+	end
+	local t = shop.passPrefetchTimeout
+	if t ~= nil and (type(t) ~= "number" or t ~= t or t < 0 or t > Shop.PASS_PREFETCH_MAX) then
+		return `GameConfig.shop.passPrefetchTimeout must be a number of seconds from 0 to {Shop.PASS_PREFETCH_MAX} (got {tostring(
+			t
+		)}{if type(t) == "string" then " as a string" else ""})`
+	end
+	return nil
 end
 
 -- adopting.md §4.2: validates a ctx.shop.legacyReceipts spec. -> error message or nil.

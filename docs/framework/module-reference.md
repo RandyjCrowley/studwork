@@ -278,11 +278,14 @@ end
   later. Side effects go in `tx.after`.
 - `tx.paid` is set by the framework. Items granted in a purchase get a `paid:` source tag
   automatically.
-- `ctx.shop.ownsPass(player, pass)` never yields for a loaded player: every `products.passes`
-  entry is looked up at join, before the save loads (v1.6.0). Inside a transaction (a `capBonus`,
-  a `rateFactor`, a roll) a pass that was never looked up errors (`ctx.shop.ownsPass yields: call
-  it outside a transaction`) instead of yielding; a lookup that failed at join reads as not owned
-  there.
+- `ctx.shop.ownsPass(player, pass)`: every `products.passes` entry is looked up at join; the join
+  waits for the answers at most `GameConfig.shop.passPrefetchTimeout` seconds (default 2, range
+  0-5; v1.6.1) before the save loads, slower lookups finish in the background. Inside a
+  transaction an answer that isn't known yet (pending, failed, or a pass never looked up) is never
+  guessed (v1.6.1): in a purchase handler the receipt is retried (NotProcessedYet, nothing
+  granted); anywhere else (a `capBonus`, a `rateFactor`, a module action) it errors
+  (`ctx.shop.ownsPass yields: call it outside a transaction`) and the transaction is refused.
+  Outside a transaction it yields and looks the pass up.
 
 ## Random outcomes: Compliance
 
