@@ -11,6 +11,53 @@ Identifiers like `R19` or `V1` are issue ids: open ones are listed in [docs/know
 
 ## [Unreleased]
 
+## [1.6.1] - 2026-11-11
+
+Patch fixes and safety hardening from the v1.6.0 review. The module API remains additive.
+
+### Fixed
+
+- **Unknown gamepass ownership never becomes a guessed purchase result.** A purchase that needs
+  a pending or failed pass lookup retries with nothing granted or recorded, even if its handler
+  catches the error. Slow-lookup tests cover loading on time and safe receipt redelivery.
+- **Undeclared legacy writes fail loudly in tests and Studio.** A bridge declaring
+  `writesLegacyData = false` that writes through the legacy mock (including receipt-history
+  writes) answers `NotProcessedYet` and logs the product, module, store and key. Studio compares
+  the imported keys before and after the handler; failed reads fail closed. Live servers retain
+  declaration-only checks, and warn once at boot with analytics `LegacyCodeLive` when bridges or
+  legacy list entries remain. The adopted boot passes the mapped `StudWorkBoot.LegacyList`.
+  Detection limits are stated in adopting.md §4.3 and known-issues O6.
+- **Adoption guardrails:** the adopted marker is sticky across git history. Removing it or the
+  legacy list cannot bypass lint or live-publish verification; missing/shallow history requires
+  `--verify` to pass. Optional `tools/lint --anchor-remote` compares the baseline and marker with
+  the remote default branch. Generated projects include full-history CI using it and the pinned
+  framework toolchain. A history rewrite resets local anchors (documented).
+- **Place-file safety:** `.studwork-from-place.json` records the original's name, path and SHA-256.
+  `--strip-place` and `--from-place` refuse to overwrite its path or content regardless of name.
+- **OddsTable:** rarity badges, item names and percentages scale/wrap within their columns rather
+  than clipping on narrow screens. Theme token `metrics.text.min` supplies the minimum scaled
+  text size. Rendered Studio checks cover desktop, small/large phones and tablet sizes.
+- **Adopted client boot:** wait for initial replication before requiring the framework from
+  ReplicatedFirst, preventing a partially replicated Framework from failing on a missing child.
+- **Migration playbook:** clarify overlapping old Config mappings, leftover project-file remote
+  instances, old item-uid references, game-owned paid rolls, formatting and notes from step 0.
+
+### Changed
+
+- **The default gamepass prefetch wait drops from 5 to 2 seconds.** Configure
+  `GameConfig.shop.passPrefetchTimeout` (seconds, range 0–5); invalid values fail boot. Reason:
+  a slow MarketplaceService unnecessarily held every join's save load for up to 5 seconds.
+  Lookups continue in the background. `PlayerLoadTiming` records total/load/prefetch durations,
+  pending lookup count and timeout status. `Shop.PASS_PREFETCH_SECONDS` remains as the upper bound.
+- `ctx.shop.ownsPass` inside a transaction refuses unknown ownership rather than reading a failed
+  lookup as not owned: purchases retry; other transactions error. This prevents correctness from
+  depending on the prefetch timeout.
+- `ctx.shop.legacyReceipts` accepts optional `checkDays` (positive days, default 90) for the window
+  after `until`. After the window, very late old receipts grant normally. Imported receipt-id
+  retention remains 90 days. Both cutover checklists explain the distinction.
+- `tools/lint` rejects unknown arguments. `tools/publish --live` refuses when the adopted marker's
+  history cannot be established. Empty `studwork-legacy.json` files stay mapped into adopted places.
+
 ## [1.6.0] - 2026-11-11
 
 Agent-driven adoption of existing Roblox games, plus two framework requests (odds preview at any
@@ -390,7 +437,9 @@ First release: the foundation services and kits.
   instead of an unprocessed purchase loop.
 - Leaving or shutting down no longer kicks with "opened in another server".
 
-[Unreleased]: https://github.com/RandyjCrowley/studwork/compare/v1.5.0...HEAD
+[Unreleased]: https://github.com/RandyjCrowley/studwork/compare/v1.6.1...HEAD
+[1.6.1]: https://github.com/RandyjCrowley/studwork/compare/v1.6.0...v1.6.1
+[1.6.0]: https://github.com/RandyjCrowley/studwork/compare/v1.5.0...v1.6.0
 [1.5.0]: https://github.com/RandyjCrowley/studwork/compare/v1.4.1...v1.5.0
 [1.4.1]: https://github.com/RandyjCrowley/studwork/compare/v1.4.0...v1.4.1
 [1.4.0]: https://github.com/RandyjCrowley/studwork/compare/v1.3.1...v1.4.0
