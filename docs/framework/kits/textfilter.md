@@ -40,7 +40,7 @@ to the server and shown back (even to the author alone) goes through `"private"`
 | `trim` | `true` | strip leading/trailing whitespace and collapse runs of spaces before filtering |
 | `cache.maxEntries` | `500` | cached **re-display** results per server (least recently used are dropped); a new submission is always filtered fresh |
 | `cache.seconds` | `600` | a cached re-display result is re-filtered after this long |
-| `perPlayerPerMinute` | `20` | filter calls one author can cause per minute (an over-limit call returns `"rate_limited"`) |
+| `perPlayerPerMinute` | `20` | submissions (`filter`, `store`) one author can make per minute (an over-limit call returns `"rate_limited"`); re-display calls are bounded by the cache instead |
 | `originals.max` | `100` | originals kept per author in this module's save section; the oldest is dropped first (its records then show `shown` only, below) |
 | `shownMaxDays` | `30` | a `"public"` record's saved broadcast string is shown while the author is away for at most this many days after it was filtered; after that, nil until the author is in a server again |
 | `fallbackKey` | `"TextFilter.hidden"` | the string key ([localization](localization.md)) callers show instead of text that can't be shown (English default: `"..."`) |
@@ -58,11 +58,12 @@ thread, never inside `ctx.tx`.
   - `result.public -> string?`: the broadcast string (`"public"` only).
   - `result.forViewer(viewer) -> string?`: the string for one viewer, or nil when that viewer
     may not see it (not the author / not a friend, or the viewer left). Yields the first time per
-    viewer, then cached.
+    viewer, then cached. For `"public"` it is the broadcast string for anyone in the server.
   - `result.context`, `result.author` (user id). The original text is **not** exposed.
 - `textFor(viewer, author, text, context) -> string?`: re-display of text the author already
   submitted (filtered then): filters through the re-display cache and returns what `viewer` may
-  see, or nil. **(contract)**
+  see, or nil. A submission's result seeds the cache, so showing it right after costs no call.
+  **(contract)**
 - `store(author, text, context) -> (ok, Stored | reason)`: a submission that is kept: filters,
   saves the original in **this module's** section of the author's save (`originals[id]`, never
   replicated), and returns `Stored = { id, author, context, at, shown? }`. `shown` is the broadcast
@@ -71,7 +72,8 @@ thread, never inside `ctx.tx`.
 - `shown(stored, viewer?) -> string?`: what to display from a `Stored` record: re-filtered from the
   original (through the re-display cache) when the author is in the server; otherwise
   `stored.shown` for `"public"` while it is younger than `shownMaxDays`, and nil for `"friends"` and
-  `"private"` or an older record. **(contract)**
+  `"private"` or an older record. Without a `viewer` only `"public"` text has a string (the
+  broadcast one). **(contract)**
 - `release(author, stored)`: drops the original (the caller deleted the pet, cleared the sign).
   Doesn't yield. **(contract)**
 - Reasons: `"empty"`, `"too_long"`, `"rate_limited"`, `"policy"`, `"author_offline"` (Roblox
@@ -103,7 +105,8 @@ actions = {
 
 ## Save data and replication
 
-Section `textfilter`, version 1: `{ originals = { [id] = { t = text, c = context, at } }, nextId = 1 }`,
+Section `textfilter`, version 1: `{ originals = { [tostring(id)] = { t = text, c = context, at } }, nextId = 1 }`
+(string keys, so the save stays a dictionary),
 `replicate = false`. Only this module reads it, and only on the server where the author is.
 Callers keep `Stored` records in their own sections. The in-memory re-display cache is not saved.
 
@@ -133,8 +136,8 @@ player (or a store other players read) without passing TextFilter.
 - **Limits:** it follows names only within one function and one file; text that travels through
   tables, other modules or saves isn't followed (the author's own save isn't a sink: it never
   holds another player's text unless a later read sends it on, which a sink in that code catches).
-  `-- guard: allow textfilter` with a reason on the line above for genuine non-text strings (an
-  enum value checked against a list).
+  `-- guard: allow textfilter` at the end of the sink's line, with a reason on the line above, for
+  genuine non-text strings (an enum value checked against a list).
 - **Self-test** plants (each must fail): an action param into `replicate.setAll`, into `.Text =`,
   through a `..` concatenation into `fireAll`, back to the handler's own player with
   `ctx.net.fire(player, ...)`, into `ctx.replicate.set(other, ...)`, into `ctx.data.shared.update`,

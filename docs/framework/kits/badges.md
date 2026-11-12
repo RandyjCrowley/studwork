@@ -20,8 +20,8 @@ waits for `BadgeService`.
 
 | Key | Default | Meaning |
 |---|---|---|
-| `flag` | none | a feature flag ([environments](environments.md)); while off, triggers are still recorded as pending but nothing is sent |
-| `badges` | `{}` | `{ [key] = { id = <badge id>, trigger = Trigger, toast = true } }`; `key` matches `^[%w_]{1,32}$`. `id = 0` is a placeholder: allowed, recorded as usual, never sent or checked, one warning per server |
+| `flag` | none | a feature flag ([environments](environments.md)); while off, triggers are still recorded as pending but nothing is sent or checked; switching it on sends the queue. An undeclared flag is a boot error |
+| `badges` | `{}` | `{ [key] = { id = <badge id>, trigger = Trigger, toast = true } }`; `key` matches `^[%w_]{1,32}$`. `id = 0` is a placeholder: allowed, recorded as usual, never sent or checked, one warning per server (per key, logged the first time it would be sent, never at boot) |
 | `awardInStudio` | `false` | in Studio, an award is recorded in the (Studio) save like live and logged (`would award ...`), but never sent: it stays pending. Studio saves are separate from live ones |
 | `ownershipCheck` | `true` | at join, check which configured badges the player already owns or has pending (batches of 10) and record those as awarded without sending |
 | `retry` | `{ base = 5, factor = 2, max = 300, attempts = 6 }` | backoff between send attempts; after `attempts` failures in a session the badge stays pending for the next session |
@@ -41,9 +41,11 @@ waits for `BadgeService`.
 | `"currency"` | `currency?`, `atLeast` | Economy's `CurrencyChanged` balance reaches `atLeast` | Economy |
 | `"leaderboard"` | `board`, `rank` | the player is at or above `rank` on a board refresh | Leaderboards |
 
-Triggers on a module that isn't enabled are a boot error naming the badge and the module. All
-of them are declared `optional` dependencies, so the kit itself needs none. A trigger that is
-already satisfied at join (a streak of 10 for a badge at 7) fires on load.
+Triggers on a module that isn't enabled are a boot error naming the badge and the module (so are
+a bad key, id, kind or trigger field). All of them are declared `optional` dependencies, so the
+kit itself needs none. A trigger that is already satisfied at join (a streak of 10 for a badge at
+7, a balance, an item already owned, a rank) fires on load, after every module's own load handlers.
+`rebirths` is the exception: Rebirth's API has no count to read, so it fires on `Rebirthed` only.
 
 ## API (server)
 
@@ -54,9 +56,12 @@ already satisfied at join (a streak of 10 for a badge at 7) fires on load.
   **(contract)**
 - **txApi:** `award(tx, key) -> boolean`: records the award inside the caller's transaction; the
   send follows only after the transaction commits (`tx.after`). Use it when the award belongs
-  to the same change as the reason ("bought the first upgrade"). **(contract)**
+  to the same change as the reason ("bought the first upgrade"). The same function is the
+  module's `purchaseOps.award`, so a product handler calls `tx.use(Badges).award(key)`.
+  **(contract)**
 - **signals:** `BadgeAwarded(player, key, badgeId)`: fires once Roblox confirmed the award (or
-  it was found already owned), never on a mere record. **(contract)**
+  it was found already owned), never on a mere record. A found badge gets the signal and the
+  client event, but no toast. **(contract)**
 - **Console:** `badges list [userId]`, `badges pending [userId]`, `badges reset <key> [userId]`
   (Studio only: clears our record; never removes anything from Roblox).
 
@@ -87,11 +92,13 @@ Section `badges`, version 1: `{ awarded = { [key] = { at, sent, found? } } }`. R
 
 ## Client part
 
-Shows a toast through the framework feedback on `BadgeAwarded` (server-fired module event
-`Awarded(key)`), text `Badges.awarded` with `{ name }` = the badge's name string key
-`Badges.badge.<key>` (English default: the key, from the module's `strings` function, §23.9;
-games set real names in `GameConfig.strings`).
-`StudWork.use(Badges).earned() -> { [key]: boolean }` from state.
+The toast is sent by the server through the framework feedback when Roblox confirms an award
+(`toast = true`), text `Badges.awarded` with `{ name }` = the badge's name string key
+`Badges.badge.<key>`, formatted in the player's language (English default: the key, from the
+module's `strings` function, §23.9; games set real names in `GameConfig.strings`). The client
+part adds `StudWork.use(Badges).earned() -> { [key]: boolean }` (every recorded badge, from
+state) and `StudWork.use(Badges).onAwarded(fn(key)) -> Connection` (the server-fired module event
+`Awarded(key)`, for a game's own effect with `toast = false`).
 
 ## Guardrails it relies on
 
@@ -117,7 +124,7 @@ games set real names in `GameConfig.strings`).
 | Badge disabled on the dashboard | skipped, stays pending, one warning per server |
 | Over `budget.perMinute` | queued until the next minute |
 | Player leaves mid-queue | stays pending; queued again on their next join |
-| Studio (`awardInStudio = false`) | recorded in the Studio save, logged, never sent (stays pending) |
+| Studio (`awardInStudio = false`) | recorded in the Studio save, logged, never sent (stays pending); the join ownership check still reads |
 | Placeholder `id = 0` | recorded, never sent or checked, one warning per server |
 
 ## Tests (mocked)
