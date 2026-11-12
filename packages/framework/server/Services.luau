@@ -54,6 +54,15 @@ local function noFakeStub(name: string): any
 	})
 end
 
+local function allowedList(): string
+	local names = {}
+	for name in Services.ALLOWED do
+		table.insert(names, name)
+	end
+	table.sort(names)
+	return table.concat(names, ", ")
+end
+
 function Services.new(opts: any): any
 	local fakes: { [string]: any } = opts.fakes or {}
 	local engineGet: (string) -> any = opts.get
@@ -82,7 +91,7 @@ function Services.new(opts: any): any
 				end
 				if not Services.ALLOWED[name] then
 					error(
-						`{moduleName}: ctx.services.get("{name}"): not an allowed service (allowed: BadgeService, TextService, UserService, LocalizationService, Players)`,
+						`{moduleName}: ctx.services.get("{name}"): not an allowed service (allowed: {allowedList()})`,
 						2
 					)
 				end
