@@ -14,14 +14,17 @@
 	  inner  = AbsoluteSize / s minus the label's UIPadding (design px)
 	  plain  : TextService:GetTextBoundsAsync at TextSize (wrap width = inner width if TextWrapped)
 	           must fit inner; with TextTruncate set it only needs one line (reported as truncated)
-	  scaled : the size the engine renders is emulated (largest size in [MinTextSize, MaxTextSize]
-	           whose wrapped bounds fit inner); if even MinTextSize doesn't fit, it is clipped
+	  scaled : the size the engine renders is emulated in REAL pixels (largest size in
+	           [MinTextSize, MaxTextSize] whose wrapped bounds fit the real box: the engine applies
+	           UITextSizeConstraint after UIScale); if even MinTextSize doesn't fit, it is clipped
 	  every text's rendered size x s must be >= Theme.metrics.minTextSize (11 if absent)
 	Modal buttons: every GuiButton inside a kit Modal whose centre is on screen and inside every
 	clipping ancestor (scrolled-out rows are skipped, not failed) must be the top hit of
 	PlayerGui:GetGuiObjectsAtPosition (or a descendant of the button).
 
-	Pass: every size reports clipped = {} and blocked = {}. Set KEEP and KEEP_CASE to leave one
+	A Modal's panel and close button must lie fully inside the surface (offscreen = {}).
+
+	Pass: every size reports clipped = {}, blocked = {} and offscreen = {}. Set KEEP and KEEP_CASE to leave one
 	size's case mounted for a screenshot (stop Play to clear it); ONLY runs a single case.
 ]]
 
@@ -182,17 +185,21 @@ local function check(inst: any): (any?, any?)
 	end
 	local rendered: number
 	if inst.TextScaled then
+		-- TextScaled works in REAL pixels: the engine applies UITextSizeConstraint after every
+		-- UIScale (seen in Studio: a 14..14 badge renders 14 px tall under a 1.75 UIScale), so the
+		-- search runs on the real box and the result is already on-screen pixels.
 		local c = inst:FindFirstChildOfClass("UITextSizeConstraint")
 		local lo = if c then math.max(1, c.MinTextSize) else 1
 		local hi = if c then c.MaxTextSize else 100
+		local rw, rh = w * s, h * s
 		local function fits(size: number): boolean
-			local b = bounds(inst.Text, inst.FontFace, size, w)
-			return b ~= nil and b.X <= w + 1 and b.Y <= h + 1
+			local b = bounds(inst.Text, inst.FontFace, size, rw)
+			return b ~= nil and b.X <= rw + 1 and b.Y <= rh + 1
 		end
 		if not fits(lo) then
-			local b = bounds(inst.Text, inst.FontFace, lo, w)
+			local b = bounds(inst.Text, inst.FontFace, lo, rw)
 			info.reason = "clipped"
-			info.needed = if b then string.format("%.0fx%.0f at %d", b.X, b.Y, lo) else "?"
+			info.needed = if b then string.format("%.0fx%.0f real px at %d", b.X, b.Y, lo) else "?"
 			return info, nil
 		end
 		local a, z = lo, hi
@@ -204,7 +211,7 @@ local function check(inst: any): (any?, any?)
 				z = mid
 			end
 		end
-		rendered = a
+		rendered = a / s -- back to design px; scaled again below
 	else
 		rendered = inst.TextSize
 		local b = bounds(inst.Text, inst.FontFace, rendered, if inst.TextWrapped then w else 100000)
@@ -260,7 +267,7 @@ end
 local output: { [string]: any } = {}
 for _, size in SIZES do
 	local name, width, height = size[1], size[2], size[3]
-	local clipped, truncated, blocked, checkedButtons, labels = {}, {}, {}, 0, 0
+	local clipped, truncated, blocked, offscreen, checkedButtons, labels = {}, {}, {}, {}, 0, 0
 	for caseName, element in cases do
 		if ONLY and caseName ~= ONLY then
 			continue
@@ -296,6 +303,28 @@ for _, size in SIZES do
 		for _, d in surface:GetDescendants() do
 			if d.Name == "Sink" and d.Parent then
 				modalBody = d.Parent
+			end
+		end
+		-- a Modal's panel and close button must be fully on screen (v1.6.2: a panel that grew past
+		-- the screen hid its content above the top edge, and its buttons were skipped as off screen)
+		if modalBody and modalBody:IsA("GuiObject") then
+			local sp, ss = surface.AbsolutePosition, surface.AbsoluteSize
+			for _, part in { modalBody, modalBody:FindFirstChild("Close") } do
+				if part and part:IsA("GuiObject") then
+					local p, sz = part.AbsolutePosition, part.AbsoluteSize
+					if
+						p.X < sp.X - 1
+						or p.Y < sp.Y - 1
+						or p.X + sz.X > sp.X + ss.X + 1
+						or p.Y + sz.Y > sp.Y + ss.Y + 1
+					then
+						table.insert(offscreen, {
+							case = caseName,
+							part = (part:GetFullName():gsub("^.-PlayerGui%.", "")),
+							rect = string.format("%.0f,%.0f %.0fx%.0f", p.X - sp.X, p.Y - sp.Y, sz.X, sz.Y),
+						})
+					end
+				end
 			end
 		end
 		for _, d in surface:GetDescendants() do
@@ -339,6 +368,7 @@ for _, size in SIZES do
 		modalButtonsChecked = checkedButtons,
 		clipped = clipped,
 		blocked = blocked,
+		offscreen = offscreen,
 		truncated = truncated,
 	}
 end

@@ -122,13 +122,23 @@ describe("UI.OddsTable fit (v1.6.1)", function()
 	end)
 
 	it("rows use OddsLayout Scale cells and give the badge a size (so it scales)", function()
-		expect(SOURCE).toContain("UDim2.new(col.scale, col.offset, 1, 0)")
+		-- v1.6.2: Scale widths, one ROW_HEIGHT tall (was Scale height 1: see the next test)
+		expect(SOURCE).toContain("UDim2.new(col.scale, col.offset, 0, ROW_HEIGHT)")
 		expect(SOURCE).toContain("size = UDim2.new(1, 0, 0, OddsLayout.BADGE_HEIGHT)")
 		-- RarityBadge: a sized badge is TextScaled with the theme min/max
 		expect(BADGE).toContain("TextScaled = props.size ~= nil")
 		expect(BADGE).toContain("TextFit.fixedLabel(Theme.text.small, Theme.text.min)")
 	end)
 
+	it("an expanded row keeps its cells one row tall (the name never grows over the full name)", function()
+		-- v1.6.2 Studio finding: with Scale-height cells, tapping a name grew the row and the
+		-- 2-line name cell with it, so a third line drew over the full-name line below.
+		local cellFn = string.match(SOURCE, "local function cell%b()[^\n]*\n(.-)\nend")
+		expect(cellFn).never.toBeNil()
+		expect(cellFn).toContain("0, ROW_HEIGHT)")
+		expect(string.find(cellFn, "col.offset, 1, 0", 1, true)).toBeNil()
+		expect(SOURCE).toContain("Position = UDim2.new(0, 16, 0, ROW_HEIGHT)") -- full name below the cells
+	end)
 	it("no literal text sizes or colours in the odds row", function()
 		expect(string.find(SOURCE, "TextSize = %d")).toBeNil()
 		expect(string.find(SOURCE, "Font%.new")).toBeNil()

@@ -185,6 +185,7 @@ local function ActionBar()
 		}, {
 			Table = if oddsFor_ ~= ""
 				then e(UI.OddsTable, {
+					title = false, -- the Modal shows the title; one title only (v1.6.2)
 					-- the SERVER's full disclosure (Rarity.getOddsDetail), never computed here
 					detail = odds[oddsFor_],
 					items = Config.items,
@@ -221,6 +222,7 @@ local screen = Instance.new("ScreenGui")
 screen.Name = "SandboxActions"
 screen.ResetOnSpawn = false
 screen.ScreenInsets = Enum.ScreenInsets.CoreUISafeInsets
+screen.ZIndexBehavior = Enum.ZIndexBehavior.Sibling -- UI.Modal layers its panel by sibling order
 screen.DisplayOrder = 10 -- above the framework HUD (5) so modals (odds) cover it
 screen.Parent = Players.LocalPlayer:WaitForChild("PlayerGui")
 

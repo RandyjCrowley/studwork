@@ -62,8 +62,11 @@ local function minText(maxSize: number): number
 	return TextFit.fixedLabel(maxSize, Theme.text.min).MinTextSize :: number
 end
 
+-- Cells are one ROW_HEIGHT tall, not a fraction of the row: an expanded row (tap to show the full
+-- name, v1.6.2) grows below them, and a Scale height let the 2-line name grow a third line over
+-- the full-name line (Studio finding).
 local function cell(col: OddsLayout.Column): (UDim2, UDim2)
-	return UDim2.new(col.scale, col.offset, 1, 0), UDim2.new(col.x, col.xOffset, 0, 0)
+	return UDim2.new(col.scale, col.offset, 0, ROW_HEIGHT), UDim2.new(col.x, col.xOffset, 0, 0)
 end
 
 local function Row(props: { row: Odds.OddsRow, layoutOrder: number })

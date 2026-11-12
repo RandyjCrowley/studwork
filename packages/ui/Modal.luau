@@ -2,9 +2,10 @@
 --[[
 	Modal: dimmed full-screen backdrop + centred Panel with a title and a close (X) button.
 	Render it inside a ScreenGui whose ScreenInsets keep it in the safe area (see AutoScale /
-	README); the panel is capped to 92% x 88% of the screen so it never runs under notches:
-	when its content is taller or wider than that, the whole panel (title and close button
-	included) is scaled down to fit (Modal.fitScale, v1.2 playtest fix).
+	README) and whose ZIndexBehavior is Sibling (under Global the backdrop covers the panel; the
+	Modal warns once). The panel is capped to 92% x 88% of the screen so it never runs under
+	notches: the content area scrolls when it is taller (v1.6.2), and the whole panel is scaled
+	down (Modal.fitScale, v1.2 playtest fix) only as far as ModalFit.minScale allows.
 
 	props:
 		open: boolean                when false nothing is rendered
@@ -36,16 +37,50 @@ export type Props = {
 	children: any,
 }
 
+-- ScreenGuis already warned about ZIndexBehavior.Global (once each).
+local warnedGlobal: { [Instance]: boolean } = setmetatable({}, { __mode = "k" }) :: any
+
+-- Product of the UIScales that apply to `inst` from above (a UIScale scales its parent and
+-- everything under it), e.g. UI.ScaledRoot's responsive scale.
+local function scaleAbove(inst: Instance): number
+	local s = 1
+	local node: Instance? = inst.Parent
+	while node and not node:IsA("LayerCollector") do
+		local u = node:FindFirstChildOfClass("UIScale")
+		if u then
+			s *= u.Scale
+		end
+		node = node.Parent
+	end
+	return s
+end
+
 local function Modal(props: Props)
 	local bodyRef = React.useRef(nil :: Frame?)
+	local listRef = React.useRef(nil :: UIListLayout?)
 	local scale, setScale = React.useState(1)
-	local available, setAvailable = React.useState(560)
+	-- v1.6.2: the scroll area's height is SET from the measured content and the screen
+	-- (ModalFit.contentHeight), never left to AutomaticSize + UISizeConstraint, which let the panel
+	-- grow past the screen in Studio with the content laid out above it.
+	local scrollHeight, setScrollHeight = React.useState(Theme.touchTarget * 4)
+	local scrolls, setScrolls = React.useState(false)
 	React.useEffect(function(): (() -> ())?
 		local body = bodyRef.current
+		local list = listRef.current
 		if not props.open or body == nil then
 			return nil
 		end
 		local backdrop = body.Parent :: GuiObject?
+		-- v1.6.2: under ZIndexBehavior.Global the backdrop (ZIndex 50) draws over the panel's
+		-- contents; the kit's own ScreenGuis are Sibling, a game's must be too.
+		local layer = body:FindFirstAncestorWhichIsA("ScreenGui")
+		if layer and layer.ZIndexBehavior == Enum.ZIndexBehavior.Global and not warnedGlobal[layer] then
+			warnedGlobal[layer] = true
+			warn(
+				`[StudWork UI] UI.Modal in ScreenGui '{layer.Name}' needs ZIndexBehavior = Sibling;`
+					.. " under Global the backdrop covers the panel"
+			)
+		end
 		local current = scale
 		local function refit()
 			if backdrop == nil or body.Parent == nil then
@@ -62,13 +97,22 @@ local function Modal(props: Props)
 					backdrop.AbsoluteSize.Y
 				)
 			)
-			local nextAvailable = math.max(
-				Theme.touchTarget,
-				backdrop.AbsoluteSize.Y * ModalFit.MAX_HEIGHT_FRACTION / math.max(nextScale, 0.01)
-					- Theme.text.title
-					- 4 * Theme.metrics.padding
-			)
-			setAvailable(nextAvailable)
+			local outer = scaleAbove(backdrop)
+			if list ~= nil then
+				local pad = Theme.metrics.padding
+				local chrome = 2 * pad + (if props.title then Theme.text.title + 6 + 8 else 0) + 4
+				local content = list.AbsoluteContentSize.Y / math.max(outer * s, 0.01)
+				local h = ModalFit.contentHeight(
+					backdrop.AbsoluteSize.Y,
+					outer,
+					nextScale,
+					chrome,
+					content,
+					Theme.touchTarget
+				)
+				setScrollHeight(math.ceil(h))
+				setScrolls(content > h + 1)
+			end
 			if math.abs(nextScale - current) > 0.01 then
 				current = nextScale
 				setScale(nextScale)
@@ -77,13 +121,17 @@ local function Modal(props: Props)
 		refit()
 		local a = body:GetPropertyChangedSignal("AbsoluteSize"):Connect(refit)
 		local b = if backdrop then backdrop:GetPropertyChangedSignal("AbsoluteSize"):Connect(refit) else nil
+		local c = if list then list:GetPropertyChangedSignal("AbsoluteContentSize"):Connect(refit) else nil
 		return function()
 			a:Disconnect()
 			if b then
 				b:Disconnect()
 			end
+			if c then
+				c:Disconnect()
+			end
 		end
-	end, { props.open, scale } :: { any })
+	end, { props.open, scale, props.title } :: { any })
 	if not props.open then
 		return nil
 	end
@@ -130,16 +178,20 @@ local function Modal(props: Props)
 				Content = e("ScrollingFrame", {
 					BackgroundTransparency = 1,
 					BorderSizePixel = 0,
-					Size = UDim2.new(1, 0, 0, 0),
-					AutomaticSize = Enum.AutomaticSize.Y,
+					Size = UDim2.new(1, 0, 0, scrollHeight),
 					AutomaticCanvasSize = Enum.AutomaticSize.Y,
 					CanvasSize = UDim2.new(),
 					ScrollingDirection = Enum.ScrollingDirection.Y,
-					ScrollBarThickness = 6,
+					ScrollBarThickness = if scrolls then 6 else 0, -- a bar only when it scrolls
 					-- The panel is capped; content scrolls instead of shrinking its text.
 				}, {
-					Limit = e("UISizeConstraint", { MaxSize = Vector2.new(math.huge, available) }),
-					Layout = Primitives.list(Enum.FillDirection.Vertical, Theme.metrics.padding),
+					Layout = e("UIListLayout", {
+						FillDirection = Enum.FillDirection.Vertical,
+						Padding = UDim.new(0, Theme.metrics.padding),
+						HorizontalAlignment = Enum.HorizontalAlignment.Left,
+						SortOrder = Enum.SortOrder.LayoutOrder,
+						ref = listRef,
+					}),
 					Children = e(React.Fragment, nil, props.children),
 				}),
 			}),

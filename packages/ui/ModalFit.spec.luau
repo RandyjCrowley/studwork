@@ -20,6 +20,24 @@ describe("UI.ModalFit", function()
 		expect(ModalFit.fitScale(0, 100, 500, 500)).toBe(1)
 		expect(ModalFit.fitScale(100, 100, 0, 0)).toBe(1)
 	end)
+	it("caps the scroll area in the content's design pixels, not real pixels (v1.6.2)", function()
+		-- v1.6.2 Studio finding: an 824-px-tall screen under a 1.75 responsive scale holds
+		-- 824 / 1.75 = 471 design px; dividing real pixels by the fit scale alone allowed
+		-- 665 design px, so the panel ran off the top and bottom of the screen.
+		local h = ModalFit.contentHeight(824, 1.75, 1, 100, 1500, 44)
+		expect(math.abs(h - (824 / 1.75 * 0.88 - 100)) < 0.001).toBe(true)
+		expect(h + 100 <= 824 / 1.75 * 0.88 + 0.001).toBe(true)
+		-- the Modal's own fit scale shrinks the panel, so the content may be taller
+		expect(
+			math.abs(ModalFit.contentHeight(824, 1.75, 0.5, 100, 1500, 44) - (824 / 1.75 / 0.5 * 0.88 - 100))
+				< 0.001
+		).toBe(true)
+	end)
+	it("uses the content's own height when it fits, and a touch-target floor on tiny screens", function()
+		expect(ModalFit.contentHeight(824, 1.75, 1, 100, 120, 44)).toBe(120)
+		expect(ModalFit.contentHeight(100, 1, 1, 100, 500, 44)).toBe(44)
+		expect(ModalFit.contentHeight(100, 1, 1, 100, 10, 44)).toBe(10)
+	end)
 	it("keeps the smallest text at the real pixel floor at minimum responsive scale", function()
 		local tokens = ThemeTokens.new(SharedTheme.DEFAULT)
 		local scale = ModalFit.minScale(tokens)
