@@ -207,6 +207,15 @@ There are no open Critical or High issues.
 - **Workaround:** keep `orderedReserve` and the memory `reserve` at their defaults or higher; write
   absolute values with `set`/`update`.
 
+### O13. A server crash can lose up to 30 s of Leaderboards `max`/`sum` submits
+- **Where:** Leaderboards pending submits (`packages/kits/engagement/Leaderboards/server/init.luau`).
+- **What fails:** a `submit` on a `max` or `sum` board is combined in memory and joins the player's
+  save within 30 s (and before each store write, on leave and on shutdown). A server that crashes
+  inside that window loses those submits, on top of the usual autosave window; a clean shutdown or
+  leave loses nothing. `set` boards and `txApi.submit` write the save straight away.
+- **Workaround:** for a value that must survive a crash (a paid or rare result), submit it with
+  `txApi.submit` inside the transaction that grants it.
+
 ### U1. `UI.Modal` needs a ScreenGui with `ZIndexBehavior = Sibling`
 
 Under `Global` (the default of `Instance.new("ScreenGui")`) the backdrop draws over the panel's
@@ -237,6 +246,14 @@ Workaround: pass a larger `maxHeight` when the table is the only content of a wi
   language change and the Charm selectors are checked only through their pure helpers and fake
   hooks. `tools/studio/ui-text-fit.luau` has not been run on `UI.Leaderboard` with long names.
 - **Workaround:** `docs/manual-qa.md` has the Studio checks; run the text-fit audit before a launch.
+
+### U6. A badge toast can sit under right-side HUD buttons
+
+Seen with the Badges Studio preview toast ("... (Studio preview, not sent)"): the HUD's feedback
+toasts (`packages/framework/client/Hud`, top centre, 96 px down) and a HUD button column on the right
+can overlap on narrow screens. Cosmetic. Workaround: a custom HUD `layout` places the `toasts`
+element it is given, or set the badge's `toast = false` and show the game's own effect from the
+client `onAwarded`.
 
 ## Games-repo mode
 
