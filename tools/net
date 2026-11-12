@@ -15,7 +15,9 @@ if is_single_game; then
 elif is_games_repo; then
 	ROOTS="games"
 else
-	ROOTS="packages/framework packages/kits games examples"
+	# only the folders that exist (core has no games/; find on a missing root fails under pipefail)
+	ROOTS=""
+	for d in packages/framework packages/kits games examples; do [ -d "$d" ] && ROOTS="$ROOTS $d"; done
 fi
 # shellcheck disable=SC2086
 FILES="$(find $ROOTS -name '*.blink' -not -path '*/deps/*' 2>/dev/null | sort)"
