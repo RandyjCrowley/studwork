@@ -15,6 +15,7 @@
 # partial, a studwork bump mixed with game files refused, the bump alone passes).
 # Exit 1 if any step fails. --keep leaves the temp folder for inspection.
 source "$(dirname "$0")/_common.sh"
+help_if_asked "$0" "$@"
 
 is_games_repo && die "run tools/test-single-game in the StudWork repo itself"
 KEEP=0
@@ -171,6 +172,15 @@ step "help: dev" tools/dev --help
 step "help: typecheck" tools/typecheck --help
 step "help: make-module" tools/make-module --help
 step "help: make-migration" tools/make-migration --help
+step "help: make-screen" tools/make-screen --help
+step "help: sync-projects" tools/sync-projects --help
+step "help: lint" tools/lint --help
+step "help: test" tools/test --help
+step "help: format" tools/format --help
+step "help: doctor" tools/doctor --help
+step "help: net" tools/net --help
+step "help: publish" tools/publish --help
+step "help: install" tools/install --help
 check "help: usage printed (exit 0 for every tool)" grep -q "usage: tools/make-module" "$(logof "help: make-module")"
 # A spec under src/ must see the root Rojo project, with relative and absolute arguments.
 cat >"$G/src/server/GameMapping.spec.luau" <<'LUA'

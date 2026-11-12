@@ -23,6 +23,11 @@ ANCHOR_REMOTE=0
 for arg in "$@"; do
 	case "$arg" in
 	--anchor-remote) ANCHOR_REMOTE=1 ;;
+	--help | -h)
+		# the header comment is the usage (the helper needs _common.sh, which comes later)
+		awk 'NR == 1 { next } /^#/ { sub(/^# ?/, ""); print; next } { exit }' "$0"
+		exit 0
+		;;
 	*)
 		echo "usage: tools/lint [--anchor-remote]" >&2
 		exit 2

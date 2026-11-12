@@ -30,6 +30,7 @@
 # expands it), and is never printed. xtrace is switched off for this script.
 { set +x; } 2>/dev/null
 source "$(dirname "$0")/_common.sh"
+help_if_asked "$0" "$@"
 { set +x; } 2>/dev/null
 
 KEY_VAR="ROBLOX_OPEN_CLOUD_API_KEY"

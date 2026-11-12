@@ -6,5 +6,6 @@
 # v1.3.0 layout (StudWork in packages/framework, kits in packages/kits, nothing in packages/core).
 # Report only: always exits 0.
 source "$(dirname "$0")/_common.sh"
+help_if_asked "$0" "$@"
 
 lune_tool core-status

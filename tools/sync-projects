@@ -4,5 +4,6 @@
 # (packages/kits/<kit>/<Module>/, examples/modules/<x>/; v1.3.1 one folder per module).
 # The project's own Modules entries (its game module) are kept. --check: exit 1 on drift (lint).
 source "$(dirname "$0")/_common.sh"
+help_if_asked "$0" "$@"
 
 lune_tool sync-projects "$@"

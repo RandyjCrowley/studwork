@@ -10,6 +10,7 @@
 #                                               <name>.studwork.rbxlx, studwork.json repointed (§1)
 # Paths are relative to where the command is run. Never touches live data, never publishes.
 source "$(dirname "$0")/_common.sh"
+help_if_asked "$0" "$@"
 
 case "${1:-}" in
 --init)

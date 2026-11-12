@@ -7,6 +7,7 @@
 # tools/test-single-game after tools/test-games-repo, then (v1.6.0) tools/test-migration and
 # tools/test-adopt. Exit 1 on any failure.
 source "$(dirname "$0")/_common.sh"
+help_if_asked "$0" "$@"
 
 if [ $# -eq 0 ] && ! is_games_repo; then
 	lune_tool testkit/run

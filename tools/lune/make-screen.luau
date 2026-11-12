@@ -17,10 +17,16 @@ local args = table.clone(process.args)
 if require("./Roots").single and #args == 1 then
 	table.insert(args, 1, ".")
 end
+local USAGE =
+	"usage: tools/make-screen <game> <ScreenName>   (single-game project: tools/make-screen <ScreenName>)"
+for _, a in args do
+	if a == "--help" or a == "-h" then
+		print(USAGE)
+		process.exit(0)
+	end
+end
 if #args ~= 2 then
-	print(
-		"usage: tools/make-screen <game> <ScreenName>   (single-game project: tools/make-screen <ScreenName>)"
-	)
+	print(USAGE)
 	process.exit(1)
 end
 local gameDir = require("./Roots").findGame(fs, args[1])

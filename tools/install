@@ -10,6 +10,7 @@
 # (games never pin versions themselves; their Rojo projects map ../../roblox-core/deps/Packages).
 # The hook is the games repo's own .githooks/pre-commit, if it has one.
 source "$(dirname "$0")/_common.sh"
+help_if_asked "$0" "$@"
 
 HOOKS_ONLY=0
 case "${1:-}" in
