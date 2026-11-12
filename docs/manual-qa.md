@@ -54,6 +54,12 @@ You don't need to repeat these by hand:
 | session lock held by another server (release request, steal, stale lock, outage, newer data) | `SessionLock.spec.luau`, `StolenSession.spec.luau` |
 | cross-server gifting, mailbox, claim; gifts never duplicated or lost | `GiftingCrossServer.spec.luau`, `GiftSoakReal.spec.luau`, `packages/kits/collection/Inventory/server/Gift.spec.luau` |
 
+## UI text fit
+
+Run `tools/test tools/lune/uifit/Checker.spec.luau` for the planted source/model checks. After the pending kit-wide run has been activated, the full `tools/test` also discovers every UI text-bearing component; an unmodeled new component is a failure.
+
+In Studio, connect the sandbox, start Play, switch the command bar to **Client**, and paste `tools/studio/ui-text-fit.luau`. The script mounts default components and screens with long text into separate 1280×720 (desktop), 667×375 (small phone), 926×428 (large phone), and 1024×768 (tablet) surfaces. It returns JSON keyed by viewport. Each `clipped` entry includes the full instance path, string, actual box, measured bounds, effective text size, and reason. A failure means a zero-size box, text below the theme's minimum real-pixel size, or a box smaller than `TextService:GetTextBoundsAsync` at the real inner width (not merely `TextFits`, which missed the original bug). `blockedButtons` lists modal buttons whose centre's top hit is not the button or a descendant; no GuiInset is added because the test ScreenGui ignores it. Empty arrays for both keys at every viewport are the target. Set `KEEP = true` at the top to leave the tablet surfaces mounted for screenshots; remove them or stop Play afterward. Review false positives from intentional scroll-window clipping against the screenshot.
+
 ## Checklist
 
 1. **Leave and rejoin through the real engine (Local Server, 1 player).**
