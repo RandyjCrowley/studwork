@@ -28,6 +28,10 @@
 	  server:shutdown(opts?) -> handle          BindToClose (players kicked first by default)
 	  server:crash()                            the process dies: no saves, no BindToClose
 	  server:remote(name, player, ...)          a client -> server framework event (its handler)
+	  server:action(player, module, name, ...)  (v1.6.0) a module action as that player, run to
+	    -> (ok, result | reason)                completion: ok = the handler ran (result = its
+	                                            first return); false = "left" | "not_loaded" |
+	                                            "rate_limited" | the handler's error text
 	  server:use(ref | name) -> api             the module's API on this server (StudWork.use)
 	  server:ref(name) -> ModuleRef             this server's ref (e.g. for a PurchaseTx's tx.use)
 	  server:section(player, key) -> view       a loaded player's section (frozen read view)
@@ -52,6 +56,7 @@
 local Loader = require(script.Parent.Loader)
 
 local Signal = require(script.Parent.Signal)
+local Instances = require(script.Parent.Instances)
 
 local Server = {}
 Server.__index = Server
@@ -308,17 +313,17 @@ function Server._buildEngine(self)
 		end
 		return typeof(value)
 	end
-	local Instance = {
-		new = function(className: string)
-			if className == "DataStoreOptions" then
-				return { SetExperimentalFeatures = function() end }
-			end
-			if className == "DataStoreGetOptions" then
-				return { UseCache = true } -- (v1.6.0) the legacy reader sets UseCache = false
-			end
-			error("sim: Instance.new('" .. className .. "') is not simulated", 2)
-		end,
-	}
+	-- (v1.6.0 dogfood) Folder / Configuration / Model and the value classes are simulated
+	-- (Instances.luau: the leaderstats recipe runs unguarded), plus the DataStore option objects
+	local Instance = Instances.library(server, function(className: string): any
+		if className == "DataStoreOptions" then
+			return { SetExperimentalFeatures = function() end }
+		end
+		if className == "DataStoreGetOptions" then
+			return { UseCache = true } -- (v1.6.0) the legacy reader sets UseCache = false
+		end
+		return nil
+	end)
 	local Enum = {
 		ProductPurchaseDecision = {
 			PurchaseGranted = "PurchaseGranted",
@@ -894,6 +899,9 @@ function Server.join(self, userId: number, opts: any?)
 			return "SimPlayer(" .. userId .. "@" .. server.name .. ")"
 		end,
 	})
+	-- (v1.6.0 dogfood) FindFirstChild / WaitForChild / GetChildren / child by name, so game code
+	-- can parent a leaderstats Folder to the player (Instances.luau)
+	Instances.attach(self, player)
 	table.insert(self.players, player)
 	self.Players.PlayerAdded:Fire(player)
 	-- the client: once the save is loaded it subscribes (StateInit) and is sent its state, odds
@@ -960,6 +968,35 @@ function Server.remote(self, eventName: string, player: any, ...)
 	local handler = self.runtime.net.handlerFor(eventName)
 	assert(handler, "sim: no net handler for " .. eventName)
 	return self:spawn(handler, player, ...)
+end
+
+-- (v1.6.0) Calls a module action as `player`, the way a client request reaches it (the same
+-- checks: player present, loaded, rate limit; the handler pcall'd), and runs the world until it
+-- returns, so a handler that yields works. Call it from the spec's own thread.
+--   server:action(player, "Module" | ModuleRef, "actionName", ...) -> (ok, result | reason)
+--   ok == true:  the handler ran; result = its first return value (nil when it returns nothing)
+--   ok == false: result = the reason: "left", "not_loaded", "rate_limited", or the handler's
+--                error text
+-- Errors when the module isn't enabled, has no such action, or the handler hasn't returned after
+-- 30 s of sim time. (server.runtime.action returns the same pair but needs a server thread when
+-- the handler yields.)
+function Server.action(self, player: any, module: any, actionName: string, ...)
+	local ref = if type(module) == "string" then self:ref(module) else module
+	assert(ref ~= nil, "sim: server:action: no module " .. tostring(module) .. " on this server")
+	local runtime = self.runtime
+	local h = self:spawn(runtime.action, player, ref, actionName, ...)
+	if not h.done then
+		self.world:advanceUntil(function()
+			return h.done
+		end, 30)
+	end
+	if not h.done then
+		error(`sim: action {ref.name}.{actionName} did not return within 30 s`, 2)
+	end
+	if h.error ~= nil then
+		error(h.error, 2)
+	end
+	return h.results[1], h.results[2]
 end
 
 --------------------------------------------------------------------------------
