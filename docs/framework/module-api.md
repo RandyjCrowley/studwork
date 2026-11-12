@@ -1145,8 +1145,8 @@ ctx.flags                                      -- the same table, server ctx
 
 - Value = live override (if allowed) > the environment's field > `default`.
 - **A `testOnly` flag whose live value would be true is a boot error** (collected with the other
-  config errors). In `"live"` an override can't switch a `testOnly` flag on (warning plus the
-  framework analytics event `FlagOverrideRefused { flag }`).
+  config errors). In `"live"` an override can't switch a `testOnly` flag on (a warning in the log;
+  analytics is per player, so there is no framework-level event).
 - The live override reads Roblox experience configs on the server (`ConfigService`, keys
   `<keyPrefix><name>`, booleans only) in a background thread after boot, refreshes on
   `UpdateAvailable` at most every `refreshSeconds`, polls `Outdated` on the same interval, and never
