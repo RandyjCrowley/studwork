@@ -1701,7 +1701,8 @@ Guard.LEGACY_CHECKS = { modules = true, numbers = true, remotes = true, purchase
 Guard.LEGACY_NEVER = { special = true, packages = true }
 -- (v1.6.0) pseudo-checks an entry may list that no guardrail scan produces: "style" = the file
 -- fails selene / StyLua / luau-lsp as old code (lint skips it, typecheck warns). Never counted in
--- the baseline; the file must still be in the baseline (so an entry added later is refused).
+-- the baseline; the file must still be in the baseline (so an entry added later is refused), and
+-- the baseline marks it `style = 0` (final review M2: "style" can't be added to an entry later).
 Guard.LEGACY_PSEUDO = { style = true }
 
 -- "<path>:<line>: [<check>] <message>" -> (path, line, check, message); nil for other shapes
@@ -1913,6 +1914,9 @@ function Guard.applyLegacy(findings: { string }, input: any): ({ string }, { str
 		if type(base) ~= "table" then
 			fail(`{path}: not in studwork.json's legacyBaseline; the list may only shrink`)
 			base = {}
+		end
+		if entry.checks.style and baseFiles[path] ~= nil and type(base.style) ~= "number" then
+			fail(`{path}: "style" isn't in the baseline for this file; the list may only shrink`)
 		end
 		local any = false
 		local names = {}
@@ -2801,8 +2805,12 @@ local function selfTest(): boolean
 			table.insert(failures, "legacy: a listed file with no findings left must warn")
 		end
 		-- (v1.6.0) the "style" pseudo-check: valid, no count, no stale warning, still anchored
-		local styleBase =
-			{ files = { [SAVE] = { purchases = 2, numbers = 1 }, ["src/server/Old.luau"] = {} } }
+		local styleBase = {
+			files = {
+				[SAVE] = { purchases = 2, numbers = 1, style = 0 },
+				["src/server/Old.luau"] = { style = 0 },
+			},
+		}
 		local fStyle, wStyle = legacyCase({
 			list = {
 				files = {
@@ -2822,6 +2830,15 @@ local function selfTest(): boolean
 				table.insert(failures, "legacy: a style-only entry must not warn 'nothing legacy left'")
 			end
 		end
+		local noStyleBase = { files = { [SAVE] = { purchases = 2, numbers = 1 } } }
+		expectLegacy("legacy: style added to an existing entry later", (legacyCase({
+			list = { files = { { path = SAVE, checks = { "purchases", "numbers", "style" }, reason = "r" } } },
+			baseline = noStyleBase,
+			anchored = noStyleBase,
+			inspect = function()
+				return "file"
+			end,
+		})), '"style" isn\'t in the baseline')
 		expectLegacy("legacy: style entry added later", (legacyCase({
 			list = { files = { { path = "src/server/Other.luau", checks = { "style" }, reason = "r" } } },
 			findings = {},

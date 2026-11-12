@@ -181,7 +181,7 @@ guardrail. A service the old project maps with `"$path"` (e.g. `"ServerScriptSer
 **Init lists every old Luau source in `studwork-legacy.json` with the `style` check**: old code is
 never held to selene, StyLua or strict typing, so the first `tools/lint` and `tools/typecheck` pass
 without touching old files (typecheck prints their problems as `warning: [legacy] ...`). A
-`style`-only entry has `{}` in `legacyBaseline`; the file is deleted in step 9.
+`style` file is marked `"style": 0` in `legacyBaseline` (anchored: `style` can never be added to an entry later); the file is deleted in step 9.
 
 **Init's GameConfig is empty on purpose** (when the game had no `src/shared/Config/`): the
 modules you chose at their defaults, no items, no starter items, no events,

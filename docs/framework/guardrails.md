@@ -171,7 +171,8 @@ files with the checks they may still break and why:
   entry; a broken list skips nothing and fails in the guardrails step). Don't reformat old files.
 - **`style`:** init lists every old Luau source with the pseudo-check `"style"`: lint skips
   selene/StyLua for it, `tools/typecheck` prints its problems as `warning: [legacy] ...`, and its
-  baseline entry is `{}` (nothing counted). A style-only entry never gets "nothing legacy left";
+  baseline marks it `"style": 0` (never counted; anchored, so `style` can't be added to an entry
+  later). A style-only entry never gets "nothing legacy left";
   delete the file when its job moved. Like every entry, it can't be added after the adoption commit.
 - A `legacyBaseline` entry for a deleted file is ignored (the baseline can't change after the
   first commit).

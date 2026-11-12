@@ -575,14 +575,39 @@ describe("importLegacy: kit limits, receipts, repeat safety", function()
 		seedOld(legacy, 2, { coins = 1, purchases = { "r-3" } })
 		local p1 = h:addPlayer({ userId = 1 })
 		local p2 = h:addPlayer({ userId = 2 })
+		-- every id is stamped with the import time (an old value is never trusted as a time)
 		expect(h.runtime.data.frameworkField(p1, "legacyPurchases")).toEqual({
-			["r-1"] = T0 - 100,
-			["r-2"] = T0 - 50,
+			["r-1"] = T0,
+			["r-2"] = T0,
 		})
 		expect(h.runtime.data.frameworkField(p2, "legacyPurchases")).toEqual({ ["r-3"] = T0 })
 		-- the 200-entry purchases cap never touches them
 		h:removePlayer(p1)
-		expect(h:saved(p1)._framework.legacyPurchases["r-1"]).toBe(T0 - 100)
+		expect(h:saved(p1)._framework.legacyPurchases["r-1"]).toBe(T0)
+	end)
+
+	it("an old value that isn't a time (a product id, true, 1) never ages the id out early", function()
+		local h, legacy = boot({
+			receipts = function(old)
+				return old.purchases
+			end,
+		})
+		-- what old games store next to a PurchaseId: a product id (looks like a 2017 unix time),
+		-- a small number, true
+		seedOld(legacy, 1, { coins = 1, purchases = { ["r-a"] = 1500000000, ["r-b"] = 77, ["r-c"] = true } })
+		local p = h:addPlayer({ userId = 1 })
+		h:removePlayer(p)
+		local lp = h:saved(p)._framework.legacyPurchases
+		expect(lp["r-a"]).toBe(T0)
+		expect(lp["r-b"]).toBe(T0)
+		expect(lp["r-c"]).toBe(T0)
+		-- still recorded after a second save, a day later
+		h.clock += 86400
+		p = h:addPlayer({ userId = 1 })
+		h:removePlayer(p)
+		lp = h:saved(p)._framework.legacyPurchases
+		expect(lp["r-a"]).toBe(T0)
+		expect(lp["r-b"]).toBe(T0)
 	end)
 
 	it("legacyPurchases are pruned by age (RECEIPT_KEEP_DAYS) on save, never by count", function()
@@ -590,7 +615,7 @@ describe("importLegacy: kit limits, receipts, repeat safety", function()
 		for i = 1, 300 do
 			many["r-" .. i] = T0 - 10
 		end
-		many.ancient = T0 - Legacy.RECEIPT_KEEP_DAYS * 86400 - 1
+		many.ancient = T0 - Legacy.RECEIPT_KEEP_DAYS * 86400 - 1 -- stamped with the import time too
 		local h, legacy = boot({
 			receipts = function(old)
 				return old.purchases
@@ -600,12 +625,12 @@ describe("importLegacy: kit limits, receipts, repeat safety", function()
 		local p = h:addPlayer({ userId = 1 })
 		h:removePlayer(p)
 		local lp = h:saved(p)._framework.legacyPurchases
-		expect(lp.ancient).toBeNil()
+		expect(lp.ancient).toBe(T0)
 		local n = 0
 		for _ in lp do
 			n += 1
 		end
-		expect(n).toBe(300)
+		expect(n).toBe(301)
 		-- 90 days later every one of them ages out
 		h.clock += Legacy.RECEIPT_KEEP_DAYS * 86400 + 1
 		p = h:addPlayer({ userId = 1 })

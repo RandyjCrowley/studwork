@@ -907,7 +907,11 @@ function Data.new(opts: any): any
 		})
 	end
 
-	-- receipts(old) -> { [purchaseId]: unix } (a list is stamped with `at`)
+	-- receipts(old) -> { [purchaseId]: at } (v1.6.0 final review H1: EVERY id is stamped with the
+	-- import time, map or list. An old save's value next to a PurchaseId is often not a time (a
+	-- product id, `true`, 1), and a dev product id looks like a past unix time; trusting it would
+	-- age the entry out on the first save and let a re-delivered old receipt grant again. Stamping
+	-- the import time keeps every old id for RECEIPT_KEEP_DAYS after the switch.)
 	local function receiptMap(value: any, at: number): { [string]: number }
 		if value == nil then
 			return {}
@@ -923,7 +927,7 @@ function Data.new(opts: any): any
 				end
 				out[tostring(v)] = at
 			elseif type(k) == "string" then
-				out[k] = if type(v) == "number" and v == v then v else at
+				out[k] = at
 			else
 				error("receipts(old): bad key", 0)
 			end

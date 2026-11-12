@@ -478,7 +478,13 @@ function AdoptInit.legacyList(
 			reason = "existing code before StudWork: " .. table.concat(counted, ", ")
 		end
 		table.insert(list.files, { path = p, checks = checks, reason = reason })
-		baseline.files[p] = byFile[p]
+		-- (v1.6.0 final review M2) "style" is anchored in the baseline as `style = 0` (never a
+		-- count), so a later commit can't add it to an entry to silence selene/StyLua/typecheck
+		local base = table.clone(byFile[p])
+		if style[p] then
+			base.style = 0
+		end
+		baseline.files[p] = base
 	end
 	return list, baseline, mustFix, mustFixChecks
 end

@@ -255,18 +255,36 @@ check "no commit made (HEAD unchanged)" test "$(git -C "$G" rev-parse HEAD)" = "
 check "the old game's files are untouched" test "$(legacy_hash)" = "$LEGACY_HASH"
 check "studwork.json: adopted single-game" sh -c "grep -q '\"layout\": \"single-game\"' '$G/studwork.json' && grep -q '\"adopted\": true' '$G/studwork.json'"
 check "studwork.json: no placeFile (a Rojo game)" sh -c "! grep -q placeFile '$G/studwork.json'"
-STYLE_ONLY_BASELINE=""
 LEG_FILES=3
 SHOP_CHECKS='"numbers","remotes"'
 if [ "$STYLE_OK" -eq 1 ]; then
-	# Main.client.luau has no guardrail finding: a style-only entry, {} in the baseline
-	STYLE_ONLY_BASELINE='
-      "src/client/Main.client.luau": {},'
+	# every old source lists "style", anchored in the baseline as "style": 0 (final review M2);
+	# Main.client.luau has no guardrail finding: a style-only entry
 	LEG_FILES=4
 	SHOP_CHECKS='"numbers","remotes","style"'
-fi
-EXPECTED_BASELINE='  "legacyBaseline": {
-    "files": {'"$STYLE_ONLY_BASELINE"'
+	EXPECTED_BASELINE='  "legacyBaseline": {
+    "files": {
+      "src/client/Main.client.luau": {
+        "style": 0
+      },
+      "src/server/SaveManager.server.luau": {
+        "purchases": 2,
+        "style": 0
+      },
+      "src/server/Shop.server.luau": {
+        "numbers": 1,
+        "remotes": 2,
+        "style": 0
+      },
+      "src/shared/Settings.luau": {
+        "numbers": 1,
+        "style": 0
+      }
+    }
+  }'
+else
+	EXPECTED_BASELINE='  "legacyBaseline": {
+    "files": {
       "src/server/SaveManager.server.luau": {
         "purchases": 2
       },
@@ -279,6 +297,7 @@ EXPECTED_BASELINE='  "legacyBaseline": {
       }
     }
   }'
+fi
 printf '%s\n' "$EXPECTED_BASELINE" >"$LOGS/expected-baseline.txt"
 check "legacyBaseline: per file, per check counts" sh -c \
 	"grep -A$(($(wc -l <"$LOGS/expected-baseline.txt") - 1)) '\"legacyBaseline\"' '$G/studwork.json' | diff - '$LOGS/expected-baseline.txt' >/dev/null"

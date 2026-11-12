@@ -144,7 +144,8 @@ local function project(o)
 			layout = "single-game",
 			framework = "studwork",
 			adopted = true,
-			legacyBaseline = o.baseline or { files = { [OLD] = {}, [SAVE] = { purchases = 1 } } },
+			legacyBaseline = o.baseline
+				or { files = { [OLD] = { style = 0 }, [SAVE] = { purchases = 1, style = 0 } } },
 		})
 	)
 	write(dir, "studwork-legacy.json", o.list or json({

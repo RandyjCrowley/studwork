@@ -432,8 +432,9 @@ server granted (wrote to its save) but never acknowledged. Three pieces:
 
 ### 4.1 Old receipt history in the save (`importLegacy.receipts`)
 
-`receipts(old)` returns the PurchaseIds the old save recorded: a map of id to unix time, or a list
-(then stamped with the import time). They're written in the import commit into
+`receipts(old)` returns the PurchaseIds the old save recorded: a map keyed by id (any values) or
+a list. Every id is stamped with the import time: an old value next to a PurchaseId is often a
+product id or `true`, and trusting it as a time could age the id out on the first save. They're written in the import commit into
 `_framework.legacyPurchases` (a separate map, so the 200-entry `purchases` cap never prunes them;
 it keeps entries for `Legacy.RECEIPT_KEEP_DAYS` = 90 days, far past Roblox's re-delivery window).
 Shop treats an id in either map as recorded: a re-delivered old receipt is a `duplicate`
@@ -515,7 +516,8 @@ balance numbers). Lint must not fail on day one, and must not let more of it in:
   entry; a broken list skips nothing and fails in the guardrails step). Don't reformat old files.
 - **`style`:** init lists every old Luau source with the pseudo-check `"style"`: lint skips
   selene/StyLua for it, `tools/typecheck` prints its problems as `warning: [legacy] ...`, and its
-  baseline entry is `{}` (nothing counted). A style-only entry never gets "nothing legacy left";
+  baseline marks it `"style": 0` (never counted; anchored, so `style` can't be added to an entry
+  later). A style-only entry never gets "nothing legacy left";
   delete the file when its job moved. Like every entry, it can't be added after the adoption commit.
 - **Counts are per statement:** a re-wrap (StyLua splitting a call over lines) can't raise a
   listed file's count.
