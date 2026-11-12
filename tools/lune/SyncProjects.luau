@@ -21,10 +21,12 @@
 	SyncProjects.relative(fromDir, path) -> string    "../../" .. path for a repo-relative path
 	SyncProjects.sync(projectPath, text, entries, opts?) -> (newText, changes { string })
 	  entries = ModuleDiscovery.discover(fs)
-	  opts = { localization = boolean? }   (v1.7.0) the project's game has src/shared/Localization:
-	    the tree maps it as LocalizationService ("$path": "src/shared/Localization", so its CSV files
-	    become LocalizationTables the engine's translators see); without the folder a mapping this
-	    tool wrote is removed (a hand-written LocalizationService node is kept)
+	  opts = { localization = boolean? }   (v1.7.0) true: the project's game has
+	    src/shared/Localization, so the tree maps it as LocalizationService ("$path":
+	    "src/shared/Localization": its CSV files become LocalizationTables the engine's translators
+	    see); false: no such folder, a mapping this tool wrote is removed (a hand-written
+	    LocalizationService node is kept); nil (callers that don't look, e.g. new-game copying the
+	    template's project): the LocalizationService node is left as it is
 
 	(v1.7.0, module-api.md §23.1, docs/framework/kits/environments.md) Environments.luau:
 	SyncProjects.environments(deployText, label?) -> (luauText?, errors { string })
@@ -480,7 +482,9 @@ function SyncProjects.sync(
 		end
 		service.vals.Modules = rebuilt
 	end
-	syncLocalization(tree, type(opts) == "table" and opts.localization == true, changes)
+	if type(opts) == "table" and type(opts.localization) == "boolean" then
+		syncLocalization(tree, opts.localization, changes)
+	end
 	local out = SyncProjects.encode(project)
 	if out ~= text and #changes == 0 then
 		table.insert(changes, "generated Modules entries updated")

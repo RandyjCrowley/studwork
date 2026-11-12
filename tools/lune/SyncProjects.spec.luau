@@ -214,8 +214,13 @@ describe("SyncProjects", function()
 			'"LocalizationService": { "Tables": { "$path": "loc" } },\n    "ServerScriptService": {',
 			1
 		)
-		local kept = SyncProjects.sync("games/g/default.project.json", own, ENTRIES)
+		local kept = SyncProjects.sync("games/g/default.project.json", own, ENTRIES, { localization = false })
 		expect(SyncProjects.decode(kept).vals.tree.vals.LocalizationService.vals.Tables).never.toBeNil()
+		-- a caller that doesn't say (new-game copying the template's project) leaves the node alone
+		local untouched = SyncProjects.sync("games/g/default.project.json", out, ENTRIES)
+		expect(SyncProjects.decode(untouched).vals.tree.vals.LocalizationService.vals["$path"]).toBe(
+			"src/shared/Localization"
+		)
 	end)
 
 	it(
