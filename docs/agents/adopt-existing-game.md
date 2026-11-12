@@ -83,7 +83,8 @@ cd <studwork>
 tools/adopt --from-place <game>/<Place>.rbxl --out <game>
 ```
 
-Other files already in `<game>` (notes, sample saves) are left alone; the run stops only if a
+`--from-place` also writes the audit reports (no separate audit run is needed for a place-file
+game; re-run it after committing to see the diff). Other files already in `<game>` (notes, sample saves) are left alone; the run stops only if a
 file it would write already exists. Every renamed instance (a name that isn't a safe file name) is
 printed: fix code that finds it by its old name.
 
@@ -250,8 +251,10 @@ Rules:
 4. **The itemTag rule:** keep the default `itemTag = "paid"` (imported items are tagged
    `paid:legacy`: not tradeable or mailable, kept on rebirth). Use `itemTag = "free"` only when the
    report shows **no product, pass or paid currency** that ever gave items. When unsure, `"paid"`.
-5. Balance numbers you find in old code (prices, rates) go into `src/shared/Config/Balance.luau` or
-   the kit's config, never into code.
+5. Balance numbers you find in old code (prices, rates) go into config, never into code: a kit's
+   numbers in the GameConfig's `config.<Kit>`, the game's own in a new
+   `src/shared/Config/Balance.luau` (a ModuleScript returning a frozen table; the game module
+   requires it from `ReplicatedStorage.Game.Config.Balance`).
 
 **Check:** the table lists every field you saw in the old save code (every key written by each
 `SetAsync`/`UpdateAsync`/profile `Data`), each with a new home or a drop reason.
@@ -279,7 +282,9 @@ ctx.data.importLegacy({
 		if (old.coins or 0) > 0 then -- a 0 grant is a refusal, and a refusal fails the import
 			ctx.depsTx[Economy].grant(tx, old.coins, "legacy_import")
 		end
-		ctx.depsTx[Economy].grant(tx, old.gems or 0, "legacy_import", "Gems")
+		if (old.gems or 0) > 0 then
+			ctx.depsTx[Economy].grant(tx, old.gems, "legacy_import", "Gems")
+		end
 		for _, id in old.pets or {} do
 			ctx.depsTx[Inventory].add(tx, id, { source = "legacy_import" })
 		end
@@ -401,8 +406,9 @@ item ids the StudWork inventory doesn't have yet.
 
 For **every** product in the report's `purchases.products`:
 
-1. Add the product to `src/shared/Config/Products.luau` (`devProducts = { GemPack = <id> }`) with
-   the id from the report. Passes go under `passes`.
+1. Add the product to the GameConfig's `products` (in `src/shared/Config/init.luau` as init wrote
+   it, or the game's `Products.luau` if it has one: `devProducts = { GemPack = <id> }`) with the id
+   from the report; rename init's `Product<id>` placeholders. Passes go under `passes`.
 2. Register a handler in the game module's `init` that does what the old handler did, through
    `tx`:
 
@@ -490,6 +496,10 @@ actions = {
 },
 -- client: StudWork.use(GameModule).actions.buyUpgrade("speed")
 ```
+
+If the currency is **paid** (listed in `compliance.paidCurrencies` because a product sells it),
+`Economy.spend` refuses it: spend with `ctx.compliance.spendPaid(tx, "Coins", cost, reason)`
+instead (module-api.md §19.6), or `spendForRoll` for a random roll.
 
 (If the game uses the Upgrades kit, call its API instead of writing your own.)
 
