@@ -88,6 +88,9 @@ describe("RateMath grant/spend validation", function()
 		expect(RateMath.isKnownCurrency("Tix", "Coins", nil, { Tix = 3 })).toBe(true)
 		expect(RateMath.isKnownCurrency("Nope", "Coins", { Gems = 0 }, { Coins = 1 })).toBe(false)
 		expect(RateMath.isKnownCurrency(5, "Coins", nil, nil)).toBe(false)
+		-- v1.6.0: a currency listed in config.currencies is known (balance 0), no startingCurrency key needed
+		expect(RateMath.isKnownCurrency("Gems", "Coins", nil, nil, { "Gems" })).toBe(true)
+		expect(RateMath.isKnownCurrency("Tix", "Coins", nil, nil, { "Gems" })).toBe(false)
 	end)
 	it("grants and refuses overflow", function()
 		local b = { Coins = 10 }

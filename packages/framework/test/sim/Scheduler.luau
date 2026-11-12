@@ -46,6 +46,9 @@ function Scheduler.new(opts: { dt: number?, epoch: number?, verbose: boolean? }?
 		dead = {}, -- owner -> true once killed
 		errors = {}, -- { { owner, message } }
 		verbose = o.verbose == true,
+		-- (v1.6.0 dogfood) the thread that built the world: the spec's own thread. It is not a
+		-- simulated thread, so nothing would ever resume it after a wait (wait() errors instead).
+		specThread = coroutine.running(),
 	}, Scheduler)
 	return self
 end
@@ -116,6 +119,12 @@ end
 function Scheduler.wait(self, seconds: number?): number
 	local thread = coroutine.running()
 	assert(coroutine.isyieldable(), "sim: task.wait called outside a simulated thread")
+	if thread == self.specThread then
+		error(
+			"sim: a yielding call (task.wait, or an engine call that waits: DataStore, UserOwnsGamePassAsync, IsFriendsWithAsync, ...) ran on the spec's own thread, which the sim never resumes. Run it in a server thread: `local h = server:spawn(fn, ...)` then `world:advanceUntil(function() return h.done end, 30)` (or server:action). In game code, nothing may yield inside a transaction",
+			2
+		)
+	end
 	local start = self.now
 	self.sleepers[thread] = {
 		wake = self.now + math.max(seconds or 0, 0),

@@ -279,10 +279,19 @@ function Economy.new(): any
 		table.clear(s.incomeAccum)
 	end
 
-	-- A known currency: the primary, a startingCurrency key, or one the player already holds.
+	-- A known currency: the primary, a `currencies` entry (v1.6.0), a startingCurrency key, or one
+	-- the player already holds.
 	local function resolveCurrency(currency: any, balances: any): string?
 		local id = if currency == nil then primary() else currency
-		if not RateMath.isKnownCurrency(id, primary(), ctx.config.startingCurrency, balances) then
+		if
+			not RateMath.isKnownCurrency(
+				id,
+				primary(),
+				ctx.config.startingCurrency,
+				balances,
+				ctx.config.currencies
+			)
+		then
 			return nil
 		end
 		return id
@@ -566,7 +575,8 @@ function Economy.new(): any
 	end
 
 	-- v1.2 Schema.default/prepare: the primary currency exists; a first join gets
-	-- startingCurrency, an existing player gets 0 for a currency added later. Boosts that expired
+	-- startingCurrency, an existing player gets 0 for a currency added later; every `currencies` entry
+	-- exists (0 unless startingCurrency says otherwise). Boosts that expired
 	-- while away are dropped.
 	local function onLoaded(player: any)
 		local first = ctx.framework.sessions(player) == 1
@@ -585,6 +595,12 @@ function Economy.new(): any
 			for id, amount in starting do
 				if balances[id] == nil or (first and balances[id] == 0 and amount ~= 0) then
 					balances[id] = if first then amount else 0
+				end
+			end
+			-- (v1.6.0) a listed currency (`currencies`) exists with balance 0, like the primary
+			for _, id in ctx.config.currencies or {} do
+				if type(id) == "string" and balances[id] == nil then
+					balances[id] = 0
 				end
 			end
 			RateMath.pruneExpired(section.multipliers, ctx.now())

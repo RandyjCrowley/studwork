@@ -10,7 +10,8 @@ multi-player behaviour can be tested offline.
 | `Scheduler.luau` | virtual clock + cooperative `task` (wait/spawn/defer/delay/cancel), frame hooks (Heartbeat), per-server thread ownership (`kill` = crash) |
 | `Signal.luau` | RBXScriptSignal stand-in: every handler in its own thread, fire history |
 | `World.luau` | shared cloud: mock DataStoreService (latency, ack latency, `failNext`/`failFor`, JSON-like deep copies, write log), MessagingService bus, friend graph, Policy answers, game passes |
-| `Server.luau` | one server: fake engine services + `game` (JobId, BindToClose), loads real core modules with its own module cache, boots them (init all, start all), players join/leave/kick, `purchase`, `remote`, `shutdown`, `crash` |
+| `Server.luau` | one server: fake engine services + `game` (JobId, BindToClose), loads real core modules with its own module cache, boots them (init all, start all), players join/leave/kick, `purchase`, `remote`, `action` (v1.6.0: `server:action(player, module, name, ...) -> (ok, result \| reason)`), `output` (every print/warn), `shutdown`, `crash` |
+| `Instances.luau` | (v1.6.0) simulated Instances for game code: `Instance.new` Folder/Configuration/Model/value classes, `.Parent`/`.Name`/`.Value`/`.Changed`, `FindFirstChild`/`WaitForChild`/child by name; sim players get the same tree methods, so the leaderstats recipe runs unguarded |
 | `Loader.luau` | loads source files with a per-server env (`luau.load`); reads every source once at load |
 | `Fixtures.luau` | test GameConfig (v1.3 shape, module names), `saved()` / `section()` (the stored sectioned save), `lockHolder()`, `writerViolations()` ("never two writers"), `grants()`, `buyItem()` (a real purchase: `paid:<product>` copies) |
 | `*.spec.luau` | scenarios, run by `tools/test` (whole sim suite ~0.6 s) |
@@ -57,6 +58,9 @@ expect(#world:errors()).toBe(0)
 ```
 
 Pitfalls:
+- A yielding call (task.wait, a DataStore call, `UserOwnsGamePassAsync`) on the spec's own thread
+  errors (v1.6.0; before, it parked the test runner): run it in `server:spawn` and advance the
+  world, or use `server:action` for a module action.
 - Never pass simulated players/servers to `expect(...)`: the harness formats values recursively
   and they are cyclic (stack overflow). Compare `.UserId`.
 - `advance(seconds, dt)`: use a big `dt` (0.25-5) for long waits (ProfileStore steal 40 s,

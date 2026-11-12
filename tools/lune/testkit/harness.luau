@@ -18,6 +18,7 @@
 local fs = require("@lune/fs")
 local luau = require("@lune/luau")
 local serde = require("@lune/serde")
+local process = require("@lune/process")
 local task = require("@lune/task")
 
 local Harness = {}
@@ -630,6 +631,45 @@ local function expect(actual: any)
 	return proxy
 end
 
+-- (v1.6.0 dogfood) Runs fn in its own thread and waits for it, so a test can never end the run
+-- silently. Before this, test code ran on the runner's main thread under pcall: a raw
+-- coroutine.yield (a sim task.wait called outside a server thread, e.g. a yielding
+-- UserOwnsGamePassAsync reached from a spec) suspended the MAIN thread, nothing ever resumed it,
+-- Lune's scheduler drained and the process exited 0 with no output at all. Now the main thread
+-- keeps polling (Lune's own yields, fs/process/task.wait, still work in the test thread) and a
+-- thread that hasn't finished after Harness.TIMEOUT wall seconds (env STUDWORK_TEST_TIMEOUT) is a
+-- failure with its traceback. -> (ok, err) like pcall.
+Harness.TIMEOUT = tonumber(process.env.STUDWORK_TEST_TIMEOUT) or 60
+
+function Harness.guarded(fn: () -> (), timeout: number?): (boolean, any)
+	local limit = timeout or Harness.TIMEOUT
+	local finished, ok, err = false, false, nil
+	local thread = task.spawn(function()
+		ok, err = xpcall(fn, function(e)
+			return e
+		end)
+		finished = true
+	end)
+	if finished then
+		return ok, err
+	end
+	local start = os.clock()
+	while not finished and os.clock() - start < limit do
+		task.wait(0.01)
+	end
+	if finished then
+		return ok, err
+	end
+	local where = debug.traceback(thread)
+	pcall(coroutine.close, thread)
+	return false,
+		string.format(
+			"the test never completed: its thread is still suspended after %g s (a yield that never resumes: a raw coroutine.yield, or a sim task.wait / yielding engine call on the spec's own thread instead of server:spawn / a transaction). Where it stopped:\n%s",
+			limit,
+			where
+		)
+end
+
 -- Runs one spec file; returns passed, failed, failure messages.
 function Harness.runSpec(specPath: string): (number, number, { string })
 	local tests: { { name: string, fn: () -> () } } = {}
@@ -659,7 +699,9 @@ function Harness.runSpec(specPath: string): (number, number, { string })
 
 	Harness.resetModuleCache()
 	Harness.mapGame(specPath)
-	local ok, err = pcall(loadFile, specPath, makeNode(specPath), globals)
+	local ok, err = Harness.guarded(function()
+		loadFile(specPath, makeNode(specPath), globals)
+	end)
 	if not ok then
 		return 0, 1, { specPath .. " (load): " .. tostring(err) }
 	end
@@ -670,7 +712,7 @@ function Harness.runSpec(specPath: string): (number, number, { string })
 		for _, b in befores do
 			b()
 		end
-		local tok, terr = pcall(test.fn)
+		local tok, terr = Harness.guarded(test.fn)
 		for _, a in afters do
 			a()
 		end
