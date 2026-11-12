@@ -1,0 +1,55 @@
+# CI for this StudWork single-game project (from studwork/templates/single-game, StudWork v1.6.1;
+# studwork/docs/framework/single-game-project.md). Lint (with --anchor-remote) and the tests on
+# every push and pull request.
+#
+# tools/lint --anchor-remote compares the legacy baseline anchor and the "adopted" marker with the
+# default branch's history (studwork/docs/framework/guardrails.md): it needs the FULL history
+# (fetch-depth: 0; a shallow clone fails closed) and the default branch as a remote-tracking ref
+# (refs/remotes/origin/HEAD, set below from the repository's default branch). It never fetches by
+# itself. In a project that was never adopted it only prints a note.
+name: CI
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Checkout (full history, with the studwork/ submodule)
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          submodules: recursive
+          fetch-depth: 0
+
+      # the default branch as refs/remotes/origin/HEAD (a local symbolic ref: no network)
+      - name: Point origin/HEAD at the default branch
+        env:
+          DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+        run: git remote set-head origin "$DEFAULT_BRANCH"
+
+      # Installs Rokit and puts ~/.rokit/bin on PATH. The tool versions are StudWork's pins
+      # (studwork/rokit.toml): tools/install runs `rokit install` there.
+      - name: Set up Rokit
+        uses: CompeyDev/setup-rokit@1d9390883f7ebce19d48f5b8d006e11d387c92ab # v0.2.1
+        with:
+          token: ${{ github.token }}
+
+      - name: Install (toolchain + Wally packages into studwork/deps/)
+        run: tools/install
+
+      - name: Lint (+ the legacy anchor and adopted marker against the default branch)
+        run: tools/lint --anchor-remote
+
+      - name: Tests
+        run: tools/test

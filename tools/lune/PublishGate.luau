@@ -18,6 +18,11 @@
 	    adopted      boolean?: (v1.6.0) studwork.json has "adopted": true (docs/framework/adopting.md)
 	    placeFile    string?: (v1.6.0) studwork.json "placeFile": a place-file game
 	    adoptVerify  boolean?: (v1.6.0) `tools/adopt --verify .` passed (exit 0); nil = not run
+	    adoptedFrom  string?: (v1.6.1) the commit whose studwork.json said adopted, when only history
+	                 does (the sticky marker, tools/lune/AdoptedMarker.luau); the caller sets
+	                 adopted = true too
+	    historyShallow boolean?: (v1.6.1) studwork.json doesn't say adopted and the clone is
+	                 shallow, so the sticky marker couldn't be read: --live is refused
 	  }
 	Decision = { ok, errors, warnings, record = "published" | "dryRun" }
 
@@ -53,6 +58,11 @@ export type Input = {
 	dirty: { string },
 	keyPresent: boolean,
 	testEquivalent: boolean?,
+	adopted: boolean?,
+	placeFile: string?,
+	adoptVerify: boolean?,
+	adoptedFrom: string?,
+	historyShallow: boolean?,
 }
 
 export type Decision = {
@@ -197,6 +207,12 @@ function PublishGate.decide(input: Input): Decision
 	-- 5. adopted projects (v1.6.0)
 	if type(input.placeFile) == "string" and input.placeFile ~= "" then
 		table.insert(errors, PublishGate.placeFileMessage(input.placeFile))
+	end
+	if input.historyShallow == true and input.adopted ~= true and target == "live" then
+		table.insert(
+			errors,
+			"--live is refused in a shallow clone: the adopted marker's history can't be checked (git fetch --unshallow); --test is allowed"
+		)
 	end
 	if input.adopted == true and target == "live" and input.adoptVerify ~= true then
 		table.insert(

@@ -20,6 +20,9 @@
 	                                    never modified; run again to remove more from the copy.
 	                                    (r3) --extracted: also every instance --from-place recorded
 	                                    in .studwork-from-place.json's "extracted" still in the place.
+	  (v1.6.1) .studwork-from-place.json's "original" records the original place by name, path and
+	  sha256; --from-place and --strip-place refuse to write a file that is the original (same
+	  resolved path or same content), whatever its name.
 	  --verify also fails while the place holds a recorded extracted script, and on a $path of the
 	  project file that doesn't exist.
 	Usage errors exit 2. Never touches live data, never publishes.

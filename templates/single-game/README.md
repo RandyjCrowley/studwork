@@ -13,6 +13,7 @@ studwork/tools/new-project ../my-game --modules Items,Rarity,Inventory,Economy
 | `tools/_studwork` | runs `studwork/tools/<tool>` with `STUDWORK_PROJECT_ROOT` = the project |
 | `tools/*` | one-line wrappers: dev, lint, typecheck, test, build, publish, install, doctor, framework-status, net, sync-projects, make-module, make-screen, make-migration (and new-game, which refuses) |
 | `.githooks/pre-commit` | `tools/lint` + `tools/test` (enabled by `tools/install`) |
+| `.github/workflows/ci.yml` | (v1.6.1) CI: full-history checkout, `tools/install`, `tools/lint --anchor-remote`, `tools/test` |
 | `gitignore` -> `.gitignore` | build output, caches, `.env` |
 | `env.example` -> `.env.example` | the Open Cloud key name for `tools/publish` |
 | `FRAMEWORK_REQUESTS.md` | what the game needs from StudWork |

@@ -176,6 +176,16 @@ only**, so the map, models and UI stay in the place:
   original untouched for rollback. `--extracted` adds every recorded extracted script still in the
   place. A path that doesn't exist stops it with nothing written; run it again on the copy to
   remove more.
+- **The original is known by its content, not its name** (v1.6.1): `.studwork-from-place.json`
+  records `"original": { "name", "path", "sha256" }` (the SHA-256 of the original place's bytes;
+  `path` is relative to the project). `--from-place` records the place it reads (a rerun keeps an
+  earlier record, unless the place has the recorded name: a re-export of the original updates the
+  hash); `--strip-place` records the place `placeFile` points at when nothing is recorded yet
+  (creating the manifest if needed; for a `*.studwork.rbxlx` name with no record it takes the
+  `<name>.rbxlx` next to it, and refuses when that doesn't exist). Both **refuse to write** a file
+  that is the original: the same resolved path, or a file whose bytes hash to the recorded
+  `sha256`, **whatever its name** (an original named `x.studwork.rbxlx`, or a `placeFile`
+  hand-edited to point at the original, is refused with nothing written).
 - A place-file game is published from Studio (open the place, sync with `tools/dev`, publish), not
   with `tools/publish` (its build has no map); `tools/publish` says so and stops for a project whose
   `studwork.json` has `"placeFile"`.
@@ -214,6 +224,16 @@ audit ──> init ──> migrate system by system ──> verify ──> cutov
   `ServerScriptService.StudWorkBoot` and `ReplicatedFirst.StudWorkBoot`, and maps
   `src/shared/Config` as `ReplicatedStorage.Game.Config` (added after the v1.6.0 dogfood: every
   migration needed them).
+- (v1.6.1) Maps `studwork-legacy.json` as `ServerScriptService.StudWorkBoot.LegacyList` (Rojo
+  makes a `.json` file a ModuleScript returning the decoded table); the server boot script passes
+  it to `StudWork.start` as `ServerConfig.legacyList` when that child exists, so a live server knows
+  old code is still listed (§5). A re-run on a project adopted before v1.6.1 adds the mapping (and
+  an empty `{ "files": [] }` list if the file is missing). Keep the file, even empty: deleting it
+  leaves the mapping pointing at nothing, and `--verify` then names the stale `$path`
+  (`ServerScriptService.StudWorkBoot.LegacyList -> studwork-legacy.json`): remove that entry from
+  the project file together with the file.
+- (v1.6.1) Copies the CI workflow `.github/workflows/ci.yml` from `templates/single-game` when the
+  project has none (`tools/lint --anchor-remote` on a full-history checkout, §5).
 - **Merges** the existing `default.project.json` instead of replacing it: it adds the framework,
   UI, Packages and `Modules` entries and the game module; existing entries are kept as they are.
   A service the old project maps with `"$path"` gets StudWork's entries as explicit children
@@ -576,6 +596,21 @@ balance numbers). Lint must not fail on day one, and must not let more of it in:
   can't be raised by editing it or by deleting and re-adding the file. Lint fails closed when that
   history isn't available (a shallow clone: fetch full history, as CI does). Before the first
   commit there's nothing to compare, and lint says so.
+- **The anchor lives in local history** (v1.6.1): a history rewrite (squash, `git filter-repo`,
+  a new repository started from a copy) creates a new first commit and resets the anchor without
+  the local check noticing. Don't rewrite an adopted project's history; if it happened, restore
+  the old history. **`tools/lint --anchor-remote`** compares the anchor (and the adopted marker)
+  with the remote default branch's history (`refs/remotes/origin/HEAD`, else `origin/main`, else
+  `origin/master`; local refs only, it never fetches) and fails when they differ, when only the
+  remote has an anchor, or in a shallow clone (CI: `fetch-depth: 0`). No remote default branch: a
+  note, and it passes. The CI workflow `--init` copies runs it ([guardrails.md](guardrails.md)).
+- **The adopted marker is sticky** (v1.6.1): once any commit had `"adopted": true` in
+  `studwork.json`, the project counts as adopted for lint and `tools/publish`, whatever the file
+  says now (`"adopted": "true"`, `false`, `"Adopted"`, a deleted and re-added file: all still
+  adopted). Removing the flag, `studwork-legacy.json`, or both **fails lint until
+  `tools/adopt --verify .` passes**; after that the flag may go (**graduating**: the project is a
+  plain single-game project from then on; keep or delete the empty list, see §2 for the
+  `LegacyList` mapping). `tools/publish --live` runs `--verify` for such a project too.
 - **Stale entries:** a listed file that no longer exists fails lint ("remove it from
   studwork-legacy.json"); a listed file with no findings left warns ("nothing legacy left; remove
   the entry").
@@ -586,8 +621,8 @@ balance numbers). Lint must not fail on day one, and must not let more of it in:
   left, a critical risk remains, or a script left in the place uses DataStores or purchases.
   `--test` is allowed. An entry the user wants to keep live (old UI code, say) stays with its
   reason.
-- Projects without `adopted: true` are unaffected: there, `studwork-legacy.json` is an error
-  ("only adopted projects may have a legacy list").
+- Projects without `adopted: true` (now or in any commit) are unaffected: there,
+  `studwork-legacy.json` is an error ("only adopted projects may have a legacy list").
 
 ## 6. Rarity: odds preview at any luck, and luck on a single item (added in v1.6.0)
 

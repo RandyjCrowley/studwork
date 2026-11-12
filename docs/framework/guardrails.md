@@ -190,10 +190,52 @@ files with the checks they may still break and why:
 - **Paths are exact:** relative to the project root, as on disk (no `./`, `..`, other case, or
   symlinks). A listed file that's gone fails ("remove it from studwork-legacy.json"); a listed file
   with no findings left warns ("nothing legacy left; remove the entry").
+- **The anchor is local history** (v1.6.1): rewriting history (a squash, `git filter-repo`, a
+  fresh repository started from a copy of the files) makes a new "first commit that added
+  `studwork.json`" and resets the anchor, and the local check can't see it. Never rewrite an
+  adopted project's history; if it happened, restore the old history (or put the old
+  `legacyBaseline` and `"adopted": true` back in a commit). `tools/lint --anchor-remote` (below)
+  catches it against the remote.
 - Every entry needs a non-empty `reason`.
 - A project without `"adopted": true` may not have a list at all.
 
+### The adopted marker is sticky (v1.6.1)
+
+`"adopted": true` is anchored like the baseline (`tools/lune/AdoptedMarker.luau`): if **any**
+commit reachable from `HEAD` had a `studwork.json` saying adopted, the project counts as adopted,
+for lint and for `tools/publish`, whatever the working copy says. Any commit, not only the first:
+an adoption can come after `studwork.json` was first committed, and `studwork.json` can be deleted
+and re-added; history from `HEAD` only grows, so no later commit can take the flag back (history
+is read with `--full-history`, so a side branch that added and removed it counts too). History is
+read loosely (any key casing, `true` / `"true"` / `1`); the working copy strictly (only
+`"adopted": true`), so `"adopted": "true"`, `"adopted": false` or `"Adopted": true` mean the flag
+was removed.
+
+- **Removing the flag** (or `studwork-legacy.json`, or both) **fails lint until
+  `tools/adopt --verify .` passes**: lint runs `--verify` (the same command, no second copy of its
+  checks) and prints its lines under `studwork.json: [legacy]`. Once `--verify` passes, the flag
+  may go: that's graduating (lint prints a note).
+- `tools/publish --live` uses the sticky value: an un-flagged but historically adopted project
+  still runs `tools/adopt --verify .` and is refused while it fails.
+- A shallow clone can't be checked: lint prints a note (an existing list still fails closed, as
+  above) and `tools/publish --live` is refused for a project whose `studwork.json` doesn't say
+  adopted.
+
+### `tools/lint --anchor-remote` (v1.6.1, optional)
+
+Runs the whole lint, then compares the anchor and the sticky marker with the **remote default
+branch's** history: `refs/remotes/origin/HEAD` (its target), else `refs/remotes/origin/main`, else
+`refs/remotes/origin/master`. It reads local remote-tracking refs only and never fetches or pushes
+(CI fetches). It fails when the first commit that added `studwork.json` on that branch has a
+different `legacyBaseline` than the local one, when the branch's history has that commit and the
+local history doesn't, when the branch's history says adopted and the local one doesn't, or in a
+shallow clone ("fetch the full history": `fetch-depth: 0` in CI). With no remote default branch it
+prints a note and passes; a remote branch without `studwork.json` yet has nothing to compare. A
+single-game project gets a CI workflow running it (`.github/workflows/ci.yml`, from
+`templates/single-game`; [single-game-project.md](single-game-project.md)).
+
 `lune run tools/lune/guardrails --raw [<dir>]` prints every finding, ignoring the list (that's what
 `tools/adopt --init` reads to write the list and the baseline). `guardrails --self-test` plants a
-violation for each rule, and `tools/lune/GuardrailsLegacy.spec.luau` runs them in throwaway git repos.
+violation for each rule, and `tools/lune/GuardrailsLegacy.spec.luau` runs them in throwaway git repos
+(`tools/lune/GuardrailsSticky.spec.luau`: the sticky marker and `--anchor-remote`, v1.6.1).
 

@@ -32,6 +32,14 @@
 	    reports are allowed); a later run overwrites only files listed in .studwork-from-place.json
 	    with an unchanged hash, any other existing file stops the run
 	The place file is never modified. The audit report of the extracted project is written last.
+
+	(v1.6.1) The original place is recorded by content, not by name: .studwork-from-place.json's
+	"original" = { name, path (relative to the project), sha256 (of the original's bytes) }.
+	--from-place records the place it reads (a rerun keeps an earlier record unless the place has the
+	recorded name: a re-export of the original updates the hash); --strip-place records the place
+	it reads when nothing is recorded yet (creating the manifest when needed). Neither ever writes
+	to a file that IS the original: the same resolved path, or a file whose bytes hash to the recorded
+	sha256, whatever its name (an original named <x>.studwork.rbxlx is still the original).
 ]]
 
 local Place = {}
@@ -302,6 +310,33 @@ local function inside(root: string, path: string): boolean
 	return path == root or string.sub(path, 1, #root + 1) == root .. "/"
 end
 
+-- (v1.6.1) the recorded original place of a project's manifest (nil when none is recorded)
+function Place.recordedOriginal(manifest: any): any?
+	if type(manifest) ~= "table" or type(manifest.original) ~= "table" then
+		return nil
+	end
+	local o = manifest.original
+	if type(o.sha256) ~= "string" or o.sha256 == "" then
+		return nil
+	end
+	return o
+end
+
+-- (v1.6.1) refuse a write target that is the original place: same resolved path or same bytes
+local function originalTarget(env, targetAbs: string, targetReal: string?, original: any): string?
+	if original.real ~= nil and targetReal ~= nil and targetReal == original.real then
+		return "it is the original place file"
+	end
+	if env.fs.isFile(targetAbs) then
+		local okR, bytes = pcall(env.fs.readFile, targetAbs)
+		if okR and env.serde.hash("sha256", bytes) == original.sha256 then
+			return "its content is the original place's (sha256 recorded in " .. env.Audit.MANIFEST .. ")"
+		end
+	end
+	return nil
+end
+Place.originalTarget = originalTarget
+
 local ALLOWED_IN_FRESH = { ["studwork-adopt-report.json"] = true, ["studwork-adopt-report.md"] = true }
 
 function Place.run(env, placeAbs: string, outAbs: string)
@@ -376,8 +411,55 @@ function Place.run(env, placeAbs: string, outAbs: string)
 		end
 	end
 
-	-- 2. no silent overwrite
+	-- 1b. (v1.6.1) never write over the original place, whatever its name
+	local placeBytes = fs.readFile(placeAbs)
+	local placeHash = env.serde.hash("sha256", placeBytes)
+	local prp, prerr = realpaths(env, { placeAbs })
+	if prp == nil then
+		return nil, prerr
+	end
+	local placeReal = Audit.normalize(prp[placeAbs])
+	if outReal == placeReal then
+		return nil,
+			"refusing to write into "
+				.. placeName
+				.. ": --out is the original place file; pick a folder (nothing was written)"
+	end
+	local guards = { { sha256 = placeHash, real = placeReal } }
 	local manifestPath = outAbs .. "/" .. Audit.MANIFEST
+	local recorded = nil
+	if fs.isFile(manifestPath) then
+		local okM, vM = pcall(function()
+			return env.serde.decode("json", fs.readFile(manifestPath))
+		end)
+		recorded = if okM then Place.recordedOriginal(vM) else nil
+		if recorded then
+			table.insert(guards, { sha256 = recorded.sha256 })
+		end
+	end
+	local writeTargets = { Audit.MANIFEST }
+	for _, f in plan.files do
+		table.insert(writeTargets, f.path)
+	end
+	for _, rel in writeTargets do
+		local target = outAbs .. "/" .. rel
+		local a = existingAncestor(env, target)
+		local rr = realpaths(env, { a })
+		local real = if rr then Audit.normalize(rr[a] .. string.sub(target, #a + 1)) else nil
+		for _, g in guards do
+			local why = originalTarget(env, target, real, g)
+			if why then
+				return nil,
+					"refusing to write "
+						.. rel
+						.. ": "
+						.. why
+						.. "; the original place is never written. Move it out of --out or pick another --out (nothing was written)"
+			end
+		end
+	end
+
+	-- 2. no silent overwrite
 	local old = nil
 	if fs.isFile(manifestPath) then
 		local ok, v = pcall(function()
@@ -416,6 +498,10 @@ function Place.run(env, placeAbs: string, outAbs: string)
 		renamed = Audit.object(),
 		-- (v1.6.0 dogfood r3) the instances extracted, for --strip-place --extracted and --verify
 		extracted = Audit.extractedPaths(place),
+		-- (v1.6.1) the original place, by content (a rerun on a copy keeps the first record)
+		original = if recorded and recorded.name ~= placeName
+			then recorded
+			else { name = placeName, path = Audit.relative(outAbs, placeAbs), sha256 = placeHash },
 	}
 	for _, r in plan.renamed do
 		manifest.renamed[r.path] = r.name
@@ -511,6 +597,13 @@ function Place.recordedExtracted(env, projectAbs: string): ({ string }?, string?
 	if not ok or type(m) ~= "table" then
 		return nil, env.Audit.MANIFEST .. " is not valid JSON"
 	end
+	if type(m.extracted) ~= "table" and type(m.files) ~= "table" then
+		-- (v1.6.1) only --strip-place's record of the original: not a --from-place manifest
+		return nil,
+			"no "
+				.. env.Audit.MANIFEST
+				.. " from tools/adopt --from-place in the project (it only records the original place)"
+	end
 	if type(m.extracted) ~= "table" then
 		return nil,
 			env.Audit.MANIFEST
@@ -552,9 +645,86 @@ function Place.strip(env, projectAbs: string, paths: { string }, opts: any?)
 		return nil, "the place file " .. sourceRel .. " (studwork.json placeFile) is missing"
 	end
 	local stem, ext = string.match(sourceRel, "^(.*)%.(rbxlx?)$")
-	local isCopy = string.match(stem, "%.studwork$") ~= nil
+	local copyNamed = string.match(stem, "%.studwork$") ~= nil
+	-- (v1.6.1) which file is the original: the manifest's record (by content), else the place
+	-- studwork.json points at (recorded now), or for a copy-named place its original next to it
+	local manifestPath = projectAbs .. "/" .. env.Audit.MANIFEST
+	local manifest = nil
+	if fs.isFile(manifestPath) then
+		local okM, vM = pcall(env.serde.decode, "json", fs.readFile(manifestPath))
+		if not okM or type(vM) ~= "table" then
+			return nil, env.Audit.MANIFEST .. " is not valid JSON. Nothing was written."
+		end
+		manifest = vM
+	end
+	local sourceHash = env.serde.hash("sha256", fs.readFile(sourceAbs))
+	local original = Place.recordedOriginal(manifest)
+	local newRecord = nil
+	if original == nil then
+		if copyNamed then
+			local baseRel = string.sub(stem, 1, #stem - #".studwork") .. "." .. ext
+			if not fs.isFile(projectAbs .. "/" .. baseRel) then
+				return nil,
+					sourceRel
+						.. " is named like a --strip-place copy, but no original is recorded in "
+						.. env.Audit.MANIFEST
+						.. " and "
+						.. baseRel
+						.. " doesn't exist, so it may be the original itself: rename it (e.g. to "
+						.. baseRel
+						.. ") and point studwork.json placeFile at it. Nothing was written."
+			end
+			newRecord = {
+				name = env.Audit.basename(baseRel),
+				path = baseRel,
+				sha256 = env.serde.hash("sha256", fs.readFile(projectAbs .. "/" .. baseRel)),
+			}
+		else
+			newRecord = { name = env.Audit.basename(sourceRel), path = sourceRel, sha256 = sourceHash }
+		end
+		original = newRecord
+	end
+	local originalAbs = if type(original.path) == "string"
+			and not string.find(original.path, "..", 1, true)
+			and string.sub(original.path, 1, 1) ~= "/"
+		then projectAbs .. "/" .. original.path
+		else nil
+	local sourceIsOriginal = sourceHash == original.sha256
+	if not sourceIsOriginal and originalAbs and fs.isFile(originalAbs) then
+		local rr = realpaths(env, { sourceAbs, originalAbs })
+		sourceIsOriginal = rr ~= nil and rr[sourceAbs] == rr[originalAbs]
+	end
+	if copyNamed and sourceIsOriginal then
+		return nil,
+			sourceRel
+				.. " is the original place (its content matches the original recorded in "
+				.. env.Audit.MANIFEST
+				.. "), although it is named like a copy: --strip-place never writes the original. Rename it (without .studwork) and point studwork.json placeFile at it. Nothing was written."
+	end
+	local isCopy = copyNamed
 	local outRel = if isCopy then sourceRel else stem .. ".studwork." .. ext
 	local outAbs = projectAbs .. "/" .. outRel
+	do
+		local origReal = nil
+		if originalAbs and fs.isFile(originalAbs) then
+			local rr = realpaths(env, { originalAbs })
+			origReal = rr and rr[originalAbs]
+		end
+		local outReal = nil
+		if fs.isFile(outAbs) then
+			local rr = realpaths(env, { outAbs })
+			outReal = rr and rr[outAbs]
+		end
+		local why = originalTarget(env, outAbs, outReal, { sha256 = original.sha256, real = origReal })
+		if why then
+			return nil,
+				"refusing to write "
+					.. outRel
+					.. ": "
+					.. why
+					.. "; --strip-place never writes the original. Point studwork.json placeFile at the original (it writes <name>.studwork.rbxlx next to it). Nothing was written."
+		end
+	end
 	if not isCopy and fs.isFile(outAbs) then
 		return nil,
 			outRel
@@ -633,6 +803,12 @@ function Place.strip(env, projectAbs: string, paths: { string }, opts: any?)
 	fs.writeFile(outAbs, bytes)
 	if newText ~= marker.text then
 		fs.writeFile(projectAbs .. "/studwork.json", newText)
+	end
+	if newRecord ~= nil then
+		-- (v1.6.1) record the original (an existing manifest keeps every other field)
+		local m = manifest or { tool = "studwork-adopt --strip-place" }
+		m.original = newRecord
+		fs.writeFile(manifestPath, env.Audit.encodeJson(m))
 	end
 	return {
 		source = sourceRel,

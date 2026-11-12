@@ -22,4 +22,6 @@ dropped. This README is not copied.
   report's product and pass ids under `Product<id>` / `Pass<id>` placeholder names). Rendered with
   `{{gameId}}`, `{{modulesHeader}}`, `{{modules}}`, `{{kitConfig}}`, `{{devProducts}}`,
   `{{passes}}`.
-- `boot/`: the server and client scripts that call `StudWork.start` (copied as is).
+- `boot/`: the server and client scripts that call `StudWork.start` (copied as is). (v1.6.1) The
+  server one passes `ServerConfig.legacyList` = the `LegacyList` ModuleScript next to it, when
+  there is one: init maps `studwork-legacy.json` there (`ServerScriptService.StudWorkBoot.LegacyList`).

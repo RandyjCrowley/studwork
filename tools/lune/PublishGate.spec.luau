@@ -282,3 +282,36 @@ describe("PublishGate.decide: adopted projects (v1.6.0)", function()
 		end
 	end)
 end)
+
+-- (v1.6.1) the adopted marker is sticky: publish-gate sets adopted from history (adoptedFrom) when
+-- studwork.json no longer says it, so --live still needs --verify; a shallow clone can't be checked
+describe("PublishGate.decide: the sticky adopted marker (v1.6.1)", function()
+	local liveReady = function(extra)
+		local i = input({
+			target = "live",
+			deploy = deploy({ test = { universeId = 111, placeId = 222, published = { commit = HEAD } } }),
+		})
+		for k, v in extra do
+			i[k] = v
+		end
+		return i
+	end
+
+	it("an un-flagged but historically adopted project still needs --verify for --live", function()
+		local d = PublishGate.decide(liveReady({ adopted = true, adoptedFrom = "abc", adoptVerify = false }))
+		expect(d.ok).toBe(false)
+		expect(hasMessage(d.errors, "tools/adopt --verify .")).toBe(true)
+		local ok = PublishGate.decide(liveReady({ adopted = true, adoptedFrom = "abc", adoptVerify = true }))
+		expect(ok.ok).toBe(true)
+	end)
+
+	it(
+		"--live is refused in a shallow clone when studwork.json doesn't say adopted; --test is allowed",
+		function()
+			local d = PublishGate.decide(liveReady({ historyShallow = true }))
+			expect(d.ok).toBe(false)
+			expect(hasMessage(d.errors, "shallow clone")).toBe(true)
+			expect(PublishGate.decide(input({ historyShallow = true })).ok).toBe(true)
+		end
+	)
+end)

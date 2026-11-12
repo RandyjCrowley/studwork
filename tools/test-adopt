@@ -388,6 +388,14 @@ EOF
 PLACE_BUILT="$(ls "$G"/build/*.rbxl 2>/dev/null | head -1)"
 check "build: the place has ReplicatedStorage.GameModule.client (a ModuleScript)" sh -c \
 	"cd '$CORE_ROOT' && lune run '$WORK/probe-place.luau' '$PLACE_BUILT' ReplicatedStorage.GameModule.client"
+# (v1.6.1) the legacy list in the running place: studwork-legacy.json -> StudWorkBoot.LegacyList,
+# passed by the server boot as ServerConfig.legacyList
+check "project file maps studwork-legacy.json as StudWorkBoot.LegacyList" sh -c \
+	"tr -d ' \n\t' <'$PJ' | grep -qF '\"LegacyList\":{\"\$path\":\"studwork-legacy.json\"}'"
+check "build: the place has ServerScriptService.StudWorkBoot.LegacyList (a ModuleScript)" sh -c \
+	"cd '$CORE_ROOT' && lune run '$WORK/probe-place.luau' '$PLACE_BUILT' ServerScriptService.StudWorkBoot.LegacyList"
+check "server boot passes ServerConfig.legacyList" grep -q '.legacyList = legacyList' "$G/studwork-boot/server/Main.server.luau"
+check "init wrote the CI template (tools/lint --anchor-remote)" grep -q 'run: tools/lint --anchor-remote' "$G/.github/workflows/ci.yml"
 check "minimal Config: no sandbox content (items, starter items, rarity tables, events, Coins)" sh -c \
 	"! grep -q -E 'pebble|starterItems|rarityTables|CoinRain|SecretDrop|DoubleCoins|CoinPack|\"Coins\"' '$G/src/shared/Config/init.luau' && grep -q 'paidCurrencies = {}' '$G/src/shared/Config/init.luau' && grep -q 'items = {}' '$G/src/shared/Config/init.luau'"
 SRV="$G/modules/legacy-example-a/server/init.luau"
@@ -418,6 +426,24 @@ step "test (the scaffold's action example uncommented)" tools/test
 check "the scaffold's action example passes (boot, join, action, save)" grep -q "modules/legacy-example-a/module.spec.luau .*3 passed, 0 failed" \
 	"$(logof "test (the scaffold's action example uncommented)")"
 (cd "$G" && tgit checkout -q -- modules) >>"$LOGS/setup.log" 2>&1
+
+# (v1.6.1) the adopted marker is sticky (adopting.md §5): with "adopted" removed from the committed
+# adopted project, tools/lint fails while tools/adopt --verify fails (the list still lists
+# purchases), and the publish gate still runs --verify for --live
+sed -i.bak 's/"adopted": true/"adopted": false/' "$G/studwork.json" && rm -f "$G/studwork.json.bak"
+if (cd "$G" && tools/lint) >"$LOGS/sticky-lint.log" 2>&1; then
+	fail "sticky: tools/lint must fail with the flag removed while --verify fails"
+else
+	check "sticky: tools/lint fails, the project still counts as adopted" \
+		grep -q 'studwork.json no longer says "adopted": true' "$LOGS/sticky-lint.log"
+fi
+printf '{\n  "name": "legacy-example-a",\n  "test": { "universeId": 0, "placeId": 0 },\n  "live": { "universeId": 0, "placeId": 0 }\n}\n' >"$G/deploy.json"
+(cd "$G" && STUDWORK_PROJECT_ROOT="$G" bash -c 'source studwork/tools/_common.sh && lune_tool publish-gate check . live 1 0') \
+	>"$LOGS/sticky-publish.log" 2>&1 || true
+check "sticky: publish-gate --live on an un-flagged adopted project runs tools/adopt --verify" sh -c \
+	"grep -q 'counts as adopted' '$LOGS/sticky-publish.log' && grep -q '== tools/adopt --verify .' '$LOGS/sticky-publish.log' && grep -q 'refused in an adopted project while' '$LOGS/sticky-publish.log'"
+rm -f "$G/deploy.json"
+(cd "$G" && tgit checkout -q -- studwork.json) >>"$LOGS/setup.log" 2>&1
 
 # --modules choices: each minimal Config boots (tools/test runs the scaffold spec's sim boot) and
 # typechecks; the audit's product ids land under placeholder names; an untracked audit report

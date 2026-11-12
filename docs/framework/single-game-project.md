@@ -44,7 +44,10 @@ Steps:
    `studwork/`, `docs/design.md` from `templates/game-design.md`), then the skeleton from
    `studwork/templates/single-game`: the `studwork.json` marker, `tools/` wrappers,
    `.githooks/pre-commit`, `.gitignore`, `.env.example`, `README.md`, `CLAUDE.md` (rules for game
-   agents), `FRAMEWORK_REQUESTS.md`.
+   agents), `FRAMEWORK_REQUESTS.md`, and (v1.6.1) `.github/workflows/ci.yml`: a GitHub Actions
+   workflow that checks out the full history with the submodule (`fetch-depth: 0`), points
+   `origin/HEAD` at the default branch, runs `tools/install`, `tools/lint --anchor-remote` and
+   `tools/test` ([guardrails.md](guardrails.md): the anchor check against the remote).
 4. `tools/install` in the new project (toolchain + Wally packages into `studwork/deps/` + the hook).
 5. The first commit, through the project's real pre-commit hook (lint + tests). It is the one
    commit allowed to add the `studwork` pointer together with other files: nothing is bumped yet
@@ -63,7 +66,7 @@ one; before sharing such a project, run `git submodule set-url studwork <public-
 ├─ studwork.json              the layout marker: {"layout": "single-game"}
 ├─ default.project.json       Rojo project at the root ($paths "studwork/packages/...", "studwork/deps/...")
 ├─ deploy.json                servePort, test/live ids (0 = placeholder), the framework stamps
-├─ .env.example  .gitignore  .githooks/pre-commit
+├─ .env.example  .gitignore  .githooks/pre-commit  .github/workflows/ci.yml
 ├─ src/server/                Main.server.luau, ServerConfig.luau, World.luau, Boot.spec.luau
 ├─ src/client/                Main.client.luau
 ├─ src/shared/Config/         init, Balance, Items, Products, Events, Palette, Tuning (+ Config.spec.luau)

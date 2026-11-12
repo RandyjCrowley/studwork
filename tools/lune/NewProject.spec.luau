@@ -146,6 +146,11 @@ describe("NewProject skeleton", function()
 		expect(fs.readFile(dir .. "/tools/_studwork")).toContain('CORE="$ROOT/studwork"')
 		expect(fs.readFile(dir .. "/tools/framework-status")).toContain('_studwork" core-status')
 		expect(fs.readFile(dir .. "/.githooks/pre-commit")).toContain("step lint tools/lint")
+		-- (v1.6.1) the CI template: full history, lint with --anchor-remote
+		local ci = fs.readFile(dir .. "/.github/workflows/ci.yml")
+		expect(ci).toContain("run: tools/lint --anchor-remote")
+		expect(ci).toContain("fetch-depth: 0")
+		expect(ci).toContain("submodules: recursive")
 		local vars = { name = "my-game", tag = "v1.5.0", port = "34872", modules = "Items" }
 		-- Privacy: only generic machine-path patterns live in this repo. Names that must never appear
 		-- in a template (your own projects, hosts, people) come from outside the repo: the env var

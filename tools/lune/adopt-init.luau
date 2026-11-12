@@ -228,6 +228,12 @@ if cmd == "plan" then
 			print("error: studwork.json exists and is not an adopted project's (already a StudWork project?)")
 			process.exit(1)
 		end
+		-- (v1.6.1) the project file maps studwork-legacy.json as StudWorkBoot.LegacyList: an
+		-- adopted project keeps the file (an empty list is { "files": [] }); on the first run the
+		-- legacy step writes it
+		if not fs.isFile(at(AdoptInit.LEGACY_LIST)) then
+			create(AdoptInit.LEGACY_LIST, AdoptInit.renderLegacyJson(SyncProjects, { files = {} }))
+		end
 	else
 		create("studwork.json", AdoptInit.renderStudworkJson(SyncProjects, placeFile, nil))
 	end
@@ -242,6 +248,11 @@ if cmd == "plan" then
 		end
 	end
 	create(".githooks/pre-commit", fs.readFile(single .. "/.githooks/pre-commit"))
+	-- (v1.6.1) the CI template (tools/lint --anchor-remote with full history), when this
+	-- StudWork has one; an existing workflow of the same name is left alone
+	if fs.isFile(single .. "/.github/workflows/ci.yml") then
+		create(".github/workflows/ci.yml", fs.readFile(single .. "/.github/workflows/ci.yml"))
+	end
 
 	-- the game module
 	local vars = {

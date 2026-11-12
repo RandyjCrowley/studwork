@@ -15,7 +15,10 @@
 	isSafeRel(rel) -> boolean            a relative path that stays inside the project (lexically)
 	REQUIRED(gameId) -> { { service, name, node } }   the entries StudWork adds to the tree
 	isOurs(node, gameId) -> boolean      an existing entry that StudWork wrote (every $path is under
-	                                     studwork/, modules/<gameId>/, studwork-boot/ or is src/shared/Config): kept, never a clash
+	                                     studwork/, modules/<gameId>/, studwork-boot/ or is src/shared/Config
+	                                     or studwork-legacy.json): kept, never a clash
+	bootServerNode(SP) -> node           (v1.6.1) ServerScriptService.StudWorkBoot: studwork-boot/server
+	                                     plus LegacyList = studwork-legacy.json (a JSON ModuleScript)
 	mergeProject(SP, text, gameId) -> (newText?, added { string }, clashes { string })
 	    adds the StudWork entries after the existing keys (existing keys keep their order and
 	    values), the game module's server part under ServerScriptService.Modules, and the missing
@@ -204,11 +207,24 @@ function AdoptInit.REQUIRED(SP, gameId: string, moduleName: string): { any }
 		},
 		-- (v1.6.0 dogfood: every migration needed these) GameConfig and the two boot scripts
 		{ "ReplicatedStorage", "Game", folder({ { "Config", path("src/shared/Config") } }) },
-		{ "ServerScriptService", "StudWorkBoot", path("studwork-boot/server") },
+		-- (v1.6.1) the legacy list rides along as a JSON ModuleScript: the server boot passes it as
+		-- ServerConfig.legacyList (the live-server warning, adopting.md §5)
+		{ "ServerScriptService", "StudWorkBoot", AdoptInit.bootServerNode(SP) },
 		{ "ReplicatedFirst", "StudWorkBoot", path("studwork-boot/client") },
 		{ "ServerStorage", "ServerPackages", path(core .. "/deps/ServerPackages") },
 		{ "ServerStorage", "Vendor", path(core .. "/packages/vendor") },
 	}
+end
+
+-- (v1.6.1) ServerScriptService.StudWorkBoot: the server boot folder + LegacyList (studwork-legacy.json)
+AdoptInit.LEGACY_LIST = "studwork-legacy.json"
+function AdoptInit.bootServerNode(SP): any
+	local n = SP.newObject()
+	SP.set(n, "$path", "studwork-boot/server")
+	local list = SP.newObject()
+	SP.set(list, "$path", AdoptInit.LEGACY_LIST)
+	SP.set(n, "LegacyList", list)
+	return n
 end
 
 function AdoptInit.isOurs(node: any, gameId: string): boolean
@@ -227,6 +243,7 @@ function AdoptInit.isOurs(node: any, gameId: string): boolean
 						or string.sub(v, 1, #gameId + 9) == "modules/" .. gameId .. "/"
 						or string.sub(v, 1, 14) == "studwork-boot/"
 						or v == "src/shared/Config"
+						or v == AdoptInit.LEGACY_LIST
 					)
 				then
 					ok = false
@@ -316,6 +333,12 @@ function AdoptInit.mergeProject(
 			if own == nil then
 				SP.set(existing, moduleName, node.vals[moduleName])
 				table.insert(added, serviceName .. ".Modules." .. moduleName)
+			end
+		elseif serviceName == "ServerScriptService" and name == "StudWorkBoot" then
+			-- (v1.6.1) a project adopted before LegacyList existed gets it on the next --init
+			if existing.vals.LegacyList == nil then
+				SP.set(existing, "LegacyList", node.vals.LegacyList)
+				table.insert(added, serviceName .. ".StudWorkBoot.LegacyList")
 			end
 		elseif serviceName == "ReplicatedStorage" and name == "GameModule" then
 			for _, part in { "module", "client" } do

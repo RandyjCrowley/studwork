@@ -528,3 +528,128 @@ describe("AdoptPlace: extracted scripts left in the place", function()
 		fs.removeDir(root2)
 	end)
 end)
+
+-- (v1.6.1, final review L4) the original place is known by its recorded content hash, not by its
+-- name: --strip-place and --from-place never write over it, whatever it is called
+describe("AdoptPlace: the original place is recorded by hash", function()
+	local function placeBytes(): string
+		local game = Instance.new("DataModel")
+		local rs = game:GetService("ReplicatedStorage")
+		local remotes = new("Folder", "Remotes", rs)
+		new("RemoteEvent", "Buy", remotes)
+		local sss = game:GetService("ServerScriptService")
+		new("Script", "Main", sss, "print('main')\n")
+		return roblox.serializePlace(game, true)
+	end
+	local function marker(file: string): string
+		return '{\n  "layout": "single-game",\n  "framework": "studwork",\n  "adopted": true,\n  "placeFile": "'
+			.. file
+			.. '"\n}\n'
+	end
+	local function sha(text: string): string
+		return serde.hash("sha256", text)
+	end
+
+	it("--from-place records the original's name, path and sha256", function()
+		local root = tmpRoot()
+		local bytes = placeBytes()
+		fs.writeFile(root .. "/my-game.rbxlx", bytes)
+		local res, err = Place.run(env, root .. "/my-game.rbxlx", root)
+		expect(err).toBeNil()
+		expect(res).never.toBeNil()
+		local m = readJson(root .. "/" .. Audit.MANIFEST)
+		expect(m.original).toEqual({ name = "my-game.rbxlx", path = "my-game.rbxlx", sha256 = sha(bytes) })
+		fs.removeDir(root)
+	end)
+
+	it("--strip-place refuses an original named <x>.studwork.rbxlx (recorded by --from-place)", function()
+		local root = tmpRoot()
+		local bytes = placeBytes()
+		fs.writeFile(root .. "/x.studwork.rbxlx", bytes)
+		assert(Place.run(env, root .. "/x.studwork.rbxlx", root))
+		fs.writeFile(root .. "/studwork.json", marker("x.studwork.rbxlx"))
+		local res, err = Place.strip(env, root, { "ReplicatedStorage.Remotes" })
+		expect(res).toBeNil()
+		expect(err).toContain("x.studwork.rbxlx is the original place")
+		expect(err).toContain("Nothing was written")
+		expect(fs.readFile(root .. "/x.studwork.rbxlx")).toBe(bytes)
+		fs.removeDir(root)
+	end)
+
+	it("--strip-place refuses a copy-named place when no original is recorded or next to it", function()
+		local root = tmpRoot()
+		local bytes = placeBytes()
+		fs.writeFile(root .. "/x.studwork.rbxlx", bytes)
+		fs.writeFile(root .. "/studwork.json", marker("x.studwork.rbxlx"))
+		local res, err = Place.strip(env, root, { "ReplicatedStorage.Remotes" })
+		expect(res).toBeNil()
+		expect(err).toContain("may be the original itself")
+		expect(fs.readFile(root .. "/x.studwork.rbxlx")).toBe(bytes)
+		fs.removeDir(root)
+	end)
+
+	it(
+		"--strip-place records the original, then refuses a placeFile hand-edited to the original's bytes",
+		function()
+			local root = tmpRoot()
+			local bytes = placeBytes()
+			fs.writeFile(root .. "/my-game.rbxlx", bytes)
+			fs.writeFile(root .. "/studwork.json", marker("my-game.rbxlx"))
+			local res, err = Place.strip(env, root, { "ReplicatedStorage.Remotes" })
+			expect(err).toBeNil()
+			expect(res.out).toBe("my-game.studwork.rbxlx")
+			local m = readJson(root .. "/" .. Audit.MANIFEST)
+			expect(m.original.sha256).toBe(sha(bytes))
+			expect(m.original.name).toBe("my-game.rbxlx")
+			-- a later strip of the copy still works (the copy's hash isn't the original's)
+			local res2, err2 = Place.strip(env, root, { "ServerScriptService.Main" })
+			expect(err2).toBeNil()
+			expect(res2.out).toBe("my-game.studwork.rbxlx")
+			-- placeFile hand-edited to a copy-named file that is in fact the original
+			fs.writeFile(root .. "/orig.studwork.rbxlx", bytes)
+			fs.writeFile(root .. "/studwork.json", marker("orig.studwork.rbxlx"))
+			local res3, err3 = Place.strip(env, root, { "ReplicatedStorage" })
+			expect(res3).toBeNil()
+			expect(err3).toContain("is the original place")
+			expect(fs.readFile(root .. "/orig.studwork.rbxlx")).toBe(bytes)
+			expect(fs.readFile(root .. "/my-game.rbxlx")).toBe(bytes)
+			fs.removeDir(root)
+		end
+	)
+
+	it("--strip-place refuses when the copy it would write holds the original's bytes", function()
+		local root = tmpRoot()
+		local bytes = placeBytes()
+		fs.writeFile(root .. "/my-game.studwork.rbxlx", bytes) -- the original, under the copy's name
+		fs.writeFile(root .. "/my-game.rbxlx", placeBytes() .. "\n") -- a different file
+		fs.writeFile(
+			root .. "/" .. Audit.MANIFEST,
+			serde.encode("json", { original = { name = "o.rbxlx", path = "o.rbxlx", sha256 = sha(bytes) } })
+		)
+		fs.writeFile(root .. "/studwork.json", marker("my-game.rbxlx"))
+		local res, err = Place.strip(env, root, { "ReplicatedStorage.Remotes" })
+		expect(res).toBeNil()
+		expect(err).toContain("refusing to write my-game.studwork.rbxlx: its content is the original place's")
+		expect(fs.readFile(root .. "/my-game.studwork.rbxlx")).toBe(bytes)
+		fs.removeDir(root)
+	end)
+
+	it("--from-place refuses an --out that is the original, or a target holding its bytes", function()
+		local root = tmpRoot()
+		local bytes = placeBytes()
+		fs.writeFile(root .. "/my-game.rbxlx", bytes)
+		local res, err = Place.run(env, root .. "/my-game.rbxlx", root .. "/my-game.rbxlx")
+		expect(res).toBeNil()
+		expect(err).toContain("--out is the original place file")
+		expect(fs.readFile(root .. "/my-game.rbxlx")).toBe(bytes)
+		-- a file the run would write that holds the original's bytes (a renamed original)
+		fs.writeDir(root .. "/out")
+		fs.writeFile(root .. "/out/default.project.json", bytes)
+		local res2, err2 = Place.run(env, root .. "/my-game.rbxlx", root .. "/out")
+		expect(res2).toBeNil()
+		expect(err2).toContain("refusing to write default.project.json")
+		expect(err2).toContain("the original place's")
+		expect(fs.readFile(root .. "/out/default.project.json")).toBe(bytes)
+		fs.removeDir(root)
+	end)
+end)
