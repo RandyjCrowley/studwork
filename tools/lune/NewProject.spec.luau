@@ -151,6 +151,8 @@ describe("NewProject skeleton", function()
 		expect(ci).toContain("run: tools/lint --anchor-remote")
 		expect(ci).toContain("fetch-depth: 0")
 		expect(ci).toContain("submodules: recursive")
+		-- setup-rokit installs tools itself: the manifest belongs to the submodule, not the game.
+		expect(ci).toContain("path: studwork")
 		local vars = { name = "my-game", tag = "v1.5.0", port = "34872", modules = "Items" }
 		-- Privacy: only generic machine-path patterns live in this repo. Names that must never appear
 		-- in a template (your own projects, hosts, people) come from outside the repo: the env var

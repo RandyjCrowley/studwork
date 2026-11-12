@@ -43,6 +43,7 @@ jobs:
       - name: Set up Rokit
         uses: CompeyDev/setup-rokit@1d9390883f7ebce19d48f5b8d006e11d387c92ab # v0.2.1
         with:
+          path: studwork
           token: ${{ github.token }}
 
       - name: Install (toolchain + Wally packages into studwork/deps/)
