@@ -176,6 +176,16 @@ only**, so the map, models and UI stay in the place:
   original untouched for rollback. `--extracted` adds every recorded extracted script still in the
   place. A path that doesn't exist stops it with nothing written; run it again on the copy to
   remove more.
+- **The original is known by its content, not its name** (v1.6.1): `.studwork-from-place.json`
+  records `"original": { "name", "path", "sha256" }` (the SHA-256 of the original place's bytes;
+  `path` is relative to the project). `--from-place` records the place it reads (a rerun keeps an
+  earlier record, unless the place has the recorded name: a re-export of the original updates the
+  hash); `--strip-place` records the place `placeFile` points at when nothing is recorded yet
+  (creating the manifest if needed; for a `*.studwork.rbxlx` name with no record it takes the
+  `<name>.rbxlx` next to it, and refuses when that doesn't exist). Both **refuse to write** a file
+  that is the original: the same resolved path, or a file whose bytes hash to the recorded
+  `sha256`, **whatever its name** (an original named `x.studwork.rbxlx`, or a `placeFile`
+  hand-edited to point at the original, is refused with nothing written).
 - A place-file game is published from Studio (open the place, sync with `tools/dev`, publish), not
   with `tools/publish` (its build has no map); `tools/publish` says so and stops for a project whose
   `studwork.json` has `"placeFile"`.
