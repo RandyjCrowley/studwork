@@ -11,6 +11,7 @@
 	    state.replicated() -> { [name]: boolean }                   every flag without serverOnly
 	    state.applyReplicated(values)                               client: take the server's values
 	    state.names() -> { string }                                 declared names, sorted
+	    state.overridable(name) -> boolean                          declared and override ~= false
 	    state.onAnyChange(fn(name, on))                             framework internal: re-replicate
 
 	Value = override (if the flag allows it) > the environment's field > default. A testOnly flag
@@ -243,6 +244,11 @@ function Flags.new(opts: Options): any
 		end
 		table.sort(out)
 		return out
+	end
+
+	function state.overridable(name: string): boolean
+		local def = defs[name]
+		return def ~= nil and def.override ~= false
 	end
 
 	function state.isHidden(name: string): boolean

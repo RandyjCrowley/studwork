@@ -4,10 +4,12 @@
 
 	  Env.resolve(environments, info) -> "studio" | "test" | "live"
 	  Env.validate(environments, info?) -> (errors, warnings)   shape, test/live overlap, unlisted place
-	  Env.build(environments, info) -> EnvAPI                   frozen { name(), placeId(), universeId() }
+	  Env.build(environments, info, forced?) -> EnvAPI          frozen { name(), placeId(), universeId() }
 
 	info = { isStudio: boolean, placeId: number, universeId: number }. An unlisted place is live, so a
-	place nobody listed can never switch on test-only behaviour.
+	place nobody listed can never switch on test-only behaviour. Ids are positive integers (the
+	generated Environments.luau leaves deploy.json's placeholders out); an id listed under both test
+	and live (place ids with place ids, universe ids with universe ids) is a boot error.
 ]]
 
 local Types = require(script.Parent.Types)
@@ -50,8 +52,8 @@ local function checkIds(list: any, where: string, errors: { string })
 		return
 	end
 	for i, id in list do
-		if type(i) ~= "number" or type(id) ~= "number" or id ~= id or id % 1 ~= 0 then
-			table.insert(errors, `{where}[{tostring(i)}] must be an integer id`)
+		if type(i) ~= "number" or type(id) ~= "number" or id ~= id or id % 1 ~= 0 or id < 1 then
+			table.insert(errors, `{where}[{tostring(i)}] must be a positive integer id`)
 		end
 	end
 end
@@ -79,6 +81,15 @@ function Env.validate(environments: any, info: Info?): ({ string }, { string })
 		if type(entry) ~= "table" then
 			table.insert(errors, `environments.{side} must be a table {"{"} placeIds, universeIds {"}"}`)
 			continue
+		end
+		for key in entry do
+			if key ~= "placeIds" and key ~= "universeIds" then
+				-- a typo (placeId) would silently drop the ids: the place would count as live
+				table.insert(
+					errors,
+					`environments.{side}.{tostring(key)}: unknown key (expected placeIds, universeIds)`
+				)
+			end
 		end
 		checkIds(entry.placeIds, `environments.{side}.placeIds`, errors)
 		checkIds(entry.universeIds, `environments.{side}.universeIds`, errors)

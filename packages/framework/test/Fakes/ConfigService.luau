@@ -10,9 +10,11 @@
 	  snapshot:GetValue(key) -> any?          nil for a missing key
 	  snapshot.UpdateAvailable                a signal (:Connect) fired by fake.publish()
 	  snapshot.Outdated                       true after a publish, until Refresh
-	  snapshot:Refresh()                      takes the published values
+	  snapshot:Refresh()                      takes the published values; raises while failRefreshNext
+	                                          is pending (the snapshot keeps its values)
 	Test surface: set(key, value | nil) stages a value; publish() makes the staged values available
-	(fires UpdateAvailable, Outdated = true); calls; failNext(n).
+	(fires UpdateAvailable, Outdated = true); publishQuietly() the same without the event (a missed
+	update: only Outdated tells); calls; failNext(n) (GetConfigAsync); failRefreshNext(n).
 ]]
 
 local Signal = (require :: any)(script.Parent.Parent.Parent.shared.Signal)
@@ -29,6 +31,7 @@ function ConfigFake.new(opts: any?): any
 	local staged: { [string]: any } = copy(live) -- what set() changed
 	local published: { [string]: any }? = nil
 	local failures = if type(o.failNext) == "number" then o.failNext else 0
+	local refreshFailures = 0
 	local fake: any = { calls = {} }
 	local snapshot: any = { Outdated = false, UpdateAvailable = Signal.new("ConfigFake.UpdateAvailable") }
 
@@ -39,6 +42,10 @@ function ConfigFake.new(opts: any?): any
 
 	function snapshot.Refresh(_self: any)
 		table.insert(fake.calls, { method = "Refresh" })
+		if refreshFailures > 0 then
+			refreshFailures -= 1
+			error("ConfigSnapshot:Refresh failed (injected)", 0)
+		end
 		if published ~= nil then
 			live = published
 			published = nil
@@ -59,6 +66,10 @@ function ConfigFake.new(opts: any?): any
 		failures += n
 	end
 
+	function fake.failRefreshNext(n: number)
+		refreshFailures += n
+	end
+
 	function fake.set(key: string, value: any)
 		staged[key] = value
 	end
@@ -67,6 +78,11 @@ function ConfigFake.new(opts: any?): any
 		published = copy(staged)
 		snapshot.Outdated = true
 		snapshot.UpdateAvailable:Fire()
+	end
+
+	function fake.publishQuietly()
+		published = copy(staged)
+		snapshot.Outdated = true
 	end
 
 	return fake
