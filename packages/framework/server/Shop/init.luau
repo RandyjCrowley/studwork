@@ -55,12 +55,20 @@
 	v1.6.0 purchase bridge (docs/framework/adopting.md §4): opts.legacy (the read-only Legacy reader),
 	opts.hasLegacyImport() -> boolean (asked at claim time, the end of boot).
 	  A PurchaseId in _framework.purchases OR _framework.legacyPurchases is recorded (duplicate).
-	  ctx.shop.legacyReceipts({ name, scope?, key, until? }): once per game, before the claim; every
+	  ctx.shop.legacyReceipts({ name, scope?, key, until?, checkDays? }): once per game, before the
+	      claim; checkDays (v1.6.1, default Legacy.RECEIPT_KEEP_DAYS = 90) is how long after until the
+	      store is still checked; every
 	      unrecorded receipt is checked against the old history store first (Receipt step 5b).
 	  ctx.shop.onLegacyProduct(product, fn(receiptInfo, player), { writesLegacyData = boolean }):
 	      a development bridge for an old product handler (Receipt.legacyCommit). One handler per
 	      product across onProduct and onLegacyProduct. Boot warning per product; boot error at
 	      claim when hasLegacyImport() and any writesLegacyData = true.
+	      v1.6.1: a writesLegacyData = false handler that writes an old store anyway fails loudly
+	      (NotProcessedYet, nothing recorded, an error naming product/module/store/key): with a
+	      test mock (reader.canWatch) every write while the handler runs is reported (the
+	      legacyReceipts history store excepted); in Studio the importLegacy sources' keys are
+	      read before and after the handler and compared (a failed read -> NotProcessedYet).
+	      Live servers: no check (A's boot warning; --verify refuses any bridge).
 ]]
 
 local Receipt = require(script.Receipt)
@@ -94,7 +102,8 @@ function Shop.new(opts: any): any
 	type Entry = { owner: string, fn: (...any) -> ...any, legacy: boolean?, writesLegacyData: boolean? }
 	local handlersById: { [number]: Entry } = {}
 	local handlersByName: { [string]: Entry } = {}
-	local legacyStore: { name: string, scope: string?, key: string, ["until"]: number? }? = nil
+	local legacyStore: { name: string, scope: string?, key: string, ["until"]: number?, checkDays: number }? =
+		nil
 	local legacyProducts: { { product: string, owner: string, writes: boolean } } = {}
 	local passHandlers: { [number]: { (any) -> () } } = {}
 	local passCache: { [any]: { [number]: boolean } } = {}
@@ -191,6 +200,104 @@ function Shop.new(opts: any): any
 		end
 	end
 
+	-- v1.6.1 (adopting.md §4.3, final review M1): an onLegacyProduct handler that declared
+	-- writesLegacyData = false must not write the old stores. Wraps the old handler; a detected
+	-- write (or a failed Studio key read) raises, so Receipt.legacyCommit answers
+	-- legacy_not_granted (NotProcessedYet, nothing recorded). Detection only ever READS.
+	local function guardUndeclared(entry: Entry, tag: string, player: any): (any, any) -> any
+		local reader = opts.legacy
+		if reader == nil then
+			return entry.fn
+		end
+		local history = legacyStore
+		local historyId = if history then Legacy.storeId(history.name, history.scope) else nil
+		local function fail(where: string): any
+			local msg =
+				`[StudWork.Shop] UNDECLARED LEGACY WRITE: legacy product {tag} ({entry.owner}) declared writesLegacyData = false but its old handler wrote {where}; receipt NOT granted (NotProcessedYet). Declare writesLegacyData = true or remove the write (adopting.md §4.3)`
+			log(msg)
+			error(msg, 0)
+		end
+		if reader.canWatch() then
+			return function(receiptInfo: any, p: any): any
+				local hits: { string } = {}
+				local stop = reader.watchWrites(function(ev: any)
+					if ev.store ~= historyId then
+						table.insert(hits, `store {ev.store} key {ev.key} ({ev.op})`)
+					end
+				end)
+				local ok, answer = pcall(entry.fn, receiptInfo, p)
+				stop()
+				if #hits > 0 then
+					return fail(hits[1])
+				end
+				if not ok then
+					error(answer, 0)
+				end
+				return answer
+			end
+		end
+		if not opts.isStudio or opts.data == nil or opts.data.legacyImportSpecs == nil then
+			return entry.fn -- live: declared only (boot warning, --verify refuses any bridge)
+		end
+		local sources: { any } = {}
+		for _, imp in opts.data.legacyImportSpecs() do
+			local list = Legacy.sourceList(imp.source)
+			for _, item in list do
+				table.insert(sources, item.source)
+			end
+		end
+		if #sources == 0 then
+			return entry.fn -- no import: nothing to lose (the old save isn't imported)
+		end
+		local function stampAll(): (boolean, any)
+			local all = {}
+			for _, src in sources do
+				local ok, st = reader.stamp(src, player.UserId)
+				if not ok then
+					return false, st
+				end
+				for _, x in st do
+					table.insert(all, x)
+				end
+			end
+			return true, all
+		end
+		return function(receiptInfo: any, p: any): any
+			local ok, before = stampAll()
+			if not ok and before == Legacy.NO_ACCESS then
+				-- no API access in Studio: the old handler can't write either, and the import is
+				-- skipped this session (Legacy reader), so nothing can be lost
+				return entry.fn(receiptInfo, p)
+			end
+			if not ok then
+				local msg =
+					`[StudWork.Shop] legacy product {tag} ({entry.owner}): could not read the old save keys before the handler (writesLegacyData = false check): {tostring(
+						before
+					)}; NotProcessedYet`
+				log(msg)
+				error(msg, 0)
+			end
+			local hok, answer = pcall(entry.fn, receiptInfo, p)
+			local ok2, after = stampAll()
+			if not ok2 then
+				local msg =
+					`[StudWork.Shop] legacy product {tag} ({entry.owner}): could not read the old save keys after the handler (writesLegacyData = false check): {tostring(
+						after
+					)}; NotProcessedYet`
+				log(msg)
+				error(msg, 0)
+			end
+			local unchanged, where = Legacy.sameStamp(before, after)
+			if not unchanged then
+				return fail(`store/key {tostring(where)}`)
+			end
+			if not hok then
+				error(answer, 0)
+			end
+			return answer
+		end
+	end
+
 	-- The PurchaseTx: a sealed data tx with purchase fields (Data.runTx extras) + internal meta.
 	-- Receipt.commit (pure, unchanged from v1.2) drives it: `update` opens ONE framework tx whose
 	-- `data` argument is the _framework working section (purchases[PurchaseId] lands in the same
@@ -207,7 +314,10 @@ function Shop.new(opts: any): any
 					end, { meta = { purchase = true, product = tag, legacyProduct = true } })
 				)
 			end
-			return Receipt.legacyCommit(recordUpdate, entry.fn :: any, player, receipt, now())
+			local oldHandler = if entry.writesLegacyData == false
+				then guardUndeclared(entry, tag, player)
+				else entry.fn
+			return Receipt.legacyCommit(recordUpdate, oldHandler :: any, player, receipt, now())
 		end
 		local handle: any = nil
 		-- Receipt.commit's after queue and control, handed over in buildTx (before the handler runs)
@@ -282,7 +392,7 @@ function Shop.new(opts: any): any
 	local function legacyCheck(player: any, purchaseId: string): (Receipt.LegacyCheck, string?)
 		local spec = legacyStore :: any
 		local cutover = spec["until"]
-		if cutover ~= nil and now() > cutover + Legacy.RECEIPT_KEEP_DAYS * 86400 then
+		if cutover ~= nil and now() > cutover + spec.checkDays * 86400 then
 			return "skip", nil
 		end
 		local key = Legacy.expand(spec.key, { userId = player.UserId, purchaseId = purchaseId })
@@ -897,6 +1007,7 @@ function Shop.new(opts: any): any
 					scope = spec.scope,
 					key = spec.key,
 					["until"] = spec["until"],
+					checkDays = spec.checkDays or Legacy.RECEIPT_KEEP_DAYS,
 				})
 			end,
 			onPassOwned = function(pass: number | string, handler: (player: any) -> ())
@@ -949,11 +1060,11 @@ end
 -- adopting.md §4.2: validates a ctx.shop.legacyReceipts spec. -> error message or nil.
 function Shop.validateLegacyReceipts(spec: any): string?
 	if type(spec) ~= "table" then
-		return "expects { name, scope?, key, until? }"
+		return "expects { name, scope?, key, until?, checkDays? }"
 	end
 	for k in spec do
-		if k ~= "name" and k ~= "scope" and k ~= "key" and k ~= "until" then
-			return `unknown field '{tostring(k)}' (name, scope, key, until)`
+		if k ~= "name" and k ~= "scope" and k ~= "key" and k ~= "until" and k ~= "checkDays" then
+			return `unknown field '{tostring(k)}' (name, scope, key, until, checkDays)`
 		end
 	end
 	if type(spec.name) ~= "string" or spec.name == "" then
@@ -972,6 +1083,10 @@ function Shop.validateLegacyReceipts(spec: any): string?
 	local u = spec["until"]
 	if u ~= nil and (type(u) ~= "number" or u ~= u or u <= 0) then
 		return "until must be a unix time in seconds"
+	end
+	local d = spec.checkDays
+	if d ~= nil and (type(d) ~= "number" or d ~= d or d <= 0 or d == math.huge) then
+		return "checkDays must be a positive number of days (how long after until the old store is still checked; default 90)"
 	end
 	return nil
 end
