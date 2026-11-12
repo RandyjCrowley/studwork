@@ -1110,7 +1110,8 @@ services here, never a kit.
 ### 23.1 `StudWork.env` and `ctx.env`: which environment this is (added in v1.7.0: test-only behaviour must be impossible on the live place, which needs the framework to know where it runs)
 
 ```lua
-GameConfig.environments = { test = { placeIds = { number } }?, live = { placeIds = { number } }? }
+GameConfig.environments = { test = { placeIds = { number }?, universeIds = { number }? }?,
+                            live = { placeIds = { number }?, universeIds = { number }? }? }
 StudWork.env.name() -> "studio" | "test" | "live"   -- both sides, after StudWork.start
 StudWork.env.placeId() -> number
 StudWork.env.universeId() -> number                  -- game.GameId
@@ -1118,11 +1119,13 @@ ctx.env                                              -- the same frozen table, s
 ```
 
 - `"studio"` when running in Studio; `"test"` when `game.PlaceId` is listed in
-  `environments.test.placeIds`; otherwise `"live"` (an unlisted place is live, with a boot
-  warning when `environments.live` is set and doesn't list it either).
+  `environments.test.placeIds` or `game.GameId` in `environments.test.universeIds`; otherwise
+  `"live"` (an unlisted place is live, with a boot warning when `environments.live` is set and
+  doesn't list it either). **An id listed under both `test` and `live` is a boot error.**
 - `environments` is framework-level config (top level of `GameConfig`, §11). In a game it is
   generated from `deploy.json` into `src/shared/Config/Environments.luau` by `tools/sync-projects`
-  (`--check` fails on drift). Placeholder ids are left out.
+  (`--check` fails on drift, and when deploy.json's test and live ids are equal). Placeholder
+  ids are left out; the test universe id is written only when it differs from the live one.
 - Replicated as `state.framework.env`.
 
 ### 23.2 `StudWork.flags` and `ctx.flags`: feature flags (added in v1.7.0: features have to be switched per environment, and switched off live without a restart)
@@ -1150,6 +1153,12 @@ ctx.flags                                      -- the same table, server ctx
   blocks boot or errors to callers. Changes fire `onChanged` and replicate.
 - Replicated as `state.framework.flags` (every flag without `serverOnly`). The client resolves
   the same config with the same pure resolver at start, then takes the server's values.
+- `serverOnly` hides a flag's **value**, not its definition (`GameConfig` reaches every client):
+  on the client `isOn`/`onChanged`/`source` error for it and `all()` leaves it out.
+  `ServerConfig.flags` (same fields, `serverOnly` implied, never replicated) hides the definition
+  too; a name in both tables is a boot error.
+- A client flag value only changes presentation: whatever a flag gates must be checked on the
+  server.
 - `StudWork.flags` and `StudWork.env` are facade members of the framework, not modules: they have no
   `ModuleRef` and `StudWork.use` doesn't accept them (the same rule as Data or Policy, §4).
 - Console: `flags`, `flags set <name> <true|false|clear>` (Studio only, this server).
@@ -1167,9 +1176,10 @@ board.remove(key) -> (ok, reason?)
 board.top(count, order: "desc" | "asc", minValue?, maxValue?) -> (ok, { { key, value } } | reason)
 ```
 
-- One OrderedDataStore per (module, name): store name `<Module>/<name>` (at most 50 characters,
-  checked when `ordered` is called), `_Studio` suffix in Studio like `ctx.data.shared` (§19.1).
-  A module can't open another module's store.
+- One OrderedDataStore per (module, name): store name `SW/<Module>/<name>` (the framework prefix
+  keeps it apart from an adopted game's own ordered stores; at most 50 characters, checked when
+  `ordered` is called), `_Studio` suffix in Studio like `ctx.data.shared` (§19.1). A module can't
+  open another module's store.
 - `key` is a string of at most 50 characters (callers use the user id). Values are integers
   (OrderedDataStore stores integers): a non-integer or non-finite value is an error in the caller
   (`board.set` errors, it doesn't round). `count` is 1..100 (one page).
@@ -1179,6 +1189,13 @@ board.top(count, order: "desc" | "asc", minValue?, maxValue?) -> (ok, { { key, v
   with `(false, "budget")` instead of queueing behind the player saves. A throttled or failed call
   is retried twice with backoff (1, 2 s), then `(false, "failed")` and one warning per store per
   minute. It never raises for a platform failure.
+- **`increment` is never retried** (a timed-out call may have committed, and a retry would count
+  twice): a failure returns `(false, "failed")` and may or may not have applied. Prefer `set` or
+  `update` with an absolute value, which are idempotent; the Leaderboards kit never increments.
+- **Experience-level limits** also apply (ordered list `300 + 2 x CCU`, write `300 + 20 x CCU` per
+  minute, shared with Open Cloud): many small servers can exceed them while each is under its own
+  budget. An experience-level throttle error backs off **every** ordered store of that module
+  (30 s, doubling to 5 min; calls return `(false, "budget")` meanwhile), not one call.
 - Yields: call from a spawned thread or a lifecycle loop, never inside `ctx.tx`, `init` or `start`.
 - Studio without API access: an in-memory store with one warning. Tests: in-memory (§23.10).
 
@@ -1194,19 +1211,32 @@ map.range(direction: "asc" | "desc", count, lower?, upper?) -> (ok, { { key, val
                                        -- lower/upper: { key?, sortKey? }, exclusive, as Roblox's
 ```
 
-- One sorted map per (module, name): `<Module>/<name>`. A module can't reach another's maps.
+- One sorted map per (module, name): `SW/<Module>/<name>`. A module can't reach another's maps.
   `name` may contain `/` (a leaderboard's period: `"daily/20404"`).
+- **A sorted map is one MemoryStore partition**: Roblox starts throttling at about 30,000 request
+  units a minute on one partition and 100,000 on one structure. A module whose map every server
+  hits must shard it (several names) or scale its cadence with the server count
+  (`ctx.data.census()`, §23.5); the kit pages say how they do.
 - Roblox's limits are enforced before the call: key at most 128 characters, sort key a number or
   a string of at most 128 characters, value JSON-safe and at most 32 KB encoded, expiry 1..3 888 000
   seconds (45 days; required, there is no default), `count` 1..200. Breaking one is an error in
   the caller.
 - `update`'s `fn` returning nil cancels the write (Roblox semantics); it may run more than once.
 - **Budget:** request units are counted per server per minute (a `range` costs one unit per row
-  returned, at least 1); over this server's share (`GameConfig.storeBudgets`, §23.5) a call
+  returned plus one for the partition scanned, Roblox's rule); over this server's share (`GameConfig.storeBudgets`, §23.5) a call
   returns `(false, "budget")` without calling Roblox. Throttled (`RequestThrottled`,
-  `PartitionRequestsOverLimit`, `TotalRequestsOverLimit`) or failed calls are retried twice with
-  backoff, then `(false, "throttled" | "failed")`; a full memory quota (`TotalMemoryOverLimit`)
-  returns `(false, "memory_full")` immediately. No raises for platform failures.
+  `PartitionRequestsOverLimit`, `DataStructureRequestsOverLimit`, `TotalRequestsOverLimit`) or
+  failed calls are retried twice with backoff, then `(false, "throttled" | "failed")`; a full
+  memory quota (`TotalMemoryOverLimit`, `DataStructureMemoryOverLimit`,
+  `DataStructureItemsOverLimit`) returns `(false, "memory_full")` immediately. No raises for
+  platform failures.
+- **Memory:** every write that can grow memory is charged to the module's memory share
+  (`storeBudgets.memory`, §23.5) before the call: `set` charges the item's full estimated size
+  (key + encoded value + sort key + 32 bytes), `update` the difference from the old value its `fn`
+  saw, `remove` gives back what this server charged for that key. Over the share it returns
+  `(false, "memory_budget")` without calling Roblox, so one module can't fill the experience-wide
+  quota every module shares. Writes that don't grow memory are never refused for memory. Use
+  `update` for items you rewrite: a `set` over an existing item is charged again.
 - Yields, same rules as §23.3. Studio: Roblox keeps Studio memory stores separate from live;
   without API access an in-memory map with one warning. Tests: in-memory (§23.10), shared between
   sim servers.
@@ -1216,8 +1246,16 @@ map.range(direction: "asc" | "desc", count, lower?, upper?) -> (ok, { { key, val
 ```lua
 GameConfig.storeBudgets = {
 	orderedReserve = 0.25,   -- fraction of each ordered request type's budget kept free, 0..0.9
-	memoryUnits = { base = 100, perPlayer = 20 },   -- this server's MemoryStore units per minute
+	memoryUnits = { base = 20, perPlayer = 20 },    -- this server's MemoryStore units per minute
+	memory = {                                      -- MemoryStore memory, experience-wide
+		reserve = 0.2,        -- fraction of the quota no module may use, 0.05..0.9
+		defaultShare = 0.25,  -- each module's share of the quota unless listed, 0.01..1
+		shares = {},          -- { [ModuleName] = fraction }
+	},
+	censusSeconds = 60,       -- how often each server reports to and reads the census, 30..600
 }
+ctx.data.census() -> { servers: number, players: number, peakPlayers: number, at: number }?
+                                                -- nil until the first census read; doesn't yield
 ```
 
 - Ordered stores: a call is refused while the remaining budget for its type is at or below
@@ -1225,10 +1263,33 @@ GameConfig.storeBudgets = {
   `5 + 2 x players`, read `60 + 40 x players`, write and remove `30 + 5 x players`, per server;
   an `update` uses one read and one write).
   Player saves use the standard DataStore request types, which ordered calls don't consume.
-- MemoryStore's quota (`1000 + 120 x players` units per minute) is experience-wide; there is no
-  per-server budget to read, so each server caps itself at `base + perPlayer x playersInServer`.
-  The defaults keep a full 50-server experience within about half the quota.
-- Both are framework-level config; a bad value is a boot error.
+- **MemoryStore request units:** the quota (`1000 + 120 x CCU` units per minute) is
+  experience-wide; there is no per-server budget to read, so each server caps itself at
+  `base + perPlayer x playersInServer`. The bound, honestly: the experience uses at most
+  `20 x servers + 20 x CCU`; with at least one player per server that is at most `40 x CCU`, a
+  third of the quota, and 100 one-player servers use 4,000 of 13,000. Only many empty servers
+  (reserved servers waiting for players) can push it higher: each costs `base`.
+- **The census:** every `censusSeconds` each server adds `{ servers = 1, players = n }` to the
+  current time bucket of a framework-owned sorted map (`SW/_/census`, an atomic `update`, expiry
+  10 min) and reads the last complete bucket: `servers` and `players` (= CCU) for the whole
+  experience, at most two buckets old. The day's peak player count is kept for 9 days, and
+  `peakPlayers` is the highest of the last 8 days. Cost: 2 request units per server per
+  `censusSeconds` (charged to the framework, not a module); one map partition takes about 10,000
+  servers at the default, more with a longer `censusSeconds`. `ctx.data.census()` gives modules the
+  last reading, so they scale their cadences with the server count.
+- **MemoryStore memory:** the quota (`64 KB + 1.2 KB x users`) is experience-wide, and Roblox only
+  lowers it 8 days after the users leave, so the framework estimates it as
+  `64 KB + 1.2 KB x peakPlayers` (until the first census: this server's players). Each module's
+  sorted-map writes are charged by size (§23.4); every server adds its charges per module to a
+  usage item in the census map (bucketed by expiry hour, so expired items drop out without
+  anyone deleting anything), once per `censusSeconds`, and reads the totals back. A growing write is
+  refused with `"memory_budget"` when the module's total would pass `share x quota`, or all
+  modules' together `(1 - reserve) x quota`. The totals lag by up to `censusSeconds`, which the
+  reserve absorbs. Shares adding up to more than `1 - reserve` are a boot warning (the total cap
+  still holds). The estimate assumes items expire within 8 days, the quota's own memory; the v1.7.0
+  kits keep to that.
+- All of it is framework-level config; a bad value is a boot error. In Studio and tests the same
+  accounting runs on the in-memory stores.
 
 ### 23.6 `ctx.services.get(name)`: engine services for modules, replaceable in tests (added in v1.7.0: Badges, TextFilter and Leaderboards call Roblox services that Lune specs must fake)
 
@@ -1246,29 +1307,58 @@ local BadgeService = ctx.services.get("BadgeService")
   `HttpService` (`ctx.openCloud`), `MessagingService` (`ctx.data.messages`), `ConfigService`
   (`ctx.flags`), `PolicyService` (`ctx.policy`).
 - Code that calls `game:GetService` directly still works live; it just can't be faked in specs.
+  The `purchases` lint check makes the services with a framework surface framework-only in code
+  too: `DataStoreService`, `MemoryStoreService` (as before) and, from v1.7.0, `ConfigService`,
+  `:GetSecret(`, `:RequestAsync(` and `:PostAsync(`, each with a planted case in the self-test.
+  Plain `HttpService` (`JSONEncode`, `GenerateGUID`) stays allowed.
 
 ### 23.7 `ctx.openCloud`: Open Cloud from a game server (added in v1.7.0: experience notifications are sent through Open Cloud, with the key in Roblox's secrets store)
 
 ```lua
-ctx.openCloud.available(secretName) -> boolean   -- doesn't yield; cached per secret
+ServerConfig.openCloud = {                       -- server-only, never replicated
+	perMinute = 600,                             -- this server's Open Cloud requests per minute
+	secrets = { [secretName] = { modules = { string }, methods = { string }, paths = { string } } },
+}
+ctx.openCloud.available(secretName) -> boolean   -- doesn't yield; cached per secret and module
 ctx.openCloud.request({ secret = string, method = "GET" | "POST" | "PATCH" | "DELETE",
                         path = string, body = table? }) -> (ok, status: number?, body: any?)
 ```
+
+- **Scoped, deny by default.** A request is made only when `ServerConfig.openCloud.secrets` has an
+  entry for that secret that lists the **calling module**, the method, and a path pattern the path
+  matches (`*` matches exactly one path segment; there is no `**`). Anything else returns
+  `(false, nil, "not_allowed")` without a request, with one warning per (module, secret) naming
+  the missing part. The table lives in `ServerConfig`, so clients never see which secrets exist,
+  and a module can't use another module's secret.
+- **Hard-refused families**, whatever the config says, with an error naming the surface to use
+  (the same pattern as `ctx.services` refusals): `universes/*/data-stores/...` and
+  `.../ordered-data-stores/...` (`ctx.data`, `ctx.data.ordered`), `.../memory-store...` including
+  the flush (`ctx.data.sortedMap`), `.../configs...` (`ctx.flags`), and Luau execution
+  (`.../luau-execution...`). A path in one of them returns `(false, nil, "forbidden")` and warns.
+  This keeps hard rule 4 and the store budgets true for code holding a broad key.
+- The game owner gives each key only the permission its entry needs (for notifications,
+  `user.user-notification:write` on this universe); the framework can't see a key's scopes, so
+  the allow-list is the second fence, not a replacement.
 
 - Live: `HttpService:RequestAsync` to `https://apis.roblox.com/cloud/v2/<path>` with the
   header `x-api-key = HttpService:GetSecret(secret)` and `content-type: application/json`
   (the only two headers Roblox allows for Open Cloud from a game server). `path` is relative,
   must not contain `..` or a scheme. The secret value is never logged or returned: logs and
   analytics show the secret's **name**.
-- `available` is false when HTTP requests are off, the secret doesn't exist (a local Studio
-  playtest without a local secret), or `GetSecret` errors; the first unavailable call logs once.
-  `request` on an unavailable secret returns `(false, nil, "no_secret")` without a request.
-- Rate: at most `GameConfig.openCloud.perMinute` (default 600; Roblox allows 2500 Open Cloud
+- `available` is false when the calling module isn't allowed the secret, HTTP requests are off,
+  the secret doesn't exist (a local Studio playtest without a local secret), or `GetSecret`
+  errors; the first unavailable call logs once. `request` on an unavailable secret returns
+  `(false, nil, "no_secret")` without a request.
+- Rate: at most `ServerConfig.openCloud.perMinute` (default 600; Roblox allows 2500 Open Cloud
   requests per server per minute) requests per server; over it `(false, nil, "budget")`.
-  A 429 or 5xx is returned to the caller (modules decide retries).
+  A 429 or 5xx is returned to the caller (modules decide retries). Request and response bodies
+  are never logged.
 - No API key, URL or secret value appears in the repo; game docs tell the owner to create the key
   and the secret (`docs/framework/kits/notifications.md`).
-- Tests: `harness({ openCloud = StudWork.test.fakes.openCloud(), secrets = { [name] = true } })`.
+- Tests: `harness({ openCloud = StudWork.test.fakes.openCloud(), secrets = { [name] = true },
+  serverConfig = { openCloud = { secrets = { ... } } } })`. Specs: a path outside the allow-list,
+  another module's secret, a wrong method and a hard-refused family are each refused with no
+  request reaching the fake.
 
 ### 23.8 `ctx.policy.allows(player, field)` (added in v1.7.0: TextFilter honours `IsContentSharingAllowed`)
 
@@ -1296,8 +1386,10 @@ UI.text(key, args?) -> string ; UI.useText(key, args?) -> string   -- UI kit (ho
 ```
 
 - `strings` is a new optional definition field: keys must start with `<ModuleName>.`, values are
-  non-empty strings (definition errors otherwise). `ui.*` defaults belong to the UI kit,
-  `framework.*` to the framework, `game.*` to the game.
+  non-empty strings (definition errors otherwise). It may also be `function(config) -> table`
+  (the module's merged config, run once at boot after validation, like `theme`, §19.3), for keys
+  built from config (`Leaderboards.board.<boardId>`, `Badges.badge.<key>`). `ui.*` defaults belong
+  to the UI kit, `framework.*` to the framework, `game.*` to the game.
 - Resolution: the player's Roblox translator (`FormatByKey`, in `pcall`) > `GameConfig.strings` >
   the owner's English default > the key itself with one warning. Never an empty string.
 - Format strings use Roblox's syntax (`{name}`, `{1}`), so the same text works in a Roblox
@@ -1306,16 +1398,23 @@ UI.text(key, args?) -> string ; UI.useText(key, args?) -> string   -- UI kit (ho
 
 ### 23.10 `StudWork.test` additions (added in v1.7.0)
 
-- Harness options: `env` (`"studio" | "test" | "live"`), `placeId`, `services = { [name] = fake }`,
-  `openCloud = fake`, `secrets = { [name] = true }`, `locale`, `translator = fake`,
-  `storeBudgets`, and `policy` entries that are tables of fields (§23.8). The framework's own
-  `ConfigService` use takes `services.ConfigService`.
+- Harness options: `env` (`"studio" | "test" | "live"`), `placeId`, `universeId`,
+  `services = { [name] = fake }`, `openCloud = fake`, `secrets = { [name] = true }`, `locale`,
+  `translator = fake`, `storeBudgets`, `census = { servers, players, peakPlayers? }` (a fixed
+  census reading), and `policy` entries that are tables of fields (§23.8). `serverConfig` (existing)
+  carries `openCloud` and `flags`. The framework's own `ConfigService` use takes
+  `services.ConfigService`.
 - In-memory ordered stores and sorted maps behind `ctx.data.ordered` / `ctx.data.sortedMap`, with
   the Roblox limits checked as live, expiry on the harness clock (`h:tick`), request counting
   against the budgets and failure injection: `h:orderedStore(moduleName, name)` and
   `h:sortedMap(moduleName, name)` return the backing fake (`entries()`, `failNext(n, code?)`,
   `calls`). Several harnesses given the same `store = StudWork.test.memoryStore()` share them; in
-  the sim every server shares the World's (with `world:failNext`).
+  the sim every server shares the World's (with `world:failNext`), and the census counts the sim's
+  servers. The in-memory sorted maps also apply Roblox's per-structure and per-partition request
+  limits (`DataStructureRequestsOverLimit`, `PartitionRequestsOverLimit`; the numbers are options,
+  so a spec can make them small) and an experience memory quota (`quotaBytes`, giving
+  `TotalMemoryOverLimit`). The in-memory ordered store reuses the sim World's and the legacy
+  adapter's existing ordered backend rather than a second fake.
 - `StudWork.test.fakes`: `badgeService(opts)`, `textService(opts)`, `userService(opts)`,
   `configService(opts)`, `openCloud(opts)`, `translator(opts)`,
   `experienceNotificationService(opts)` (for client-part specs). Each records its calls and
@@ -1328,18 +1427,25 @@ UI.text(key, args?) -> string ; UI.useText(key, args?) -> string   -- UI kit (ho
 `Types.luau` gains, all optional or new: `EnvName`, `EnvironmentsConfig`, `FlagDef`,
 `FlagsConfig`, `FlagOverrideConfig`, `FlagsAPI`, `EnvAPI`, `OrderedStore`, `SortedMapStore`,
 `SortedMapItem`, `StoreBudgetsConfig`, `ServicesAPI`, `OpenCloudAPI`, `OpenCloudRequest`,
-`TextAPI`, `StringsTable`, `LocalizationConfig`; `ModuleContext` gains `env`, `flags`,
-`services`, `openCloud`, `text`; `ScopedData` gains `ordered`, `sortedMap`; `PolicyAPI` gains
-`allows`; `GameConfig` gains `environments`, `flags`, `flagOverride`, `storeBudgets`, `openCloud`,
-`strings`, `localization`; `ModuleDefinition` gains `strings`. Nothing is renamed or narrowed.
+`TextAPI`, `StringsTable`, `LocalizationConfig`, `MemoryBudgetConfig`, `CensusInfo`,
+`OpenCloudConfig`, `OpenCloudSecretRule`; `ModuleContext` gains `env`, `flags`, `services`,
+`openCloud`, `text`; `ScopedData` gains `ordered`, `sortedMap`, `census`; `PolicyAPI` gains
+`allows`; `GameConfig` gains `environments`, `flags`, `flagOverride`, `storeBudgets`, `strings`,
+`localization`; `ServerConfig` gains `openCloud`, `flags`; `ModuleDefinition` gains `strings`
+(a table or a function of config). Nothing is renamed or narrowed.
 
 ### 23.12 Two new lint checks (added in v1.7.0)
 
-- **`strings`**: hard-coded English in the UI kit, kit client parts and framework client code,
-  and string keys without an English default ([localization.md](kits/localization.md)).
-- **`textfilter`**: a client-supplied string reaching another player (replication, events, mail,
-  instance text) without TextFilter, in game, example and kit server code; a best-effort,
-  same-function heuristic ([textfilter.md](kits/textfilter.md)).
+- **`strings`**: hard-coded English in the UI kit, kit client parts and framework client code
+  (not examples, not games), and string keys without an English default
+  ([localization.md](kits/localization.md)).
+- **`textfilter`**: a client-supplied string reaching a player or a shared store (replication,
+  events to any player including its author, mail, shared and sorted-map/ordered writes,
+  notification params, instance text) without TextFilter, or a whole TextFilter record reaching
+  one, in game, example and kit server code; a best-effort, same-function heuristic
+  ([textfilter.md](kits/textfilter.md)).
+- The existing **`purchases`** check also gains `ConfigService`, `:GetSecret(`, `:RequestAsync(`
+  and `:PostAsync(` as framework-only (§23.6).
 
 Both have planted violations in `guardrails --self-test`, honour `-- guard: allow <check>` with a
 reason, and join the checks a legacy list may name (`textfilter` only; `strings` doesn't scan game

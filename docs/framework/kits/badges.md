@@ -21,9 +21,9 @@ waits for `BadgeService`.
 | Key | Default | Meaning |
 |---|---|---|
 | `flag` | none | a feature flag ([environments](environments.md)); while off, triggers are still recorded as pending but nothing is sent |
-| `badges` | `{}` | `{ [key] = { id = <badge id>, trigger = Trigger, toast = true } }`; `key` matches `^[%w_]{1,32}$` |
-| `awardInStudio` | `false` | in Studio, an award is logged (`would award ...`) and recorded only in memory, never sent or saved |
-| `ownershipCheck` | `true` | at join, check which configured badges the player already owns (batches of 10) and record those as awarded without sending |
+| `badges` | `{}` | `{ [key] = { id = <badge id>, trigger = Trigger, toast = true } }`; `key` matches `^[%w_]{1,32}$`. `id = 0` is a placeholder: allowed, recorded as usual, never sent or checked, one warning per server |
+| `awardInStudio` | `false` | in Studio, an award is recorded in the (Studio) save like live and logged (`would award ...`), but never sent: it stays pending. Studio saves are separate from live ones |
+| `ownershipCheck` | `true` | at join, check which configured badges the player already owns or has pending (batches of 10) and record those as awarded without sending |
 | `retry` | `{ base = 5, factor = 2, max = 300, attempts = 6 }` | backoff between send attempts; after `attempts` failures in a session the badge stays pending for the next session |
 | `budget.perMinute` | `{ base = 50, perPlayer = 35 }` | this server's award calls per minute (Roblox's `AwardBadgeAsync` limit is `50 + 35 x players`) |
 | `budget.checksPerMinute` | `{ base = 10, perPlayer = 5 }` | ownership checks per minute (`CheckUserBadgesAsync`: `10 + 5 x players`) |
@@ -69,13 +69,16 @@ already satisfied at join (a streak of 10 for a badge at 7) fires on load.
    `GetBadgeInfoAsync(id)` (cached `infoCacheSeconds`); a disabled badge is skipped with one
    warning per server and stays pending. Then `AwardBadgeAsync(userId, id)` in `pcall`.
    - `true`: `sent = true`, `BadgeAwarded` fires, a toast (`Badges.awarded` string) if `toast`.
-   - an error, or `false`: backoff and retry; after `attempts`, left pending for the next
-     session.
+   - `false` (Roblox returns it for a badge the player already owns, among other cases): one
+     `CheckUserBadgesAsync` for that badge (within `budget.checksPerMinute`); owned: recorded as
+     `{ sent = true, found = true }` and `BadgeAwarded` fires; not owned: as an error.
+   - an error: backoff and retry; after `attempts`, left pending for the next session.
    - the player left: left pending (Roblox only awards to players in the server).
-4. **Join.** Pending badges are queued again. With `ownershipCheck`, configured badges not yet
-   recorded are checked with `CheckUserBadgesAsync` (10 per call, within
-   `budget.checksPerMinute`); owned ones are recorded as `{ sent = true, found = true }` without
-   an award call. The result is cached for the session.
+4. **Join.** With `ownershipCheck`, configured badges not yet recorded **and pending ones** are
+   checked with `CheckUserBadgesAsync` (10 per call, within `budget.checksPerMinute`); owned ones
+   are recorded as `{ sent = true, found = true }` without an award call (a crash between the award
+   and the save, or a badge awarded before the game used this module, can't loop). The remaining
+   pending badges are queued again. The result is cached for the session.
 
 ## Save data and replication
 
@@ -86,7 +89,8 @@ Section `badges`, version 1: `{ awarded = { [key] = { at, sent, found? } } }`. R
 
 Shows a toast through the framework feedback on `BadgeAwarded` (server-fired module event
 `Awarded(key)`), text `Badges.awarded` with `{ name }` = the badge's name string key
-`Badges.badge.<key>` (English default: the key; games set real names in `GameConfig.strings`).
+`Badges.badge.<key>` (English default: the key, from the module's `strings` function, §23.9;
+games set real names in `GameConfig.strings`).
 `StudWork.use(Badges).earned() -> { [key]: boolean }` from state.
 
 ## Guardrails it relies on
@@ -113,7 +117,8 @@ Shows a toast through the framework feedback on `BadgeAwarded` (server-fired mod
 | Badge disabled on the dashboard | skipped, stays pending, one warning per server |
 | Over `budget.perMinute` | queued until the next minute |
 | Player leaves mid-queue | stays pending; queued again on their next join |
-| Studio (`awardInStudio = false`) | logged only; the save isn't changed |
+| Studio (`awardInStudio = false`) | recorded in the Studio save, logged, never sent (stays pending) |
+| Placeholder `id = 0` | recorded, never sent or checked, one warning per server |
 
 ## Tests (mocked)
 
@@ -121,8 +126,10 @@ Shows a toast through the framework feedback on `BadgeAwarded` (server-fired mod
 failNext = n })` passed as `harness({ services = { BadgeService = fake } })`. Specs: each trigger
 kind; never twice (two triggers, a rejoin, a fake that reports "already owned"); a failure retries
 with backoff and survives a rejoin; budget queueing; a disabled badge stays pending; ownership
-check batches of 10 and records found badges without an award call; `txApi.award` in a discarded
-transaction records nothing; `BadgeAwarded` fires only after the fake confirmed.
+check batches of 10 and records found badges without an award call; a pending badge the fake
+reports as owned (award returns `false`) is recorded as found and stops retrying, at join and on
+send; a placeholder id is never sent; `txApi.award` in a discarded transaction records nothing;
+`BadgeAwarded` fires only after the fake confirmed.
 
 ## Not verifiable offline
 

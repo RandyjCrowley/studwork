@@ -364,9 +364,25 @@ these pages before relying on a limit.
 - **Neither framework feature appears in `tools/new-project --modules`.** That list is for
   `GameConfig.modules`; these are always on and inert until configured. The templates carry
   their config (`flags = {}`, `strings = {}`, the generated `Environments.luau`) with comments, and
-  the sandbox shows both in use.
-- **Environment = Studio, else a listed test place, else live.** An unlisted place counts as live,
-  so a forgotten list can only switch test features off, never on. The ids come from
+  the sandbox shows both in use. Their pages stay under `docs/framework/kits/` next to the module
+  pages (one page per v1.7.0 feature in one place), each opening with a line that says it is a
+  framework feature, always on, not listed in `GameConfig.modules`.
+- **Kit order and optional dependencies.** The new kits sit in `KitModules` ORDER after Streak:
+  `Leaderboards`, `Badges`, `Notifications`, then the social kit with `TextFilter` after Mail.
+  Optional dependencies don't change boot order beyond what the loader already does with
+  `dependsOn`: a kit uses an optional module only through `ctx.isEnabled` and its public API from
+  `start` on, when declared dependencies' APIs (hard and optional) are available whatever the
+  order.
+- **Placeholder ids are allowed and never sent.** A badge `id = 0` or a notification
+  `messageId = ""` records and schedules like a real one, makes no Roblox call, and warns once per
+  server, so a new game (and the sandbox) can list every module with defaults before the
+  dashboard assets exist.
+- **Environment = Studio, else a listed test place or test universe, else live.** An unlisted place
+  counts as live, so a forgotten list can only switch test features off, never on. The test
+  universe id is matched too, so the test experience's sub-places are test. The opposite mistake,
+  the live id typed under test, would switch every `testOnly` flag on in live, so an id in both
+  lists is a boot error and equal test and live ids in `deploy.json` fail `sync-projects --check`.
+  (Design review: the reviewer's fix, taken as is.) The ids come from
   `deploy.json` (already the source of truth for publishing) through a generated, committed
   `Environments.luau`, so a game can't publish with ids its runtime doesn't know; `--check` catches
   drift. Rejected: reading `deploy.json` at runtime (it isn't in the place) and a manual list only
@@ -379,6 +395,11 @@ these pages before relying on a limit.
   document (needs polling budget and a tool to edit it) and an external HTTP service (a secret
   and an outage dependency). Player-targeted configs (experiments) are out of scope: flags are
   server-wide.
+- **`serverOnly` hides a flag's value, not its definition.** `GameConfig` reaches every client, so
+  a flag that must not be seen at all goes in `ServerConfig.flags`. On the client a `serverOnly`
+  flag errors rather than reading as off: a silent `false` would make client code look correct
+  while the server disagrees. Client flag values are presentation only; the server re-checks
+  anything a flag gates.
   Sources: https://create.roblox.com/docs/production/configs,
   https://create.roblox.com/docs/reference/engine/classes/ConfigService,
   https://create.roblox.com/docs/reference/engine/classes/ConfigSnapshot.
@@ -386,11 +407,24 @@ these pages before relying on a limit.
   store.** `HttpService` can call Open Cloud's `CreateUserNotification` with an `x-api-key` header
   that must be a `Secret` from `HttpService:GetSecret` (only `x-api-key` and `content-type` headers
   are allowed; 2500 Open Cloud requests per server per minute, separate from the 500 HTTP limit).
-  The framework wraps this as a generic `ctx.openCloud` (any endpoint Roblox allows), so no kit
-  touches `HttpService` or a secret value and tests fake it. Without the secret (or in a local
-  playtest without a local secret) everything logs once and returns a reason. Rejected: the
-  Creator Store "OpenCloud" Luau package the guide uses (an unpinned asset outside Wally that
-  would have to be vendored and inserted into every place).
+  The framework wraps this as `ctx.openCloud`, so no kit touches `HttpService` or a secret value
+  and tests fake it. Without the secret (or in a local playtest without a local secret)
+  everything logs once and returns a reason. Rejected: the Creator Store "OpenCloud" Luau package
+  the guide uses (an unpinned asset outside Wally that would have to be vendored and inserted
+  into every place).
+- **`ctx.openCloud` is deny-by-default and scoped per secret, module, method and path.** Roblox's
+  HttpService allow-list for Open Cloud includes data store and ordered data store writes,
+  memory-store flushes, config publishing and Luau execution, so a generic client would let any
+  module bypass the session lock, the store budgets and hard rule 4. The allow-list lives in
+  `ServerConfig.openCloud.secrets` (server-only, so clients can't see which secrets exist), names
+  the modules that may use each secret, and takes single-segment `*` patterns only. On top, the
+  store, memory-store, config and Luau-execution families are refused whatever the config says,
+  naming the ctx surface to use. The owner still gives each key only the scope it needs
+  (`user.user-notification:write` for notifications): the framework can't read a key's scopes, so
+  the two fences together are the defence. (Design review: the reviewer's fix, with the table
+  moved from `GameConfig` to `ServerConfig`.) The `purchases` lint check also makes
+  `ConfigService`, `GetSecret`, `RequestAsync` and `PostAsync` framework-only in code, so the
+  rule isn't only a convention; plain `HttpService` (JSON, GUIDs) stays allowed.
   Sources: https://create.roblox.com/docs/cloud-services/http-service,
   https://create.roblox.com/docs/cloud-services/secrets,
   https://create.roblox.com/docs/reference/engine/classes/HttpService,
@@ -402,12 +436,35 @@ these pages before relying on a limit.
   the experience can't know who opted in. The kit therefore never guesses opt-in state: it limits
   its own prompts (session time, sessions played, cooldown, a lifetime cap) and leaves delivery
   rules to Roblox. Source: https://create.roblox.com/docs/reference/engine/classes/ExperienceNotificationService.
-- **Future-time notifications use a due list in a MemoryStore sorted map, polled by every server.**
-  Roblox has no scheduled send, and a notification can only go out from something that runs. A
-  sorted map sorted by due time, with a claim written by an atomic update, lets any running server
-  send due entries once; a per-recipient ledger (also a sorted map, 48 h expiry) enforces the daily
-  limit across servers and for offline players, whose saves a server can't write. The cost: no
-  server running means a late or dropped (`staleAfterHours`) notification. Documented, not hidden.
+- **Future-time notifications use a due list in MemoryStore sorted maps, polled by running servers.**
+  Roblox has no scheduled send, and a notification can only go out from something that runs. The
+  cost: no server running means a late or dropped (`staleAfterHours`) notification. Documented,
+  not hidden. The protocol (design review, the reviewer's fixes, all taken):
+  - *The claim moves the entry out of the due window.* A claim re-keys the entry's sort key to
+    `now + leaseSeconds`, so later polls read past it: a stuck or failing head can't block the
+    entries behind it.
+  - *Retry state lives in the entry, not in a server's memory.* A failed attempt increments the
+    entry's attempt count and re-keys it to its backoff time, so any server continues it and the
+    lease only has to cover one attempt.
+  - *The ledger counts a send only after Open Cloud accepted it.* Before sending, the server
+    reserves the recipient in the ledger (a short reservation that expires with the lease); a 2xx
+    turns it into a counted send, a failure clears it. A send that failed can no longer block a
+    recipient for `minGapHours`.
+  - *Limits that must hold for offline recipients live in the shared ledger.* `maxPerPlayer` and
+    `cancelOnJoin` read the ledger's waiting keys, not the save, so `schedule` for an offline
+    player is bounded too.
+  - *Sharded and paced by the server count.* A sorted map is one partition (throttling starts at
+    about 30,000 units a minute), so the due list and ledger are split into `schedule.shards` maps by
+    user id, each poll reads one shard, and a server's poll interval grows with the server count
+    from the framework census, keeping each shard near `pollsPerShardPerMinute` at any size.
+  - *Memory is bounded by the module's share.* Entries are compact, `streakEnding` needs a streak
+    of at least `minStreak`, scheduling is at most `maxAheadHours` (7 days) ahead, and every write
+    counts against the module's MemoryStore memory share; when it is full, `schedule` says so and
+    the streak reminder is skipped. A separate global entry count wasn't added: the share is the
+    bound that matters.
+  - *Launch data is untrusted.* `GetJoinData().LaunchData` can come from share links, so it is
+    parsed strictly (`sw1:<templateKey>`, a configured template, at most 200 bytes), its signal is
+    for attribution only, and `NotificationJoin` is counted at most once per player per day.
   Roblox allows one notification per user per day per experience, so `perPlayerPerDay = 1`.
   Templates must be personal and actionable and must not use false time pressure: the built-in
   "streak ending" send is only scheduled when it is true.
@@ -422,18 +479,29 @@ these pages before relying on a limit.
   triggering transaction where there is one) and sent from a background queue with backoff; a
   recorded badge is never sent again, and a pending one survives to the next session. Ownership is
   checked at join with `CheckUserBadgesAsync` (10 ids per call, `10 + 5 x players` per minute) and
-  cached. Disabled badges (`GetBadgeInfoAsync().IsEnabled`) stay pending.
+  cached. Disabled badges (`GetBadgeInfoAsync().IsEnabled`) stay pending. `AwardBadgeAsync`
+  returns false for a badge the player already owns, so a `false` triggers one ownership check
+  and the join check covers pending badges too: a crash between the award and the save can't
+  leave a badge retrying forever. Studio records awards in the Studio save but never sends them.
   Sources: https://create.roblox.com/docs/reference/engine/classes/BadgeService,
   https://create.roblox.com/docs/production/publishing/badges.
 - **Leaderboards: all-time in OrderedDataStore, daily and weekly in MemoryStore sorted maps.**
   All-time scores must be durable (OrderedDataStore, integers only, pages of at most 100); periodic
   scores are disposable, and a sorted map per period (`<board>/<periodId>`, expiring after the
   period) makes the reset a property of the clock, with no reset job and no deletes. The top N is
-  cached per server and refreshed on an interval because `GetSortedAsync` is only `5 + 2 x players`
-  per server per minute; writes are batched per player (`writeSeconds`), use an atomic update for
-  "best", and periodic writes that can't place are skipped to stay inside the experience-wide
-  memory quota (`64 KB + 1.2 KB x users`). An exact rank beyond the top N isn't offered: neither
-  store returns one without reading every entry.
+  shared by every server and re-read from the store about once per `refreshSeconds` for the whole
+  experience, by one server holding a short lease in a per-board MemoryStore item; every other
+  server reads that item (one request unit). This answers both `GetSortedAsync`'s per-server
+  `5 + 2 x players` limit and the experience-level list limit (`300 + 2 x CCU`), which many small
+  servers each listing every board would exceed, and keeps one board's partition safe at any
+  server count (each server's read interval grows with the census). Rejected: a MessagingService
+  broadcast of the top N (another budget, and a lost message leaves a server stale with no way to
+  ask). Writes are batched per player (`writeSeconds`) and **idempotent**: the player's save holds
+  the authoritative total, so every write is `max(old, total)` (or a plain set), never an
+  increment that a retry or a crash re-send could count twice. Periodic writes that can't beat the
+  cached cut are skipped (`cutToTop`), periodic boards can be sharded (`shards`) when writes
+  approach a partition's limit, and the module's writes count against its memory share. An exact
+  rank beyond the top N isn't offered: neither store returns one without reading every entry.
   Sources: https://create.roblox.com/docs/cloud-services/data-stores/error-codes-and-limits,
   https://create.roblox.com/docs/reference/engine/classes/OrderedDataStore,
   https://create.roblox.com/docs/cloud-services/memory-stores,
@@ -444,7 +512,22 @@ these pages before relying on a limit.
   rule 4 keeps `DataStoreService` in the framework, and the framework is the one place that can see
   the whole server's budget: ordered calls are refused (not queued) while their request type is
   near its per-server limit, and MemoryStore units are capped per server
-  (`GameConfig.storeBudgets`), so a module can't starve player saves or another module.
+  (`GameConfig.storeBudgets`), so a module can't starve player saves or another module. Store
+  names carry a framework prefix (`SW/<Module>/<name>`) so they can't meet an adopted game's own.
+- **MemoryStore memory is budgeted per module, from a census.** The memory quota
+  (`64 KB + 1.2 KB x users`) is experience-wide and grows with concurrent users, but a due list grows
+  with daily players, and a full quota fails every growing write in the experience: one module
+  would stop all the others. No server can see the experience's usage or size, so the framework
+  keeps a small census in its own sorted map: each server adds its player count to a time bucket
+  and its modules' estimated write sizes to usage items bucketed by expiry hour, and reads the
+  totals back once a minute. A module's growing writes are refused (`"memory_budget"`) past its
+  share of the estimated quota (from the 8-day peak, matching Roblox's 8-day traceback), and all
+  modules together past `1 - reserve`. The same census gives modules the server count, which the
+  due list and the boards use to pace their reads. (Design review: the reviewer asked for a
+  per-module share and a running estimate; the census is how a server gets an experience-wide
+  estimate at all, and it also answers the scaling finding.) The per-server request-unit default
+  dropped to `base = 20`, with the bound stated: at most a third of the unit quota while every
+  server has a player.
 - **Engine services reach modules through `ctx.services.get(name)`.** The framework already puts
   every engine service it uses behind its Platform table so specs run without Roblox; modules had
   no such seam. A small allow-list (Badge, Text, User, Localization services, Players) is
@@ -455,9 +538,20 @@ these pages before relying on a limit.
   `GetNonChatStringForBroadcastAsync` for text everyone sees, `GetNonChatStringForUserAsync` per
   viewer for friends-only or own text; a failure means "don't show it". Roblox can only filter
   while the author is in the server, so the kit hands callers a save record with the broadcast
-  string for display while the author is away and keeps the original in the author's own save for
-  re-filtering. Results are cached per (author, text, context) with a size and age bound. The lint
-  check is a same-function heuristic: honest about what it can't follow (tables, other modules).
+  string for display while the author is away (for at most `shownMaxDays`, since stored text should
+  be filtered when it is retrieved) and keeps the original for re-filtering.
+- **The original text never leaves TextFilter.** It is kept in TextFilter's own save section in
+  the author's save (not replicated, bounded per author), and the record callers keep holds only
+  an id, the context, the time and the broadcast string. The reviewer proposed keeping the
+  original in the record under a field the caller must mark `serverOnly`; that still relies on
+  every caller getting it right, while this way a record replicated by mistake leaks nothing. The
+  lint check also flags a whole filter record reaching a sink, so displays go through `shown`,
+  which applies the viewer and age rules. Each submission is filtered once, fresh (Roblox asks for
+  one call per submission); the cache only serves re-display. `TextFilterContext` is a hint that
+  doesn't change Roblox's result. Player text is never logged or sent to analytics. The lint check
+  is a same-function heuristic: honest about what it can't follow (tables, other modules); its
+  sinks include events to the author's own client, shared and sorted-map/ordered writes and
+  notification params.
   Sources: https://create.roblox.com/docs/reference/engine/classes/TextService,
   https://create.roblox.com/docs/reference/engine/classes/TextFilterResult,
   https://create.roblox.com/docs/ui/text-filtering.
@@ -468,7 +562,13 @@ these pages before relying on a limit.
   text capture and automatic translation work exactly as for any game text; keyed manual
   translations win where a game provides them. The format syntax is Roblox's (`{name}`, `{1}`), so
   a key's English text can be pasted into a localization table unchanged. The no-hard-coded-English
-  rule is a lint check on the UI kit and kit client code only: games may hard-code their own text.
+  rule is a lint check on the framework, UI kit and kit client code only, not examples or games:
+  games may hard-code their own text, and the sandbox uses keys by convention. Keys built from
+  config get their English defaults from `strings = function(config)`, the same pattern as
+  `theme`. The template maps `src/shared/Localization/*.csv` into `LocalizationService` from v1.7.0
+  (Rojo turns each CSV into a `LocalizationTable`), checked in Studio before the release, so a
+  game can ship keyed translations without extra setup. The player's own-row colour of the
+  leaderboard component is a base theme token, so the UI kit doesn't depend on a kit.
   Sources: https://create.roblox.com/docs/reference/engine/classes/LocalizationService,
   https://create.roblox.com/docs/reference/engine/classes/Translator,
   https://create.roblox.com/docs/production/localization/localize-with-scripting,

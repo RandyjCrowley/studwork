@@ -1,8 +1,8 @@
 # Engagement kit: Leaderboards
 
 Global all-time boards (OrderedDataStore) and daily or weekly boards (MemoryStore sorted maps,
-reset by the framework clock), a cached top-N, the player's own rank, and a UI kit board. Code:
-`packages/kits/engagement/Leaderboards/` (`module.luau`, `server/`, `client/`; Rojo
+reset by the framework clock), a top N shared by every server, the player's own rank, and a UI kit
+board. Code: `packages/kits/engagement/Leaderboards/` (`module.luau`, `server/`, `client/`; Rojo
 `ReplicatedStorage.Modules.Leaderboards`, `ServerScriptService.Modules.Leaderboards`). Added in
 v1.7.0 (design: [module-api.md §23](../module-api.md#23-additions-in-v170)). Entries marked
 **(contract)** are part of the cross-module surface in [kit-contract.md](../kit-contract.md).
@@ -21,13 +21,14 @@ registered source function. The client only receives the rows.
 |---|---|---|
 | `flag` | none | a feature flag ([environments](environments.md)); while off, nothing is written or read and the replicated boards are empty |
 | `boards` | `{}` | `{ [boardId] = Board }`, below. `boardId` matches `^[%w_]{1,24}$` |
-| `refreshSeconds` | `60` | how often this server re-reads each board's top N |
+| `refreshSeconds` | `60` | the shortest interval between two reads of a board's shared top N by this server, and the age at which the shared top N is re-read from the store |
+| `topReadsPerMinute` | `6000` | target reads of one board's shared top N per minute across all servers: with many servers each server reads less often (below) |
 | `writeSeconds` | `120` | at most one write per player per board in this time (plus one on leave) |
 | `utcOffsetHours` | `0` | the time zone daily and weekly periods are counted in, -14..14 |
 | `weekStartsOn` | `"monday"` | `"monday"` or `"sunday"` |
-| `periodKeep` | `200` | a periodic board stores at most about this many players: a value that can't reach the current `periodKeep`-th place isn't written |
+| `cutToTop` | `true` | a periodic `max` or `sum` write is skipped while the board's top N is full and the value doesn't beat its last row (the cut in the shared top N); keeps the period maps small |
 | `previousPeriod` | `true` | keep the previous period readable ("last week's winners") until it expires |
-| `periodGraceHours` | `24` | how long a finished period's map lives after its end |
+| `periodGraceHours` | `24` | how long a finished period's maps live after its end (at most 24, so a weekly board stays inside MemoryStore's 8-day quota window, §23.5) |
 | `names.cacheSeconds` | `3600` | display names looked up for all-time boards are cached this long |
 | `backoff` | `{ base = 60, factor = 2, max = 600 }` | refresh interval after a failed read |
 
@@ -35,13 +36,14 @@ registered source function. The client only receives the rows.
 
 | Field | Default | Meaning |
 |---|---|---|
-| `period` | `"allTime"` | `"allTime"` (OrderedDataStore), `"daily"` or `"weekly"` (sorted map) |
+| `period` | `"allTime"` | `"allTime"` (OrderedDataStore), `"daily"` or `"weekly"` (sorted maps) |
 | `source` | `{ kind = "submit" }` | where the value comes from: `{ kind = "submit" }` (server code calls `submit`), `{ kind = "registered" }` (a module's `registerSource`), `{ kind = "currency", currency? }` (Economy balance; needs Economy), `{ kind = "rebirths" }` (needs Rebirth), `{ kind = "streak" }` (current streak day; needs Streak) |
-| `mode` | `"max"` | how a new value combines with the stored one: `"max"` (best ever / best this period), `"set"` (latest), `"sum"` (adds; for "earned today") |
+| `mode` | `"max"` | how a new value combines with the player's saved one: `"max"` (best ever / best this period), `"set"` (latest), `"sum"` (adds; for "earned today") |
 | `order` | `"desc"` | `"desc"` (highest first) or `"asc"` (lowest first, e.g. fastest time) |
-| `topN` | `50` | rows kept and shown, 1..100 (an OrderedDataStore page is at most 100; a sorted map range at most 200) |
+| `topN` | `50` | rows kept and shown, 1..100 (an OrderedDataStore page is at most 100) |
 | `minValue` | `1` | values below this are not written |
-| `title` | `"Leaderboards.board.<boardId>"` | a string key ([localization](localization.md)); the English default is the board id until the game sets one in `GameConfig.strings` |
+| `shards` | `1` | periodic boards only: the period's scores are split over this many sorted maps (`userId % shards`), 1..16, to spread writes over map partitions (sizing below) |
+| `title` | `"Leaderboards.board.<boardId>"` | a string key ([localization](localization.md)); the module's `strings` function gives each board the English default = the board id, until the game sets one in `GameConfig.strings` |
 
 Values are whole numbers: OrderedDataStore stores integers, so a value is floored and must be
 finite; anything else is refused with a warning naming the board. A built-in source whose module
@@ -58,8 +60,8 @@ isn't enabled is a boot error naming the board and the module to add.
 - `rank(player, boardId) -> (rank?, value)`: the player's own value and, if they are in the
   cached top N, their rank. A rank beyond `topN` is not computed (neither store returns a rank
   cheaply); the UI shows "Top 50+" and the value. **(contract)**
-- `refresh(boardId) -> boolean`: yields; an immediate re-read, still within the store budget
-  (refused with `false` when over it).
+- `refresh(boardId) -> boolean`: yields; re-reads the shared top N now (and re-reads the store if
+  it is older than `refreshSeconds`), still within the store budgets (`false` when over them).
 - **txApi:** `submit(tx, boardId, value) -> boolean` (the value change is part of the caller's
   transaction; the write still happens on the cadence). **(contract)**
 - **extensions:** `registerSource(boardId, fn(player) -> number)`: the value of a
@@ -71,32 +73,70 @@ isn't enabled is a boot error naming the board and the module to add.
 
 ## How it uses the stores
 
-- **All-time boards:** `ctx.data.ordered(boardId)` (§23.3). A write is `update(userId, fn)` for
-  `max` (keeps the larger, so two servers can't lower a best), `set(userId, value)` for `set`,
-  `increment(userId, delta)` for `sum`. The top N is `top(topN, order)`. Names: one batched
-  lookup per refresh for user ids not in the name cache (`UserService:GetUserInfosByUserIdsAsync`
-  through `ctx.services`, §23.6); a failed lookup shows the user id until the next refresh.
-- **Daily and weekly boards:** `ctx.data.sortedMap(boardId .. "/" .. periodId)` (§23.4), key =
-  user id, sort key = value, item value = `{ v = value, n = displayName }` (the name is stored with
-  the score, so no lookups). Expiry = the period's end + `periodGraceHours`. The period id comes
-  from the framework clock (`ctx.now()`): day = `(now + utcOffsetHours * 3600) // 86400`; week =
-  the day's week starting on `weekStartsOn`. **A new period is a new map**, so the reset is the
-  clock moving, not a job that has to run; the old map expires on its own.
-- Writes for `max` and `sum` on periodic boards use the sorted map's atomic `update`; `periodKeep`
-  skips writes that can't place, which keeps the map's memory near `periodKeep` items.
-- Refresh: every `refreshSeconds` (staggered per board by a random offset at start so servers
-  don't read in step), one `top` read per board. The previous period's rows are read once per
-  period when `previousPeriod` is on.
+**The player's save holds the authoritative value** (one session lock, one writer): the all-time
+total or best in `values`, this period's in `periods`. Every store write sends that value and is
+**idempotent**, so a retried write, a timed-out call that actually committed, or a re-send after a
+crash can't count twice. The kit never calls `increment`.
 
-**Budgets** (per server, from Roblox's limits): an OrderedDataStore list (`GetSortedAsync`) is
-`5 + 2 x players` per minute, reads `60 + 40 x players`, writes `30 + 5 x players` (a `max`
-write is an `UpdateAsync`: one read and one write). With the defaults one all-time board costs 1
-list per minute and at most one write per player per 2 minutes, so about three all-time boards
-fit the write budget of a full server with room to spare. At boot the kit warns when `allTimeBoards x 60 / refreshSeconds` exceeds 5 (the budget
-of an empty server). MemoryStore costs request units against the experience-wide
-`1000 + 120 x players` per minute (a range read costs one unit per row returned); the framework's
-`storeBudgets` (§23.5) caps this server's share. A refused or throttled call never errors: the
-kit keeps the last rows and backs off.
+- **All-time boards:** `ctx.data.ordered(boardId)` (§23.3). `max` and `sum` write
+  `update(userId, function(old) return math.max(old or 0, value) end)` (keeps the larger, so two
+  servers can't lower a best and a stale re-send can't undo a newer total); `set` writes
+  `set(userId, value)`.
+- **Daily and weekly boards:** `ctx.data.sortedMap(boardId .. "/" .. periodId .. "/" .. shard)`
+  (§23.4), `shard = userId % shards`, key = user id, sort key = value, item value
+  `{ v = value, n = displayName }` (the name is stored with the score, so no lookups). Writes are
+  `update`: `max(old.v, value)` for `max` and `sum`, `value` for `set`. Expiry = the period's end +
+  `periodGraceHours`. The period id comes from the framework clock (`ctx.now()`): day =
+  `(now + utcOffsetHours * 3600) // 86400`; week = the day's week starting on `weekStartsOn`. **A new
+  period is a new map**, so the reset is the clock moving, not a job that has to run; the old map
+  expires on its own.
+- **The shared top N:** one sorted map per board, `ctx.data.sortedMap("top/" .. boardId)`, one item
+  per period (key `periodId`, or `"all"`): `{ rows = { { u, n, v } }, at, cut?, lease = { by, untilAt }? }`
+  (`cut` = the `topN`-th value once the board is full). Expiry: the period's end + grace; for
+  all-time `max(10 x refreshSeconds, 3600)` s, renewed by each re-read.
+
+**Refresh (one elected reader per board):** every refresh interval (staggered per board by a
+random offset at start) a server `get`s the board's top item: 1 request unit. If the item is older
+than `refreshSeconds`, has no live lease, and this server has the budget for the source read, it
+takes the lease with an atomic `update` (lease 30 s; the update cancels when another server got
+there first), reads the source (all-time: one `top(topN, order)` list plus one batched name lookup
+for ids not in its cache, `UserService:GetUserInfosByUserIdsAsync` through `ctx.services`, §23.6;
+periodic: `range` of `topN` from each shard, merged), and writes the item back with `at = now`.
+Every other server just reads the item. A failed name lookup shows the user id until the next
+re-read.
+
+A server's refresh interval is `max(refreshSeconds, 60 x servers / topReadsPerMinute)` seconds,
+with `servers` from the framework census (`ctx.data.census()`, §23.5; until the first census,
+`refreshSeconds`). So each board's top map gets about `topReadsPerMinute` reads a minute at most,
+whatever the number of servers, and its store is read about once per `refreshSeconds` for the
+whole experience.
+
+**Budgets and scaling** (from Roblox's limits):
+
+- *Per server, OrderedDataStore* (`5 + 2 x players` lists, `60 + 40 x players` reads,
+  `30 + 5 x players` writes per minute; a `max` write is an `UpdateAsync`: one read and one write):
+  only the elected reader lists, so lists are rare; writes are at most one per player per board
+  per `writeSeconds`. The framework refuses ordered calls near the limit (`storeBudgets`, §23.5).
+- *Per experience, OrderedDataStore* (list `300 + 2 x CCU`, write `300 + 20 x CCU` per minute,
+  shared with Open Cloud): lists are about `60 / refreshSeconds` per board per minute in total;
+  writes about `CCU x 60 / writeSeconds` per board per minute, so each board uses at most about a
+  fortieth of the write limit at the defaults. An experience-level throttle backs off the whole
+  module's store use (§23.3), not one call.
+- *MemoryStore request units* (experience-wide `1000 + 120 x CCU` per minute; a range costs one
+  unit per row returned plus one): each server caps its own use (`storeBudgets.memoryUnits`).
+- *MemoryStore partitions:* each sorted map is one partition, and Roblox starts throttling at about
+  30,000 units a minute on one partition (100,000 on one structure). A period map receives about
+  `CCU x 60 / writeSeconds / shards` writes a minute (only changed values are written). **Size
+  `shards` so this stays under about 10,000:** at the default `writeSeconds` that is one shard per
+  20,000 concurrent players. The top map is bounded by `topReadsPerMinute`.
+- *MemoryStore memory* (experience-wide `64 KB + 1.2 KB x users`): a period item is about 60 bytes,
+  a top item about `topN x 40` bytes. A period map holds every player whose value beat the cut when
+  they wrote: everyone who scored while the board was still filling, then only those who place, so
+  roughly the number of players active early in the period plus those who reached the top. The
+  module's writes count against its `storeBudgets.memory` share (§23.5): a write refused with
+  `"memory_budget"` stays dirty and is retried; the board then lags, nothing else stops.
+
+A refused or throttled call never errors: the kit keeps the last rows and backs off.
 
 ## Replication
 
@@ -109,16 +149,18 @@ kit keeps the last rows and backs off.
 
 Section `leaderboards`, version 1: `{ values = { [boardId] = number }, periods = { [boardId] =
 { id = periodId, value } }, dirty = { [boardId] = true } }`. Not replicated (the client gets
-`extra.mine`). Values are the player's own; the stores hold the shared copy. A dirty value is
-written after the next load if the server stopped before writing it.
+`extra.mine`). Values are the player's own and authoritative; the stores hold the shared copy. A
+dirty value is written after the next load if the server stopped before writing it (safe: writes
+are idempotent).
 
 ## Client part and UI
 
 - `UI.Leaderboard` (UI kit, `packages/ui/Leaderboard.luau`): props `{ title, rows, selfUserId?,
-  selfValue?, selfRank?, format = "number" | "time", emptyText? }`. Theme tokens only (row
-  colours from `colors.surface` / `surfaceAlt`, the player's own row `colors.leaderboardSelf`, contributed by
-  this module's `theme`, default `#FFD23F`; not `leaderboardHighlight`, which the example
-  SessionLeaderboard module already contributes). Every label goes through `UI.text`.
+  selfValue?, selfRank?, format = "number" | "time", emptyText? }`. Theme tokens only (row colours
+  from `colors.surface` / `surfaceAlt`, the player's own row `colors.leaderboardSelf`, default
+  `#FFD23F`, in the **base theme** so the component works with or without this module; not
+  `leaderboardHighlight`, which the example SessionLeaderboard module already contributes). Names
+  are rendered with `AutoLocalize = false`. Every label goes through `UI.text`.
 - Screen `"Leaderboards"` (`UI.registerScreen`): a tab per board, the player's own row pinned at
   the bottom when outside the top N.
 - `StudWork.use(Leaderboards).board(boardId) -> rows` (client, from state) and
@@ -129,13 +171,13 @@ written after the next load if the server stopped before writing it.
 
 - `purchases`/hard rule 4: no `DataStoreService` or `MemoryStoreService` in the kit; all store
   access is `ctx.data.ordered` / `ctx.data.sortedMap`.
-- `strings` (new): the board component has no hard-coded English.
+- `strings`: the board component has no hard-coded English.
 - Server authority: no client-submitted value exists to validate.
 
 ## Override levels
 
 1. Use the defaults: list the module, define `boards`.
-2. Config: periods, sizes, cadences, time zone.
+2. Config: periods, sizes, shards, cadences, time zone.
 3. Replace a piece: register your own `"Leaderboards"` screen, or use `UI.Leaderboard` in your own
    UI with `top`/state rows; `registerSource` for a value only your module knows.
 4. Switch it off: leave it out of `modules`; the store data stays where it is.
@@ -145,20 +187,24 @@ written after the next load if the server stopped before writing it.
 | Situation | Behaviour |
 |---|---|
 | Store read fails or is over budget | last rows stay; next try after `backoff`; `updatedAt` shows staleness |
-| Write fails | the value stays dirty and is retried on the next cadence, then on the next load |
+| The elected reader stops mid-read | its lease expires after 30 s; the next server that finds the item stale reads |
+| Write fails or the memory share is full | the value stays dirty and is retried on the next cadence, then on the next load |
 | Shutdown | `onShutdown` flushes dirty values within the store budget; the rest are written on the player's next load |
 | Studio without API access | the framework's in-memory fallback with one warning (like `ctx.data.shared`) |
-| Period rolls over while a server runs | the next refresh reads the new map; the old rows move to `previous` |
+| Period rolls over while a server runs | the next refresh reads the new period's top item; the old rows move to `previous` |
 
 ## Tests (mocked)
 
 The harness backs `ctx.data.ordered` and `ctx.data.sortedMap` with in-memory stores (§23.10)
-that count requests, apply the per-minute budget and inject failures; the sim shares them
-between servers. Specs: `submit` modes; a client can't submit (no action exists); two servers
-write and both see the merged top after `refreshSeconds`; `max` never lowers a best under
-concurrent writes; a daily board resets when `h:tick` crosses midnight at `utcOffsetHours`;
-`periodKeep` skips a write; budget refusal keeps the last rows; a failed write is retried on the
-next load; built-in sources with and without their modules (boot error).
+that count requests, apply the budgets and Roblox's per-structure limits, and inject failures; the
+sim shares them between servers. Specs: `submit` modes; a client can't submit (no action exists);
+two servers write and both see the merged top after `refreshSeconds`; only one of them reads the
+store per refresh (the lease); `max` never lowers a best under concurrent writes; a repeated or
+re-sent `sum` write doesn't double count; a daily board resets when `h:tick` crosses midnight at
+`utcOffsetHours`; `cutToTop` skips a write that can't place; a sharded board merges its shards;
+budget refusal keeps the last rows; a failed write is retried on the next load; built-in sources
+with and without their modules (boot error); many sim servers keep the top map near
+`topReadsPerMinute`.
 
 ## Not verifiable offline
 

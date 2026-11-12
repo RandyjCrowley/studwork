@@ -1,5 +1,7 @@
 # Framework: localization (string keys)
 
+> **A framework feature, always on: it is not a module and is not listed in `GameConfig.modules`.**
+
 The UI kit and the framework's own text use **string keys with English defaults**, resolved
 through Roblox's `LocalizationService` translators, with Roblox's automatic translation still
 working. Modules ship their own English defaults; games override wording and add their own
@@ -38,6 +40,10 @@ localization = { sourceLocale = "en", useTranslators = true },
 ```
 
 - A module's `strings` keys must start with `<ModuleName>.`; anything else is a definition error.
+- `strings` may also be a function of the module's merged config, `strings = function(config) ->
+  table` (the same pattern as `theme = function(config)`, §19.3), for keys built from config: a
+  board title `Leaderboards.board.<boardId>` or a badge name `Badges.badge.<key>` gets the board id
+  or badge key as its English default this way. It runs once at boot, after config validation.
 - `GameConfig.strings` may set any key; an unknown key outside `game.*` is a boot **warning**
   (typo?), like an unknown config key.
 - **Every key has an English default:** a key used in the UI kit, framework or a kit without a
@@ -69,9 +75,11 @@ Order, on either side:
 3. **The key itself**, with one warning.
 
 Translations come from Roblox: the experience's cloud localization table (Creator Dashboard >
-Localization; entries keyed by these keys) and any `LocalizationTable` instances the game ships
-(Rojo builds a `.csv` file into a `LocalizationTable`; the template maps
-`src/shared/Localization/` into `LocalizationService`). The framework doesn't ship translations.
+Localization; entries keyed by these keys) and any `LocalizationTable` instances the game ships.
+**The template maps `src/shared/Localization/*.csv` into `LocalizationService`** (Rojo builds each
+`.csv` into a `LocalizationTable`; columns `Key, Source, Context, Example, <locale>...`), from
+v1.7.0, in the project files `tools/sync-projects` writes. That translators see these tables is
+checked in Studio before the release. The framework doesn't ship translations.
 
 **Automatic translation keeps working.** Kit labels keep `AutoLocalize = true` (the default)
 and display the English text from step 2 when there is no keyed translation, so Roblox's
@@ -105,7 +113,8 @@ flags:
 - a string literal passed to `ctx.net.feedback(..., "<text>")` / `Feedback.toast("<text>")`;
 - a `UI.text("<key>")` / `UI.useText` / `StudWork.text` call whose literal key has no English
   default in any defaults table (the check reads `packages/ui/Strings.luau`, the framework's
-  `Strings.luau` and every kit `module.luau` `strings` field).
+  `Strings.luau` and every kit `module.luau` `strings` field; for a module whose `strings` is a
+  function, which the check can't run, any literal key in that module's namespace is accepted).
 
 Allowed: empty strings, strings without letters (`"0"`, `"%"`, `"×"`), font and asset paths
 (`rbxasset://`), and `-- guard: allow strings` with a reason. Message:
@@ -113,8 +122,9 @@ Allowed: empty strings, strings without letters (`"0"`, `"%"`, `"×"`), font and
 Its self-test plants a `Text = "Close"` in a UI component, a toast literal, and a key without a
 default (each must fail), plus a keyed `UI.text("ui.close")` and a `"%"` label (must pass).
 
-Game code isn't scanned by this check: games may hard-code their own text (they still benefit from
-automatic translation).
+Game code and examples (the sandbox included) aren't scanned by this check: games may hard-code
+their own text (they still benefit from automatic translation). The sandbox uses keys by convention,
+as a model.
 
 ## Override levels
 
@@ -139,11 +149,14 @@ automatic translation).
   same name; `fake.setLocale("pt")` fires the change.
 - Specs: resolution order; a missing translation falls back to English; a missing key renders
   the key (never ""); named and numbered params; `GameConfig.strings` rewording; a module key
-  outside its namespace fails the definition; the `strings` self-test; every key the UI kit
-  uses has a default (a spec walks `packages/ui` for literal keys).
+  outside its namespace fails the definition; a `strings` function gets the merged config and
+  its keys resolve; the `strings` self-test; every key the UI kit uses has a default (a spec walks
+  `packages/ui` for literal keys); the template's project file maps `src/shared/Localization`
+  into `LocalizationService` (tools spec).
 
 ## Not verifiable offline
 
-Real translators and cloud tables, automatic text capture of kit labels, whether Rojo-built
-`LocalizationTable`s under `LocalizationService` are seen by `GetTranslatorForPlayerAsync` (to
-confirm in Studio), and text fit in long languages. Live checklist in the round report.
+Real translators and cloud tables, automatic text capture of kit labels, and text fit in long
+languages (live checklist in the round report). Whether Rojo-built `LocalizationTable`s under
+`LocalizationService` are seen by `GetTranslatorForPlayerAsync` is checked in the round's Studio
+block.
