@@ -7,7 +7,8 @@
 	net.blink (PromptOptIn, OptInShown, SetUtcOffset).
 
 	Save section "notifications" = { lastPromptAt, prompts, sessions, utcOffset?, promptRequest?,
-	lastLaunchDay }, not replicated. Scheduled entries live in the shared ledger, not the save.
+	lastLaunchDay, actorDay?, actorSends? (sends this player caused today, limits.perActorPerDay) },
+	not replicated. Scheduled entries live in the shared ledger, not the save.
 
 	config (GameConfig.config.Notifications): flag, secret, sendInStudio, templates, optIn, limits,
 	quiet, schedule, retry (the page's table; every number is config).
@@ -41,6 +42,7 @@ return StudWork.defineModule({
 				perPlayerPerDay = "integer(1..)",
 				minGapHours = "number(0..)",
 				perServerPerMinute = "integer(1..)",
+				perActorPerDay = "integer(1..)",
 			},
 			quiet = {
 				startHour = "integer(0..23)",
@@ -75,7 +77,7 @@ return StudWork.defineModule({
 				maxPrompts = 3,
 				onSuggest = true,
 			},
-			limits = { perPlayerPerDay = 1, minGapHours = 20, perServerPerMinute = 60 },
+			limits = { perPlayerPerDay = 1, minGapHours = 20, perServerPerMinute = 60, perActorPerDay = 10 },
 			quiet = { startHour = 22, endHour = 8, defaultUtcOffsetHours = 0 },
 			schedule = {
 				shards = 4,

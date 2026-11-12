@@ -193,6 +193,17 @@ describe("Templates", function()
 		expect(#errors).toBe(2)
 	end)
 
+	it("rejects a messageId that can't be a notification string id (a typo is caught at boot)", function()
+		expect((Templates.normalize("k", { messageId = "12 34" }))).toBe(nil)
+		expect((Templates.normalize("k", { messageId = "TODO: fill in" }))).toBe(nil)
+		expect((Templates.normalize("k", { messageId = string.rep("1", 65) }))).toBe(nil)
+		local _, why = Templates.normalize("k", { messageId = " 1001" })
+		expect(string.find(why, "is not a notification string id", 1, true) ~= nil).toBe(true)
+		expect((Templates.normalize("k", { messageId = "5dd7024b-68e3-ac4d-8232-4217f86ca244" }))).never.toBe(
+			nil
+		)
+	end)
+
 	it("checks parameters: exactly the declared names, string length, userId numbers", function()
 		local tpl =
 			Templates.normalize("t", { messageId = "1", params = { pet = "string", friend = "userId" } })

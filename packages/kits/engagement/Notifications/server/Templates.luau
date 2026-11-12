@@ -43,6 +43,11 @@ local function positive(v: any, default: number): number
 	return if type(v) == "number" and v == v and v >= 0 then v else default
 end
 
+-- "" (a placeholder) or what the Creator Dashboard shows: letters, digits and dashes, at most 64
+local function validMessageId(id: string): boolean
+	return id == "" or (#id <= 64 and string.match(id, "^[%w%-]+$") ~= nil)
+end
+
 function Templates.normalize(key: any, def: any): (Template?, string?)
 	if not Templates.validKey(key) then
 		return nil, `template key '{tostring(key)}' must match {Templates.KEY_PATTERN}`
@@ -56,6 +61,10 @@ function Templates.normalize(key: any, def: any): (Template?, string?)
 	end
 	if type(messageId) ~= "string" then
 		return nil, `template '{key}': messageId is required (a string; "" is a placeholder)`
+	end
+	if not validMessageId(messageId) then
+		return nil,
+			`template '{key}': messageId '{string.sub(messageId, 1, 64)}' is not a notification string id (letters, digits and dashes, as the Creator Dashboard shows it; "" is a placeholder)`
 	end
 	local params: { [string]: string } = {}
 	local names: { string } = {}

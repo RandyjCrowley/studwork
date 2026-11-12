@@ -13,6 +13,7 @@
 	  engine.schedule(userId, tpl, at, params?, key?, offset?) -> (ok, reason?)
 	  engine.cancel(userId, key) -> boolean
 	  engine.cancelWhere(userId, predicate(templateKey) -> boolean) -> number
+	  engine.noteOffset(userId, hours)     refreshes the offset in the recipient's ledger entry, if any
 	  engine.poll()                        one poll of the next shard (yields)
 	  engine.pollInterval() -> seconds     max(pollSeconds, 60 x servers / (shards x pollsPerShardPerMinute))
 	  engine.enabled() -> boolean          the kill-switch flag
@@ -108,8 +109,13 @@ function Engine.new(ctx: any, templates: { [string]: Templates.Template }, opts:
 		return true
 	end
 
-	local function offsetFor(userId: number, entryOffset: any): number
+	-- The recipient's offset: the due entry's, else theirs if they are on this server, else the one in
+	-- their ledger entry (H: offline recipients), else quiet.defaultUtcOffsetHours.
+	local function offsetFor(userId: number, entryOffset: any, ledgerOffset: any): number
 		local known = if entryOffset ~= nil then entryOffset else opts.offsetOf(userId)
+		if known == nil then
+			known = ledgerOffset
+		end
 		return Quiet.offset(known, cfg.quiet.defaultUtcOffsetHours)
 	end
 
@@ -124,33 +130,47 @@ function Engine.new(ctx: any, templates: { [string]: Templates.Template }, opts:
 	--------------------------------------------------------------------------
 	-- Ledger: one atomic update per call. The expiry has to be known before the call, so it is read
 	-- first; if another server added a later waiting entry in between, the update cancels itself and
-	-- we go round again (at most three times).
+	-- we go round again (at most three times). Every write made while the recipient is on this server
+	-- stamps their offset (`o`), so other servers can keep to their quiet hours once they leave.
+	-- `onlyIfExists`: write nothing when the recipient has no entry.
 	--------------------------------------------------------------------------
 	local function ledgerUpdate(
 		userId: number,
 		extraAt: number?,
-		fn: (Ledger.Entry, number) -> (Ledger.Entry?, any?)
+		fn: (Ledger.Entry, number) -> (Ledger.Entry?, any?),
+		onlyIfExists: boolean?
 	): (boolean, any)
 		local map = mapFor("ledger", userId)
 		local key = tostring(userId)
+		local known = opts.offsetOf(userId)
 		for _ = 1, 3 do
 			local gok, got = map.get(key)
 			if not gok then
 				return false, storeReason(got)
 			end
+			if onlyIfExists and type(got) ~= "table" then
+				return true, nil
+			end
 			local expiry = Ledger.expiry(Ledger.normalize(got), extraAt, ctx.now(), staleSeconds, holdSeconds)
 			local short = false
 			local info: any = nil
 			local uok, res = map.update(key, function(old: any): any
+				short = false
+				info = nil
+				if onlyIfExists and type(old) ~= "table" then
+					return nil
+				end
 				local e = Ledger.normalize(old)
 				local t = ctx.now()
 				if Ledger.expiry(e, extraAt, t, staleSeconds, holdSeconds) > expiry then
 					short = true
 					return nil
 				end
-				short = false
 				local new, extra = fn(e, t)
 				info = extra
+				if new ~= nil and known ~= nil then
+					new.o = known
+				end
 				return new
 			end, expiry)
 			if not uok then
@@ -170,8 +190,22 @@ function Engine.new(ctx: any, templates: { [string]: Templates.Template }, opts:
 	end
 
 	-- Reserves the recipient for one send, or says when it is allowed: (true) | (false, reason, nextAt?).
-	local function reserve(userId: number, tpl: Templates.Template): (boolean, string?, number?)
+	-- "quiet": it is inside the recipient's quiet hours (their offset as offsetFor finds it, the ledger's
+	-- included); nextAt is when they end.
+	local function reserve(
+		userId: number,
+		tpl: Templates.Template,
+		entryOffset: any
+	): (boolean, string?, number?)
 		local ok, info = ledgerUpdate(userId, nil, function(e: Ledger.Entry, t: number)
+			local offset = offsetFor(userId, entryOffset, e.o)
+			if inQuiet(t, offset) then
+				return nil,
+					{
+						reason = "quiet",
+						nextAt = Quiet.nextOpen(t, offset, cfg.quiet.startHour, cfg.quiet.endHour),
+					}
+			end
 			local localRules = table.clone(rules)
 			localRules.cooldownSeconds = tpl.cooldownHours * HOUR
 			local allowed, nextAt, why = Ledger.check(e, tpl.key, localRules, t, jobId)
@@ -436,20 +470,30 @@ function Engine.new(ctx: any, templates: { [string]: Templates.Template }, opts:
 		end
 		local now = ctx.now()
 		local sendKey = key or tpl.key
-		local offset = offsetFor(userId, nil)
-		if inQuiet(now, offset) then
-			local at = Quiet.nextOpen(now, offset, cfg.quiet.startHour, cfg.quiet.endHour)
+		local function deferTo(at: number): (boolean, string?)
 			local ok, reason = self.schedule(userId, tpl, at, params, sendKey, nil)
 			if ok then
 				return true, "scheduled"
 			end
 			return false, reason
 		end
+		local online = opts.offsetOf(userId)
+		if online ~= nil then
+			local offset = offsetFor(userId, nil, nil)
+			if inQuiet(now, offset) then
+				return deferTo(Quiet.nextOpen(now, offset, cfg.quiet.startHour, cfg.quiet.endHour))
+			end
+		end
 		if not takeBudget() then
 			return false, "server_budget"
 		end
-		local ok, reason = reserve(userId, tpl)
+		-- a recipient on no server: reserve checks quiet hours with the offset in their ledger entry
+		local ok, reason, nextAt = reserve(userId, tpl, nil)
 		if not ok then
+			if reason == "quiet" and nextAt ~= nil then
+				used -= 1 -- nothing was requested
+				return deferTo(nextAt)
+			end
 			return false, reason
 		end
 		local outcome, detail = request(userId, tpl, params)
@@ -473,7 +517,9 @@ function Engine.new(ctx: any, templates: { [string]: Templates.Template }, opts:
 		end
 		at = math.max(at, now)
 		local scheduleKey = key or tpl.key
+		local ledgerOffset: number? = nil
 		local ok, info = ledgerUpdate(userId, at, function(e: Ledger.Entry, t: number)
+			ledgerOffset = e.o
 			local new, why = Ledger.schedule(e, scheduleKey, at, t, cfg.schedule.maxPerPlayer, staleSeconds)
 			if new == nil then
 				return nil, { reason = why }
@@ -491,6 +537,9 @@ function Engine.new(ctx: any, templates: { [string]: Templates.Template }, opts:
 			entry.p = params
 		end
 		local offset = if offsetArg ~= nil then offsetArg else opts.offsetOf(userId)
+		if offset == nil then
+			offset = ledgerOffset
+		end
 		if offset ~= nil then
 			entry.o = offset
 		end
@@ -515,6 +564,19 @@ function Engine.new(ctx: any, templates: { [string]: Templates.Template }, opts:
 		end
 		dueRemove(userId, key)
 		return existed == true
+	end
+
+	-- Records a recipient's reported offset in their ledger entry. Only an entry that exists: one isn't
+	-- created just for this (memory). One read when there is nothing to change.
+	function self.noteOffset(userId: number, hours: number)
+		local gok, got = mapFor("ledger", userId).get(tostring(userId))
+		if not gok or type(got) ~= "table" or got.o == hours then
+			return
+		end
+		ledgerUpdate(userId, nil, function(e: Ledger.Entry)
+			e.o = hours
+			return e, nil
+		end, true)
 	end
 
 	-- Cancels every waiting entry of this recipient whose template satisfies `predicate`.
@@ -579,8 +641,11 @@ function Engine.new(ctx: any, templates: { [string]: Templates.Template }, opts:
 		if not claim(userId, row) then
 			return nil
 		end
-		local offset = offsetFor(userId, value.o)
-		if inQuiet(now, offset) then
+		-- the offset known here (the entry's, or the recipient on this server); otherwise reserve checks
+		-- quiet hours with the one in their ledger entry
+		local known = value.o ~= nil or opts.offsetOf(userId) ~= nil
+		local offset = offsetFor(userId, value.o, nil)
+		if (known or completes) and inQuiet(now, offset) then
 			rekeyOrDrop(
 				userId,
 				key,
@@ -602,7 +667,7 @@ function Engine.new(ctx: any, templates: { [string]: Templates.Template }, opts:
 			dropEntry(userId, key)
 			return nil
 		end
-		local ok, _, nextAt = reserve(userId, tpl)
+		local ok, _, nextAt = reserve(userId, tpl, value.o)
 		if not ok then
 			-- a limit says when the recipient is next allowed; a store problem leaves the claim to lapse
 			-- after leaseSeconds, when any server tries again

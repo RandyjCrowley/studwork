@@ -91,8 +91,9 @@ is missing. No key, URL or secret value goes in the repo.
 | `limits.perPlayerPerDay` | `1` | sends per recipient per UTC day (Roblox's own limit is 1; more only wastes Open Cloud requests) |
 | `limits.minGapHours` | `20` | hours between two sends to one recipient |
 | `limits.perServerPerMinute` | `60` | sends this server makes per minute (Open Cloud allows 2500 per server per minute in total) |
-| `quiet.startHour` / `quiet.endHour` | `22` / `8` | the recipient's local quiet hours; (wrapping midnight when start > end; equal = none); a send due inside them waits until `endHour` (a wait that takes an entry past `schedule.staleAfterHours` after its original time drops it) |
-| `quiet.defaultUtcOffsetHours` | `0` | used when the recipient's offset is unknown (the client reports its offset, -14..14) |
+| `limits.perActorPerDay` | `10` | sends and schedules one player can cause per UTC day, when the call names them as `actor` (counted in that player's save, so it holds on every server); over it: `(false, "actor_limit")` |
+| `quiet.startHour` / `quiet.endHour` | `22` / `8` | the recipient's local quiet hours (their offset as below); (wrapping midnight when start > end; equal = none); a send due inside them waits until `endHour` (a wait that takes an entry past `schedule.staleAfterHours` after its original time drops it) |
+| `quiet.defaultUtcOffsetHours` | `0` | used when the recipient's offset is unknown (the client reports its offset, -14..14; [Quiet hours](#quiet-hours) says when it is known). Set it to your main audience's offset (e.g. `-5` for a mostly US East game) |
 | `schedule.shards` | `4` | the due list and the ledger are split into this many sorted maps (`userId % shards`), 1..32, so no single map partition carries every server's traffic |
 | `schedule.pollSeconds` | `30` | the shortest interval between two polls by one server (each poll reads one shard, in turn) |
 | `schedule.pollsPerShardPerMinute` | `20` | target polls per shard per minute across all servers: with many servers each server polls less often (below) |
@@ -107,7 +108,7 @@ is missing. No key, URL or secret value goes in the repo.
 
 | Field | Default | Meaning |
 |---|---|---|
-| `messageId` | required | the notification string's asset id from the Creator Dashboard (Engagement > Notifications). `""` is a placeholder: allowed, scheduled and limited as usual, never sent (`send` answers `(false, "placeholder")` after the recipient's limits; a due placeholder entry is cleared without a send or a count), one log line per server per template on first use, not a boot warning |
+| `messageId` | required | the notification string's asset id from the Creator Dashboard (Engagement > Notifications): letters, digits and dashes, at most 64 characters (anything else, such as a stray space, is a template error at boot: a warning, and the template is ignored). `""` is a placeholder: allowed, scheduled and limited as usual, never sent (`send` answers `(false, "placeholder")` after the recipient's limits; a due placeholder entry is cleared without a send or a count). Every placeholder is named in one log line at boot (`placeholder templates (messageId = ""): <keys>: ...`; a log line, not a warning, so a game in development boots clean), and once more as a warning on its first use |
 | `params` | `{}` | the parameters the string uses: `{ [name] = "string" | "userId" }` (a `userId` parameter is a `{userId-...}` mention; a plain list of names means all `"string"`). Names are words of at most 32 characters |
 | `category` | the key | Open Cloud `analyticsData.category` |
 | `launch` | `true` | include launch data so the join is attributed (`LaunchedFrom` signal, analytics) |
@@ -119,7 +120,7 @@ is missing. No key, URL or secret value goes in the repo.
 
 ## API (server)
 
-- `send(userId, templateKey, params?) -> (ok, reason?)`: yields. Sends now, after the limits,
+- `send(userId, templateKey, params?, actor?) -> (ok, reason?)`: yields. Sends now, after the limits,
   quiet hours (a send inside quiet hours is scheduled for `endHour` instead: `(true, "scheduled")`)
   and the `flag`. A retryable failure (429, 5xx, network) goes on the due list with its attempt
   count and returns `(true, "queued")`; any server continues it. Reasons: `"disabled"` (the `flag` is off, or no template is configured),
@@ -129,9 +130,18 @@ is missing. No key, URL or secret value goes in the repo.
   `sendInStudio`: logged, not sent),
   `"cooldown"` (the template's `cooldownHours`), `"memory_budget"` (the module's MemoryStore share is full,
   §23.5), `"store_busy"`,
-  `"failed"` (after retries), `"refused"` (a 4xx from Open Cloud). Never errors for a platform
-  failure. **(contract)**
-- `schedule(userId, templateKey, at, params?, key?) -> (ok, reason?)`: yields. Queues a send for
+  `"failed"` (after retries), `"refused"` (a 4xx from Open Cloud), `"actor_limit"` (below). Never
+  errors for a platform failure. **(contract)**
+- `actor` (optional, `send` and `schedule`; added after the design freeze): the player whose action
+  caused this send, loaded on this server (not loaded: `"bad_params"`). A call that goes ahead
+  (`ok == true`) counts against that player's `limits.perActorPerDay`; over it the call answers
+  `(false, "actor_limit")` and touches nothing of the recipient's. The other limits are per
+  recipient and per server, so without it one player wired to `send(targetId, ...)` could spend
+  every target's daily send (`perPlayerPerDay`) and stop the game's own notifications reaching them.
+  **A recipient chosen by a client is untrusted:** check it first (a friend with
+  `ctx.deps[Friends]`, a player on this server, someone who opted in to hearing from them), never
+  just a number from an action, and pass the sender as `actor`.
+- `schedule(userId, templateKey, at, params?, key?, actor?) -> (ok, reason?)`: yields. Queues a send for
   unix time `at` (framework clock). `key` (default `templateKey`) replaces an earlier entry of
   the same key for that user: rescheduling "egg ready" moves it, it doesn't add a second one.
   Extra reasons: `"too_far"`, `"too_many"` (`maxPerPlayer`), `"memory_budget"`. Works for offline
@@ -153,6 +163,27 @@ template's `params` present, nothing extra, strings at most 100 characters. **Pa
 logged or sent to analytics** (they may name players); logs and analytics carry the template key,
 the category and the reason.
 
+## Quiet hours
+
+A recipient's local time is UTC plus their offset. The offset used, first found wins:
+
+1. a due entry's own `o` (recorded when it was scheduled);
+2. the recipient's saved `utcOffset`, if they are on this server (their client reports it once a
+   session, `setUtcOffset`);
+3. the `o` in their ledger entry (below): every ledger write made while they are on a server
+   records it there, and their `setUtcOffset` and leaving refresh an entry that already exists. This
+   is what reaches a recipient who is on no server;
+4. `quiet.defaultUtcOffsetHours`.
+
+So the recipient's own quiet hours apply while they have a ledger entry: any send in the last 48 h
+(or the longest `cooldownHours`), or any waiting scheduled entry. **A recipient with no ledger entry
+gets the default:** someone never notified, or not for two days, who is on no server. No entry is
+created just to remember an offset, on purpose: one per player who leaves would need far more than
+the module's memory share (at 1,000 concurrent users with 30-minute sessions that is about 96,000
+items over two days, about 5 MB, against a share of about 300 KB). Set
+`quiet.defaultUtcOffsetHours` to your main audience. Scheduling a reminder when a player leaves
+(the usual `comeBack` pattern) creates their entry with their offset.
+
 ## Scheduled sends
 
 **Where entries live.** Two families of sorted maps, sharded by `s = userId % schedule.shards`:
@@ -163,7 +194,7 @@ the category and the reason.
   `at + staleAfterHours`;
 - the per-recipient ledger `ctx.data.sortedMap("ledger/" .. s)`: key `userId`, value
   `{ d = day, c = countToday, l = lastSentAt, t = { [templateKey] = lastSentAt }, q = { [key] = dueAt },
-  r = { by = jobId, untilAt }? }`, expiry = the longest of 48 h, the longest template `cooldownHours` and the last
+  r = { by = jobId, untilAt }?, o = utcOffset? }` ([Quiet hours](#quiet-hours)), expiry = the longest of 48 h, the longest template `cooldownHours` and the last
   waiting entry's `at + staleAfterHours` (read first, written with that expiry; if another server adds a
   later entry in between, the update cancels itself and goes round again).
 
@@ -190,7 +221,8 @@ due list's request rate doesn't grow with the server count. A poll is
 2. **Reserve** the recipient with an atomic `update` on the ledger: refused when a send would break
    `perPlayerPerDay`, `minGapHours` or the template's `cooldownHours`, or another server holds a live
    reservation `r`. A refused entry is re-keyed to the time it becomes allowed (or dropped if that is
-   past `staleAfterHours`). Quiet hours are applied here too, with the entry's offset `o`.
+   past `staleAfterHours`). Quiet hours are applied here too, with the offset as in
+   [Quiet hours](#quiet-hours) (the ledger's `o` when the entry has none).
 3. **Send** one Open Cloud request.
 4. **Not an Open Cloud answer.** `"not_allowed"`, `"no_secret"` and this server's own Open Cloud rate
    (`"budget"`) mean nothing was sent: nothing counts, the reservation is given back, the entry waits
@@ -214,6 +246,14 @@ share is full, `schedule` returns `"memory_budget"` and the built-in `streakEndi
 skipped quietly. Example: at 1,000 concurrent users the quota is about 1.2 MB; the default share
 (0.25) is about 300 KB, room for about 2,500 waiting entries with their ledgers. With a high
 daily-to-concurrent player ratio, raise the share or `minStreak`.
+
+**`send` uses memory too.** Every recipient who was sent anything keeps a ledger entry for at least
+48 hours (the day count and the gap need it; longer with a longer `cooldownHours`). Charged at about
+120 bytes each (key, value and the 32-byte item overhead, §23.4), the default share at 1,000
+concurrent users holds about 2,500 recipients notified in the last two days, fewer with waiting
+entries. Past that, `send` answers `"memory_budget"` too (nothing is
+sent: a send the ledger can't count could break the per-recipient limits). A game that notifies
+many distinct players a day should raise `storeBudgets.memory.shares.Notifications`.
 
 **The poll needs no setup.** A poll with no usable key pushes each entry it reads back `retry.max`
 seconds, so the entries behind them are read; in Studio with `sendInStudio = false` it logs `would send`
@@ -288,7 +328,7 @@ and, at most once per player per UTC day (`lastLaunchDay`), the analytics event
 |---|---|
 | Secret missing, HTTP requests disabled, Studio local playtest without a local secret | one log line on the first send or due entry that needs it, `send` -> `(false, "no_secret")`, no error, gameplay unchanged |
 | Secret not allowed for the module in `ServerConfig.openCloud` | one log line naming the missing entry, `(false, "not_allowed")`, no request made |
-| Placeholder `messageId = ""` | limits and scheduling run as usual, nothing sent, `(false, "placeholder")`, one warning per server |
+| Placeholder `messageId = ""` | limits and scheduling run as usual, nothing sent, `(false, "placeholder")`; named in one log line at boot, then one warning per server on first use |
 | Open Cloud 429 / 5xx / network | the entry goes (back) on the due list with its attempt count and backoff; `send` returns `(true, "queued")`; after the last attempt, analytics `NotificationFailed` |
 | Open Cloud 4xx (bad message id, not eligible) | not retried, `(false, "refused")`, analytics `NotificationFailed` |
 | MemoryStore over this server's request budget or throttled | the poll skips a round (the due list keeps); `schedule` returns `(false, "store_busy")` |
@@ -312,6 +352,26 @@ for another server. A game that sends many notifications from servers with few p
   `harness({ openCloud = fake, secrets = { OpenCloudNotifications = true }, serverConfig = { openCloud = ... } })`.
 - The due list and ledger run on the harness's in-memory sorted maps (§23.10); the sim shares them
   between servers.
+- **Running the poll in a spec.** There is no poll call on the API (the `notifications poll`
+  console command is Studio-only); the server part polls from its 1-second tick, once every
+  `schedule.pollSeconds` (30), reading **one shard per poll** in turn (`schedule.shards`, 4). The
+  first poll comes at a random point within the first `pollSeconds`. `h:tick(n)` advances the clock
+  one second at a time and runs the ticks, so after the due time:
+
+  ```lua
+  -- config.Notifications.schedule = { shards = 1 } keeps it to one shard
+  api.schedule(userId, "comeBack", h.clock + 6 * 3600)
+  h.clock += 6 * 3600                -- jump to the due time (no need to tick through the wait)
+  h:tick(30 + 1)                     -- at least one poll: pollSeconds + 1
+  -- with the default 4 shards: h:tick(4 * 30 + 1), so every shard is read once
+  expect(#openCloudFake.requests).toBe(1)
+  ```
+
+  A jump of the clock leaves the next poll due, so the first tick after it polls; every further
+  poll needs another `pollSeconds` of ticks. With a `census` that reports many servers the interval
+  grows (`max(pollSeconds, 60 x servers / (shards x pollsPerShardPerMinute))`, above). A due entry
+  inside the recipient's quiet hours is moved to their `endHour`, not sent, so pick due times in
+  open hours (or set `quiet = { startHour = 0, endHour = 0 }`, no quiet hours).
 - Specs drive the whole flow: `suggestOptIn` before `minSessionSeconds` (refused) and after
   (client event fired); `optInShown` with the right and a wrong `requestId`; `send` within/over the
   limits; quiet hours move a send; `schedule` + `h:tick` past the due time + poll -> one Open Cloud
