@@ -73,4 +73,48 @@ describe("Streak: day rollover and grace on ctx.now", function()
 		h:tick(13 * HOUR) -- online from noon to 01:00 the next day
 		expect(streak.get(p).day).toBe(2)
 	end)
+
+	it("online players are evaluated once when the day changes, not on every check", function()
+		local h = boot()
+		local p = h:addPlayer({ userId = 3 })
+		local streak = h:use(Streak)
+		local data = h.runtime.data
+		local view = data.view
+		local reads = 0
+		data.view = function(player, key)
+			if key == "streak" then
+				reads += 1
+			end
+			return view(player, key)
+		end
+		h:tick(11 * HOUR) -- 11 hours of checks inside the same day
+		local sameDay = reads
+		h:tick(2 * HOUR) -- past midnight
+		data.view = view
+		expect(sameDay <= 2).toBe(true) -- (the old loop read the save on all 660 checks)
+		expect(streak.get(p).day).toBe(2)
+	end)
+
+	it("an evaluation that fails at the day change is retried on the next check", function()
+		local h = boot()
+		local p = h:addPlayer({ userId = 4 })
+		local streak = h:use(Streak)
+		h:tick(12 * HOUR - 30) -- 23:59:30
+		local data = h.runtime.data
+		local runTx = data.runTx
+		local failures = 1
+		data.runTx = function(...)
+			if failures > 0 then
+				failures -= 1
+				error("store hiccup")
+			end
+			return runTx(...)
+		end
+		h:tick(60) -- the first check after midnight fails
+		expect(failures).toBe(0)
+		expect(streak.get(p).day).toBe(1)
+		h:tick(60) -- retried
+		data.runTx = runTx
+		expect(streak.get(p).day).toBe(2)
+	end)
 end)

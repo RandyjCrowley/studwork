@@ -8,7 +8,7 @@ api: `onDaily(handler) -> Connection`, `get(player) -> { day, lastDay }` (a copy
 `signals.StreakAdvanced(player, day)`. Save section `streak` = `{ streak = { day, lastDay } }` (v1.2 shape).
 
 - `StreakMath.luau` - pure day math in a time zone + reward lookup (`StreakMath.spec.luau`).
-- `init.luau` - evaluates on data load and every 60 s (players online across midnight).
+- `init.luau` - evaluates on data load and once when the local day changes (checked every 60 s, failures retried; players online across midnight).
 
 Config (`config.Streak.streak`): `graceHours` (default 6), `utcOffsetHours` (-14..14, default 0 = UTC,
 the v1.2 days), `rewards = { { day, amount, currency? } }`, `loopAfter`.

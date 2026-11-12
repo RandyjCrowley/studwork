@@ -7,8 +7,9 @@
 	the missed day ended; otherwise reset to 1. Clock skew never resets. Days are counted in the
 	configured time zone: config.streak.utcOffsetHours (default 0 = UTC, the v1.2 behaviour).
 
-	Evaluated when the player's data loads and again every CHECK_INTERVAL seconds (the shared
-	ticker) for players who stay online across midnight. When a day counts:
+	Evaluated when the player's data loads and, for players who stay online across midnight, once
+	when the local day changes (checked every CHECK_INTERVAL seconds on the shared ticker; a failed
+	evaluation is retried on the next check). When a day counts:
 	  - section "streak" = { streak = { day, lastDay } } (v1.2 shape), and in the SAME tx the
 	    reward for that day (config.streak.rewards, wrapped by loopAfter; currency defaults to
 	    Economy's primary currency) through the OPTIONAL Economy dependency
@@ -54,16 +55,17 @@ local function readState(player: any): StreakMath.State?
 	return { day = tonumber(s.day) or 0, lastDay = tonumber(s.lastDay) or 0 }
 end
 
--- Evaluates the streak at unix time `now`. Returns the new streak day when the day counted.
-local function evaluate(player: any, now: number): number?
+-- Evaluates the streak at unix time `now`. Returns the new streak day when the day counted, and
+-- whether the evaluation failed (the save wasn't loaded or the transaction didn't commit).
+local function evaluate(player: any, now: number): (number?, boolean)
 	local state = readState(player)
 	if state == nil then
-		return nil
+		return nil, true
 	end
 	local cfg = streakConfig()
 	local nextState, outcome = StreakMath.advance(state, now, cfg.graceHours, offsetHours())
 	if not StreakMath.counts(outcome) then
-		return nil
+		return nil, false
 	end
 	local day = nextState.day
 	local reward = StreakMath.rewardFor(day, cfg.rewards, cfg.loopAfter)
@@ -89,8 +91,12 @@ local function evaluate(player: any, now: number): number?
 			end
 		end
 	end)
-	if not ok or committed ~= true then
-		return nil
+	if not ok then
+		-- "already counted" means another evaluation did it: nothing left to retry
+		return nil, string.find(tostring(committed), "already counted", 1, true) == nil
+	end
+	if committed ~= true then
+		return nil, true
 	end
 	signals.StreakAdvanced:Fire(player, day)
 	-- (Economy's primary currency name isn't Streak's to read: a reward without `currency` shows
@@ -99,11 +105,15 @@ local function evaluate(player: any, now: number): number?
 	local text = if granted then `Day {day} streak! +{granted}{suffix}` else `Day {day} streak!`
 	pcall(ctx.net.feedback, player, "toast", text)
 	pcall(ctx.analytics.custom, player, "StreakDay", day)
-	return day
+	return day, false
 end
 
 -- players whose save is loaded in this server (no Players service: the module only sees ctx)
 local online: { [any]: boolean } = {}
+-- online players still to be evaluated for the current local day (filled when the day changes;
+-- a player leaves the set once an evaluation ran without failing)
+local due: { [any]: boolean } = {}
+local checkedDay: number? = nil
 
 local function targetPlayer(arg: any): any
 	local id = tonumber(arg)
@@ -152,18 +162,39 @@ function Streak.init(context: any)
 end
 
 function Streak.start(_context: any)
+	table.clear(due)
+	checkedDay = nil
 	ctx.data.onLoaded(function(player: any)
 		online[player] = true
-		evaluate(player, ctx.now())
+		local _, failed = evaluate(player, ctx.now())
+		if failed then
+			due[player] = true
+		end
 	end)
 	ctx.lifecycle.onPlayerRemoving(function(player: any)
 		online[player] = nil
+		due[player] = nil
 	end)
 	ctx.lifecycle.onTick(CHECK_INTERVAL, function()
 		local now = ctx.now()
-		for player in table.clone(online) do
+		local today = StreakMath.dayIndex(now, offsetHours())
+		if today ~= checkedDay then
+			checkedDay = today
+			for player in online do
+				due[player] = true
+			end
+		end
+		if next(due) == nil then
+			return -- nobody to evaluate until the day changes
+		end
+		for player in table.clone(due) do
 			if ctx.data.isLoaded(player) then
-				task.spawn(evaluate, player, now)
+				task.spawn(function()
+					local _, failed = evaluate(player, now)
+					if not failed then
+						due[player] = nil
+					end
+				end)
 			end
 		end
 	end)
