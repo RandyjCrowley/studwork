@@ -88,6 +88,20 @@ describe("Legacy reader: datastore", function()
 		local live = reader(store, { isStudio = false })
 		expect((live.read({ kind = "datastore", name = "S", key = "{userId}" }, 1))).toBe("error")
 	end)
+
+	it("an unpublished place in Studio (publish to access DataStore): unavailable, not a kick", function()
+		local store = {
+			get = function()
+				error("You must publish this place to the web to access DataStore.", 0)
+			end,
+			latestOrdered = function() end,
+		}
+		local r, waits = reader(store, { isStudio = true })
+		expect((r.read({ kind = "datastore", name = "S", key = "{userId}" }, 1))).toBe("unavailable")
+		expect(#waits).toBe(0)
+		local live = reader(store, { isStudio = false })
+		expect((live.read({ kind = "datastore", name = "S", key = "{userId}" }, 1))).toBe("error")
+	end)
 end)
 
 describe("Legacy reader: profileservice / profilestore", function()

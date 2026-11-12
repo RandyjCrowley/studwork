@@ -246,6 +246,9 @@ function Legacy.isNoAccessError(err: string): boolean
 		or string.find(e, "access to api services", 1, true) ~= nil
 		or string.find(e, "api services", 1, true) ~= nil and string.find(e, "studio", 1, true) ~= nil
 		or string.find(e, "api access", 1, true) ~= nil
+		-- an unpublished place (Studio, v1.6.0 Studio boot): "You must publish this place to the
+		-- web to access DataStore."
+		or string.find(e, "publish this place", 1, true) ~= nil
 end
 
 function Legacy.isSingleSource(spec: any): boolean
