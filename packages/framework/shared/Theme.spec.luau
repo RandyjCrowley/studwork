@@ -38,7 +38,7 @@ describe("Theme framework-default preset (golden: today's look)", function()
 			padding = 12,
 			strokeThickness = 2,
 			minTouchTarget = 44,
-			text = { small = 14, body = 18, title = 24, number = 28 },
+			text = { small = 14, body = 18, title = 24, number = 28, min = 9 },
 		})
 	end)
 

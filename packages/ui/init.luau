@@ -5,7 +5,7 @@
 
 	Components (React function components): Button, Panel, ItemCard, RarityBadge, Toast,
 	ToastHost, Modal, CurrencyCounter, OddsTable, AutoScale, ScaledRoot.
-	Pure helpers: Format, Odds, ToastQueue, Responsive, ThemeTokens, Screens, HudLayout. Theme.
+	Pure helpers: Format, Odds, OddsLayout, ToastQueue, Responsive, ThemeTokens, Screens, HudLayout. Theme.
 
 	Screens (module-api.md §13): UI.registerScreen(name, component) adds or replaces a screen;
 	UI.open(name, props?) / UI.close(name) / UI.isOpen(name). Default screens: Odds, Inventory,
@@ -20,6 +20,7 @@ UI.Theme = require(script.Theme)
 UI.ThemeTokens = require(script.ThemeTokens)
 UI.Format = require(script.Format)
 UI.Odds = require(script.Odds)
+UI.OddsLayout = require(script.OddsLayout)
 UI.ToastQueue = require(script.ToastQueue)
 UI.Responsive = require(script.Responsive)
 UI.Primitives = require(script.Primitives)

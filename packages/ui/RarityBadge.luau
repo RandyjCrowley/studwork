@@ -39,7 +39,7 @@ local function RarityBadge(props: Props)
 		Padding = e("UIPadding", { PaddingLeft = UDim.new(0, 8), PaddingRight = UDim.new(0, 8) }),
 		Fit = if props.size
 			then Primitives.textSize(
-				TextFit.fixedLabel(Theme.text.small).MinTextSize :: number,
+				TextFit.fixedLabel(Theme.text.small, Theme.text.min).MinTextSize :: number,
 				Theme.text.small
 			)
 			else nil,

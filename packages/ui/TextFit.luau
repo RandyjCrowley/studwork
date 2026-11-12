@@ -12,7 +12,7 @@
 	    whose MaxTextSize is the theme size, so the text renders at the theme size when it fits and
 	    shrinks (down to MIN_TEXT_SIZE) when it doesn't.
 
-	TextFit.fixedLabel(maxSize) -> { TextScaled = true, TextSize, MinTextSize, MaxTextSize }
+	TextFit.fixedLabel(maxSize, minSize?) -> { TextScaled = true, TextSize, MinTextSize, MaxTextSize }
 	TextFit.autoLabel(size)     -> { TextScaled = false, TextSize }   (unchanged from v1.2)
 	TextFit.buttonMinWidth(textWidth, opts) -> number   opts: { padding, iconWidth?, gap?, minWidth }
 ]]
@@ -29,11 +29,13 @@ export type LabelFit = {
 	MaxTextSize: number?,
 }
 
-function TextFit.fixedLabel(maxSize: number): LabelFit
+-- minSize: optional floor (the theme's text.min token); defaults to MIN_TEXT_SIZE.
+function TextFit.fixedLabel(maxSize: number, minSize: number?): LabelFit
+	local floor = if type(minSize) == "number" and minSize > 0 then minSize else TextFit.MIN_TEXT_SIZE
 	return {
 		TextScaled = true,
 		TextSize = maxSize,
-		MinTextSize = math.min(TextFit.MIN_TEXT_SIZE, maxSize),
+		MinTextSize = math.min(floor, maxSize),
 		MaxTextSize = maxSize,
 	}
 end
