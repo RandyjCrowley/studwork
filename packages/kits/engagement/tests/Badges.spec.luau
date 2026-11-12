@@ -269,6 +269,26 @@ describe("Badges: record, then send", function()
 		expect(h:use(Badges).has(p, "soon")).toBe(true)
 	end)
 
+	it("names every placeholder badge once at boot, as a log line (not a warning)", function()
+		local h = boot({
+			badges = {
+				badges = {
+					soon = { id = 0, trigger = MANUAL },
+					later = { id = 0, trigger = MANUAL },
+					real = { id = 5, trigger = MANUAL },
+				},
+			},
+		})
+		local n = 0
+		for _, l in h.logs do
+			if string.find(l.msg, "placeholder badges (id 0): later, soon:", 1, true) then
+				n += 1
+			end
+		end
+		expect(n).toBe(1)
+		expect(h:warnings()).toEqual({})
+	end)
+
 	it("Studio records in the Studio save and logs, but never sends (awardInStudio = false)", function()
 		local h, fake =
 			boot({ badges = { badges = { first = { id = 101, trigger = MANUAL } } }, isStudio = true })

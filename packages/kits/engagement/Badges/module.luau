@@ -56,7 +56,7 @@ return StudWork.defineModule({
 			ownershipCheck = true,
 			retry = { base = 5, factor = 2, max = 300, attempts = 6 },
 			budget = {
-				perMinute = { base = 50, perPlayer = 35 },
+				perMinute = { base = 40, perPlayer = 28 }, -- 80% of Roblox's limit: room for other callers
 				checksPerMinute = { base = 10, perPlayer = 5 },
 			},
 			infoCacheSeconds = 3600,

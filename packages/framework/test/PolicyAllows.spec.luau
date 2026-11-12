@@ -1,7 +1,8 @@
 --!nocheck
 --[[
-	v1.7.0 ctx.policy.allows(player, field) (module-api.md §23.8): any boolean PolicyService field,
-	an unknown field errors, fail closed until the join lookup succeeded, from that same lookup (no
+	v1.7.0 ctx.policy.allows(player, field) / restricted(player, field) (module-api.md §23.8): the
+	permission and the restriction PolicyService fields, each fail closed its own way; an unknown
+	field errors, fail closed until the join lookup succeeded, from that same lookup (no
 	extra request), and ctx.policy.isKnown tells the cases apart.
 ]]
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
@@ -46,7 +47,7 @@ describe("ctx.policy.allows", function()
 		expect(ctx.policy.allows(a, "AreAdsAllowed")).toBe(true)
 		expect(ctx.policy.allows(a, "IsPaidItemTradingAllowed")).toBe(false)
 		expect(ctx.policy.allows(b, "IsContentSharingAllowed")).toBe(false)
-		expect(ctx.policy.allows(b, "IsSubjectToChinaPolicies")).toBe(true)
+		expect(ctx.policy.restricted(b, "IsSubjectToChinaPolicies")).toBe(true) -- a restriction: its own call
 		-- a field the answer doesn't carry is false (fail closed)
 		expect(ctx.policy.allows(b, "IsEligibleToPurchaseSubscription")).toBe(false)
 		expect(ctx.policy.isKnown(a)).toBe(true)
@@ -85,6 +86,51 @@ describe("ctx.policy.allows", function()
 		h:console("policy restrict false 1")
 		expect(ctx.policy.paidRandomRestricted(a)).toBe(false)
 		expect(ctx.policy.allows(a, "IsContentSharingAllowed")).toBe(false)
+	end)
+end)
+
+describe("ctx.policy.restricted (M3: a restriction never reads as allowed while unknown)", function()
+	it("answers restriction fields, true until the lookup succeeded", function()
+		local h, ctx = boot({
+			policy = {
+				[1] = { IsSubjectToChinaPolicies = false, ArePaidRandomItemsRestricted = false },
+				[2] = { IsSubjectToChinaPolicies = true },
+				[3] = "fail",
+			},
+		})
+		local a = h:addPlayer({ userId = 1 })
+		local b = h:addPlayer({ userId = 2 })
+		local c = h:addPlayer({ userId = 3 })
+		expect(ctx.policy.restricted(a, "IsSubjectToChinaPolicies")).toBe(false)
+		expect(ctx.policy.restricted(a, "ArePaidRandomItemsRestricted")).toBe(false)
+		expect(ctx.policy.restricted(b, "IsSubjectToChinaPolicies")).toBe(true)
+		-- unknown: restricted (fail closed), for a failing lookup and for someone not in the game
+		expect(ctx.policy.restricted(c, "IsSubjectToChinaPolicies")).toBe(true)
+		expect(ctx.policy.restricted(c, "ArePaidRandomItemsRestricted")).toBe(true)
+		expect(ctx.policy.restricted({ UserId = 99 }, "IsSubjectToChinaPolicies")).toBe(true)
+	end)
+
+	it("each call refuses the other kind of field, naming the right one", function()
+		local h, ctx = boot({ policy = { [1] = { IsSubjectToChinaPolicies = false } } })
+		local a = h:addPlayer({ userId = 1 })
+		local ok, err = pcall(ctx.policy.allows, a, "IsSubjectToChinaPolicies")
+		expect(ok).toBe(false)
+		expect(tostring(err)).toContain("use ctx.policy.restricted")
+		ok, err = pcall(ctx.policy.allows, a, "ArePaidRandomItemsRestricted")
+		expect(ok).toBe(false)
+		ok, err = pcall(ctx.policy.restricted, a, "IsContentSharingAllowed")
+		expect(ok).toBe(false)
+		expect(tostring(err)).toContain("use ctx.policy.allows")
+		expect(pcall(ctx.policy.restricted, a, "NoSuchField")).toBe(false)
+	end)
+
+	it("follows the Studio override for ArePaidRandomItemsRestricted, like paidRandomRestricted", function()
+		local h, ctx = boot({ isStudio = true, policy = { [1] = { ArePaidRandomItemsRestricted = true } } })
+		local a = h:addPlayer({ userId = 1 })
+		expect(ctx.policy.restricted(a, "ArePaidRandomItemsRestricted")).toBe(true)
+		h:console("policy restrict false 1")
+		expect(ctx.policy.restricted(a, "ArePaidRandomItemsRestricted")).toBe(false)
+		expect(ctx.policy.paidRandomRestricted(a)).toBe(false)
 	end)
 end)
 

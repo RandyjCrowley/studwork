@@ -35,8 +35,18 @@
 	     any one server;
 	  4. the last complete bucket is read: servers, players (= CCU), the usage and peaks it
 	     carries. The day's peak is kept 9 days; peakPlayers is the highest of the last 8.
-	Steady cost: one update (2 units) + one get (1 unit) per server per interval, plus one update
-	per module that charged memory. A failed call is logged once a minute; the last reading stays.
+	Bucket shards: with more than SHARD_SERVERS servers (the last reading), every server updating
+	one bucket item would contend on one key, so the bucket is split into
+	K = ceil(servers / SHARD_SERVERS) shards (at most MAX_SHARDS). Shard 0 is `b/<i>/<bucket>` in
+	`SW/_/census`; shard k > 0 is `b/<i>/<bucket>/<k>` in the map `SW/_/census/<k>` (a function `map`
+	is called with that name, so each shard can be its own partition; a fixed backend holds them all).
+	Each server writes one shard (a random draw kept for its life, so a server stays put as K grows)
+	and reads every shard of the last bucket (the larger K of this cycle and the last one) and adds
+	them up.
+	Steady cost: one update (2 units) + one get per bucket shard (1 unit each) per server per
+	interval, plus one update per module that charged memory. A failed call is logged once a minute;
+	the last reading stays. The usage items `u/<Module>` are not sharded (their update returns the
+	module's experience-wide total): a live check in docs/manual-qa.md.
 ]]
 
 local StoreBudget = require(script.Parent.StoreBudget)
@@ -50,6 +60,16 @@ Census.PEAK_WINDOW_DAYS = 8
 Census.WARN_SECONDS = 60
 Census.MAX_EXPIRY = 3888000
 Census.USAGE_PREFIX = "u/"
+Census.SHARD_SERVERS = 500
+Census.MAX_SHARDS = 16
+
+-- bucket shards for a server count (1 up to SHARD_SERVERS servers)
+function Census.shardsFor(servers: number?): number
+	if type(servers) ~= "number" or servers ~= servers or servers <= Census.SHARD_SERVERS then
+		return 1
+	end
+	return math.clamp(math.ceil(servers / Census.SHARD_SERVERS), 1, Census.MAX_SHARDS)
+end
 
 local function dayKey(day: number): string
 	return "d" .. tostring(day)
@@ -85,6 +105,9 @@ function Census.new(opts: any): any
 	end
 	local mapSource = o.map
 	local map: any = nil
+	local shardMaps: { [number]: any } = {}
+	local draw: number = if type(o.shardDraw) == "number" then o.shardDraw else math.random()
+	local lastShards = 1
 	local c: any = {}
 	local reading: any = nil
 	local peaks: { [string]: number } = {}
@@ -99,6 +122,22 @@ function Census.new(opts: any): any
 			map = if type(mapSource) == "function" then mapSource() else mapSource
 		end
 		return map
+	end
+
+	-- bucket shard k's map and key (shard 0: the census map and the plain key)
+	local function shardOf(k: number, bucket: number): (any, string)
+		local key = `b/{interval}/{bucket}`
+		if k == 0 then
+			return backend(), key
+		end
+		local m = shardMaps[k]
+		if m == nil then
+			m = if type(mapSource) == "function"
+				then (mapSource(`{Census.MAP}/{k}`) or backend())
+				else mapSource
+			shardMaps[k] = m
+		end
+		return m, `{key}/{k}`
 	end
 
 	local function warn(what: string, err: any)
@@ -232,8 +271,12 @@ function Census.new(opts: any): any
 		local knownUsage = if budget ~= nil then budget.known() else {}
 		prunePeaks(today)
 		local myPeaks = table.clone(peaks)
+		local shards = Census.shardsFor(if reading then reading.servers else nil)
+		local readShards = math.max(shards, lastShards)
+		lastShards = shards
+		local writeMap, writeKey = shardOf(math.min(math.floor(draw * shards), shards - 1), bucket)
 		call("report", 2, function()
-			return backend().update(`b/{interval}/{bucket}`, function(old: any): any
+			return writeMap.update(writeKey, function(old: any): any
 				local value = if type(old) == "table" then old else {}
 				local u = if type(value.u) == "table" then value.u else {}
 				for moduleName, usage in knownUsage do
@@ -252,10 +295,31 @@ function Census.new(opts: any): any
 				}
 			end, Census.BUCKET_EXPIRY)
 		end)
-		local ok, last = call("read", 1, function()
-			return backend().get(`b/{interval}/{bucket - 1}`)
-		end)
-		if not ok or type(last) ~= "table" then
+		-- the last bucket, every shard added up (servers and players summed, usage newest, peaks max)
+		local last: any = nil
+		for k = 0, readShards - 1 do
+			local readMap, readKey = shardOf(k, bucket - 1)
+			local ok, part = call("read", 1, function()
+				return readMap.get(readKey)
+			end)
+			if not ok then
+				return -- a partial sum would undercount: the last reading stays
+			end
+			if type(part) == "table" then
+				last = last or { s = 0, p = 0, u = {}, pk = {} }
+				last.s += tonumber(part.s) or 0
+				last.p += tonumber(part.p) or 0
+				if type(part.u) == "table" then
+					for moduleName, usage in part.u do
+						if type(moduleName) == "string" and usageOf(usage) >= usageOf(last.u[moduleName]) then
+							last.u[moduleName] = usage
+						end
+					end
+				end
+				maxMerge(last.pk, part.pk)
+			end
+		end
+		if last == nil then
 			return
 		end
 		local servers = tonumber(last.s) or 0

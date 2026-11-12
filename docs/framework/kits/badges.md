@@ -21,11 +21,11 @@ waits for `BadgeService`.
 | Key | Default | Meaning |
 |---|---|---|
 | `flag` | none | a feature flag ([environments](environments.md)); while off, triggers are still recorded as pending but nothing is sent or checked; switching it on sends the queue. An undeclared flag is a boot error |
-| `badges` | `{}` | `{ [key] = { id = <badge id>, trigger = Trigger, toast = true } }`; `key` matches `^[%w_]{1,32}$`. `id = 0` is a placeholder: allowed, recorded as usual, never sent or checked, one warning per server (per key, logged the first time it would be sent, never at boot) |
+| `badges` | `{}` | `{ [key] = { id = <badge id>, trigger = Trigger, toast = true } }`; `key` matches `^[%w_]{1,32}$`. `id = 0` is a placeholder: allowed, recorded as usual, never sent or checked. Every placeholder is named in one log line at boot (`placeholder badges (id 0): <keys>: ...`; a log line, not a warning, so a game in development boots clean), and once more as a warning per server the first time it would be sent |
 | `awardInStudio` | `false` | in Studio, an award is recorded in the (Studio) save like live and logged (`would award ...`), but never sent: it stays pending. Studio saves are separate from live ones |
 | `ownershipCheck` | `true` | at join, check which configured badges the player already owns or has pending (batches of 10) and record those as awarded without sending |
 | `retry` | `{ base = 5, factor = 2, max = 300, attempts = 6 }` | backoff between send attempts; after `attempts` failures in a session the badge stays pending for the next session |
-| `budget.perMinute` | `{ base = 50, perPlayer = 35 }` | this server's award calls per minute (Roblox's `AwardBadgeAsync` limit is `50 + 35 x players`) |
+| `budget.perMinute` | `{ base = 40, perPlayer = 28 }` | this server's award calls per minute: 80% of Roblox's `AwardBadgeAsync` limit (`50 + 35 x players`), leaving room for any other code that awards through `ctx.services.get("BadgeService")` |
 | `budget.checksPerMinute` | `{ base = 10, perPlayer = 5 }` | ownership checks per minute (`CheckUserBadgesAsync`: `10 + 5 x players`) |
 | `infoCacheSeconds` | `3600` | how long a badge's info (`IsEnabled`, name) is cached per server |
 
@@ -125,7 +125,7 @@ state) and `StudWork.use(Badges).onAwarded(fn(key)) -> Connection` (the server-f
 | Over `budget.perMinute` | queued until the next minute |
 | Player leaves mid-queue | stays pending; queued again on their next join |
 | Studio (`awardInStudio = false`) | recorded in the Studio save, logged, never sent (stays pending); the join ownership check still reads |
-| Placeholder `id = 0` | recorded, never sent or checked, one warning per server |
+| Placeholder `id = 0` | recorded, never sent or checked; named in one log line at boot, then one warning per server on first use |
 
 ## Tests (mocked)
 

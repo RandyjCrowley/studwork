@@ -6,7 +6,12 @@
 
 	  { d = UTC day of the last counted send, c = sends counted that day, l = last send time,
 	    t = { [templateKey] = last send time }, q = { [key] = dueAt } (waiting entries),
-	    r = { by = server id, untilAt }? (a live reservation: one send in flight) }
+	    r = { by = server id, untilAt }? (a live reservation: one send in flight),
+	    o = the recipient's UTC offset in hours, when a server that had them online wrote the entry }
+
+	`o` is how quiet hours reach a recipient who is on no server: every ledger write made while the
+	recipient is online stamps it, and their `setUtcOffset` (and leaving) refresh an entry that exists.
+	No entry is created just to hold it (memory: see the page's "Quiet hours").
 
 	A send is counted (`commit`) only after Open Cloud accepted it; a `reserve` holds the recipient
 	while the request is in flight so two servers don't send to one player at once.
@@ -21,6 +26,7 @@ export type Entry = {
 	t: { [string]: number },
 	q: { [string]: number },
 	r: { by: string, untilAt: number }?,
+	o: number?,
 }
 
 export type Rules = { perDay: number, minGapSeconds: number, cooldownSeconds: number }
@@ -49,7 +55,7 @@ end
 
 -- A clean copy of whatever the map held (nil = a recipient never seen).
 function Ledger.normalize(old: any): Entry
-	local e: Entry = { d = 0, c = 0, l = 0, t = {}, q = {}, r = nil }
+	local e: Entry = { d = 0, c = 0, l = 0, t = {}, q = {}, r = nil, o = nil }
 	if type(old) ~= "table" then
 		return e
 	end
@@ -59,6 +65,10 @@ function Ledger.normalize(old: any): Entry
 	local r = old.r
 	if type(r) == "table" and type(r.by) == "string" and type(r.untilAt) == "number" then
 		e.r = { by = r.by, untilAt = r.untilAt }
+	end
+	local o = old.o
+	if type(o) == "number" and o == o and o >= -14 and o <= 14 then
+		e.o = o
 	end
 	return e
 end

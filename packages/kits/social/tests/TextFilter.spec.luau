@@ -213,6 +213,21 @@ describe("TextFilter: submissions and the re-display cache", function()
 		expect(count(fake, "FilterStringAsync")).toBe(4)
 	end)
 
+	it("a textFor cache miss counts against perPlayerPerMinute; a cache hit is free", function()
+		local h, fake = boot({ config = { perPlayerPerMinute = 2 } })
+		local a, b = join(h, 2)
+		local tf = h:use(TextFilter)
+		expect(tf.textFor(b, a, "never submitted 1", "public")).never.toBe(nil)
+		expect(tf.textFor(b, a, "never submitted 2", "public")).never.toBe(nil)
+		expect(tf.textFor(b, a, "never submitted 3", "public")).toBe(nil) -- over: nil, no filter call
+		expect(count(fake, "FilterStringAsync")).toBe(2)
+		expect(tf.textFor(b, a, "never submitted 1", "public")).never.toBe(nil) -- cached: free
+		expect(select(2, tf.filter(a, "4", "public"))).toBe("rate_limited") -- the same bucket
+		expect(count(fake, "FilterStringAsync")).toBe(2)
+		h:tick(60)
+		expect(tf.textFor(b, a, "never submitted 3", "public")).never.toBe(nil)
+	end)
+
 	it("content sharing off or unknown refuses public and friends; private still works", function()
 		local h, fake = boot({ policy = { [1] = { IsContentSharingAllowed = false }, [2] = "fail" } })
 		local a, b, c = join(h, 3)
@@ -310,6 +325,19 @@ describe("TextFilter: stored text", function()
 		h:addPlayer({ userId = 1 }) -- back in this server
 		expect(tf.shown(s, b)).toBe("my #######") -- re-filtered from the original
 		expect(count(fake, "FilterStringAsync")).toBe(before + 1)
+	end)
+
+	it("shownMaxDays defaults to 7: an away author's public string is shown for a week, no longer", function()
+		expect(TextFilter.config.defaults.shownMaxDays).toBe(7)
+		local h = boot()
+		local a, b = join(h, 2)
+		local tf = h:use(TextFilter)
+		local _, s = tf.store(a, "hello", "public")
+		h:removePlayer(a)
+		h.clock += 6 * 86400
+		expect(tf.shown(s, b)).never.toBe(nil)
+		h.clock += 2 * 86400
+		expect(tf.shown(s, b)).toBe(nil)
 	end)
 
 	it("shownMaxDays: away longer than that, a public record shows nil", function()

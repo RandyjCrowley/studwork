@@ -178,6 +178,26 @@ describe("Notifications: send", function()
 		end
 	end)
 
+	it("holds the player who caused a send to limits.perActorPerDay (their save, so any server)", function()
+		local h, api, oc = boot({ config = { limits = { perActorPerDay = 2 } } })
+		local actor = h:addPlayer({ userId = 50 })
+		expect(api.send(101, "plain", nil, actor)).toBe(true)
+		expect(api.schedule(102, "plain", NOON + HOUR, nil, nil, actor)).toBe(true)
+		local ok, reason = api.send(103, "plain", nil, actor)
+		expect(ok).toBe(false)
+		expect(reason).toBe("actor_limit")
+		expect(select(2, api.schedule(104, "plain", NOON + HOUR, nil, nil, actor))).toBe("actor_limit")
+		expect(#oc.requests).toBe(1)
+		expect(ledger(h, 103)).toBe(nil) -- the recipient's day isn't touched
+		expect(saved(h, actor).actorSends).toBe(2)
+		expect(api.send(103, "plain")).toBe(true) -- no actor: only the recipient's limits
+		h.clock = NOON + DAY
+		expect(api.send(105, "plain", nil, actor)).toBe(true) -- a new UTC day
+		local gone = h:addPlayer({ userId = 51 })
+		h:removePlayer(gone)
+		expect(select(2, api.send(106, "plain", nil, gone))).toBe("bad_params")
+	end)
+
 	it("refuses a recipient over the day limit, the gap and the template cooldown", function()
 		local h, api, oc = boot({ config = { limits = { perPlayerPerDay = 2, minGapHours = 1 } } })
 		expect(api.send(7, "plain")).toBe(true)
@@ -229,6 +249,18 @@ describe("Notifications: send", function()
 		expect(#dueKeys(h)).toBe(0)
 		expect(ledger(h, 9).q).toEqual({})
 		expect(ledger(h, 9).c).toBe(0)
+	end)
+
+	it("names every placeholder template once at boot, as a log line (not a warning)", function()
+		local h = boot()
+		local n = 0
+		for _, l in h.logs do
+			if string.find(l.msg, 'placeholder templates (messageId = ""): blank:', 1, true) then
+				n += 1
+			end
+		end
+		expect(n).toBe(1)
+		expect(h:warnings()).toEqual({})
 	end)
 
 	it("a placeholder still honours the recipient's limits", function()
@@ -453,6 +485,55 @@ describe("Notifications: quiet hours", function()
 		expect(h:sortedMap("Notifications", "due/0").entries()[1].sortKey).toBe(19001 * DAY + 8 * HOUR)
 	end)
 
+	it("an offline recipient keeps their quiet hours: the offset rides in their ledger entry", function()
+		-- 18:00 UTC is 13:00 at UTC-5: open for both
+		local h, api, oc = boot({ startTime = 19000 * DAY + 18 * HOUR })
+		local p = h:addPlayer({ userId = 7 })
+		h:action(p, Notifications, "setUtcOffset", -5)
+		expect(api.send(7, "plain")).toBe(true)
+		expect(#oc.requests).toBe(1)
+		expect(ledger(h, 7).o).toBe(-5)
+		h:removePlayer(p)
+		-- 09:00 UTC is 04:00 at UTC-5: open at UTC, quiet for the recipient, who is on no server
+		h.clock = 19001 * DAY + 9 * HOUR
+		local ok, reason = api.send(7, "sticky")
+		expect(ok).toBe(true)
+		expect(reason).toBe("scheduled")
+		expect(#oc.requests).toBe(1)
+		expect(h:sortedMap("Notifications", "due/0").entries()[1].sortKey).toBe(19001 * DAY + 13 * HOUR)
+		-- 01:00 UTC is 20:00 at UTC-5: quiet at UTC, open for the recipient
+		h.clock = 19002 * DAY + 1 * HOUR
+		expect(api.send(7, "plain")).toBe(true)
+		expect(#oc.requests).toBe(2)
+	end)
+
+	it("a due entry for an offline recipient uses the ledger's offset", function()
+		local h, api, oc = boot({ startTime = 19000 * DAY + 18 * HOUR })
+		local p = h:addPlayer({ userId = 7 })
+		h:action(p, Notifications, "setUtcOffset", -5)
+		expect(api.send(7, "plain")).toBe(true)
+		h:removePlayer(p)
+		expect(api.schedule(7, "sticky", 19001 * DAY + 9 * HOUR)).toBe(true) -- 04:00 local
+		local due = h:sortedMap("Notifications", "due/0").entries()[1]
+		expect(due.value.o).toBe(-5)
+		h.clock = 19001 * DAY + 9 * HOUR
+		poll(h, 31)
+		expect(#oc.requests).toBe(1) -- not sent at 04:00 local
+		expect(h:sortedMap("Notifications", "due/0").entries()[1].sortKey).toBe(19001 * DAY + 13 * HOUR)
+	end)
+
+	it("setUtcOffset refreshes an existing ledger entry and never creates one", function()
+		local h, api = boot({ startTime = 19000 * DAY + 18 * HOUR })
+		local p = h:addPlayer({ userId = 7 })
+		h:action(p, Notifications, "setUtcOffset", -5)
+		expect(ledger(h, 7)).toBe(nil) -- no entry just to hold an offset (memory)
+		expect(api.schedule(8, "plain", 19001 * DAY + 14 * HOUR)).toBe(true)
+		expect(ledger(h, 8).o).toBe(nil) -- written while 8 was on no server
+		local q = h:addPlayer({ userId = 8 })
+		h:action(q, Notifications, "setUtcOffset", 3)
+		expect(ledger(h, 8).o).toBe(3)
+	end)
+
 	it("setUtcOffset validates and rounds", function()
 		local h = boot()
 		local p = h:addPlayer({ userId = 7 })
@@ -466,6 +547,14 @@ describe("Notifications: quiet hours", function()
 end)
 
 describe("Notifications: scheduled sends", function()
+	it("the page's spec recipe: jump to the due time, then tick pollSeconds x shards + 1", function()
+		local h, api, oc = boot({ config = { schedule = { shards = 4 } } })
+		expect(api.schedule(7, "plain", h.clock + 6 * HOUR)).toBe(true)
+		h.clock += 6 * HOUR
+		h:tick(4 * 30 + 1)
+		expect(#oc.requests).toBe(1)
+	end)
+
 	it("one request when due, none before, the entry gone after, counted once", function()
 		local h, api, oc = boot()
 		expect(api.schedule(7, "eggReady", NOON + 1800, { pet = "Rex" })).toBe(true)

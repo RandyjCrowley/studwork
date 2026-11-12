@@ -26,10 +26,18 @@ environments = {
 The environment is decided once per process, the same way on both sides:
 
 1. `"studio"` when `RunService:IsStudio()` (any Studio session, including a Team Test).
-2. `"test"` when `game.PlaceId` is in `environments.test.placeIds`, or `game.GameId` (the
-   universe) is in `environments.test.universeIds` (so every place of the test experience, sub-places
-   included, is test).
-3. `"live"` otherwise: **an unknown place counts as live**, so a place nobody listed can never
+2. `"test"` when `game.PlaceId` is in `environments.test.placeIds`.
+3. `"live"` when `game.PlaceId` is in `environments.live.placeIds`.
+4. `"test"` when `game.GameId` (the universe) is in `environments.test.universeIds` **and**
+   `environments.live.universeIds` lists the live universe (so every place of the test experience,
+   sub-places included, is test). **The test universe must be its own experience.** It is trusted
+   only once the live universe is listed too, so it is known to be a different one (an id under
+   both is a boot error): a hand-written config that put the live universe under `test` and listed
+   no live universe would otherwise make every live server `"test"` and switch `testOnly` flags on in
+   live. Until then `test.universeIds` is ignored (those servers run as live, the safe side), with
+   one boot warning: `environments.test.universeIds is ignored until environments.live.universeIds
+   lists the live universe ...`. A test place inside the live experience is listed by place id.
+5. `"live"` otherwise: **an unknown place counts as live**, so a place nobody listed can never
    switch on test-only behaviour.
 
 `environments.live` (`placeIds`, `universeIds`) is optional. It is used for a boot **warning** when
@@ -44,7 +52,7 @@ header), and the template's Config sets `environments = require(script.Environme
 ids (0, negative, non-integers, strings) are left out. The test universe id is written to
 `test.universeIds` only when it differs from the live one: a test place inside the live experience
 (same universe, its own place) is told apart by its place id, and the universe id goes under `live`
-only. `tools/sync-projects` and its `--check` (part of `tools/lint`) fail when the test and live
+only. A test universe id is used only once the live one is filled in too (step 4 above). `tools/sync-projects` and its `--check` (part of `tools/lint`) fail when the test and live
 place ids in `deploy.json` are equal (that place would be both), and `--check` fails when the file
 is out of date or missing. Every game folder with a `deploy.json` and a `src/shared/Config` folder
 gets the file; after pasting real ids into `deploy.json`, run `tools/sync-projects` and commit both.
@@ -88,7 +96,10 @@ Names match `^[%a][%w_]{0,47}$`. Values are booleans only.
 
 **Hidden flags:** `ServerConfig.flags` (server-only config, never replicated) takes the same
 fields; its flags are server-only by definition (`serverOnly` is implied). A name declared in both
-`GameConfig.flags` and `ServerConfig.flags` is a boot error.
+`GameConfig.flags` and `ServerConfig.flags` is a boot error. **A flag whose name or values are
+secret (an unannounced feature, a kill switch you don't want players to see) goes in
+`ServerConfig.flags`**: `GameConfig` replicates to every client, so a `serverOnly` flag there still
+shows its definition, `live`/`default` values included.
 
 **Flags are for behaviour, not for trust.** A client-side flag value only changes what the client
 shows. Anything a flag gates that matters (a purchase, a reward, an action) must be checked on the
@@ -165,13 +176,16 @@ framework state and on every change.
 | Override has a wrong type | ignored, one warning per key |
 | Override would enable a `testOnly` flag in live | refused, warning, `FlagOverrideRefused` analytics |
 | Place not in `environments` | treated as live, one boot warning |
+| `test.universeIds` without `live.universeIds` | the test universe is ignored (its servers run as live), one boot warning |
 | An id in both `test` and `live` | boot error (and `sync-projects --check` fails for equal place ids in deploy.json) |
 | Experience config read fails at boot | flags use config values; retried after 5, 10, 20 ... s (at most `refreshSeconds` x 4); boot never waits |
 | A refresh fails | the last good values stay; the next `UpdateAvailable` or `Outdated` poll tries again |
 
 ## Tests (mocked)
 
-- `harness({ env = "test" | "live" | "studio", placeId = n })` picks the environment;
+- `harness({ env = "test" | "live" | "studio", placeId = n })` picks the environment (the harness
+  injects its platform; on a real server those `StudWork.start` options are ignored with a warning,
+  so a game can't start live as test);
   `StudWork.test.boot({ flags = ... })` returns the testOnly boot error.
 - `StudWork.test.fakes.configService({ values = { flag_newShop = true } })` as
   `harness({ services = { ConfigService = fake } })`: `fake.set(key, value)` then
@@ -181,8 +195,9 @@ framework state and on every change.
 - Specs: resolution order per environment; the boot error; an unknown place is live; override
   applied within `refreshSeconds`; a testOnly override refused in live and allowed in test;
   `serverOnly` not replicated and erroring on the client; `ServerConfig.flags` never replicated and
-  a name clash is a boot error; a test universe id makes a sub-place test; an overlapping id is a
-  boot error; client resolver equals server resolver for the same config; the generated
+  a name clash is a boot error; a test universe id makes a sub-place test; a live universe listed
+  under test (no live universe listed) still resolves live, testOnly off, with the warning; an
+  overlapping id is a boot error; client resolver equals server resolver for the same config; the generated
   `Environments.luau` from a `deploy.json`, and `--check` failing on equal test and live ids
   (tools spec).
 

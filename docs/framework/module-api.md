@@ -1119,14 +1119,23 @@ ctx.env                                              -- the same frozen table, s
 ```
 
 - `"studio"` when running in Studio; `"test"` when `game.PlaceId` is listed in
-  `environments.test.placeIds` or `game.GameId` in `environments.test.universeIds`; otherwise
-  `"live"` (an unlisted place is live, with a boot warning when `environments.live` is set and
-  doesn't list it either). **An id listed under both `test` and `live` is a boot error.**
+  `environments.test.placeIds`; `"live"` when it is in `environments.live.placeIds`; `"test"` when
+  `game.GameId` is in `environments.test.universeIds` and `environments.live.universeIds` lists the
+  live universe (a test universe is trusted only once it is known to differ from live; without a
+  live universe it is ignored with a boot warning, so a live universe listed under `test` can never
+  make live servers test); otherwise `"live"` (an unlisted place is live, with a boot warning when
+  `environments.live` is set and doesn't list it either). **An id listed under both `test` and
+  `live` is a boot error.**
 - `environments` is framework-level config (top level of `GameConfig`, §11). In a game it is
   generated from `deploy.json` into `src/shared/Config/Environments.luau` by `tools/sync-projects`
   (`--check` fails on drift, and when deploy.json's test and live ids are equal). Placeholder
   ids are left out; the test universe id is written only when it differs from the live one.
 - Replicated as `state.framework.env`.
+- The test options of the server's `StudWork.start(Config, ServerConfig, opts)` (`env`, `isStudio`,
+  `placeId`, `universeId`) count only with an injected platform (the harness, the sim). A game that
+  passes them on a real server gets one warning and the real environment, so a live server can't be
+  started as `"test"` or `"studio"`. (The client's options only shape what that client shows; it
+  follows the server's replicated `env` and flags.)
 
 ### 23.2 `StudWork.flags` and `ctx.flags`: feature flags (added in v1.7.0: features have to be switched per environment, and switched off live without a restart)
 
@@ -1278,13 +1287,19 @@ ctx.data.census() -> { servers: number, players: number, peakPlayers: number, at
   (reserved servers waiting for players) can push it higher: each costs `base`.
 - **The census:** every `censusSeconds` each server adds `{ servers = 1, players = n }` to the
   current time bucket of a framework-owned sorted map (`SW/_/census`, an atomic `update`, expiry
-  10 min) and reads the last complete bucket: `servers` and `players` (= CCU) for the whole
+  10 min) and reads the last complete bucket. Past 500 servers (the last reading) the bucket is
+  split so no one key takes every server's update: `ceil(servers / 500)` shards (at most 16), shard
+  `k > 0` in its own map `SW/_/census/<k>` (its own partition); each server writes one and reads them
+  all (one get each) and adds them up. The bucket gives `servers` and `players` (= CCU) for the whole
   experience, at most two buckets old. The day's peak player count is kept for 9 days, and
   `peakPlayers` is the highest of the last 8 days. Cost: about 3 request units per server per
   `censusSeconds` (an `update` counts as a read and a write; charged to the framework, not a
-  module, and counted but never refused), plus 2 for each module that had new memory charges that
-  cycle and one range read on a server's first cycle; one map partition takes about 10,000
-  servers at the default, more with a longer `censusSeconds`. `ctx.data.census()` gives modules the
+  module, and counted but never refused), plus one per extra bucket shard, plus 2 for each module
+  that had new memory charges that cycle and one range read on a server's first cycle. Each census
+  map takes about `servers x (1 + 2 / shards)` units a minute at the default (every server reads
+  every shard; a shard's writers are `servers / shards`): about 11,000 at 10,000 servers, under a
+  partition's limit of about 30,000. The usage items `u/<Module>` stay single keys (their update
+  answers the experience-wide total): a server updates one only in a cycle with new charges. `ctx.data.census()` gives modules the
   last reading, so they scale their cadences with the server count.
 - **MemoryStore memory:** the quota (`64 KB + 1.2 KB x users`) is experience-wide, and Roblox only
   lowers it 8 days after the users leave, so the framework estimates it as
@@ -1369,16 +1384,27 @@ ctx.openCloud.request({ secret = string, method = "GET" | "POST" | "PATCH" | "DE
   another module's secret, a wrong method and a hard-refused family are each refused with no
   request reaching the fake.
 
-### 23.8 `ctx.policy.allows(player, field)` (added in v1.7.0: TextFilter honours `IsContentSharingAllowed`)
+### 23.8 `ctx.policy.allows(player, field)` and `ctx.policy.restricted(player, field)` (added in v1.7.0: TextFilter honours `IsContentSharingAllowed`; a restriction field must never read as "allowed" while unknown)
 
 ```lua
-ctx.policy.allows(player, "IsContentSharingAllowed") -> boolean
+ctx.policy.allows(player, "IsContentSharingAllowed") -> boolean        -- permissions
+ctx.policy.restricted(player, "IsSubjectToChinaPolicies") -> boolean   -- restrictions
 ```
 
-- Any boolean field of `PolicyService:GetPolicyInfoForPlayerAsync` (the list is checked; an
-  unknown field errors). **Fail closed:** `false` until the lookup succeeds, from the same
-  lookup Policy already makes at join (no extra request). `ctx.policy.isKnown(player)` tells
-  the cases apart.
+- The boolean fields of `PolicyService:GetPolicyInfoForPlayerAsync`, in two kinds, each with its
+  own call so that "unknown" always reads as the safe answer:
+  - **permissions** (`true` = allowed): `IsContentSharingAllowed`, `AreAdsAllowed`,
+    `IsPaidItemTradingAllowed`, `IsEligibleToPurchaseSubscription`. `allows` is **fail closed**:
+    `false` until the lookup succeeds, and `false` unless the answer says `true`.
+  - **restrictions** (`true` = restricted): `ArePaidRandomItemsRestricted`,
+    `IsSubjectToChinaPolicies`. `restricted` is **fail closed** the other way: `true` until the
+    lookup succeeds, and `true` unless the answer says `false`.
+    `restricted(player, "ArePaidRandomItemsRestricted")` equals `paidRandomRestricted(player)`
+    (the Studio console override included).
+- Each call errors for the other kind (the message names the right call) and for an unknown field:
+  a `false` from `allows` on a restriction would read as "not restricted" while the lookup is
+  unknown. Both read the lookup Policy already makes at join (no extra request).
+  `ctx.policy.isKnown(player)` tells the cases apart.
 - Harness: `policy = { [userId] = { IsContentSharingAllowed = false, ... } }` (a table) next to the
   existing `true` / `"fail"` values.
 

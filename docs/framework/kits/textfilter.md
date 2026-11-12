@@ -40,9 +40,9 @@ to the server and shown back (even to the author alone) goes through `"private"`
 | `trim` | `true` | strip leading/trailing whitespace and collapse runs of spaces before filtering |
 | `cache.maxEntries` | `500` | cached **re-display** results per server (least recently used are dropped); a new submission is always filtered fresh |
 | `cache.seconds` | `600` | a cached re-display result is re-filtered after this long |
-| `perPlayerPerMinute` | `20` | submissions (`filter`, `store`) one author can make per minute (an over-limit call returns `"rate_limited"`); re-display calls are bounded by the cache instead |
+| `perPlayerPerMinute` | `20` | filter calls one author's text can cause per minute: every submission (`filter`, `store`; over the limit: `"rate_limited"`) and every `textFor` that misses the cache (over the limit: nil, so the caller shows the fallback). A `textFor` served from the cache costs nothing |
 | `originals.max` | `100` | originals kept per author in this module's save section; the oldest is dropped first (its records then show `shown` only, below) |
-| `shownMaxDays` | `30` | a `"public"` record's saved broadcast string is shown while the author is away for at most this many days after it was filtered; after that, nil until the author is in a server again |
+| `shownMaxDays` | `7` | a `"public"` record's saved broadcast string is shown while the author is away for at most this many days after it was filtered; after that, nil until the author is in a server again (a week: a string filtered under older rules is not shown for long) |
 | `fallbackKey` | `"TextFilter.hidden"` | the string key ([localization](localization.md)) callers show instead of text that can't be shown (English default: `"..."`) |
 | `respectContentSharing` | `true` | an author whose `PolicyService` `IsContentSharingAllowed` is false (or unknown) can't publish `"public"` or `"friends"` text (`"policy"`); `"private"` still works |
 
@@ -63,7 +63,9 @@ thread, never inside `ctx.tx`.
 - `textFor(viewer, author, text, context) -> string?`: re-display of text the author already
   submitted (filtered then): filters through the re-display cache and returns what `viewer` may
   see, or nil. A submission's result seeds the cache, so showing it right after costs no call.
-  **(contract)**
+  A cache miss is one `FilterStringAsync` and counts against the author's `perPlayerPerMinute`,
+  like a submission (over it: nil); so text a client sends straight to `textFor` is bounded the same
+  way. New player text still belongs in `filter` or `store`. **(contract)**
 - `store(author, text, context) -> (ok, Stored | reason)`: a submission that is kept: filters,
   saves the original in **this module's** section of the author's save (`originals[id]`, never
   replicated), and returns `Stored = { id, author, context, at, shown? }`. `shown` is the broadcast
@@ -115,8 +117,12 @@ Callers keep `Stored` records in their own sections. The in-memory re-display ca
 Best-effort, in game code, examples and kits (server files): it flags player text that reaches a
 player (or a store other players read) without passing TextFilter.
 
-- **Sources:** parameters of an action handler (`actions = { x = function(player, a, b)` or
-  `handler = function(player, ...)`) annotated `string` or unannotated.
+- **Sources:** every parameter of an action handler after the player, `...` included, unless it is
+  annotated with only `number`/`boolean` types: a value from the wire is untrusted whatever else it
+  is annotated (`string`, `any`, `unknown`, a table type). Handlers: `handler = ...`, an entry of an
+  `actions = { ... }` table, or `actions.<name> = ...`, where the value is an inline function or the
+  name of a function defined in the same file (`local function onRename(player, name)` then
+  `handler = onRename`).
 - **Filter records:** the values `filter` and `store` return (`Filtered`, `Stored`) are their own
   class: passing the **whole** value to a sink is a finding (use `result.public`,
   `result.forViewer(...)` or `TextFilter.shown(stored)`), so the display rules (viewer, age) apply.
@@ -127,13 +133,17 @@ player (or a store other players read) without passing TextFilter.
   from `ctx.data.sortedMap(...)` / `ctx.data.ordered(...)` (`set`, `update`, `increment`, directly or
   through a local assigned from one); `Notifications` `send`/`schedule` params; any `.Text =`,
   `.Name =`, `:SetAttribute(` or a `Text`/`Name` prop in an `Instance.new` table.
+- **Clean values:** only what a TextFilter call returns (`result.public`, `result.forViewer(...)`,
+  `textFor(...)`, `shown(...)`); those are new names that carry no taint. Passing a name to
+  `filter`, `textFor` or `store` never clears it: filtering the text and then sending the original
+  anyway is exactly the mistake this check exists for.
 - **Finding:** a sink whose arguments mention a source identifier directly (or a local assigned
   from one by plain assignment, `..`, `string.sub`/`format`/`lower`/`upper`) in the same function,
-  when that identifier hasn't been passed to a TextFilter call (`filter`, `textFor`, `store`) on an
-  earlier line of the function; or a sink given a whole filter record. Messages:
+  before or after any TextFilter call; or a sink given a whole filter record. Messages:
   `player text '<name>' reaches <sink> without TextFilter (docs/framework/kits/textfilter.md)` and
   `filter record '<name>' reaches <sink> whole: pass TextFilter.shown(...) or .public (docs/framework/kits/textfilter.md)`.
-- **Limits:** it follows names only within one function and one file; text that travels through
+- **Limits:** it follows names only within one function and one file (a handler that hands the
+  text to another function, or a handler defined in another file, isn't followed); text that travels through
   tables, other modules or saves isn't followed (the author's own save isn't a sink: it never
   holds another player's text unless a later read sends it on, which a sink in that code catches).
   `-- guard: allow textfilter` at the end of the sink's line, with a reason on the line above, for
@@ -141,9 +151,12 @@ player (or a store other players read) without passing TextFilter.
 - **Self-test** plants (each must fail): an action param into `replicate.setAll`, into `.Text =`,
   through a `..` concatenation into `fireAll`, back to the handler's own player with
   `ctx.net.fire(player, ...)`, into `ctx.replicate.set(other, ...)`, into `ctx.data.shared.update`,
-  into a sorted map `set`, into `Notifications` `send` params, and a whole `Stored` record into
-  `setAll("sign", stored)`. Must pass: the same flows after `store(...)` with
-  `TextFilter.shown(stored)`, after `textFor(...)`, and a guarded non-text param.
+  into a sorted map `set`, into `Notifications` `send` params, a whole `Stored` record into
+  `setAll("sign", stored)`, the original sent after `filter` (`"public"` into `setAll`, `"private"`
+  into `fireAll`) and after `store`, a named local handler, a `local f = function` actions entry,
+  `actions.x = f`, and params typed `any`, a table, a union with `string`, and `...`. Must pass: the
+  same flows after `store(...)` with `TextFilter.shown(stored)`, after `textFor(...)`, a named
+  handler that sends only `r.public`, `number`/`boolean` params, and a guarded non-text param.
 
 ## Override levels
 

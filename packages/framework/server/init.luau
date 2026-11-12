@@ -232,10 +232,19 @@ function Server.start(gameConfig: any, serverConfig: any?, opts: any?): any
 		logSink("warn", msg)
 	end
 	local platform = o.platform or (if o.bindPlatform == false then Platform.inert() else Platform.live())
+	-- (v1.7.0, §23.1) env, isStudio, placeId and universeId options are for tests: they count only
+	-- with an injected platform (the harness), so a game can't start a live server as "test" or
+	-- "studio" and switch testOnly flags on
+	local envOpts: any, ignoredEnvOpts = Env.testOptions(o, o.platform ~= nil or o.bindPlatform == false)
+	if ignoredEnvOpts then
+		warnLog(
+			"[StudWork] StudWork.start: opts.env / isStudio / placeId / universeId are for tests (an injected platform) and are ignored"
+		)
+	end
 	local envInfo = {
-		isStudio = if o.isStudio ~= nil then o.isStudio else platform.isStudio == true,
-		placeId = o.placeId or platform.placeId or 0,
-		universeId = o.universeId or platform.universeId or 0,
+		isStudio = if envOpts.isStudio ~= nil then envOpts.isStudio else platform.isStudio == true,
+		placeId = envOpts.placeId or platform.placeId or 0,
+		universeId = envOpts.universeId or platform.universeId or 0,
 	}
 	local enabled: { [any]: boolean } = {}
 	local byName: { [string]: any } = {}
@@ -573,12 +582,12 @@ function Server.start(gameConfig: any, serverConfig: any?, opts: any?): any
 
 		-- 3. framework init
 		rt.phase = "framework-init"
-		rt.isStudio = if o.isStudio ~= nil then o.isStudio else platform.isStudio
+		rt.isStudio = if envOpts.isStudio ~= nil then envOpts.isStudio else platform.isStudio
 		local now = o.now or platform.now
 		rt.now = now
 		-- (v1.7.0, §23) environment, flags, store budgets, census, the ordered / sorted-map layers,
 		-- services, Open Cloud and strings: all inert until a game or module uses them
-		rt.env = Env.build(gameConfig.environments, envInfo, o.env)
+		rt.env = Env.build(gameConfig.environments, envInfo, envOpts.env)
 		rt.flagsState = Flags.new({
 			flags = gameConfig.flags,
 			serverFlags = if type(serverConfig) == "table" then serverConfig.flags else nil,
@@ -598,8 +607,9 @@ function Server.start(gameConfig: any, serverConfig: any?, opts: any?): any
 		})
 		rt.census = Census.new({
 			fixed = o.census,
-			map = function()
-				return platform.stores.sortedMap(Census.MAP)
+			map = function(name: string?)
+				-- (bucket shards past Census.SHARD_SERVERS servers each get their own map: partition)
+				return platform.stores.sortedMap(name or Census.MAP)
 			end,
 			budget = rt.storeBudget,
 			players = playerCount,

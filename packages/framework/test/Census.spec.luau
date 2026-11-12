@@ -245,3 +245,109 @@ describe("census: peaks and memory usage", function()
 		expect(w.map.get("u/M").h[StoreBudget.hourKey(w.t - 120 + 3600)]).toBe(100)
 	end)
 end)
+
+describe("census bucket shards (M5: no single bucket key every server updates)", function()
+	it("shardsFor: one shard up to SHARD_SERVERS servers, then one per SHARD_SERVERS, capped", function()
+		expect(Census.shardsFor(nil)).toBe(1)
+		expect(Census.shardsFor(Census.SHARD_SERVERS)).toBe(1)
+		expect(Census.shardsFor(Census.SHARD_SERVERS + 1)).toBe(2)
+		expect(Census.shardsFor(Census.SHARD_SERVERS * 3)).toBe(3)
+		expect(Census.shardsFor(10 ^ 7)).toBe(Census.MAX_SHARDS)
+	end)
+
+	it("many servers spread over the shard maps and still count every server and player", function()
+		local w = world()
+		local maps = {}
+		local function factory(name)
+			name = name or Census.MAP
+			if maps[name] == nil then
+				maps[name] = if name == Census.MAP
+					then w.map
+					else PlatformStores.memorySortedMap({ clock = w.clock })
+			end
+			return maps[name]
+		end
+		local n = 1200
+		local nodes = {}
+		for i = 1, n do
+			nodes[i] = Census.new({
+				map = factory,
+				players = function()
+					return 2
+				end,
+				now = w.clock,
+				shardDraw = (i - 0.5) / n,
+			})
+		end
+		local function round()
+			for _, c in nodes do
+				c.cycle()
+			end
+			w.t += 60
+		end
+		round() -- bucket 0: nobody has a reading yet, one key
+		round() -- bucket 1: still one key; everyone reads bucket 0 (1,200 servers)
+		round() -- bucket 2: 3 shards, each in its own map
+		round() -- bucket 3: reads the 3 shards of bucket 2
+		local bucket = math.floor((w.t - 120) / 60) -- bucket 2
+		local most = 0
+		for k = 0, 2 do
+			local m = if k == 0 then w.map else maps[`{Census.MAP}/{k}`]
+			expect(m).never.toBe(nil)
+			local key = if k == 0 then `b/60/{bucket}` else `b/60/{bucket}/{k}`
+			local v = m.get(key)
+			expect(v).never.toBe(nil)
+			most = math.max(most, v.s)
+		end
+		expect(most <= Census.SHARD_SERVERS).toBe(true) -- no key took every server's update
+		local reading = nodes[1].get()
+		expect(reading.servers).toBe(n)
+		expect(reading.players).toBe(2 * n)
+	end)
+
+	it("a fixed backend (no factory) keeps every shard in one map, under its own key", function()
+		local w = world()
+		local nodes = {}
+		for i = 1, 1000 + 1 do
+			nodes[i] = Census.new({ map = w.map, now = w.clock, shardDraw = (i - 0.5) / 1001 })
+		end
+		for _ = 1, 4 do
+			for _, c in nodes do
+				c.cycle()
+			end
+			w.t += 60
+		end
+		local bucket = math.floor((w.t - 120) / 60)
+		expect(w.map.get(`b/60/{bucket}/1`)).never.toBe(nil)
+		expect(nodes[1].get().servers).toBe(1001)
+	end)
+
+	it("a failed shard read keeps the last reading (no partial, undercounted sum)", function()
+		local w = world()
+		local broken = false
+		local map = setmetatable({
+			get = function(key)
+				if broken and string.find(key, "/1$") then
+					error("InternalError", 0)
+				end
+				return w.map.get(key)
+			end,
+		}, { __index = w.map })
+		local nodes = {}
+		for i = 1, 600 do
+			nodes[i] = Census.new({ map = map, now = w.clock, shardDraw = (i - 0.5) / 600 })
+		end
+		for _ = 1, 3 do
+			for _, c in nodes do
+				c.cycle()
+			end
+			w.t += 60
+		end
+		expect(nodes[1].get().servers).toBe(600)
+		broken = true
+		for _, c in nodes do
+			c.cycle()
+		end
+		expect(nodes[1].get().servers).toBe(600) -- unchanged, not the shard-0 half
+	end)
+end)

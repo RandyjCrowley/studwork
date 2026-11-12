@@ -5,6 +5,8 @@
 	Experience notifications that bring players back: an opt-in prompt at a good moment (never on
 	join), templates in config, sends triggered by game events and a due list for future sends.
 	  api: send, schedule, cancel, suggestOptIn, signals Sent / OptInPrompted / LaunchedFrom
+	  (send/schedule take an optional `actor`: the player whose action caused the send, held to
+	  limits.perActorPerDay in their own save, so one player can't spend everyone's daily send)
 	  actions (net.blink): optInShown(requestId, shown), setUtcOffset(hours)
 	The sending, due list and ledger are ./Engine.luau (keyed by userId, so offline recipients work),
 	the pure rules ./Templates, ./Ledger, ./Quiet, ./Sender, ./OptInRules (all required by the engine except OptInRules). Save section "notifications".
@@ -150,6 +152,11 @@ function Server.new(): any
 		ctx.data.update(player, function(sec: any)
 			sec.utcOffset = rounded
 		end)
+		-- an existing ledger entry carries it to servers this player isn't on (their quiet hours)
+		local userId: number = player.UserId
+		if engine.enabled() then
+			task.spawn(engine.noteOffset, userId, rounded)
+		end
 	end
 
 	--------------------------------------------------------------------------
@@ -227,6 +234,12 @@ function Server.new(): any
 
 	local function onRemoving(player: any)
 		pcall(scheduleStreakReminder, player)
+		-- an entry another server wrote while this player was here has no offset yet: give it theirs
+		local offset = offsetOf(player.UserId)
+		if offset ~= nil and engine.enabled() then
+			local userId: number = player.UserId
+			task.spawn(engine.noteOffset, userId, offset)
+		end
 		online[player.UserId] = nil
 		joinedAt[player] = nil
 		promptedThisSession[player] = nil
@@ -261,14 +274,52 @@ function Server.new(): any
 		return tpl, clean, nil
 	end
 
+	-- The actor's sends today (UTC), from their save. nil actor: no actor limit. Not loaded: refused.
+	local function actorAllowed(actor: any): (boolean, string?)
+		if actor == nil then
+			return true, nil
+		end
+		if type(actor) ~= "table" and type(actor) ~= "userdata" or not ctx.data.isLoaded(actor) then
+			return false, "bad_params"
+		end
+		local s = ctx.data.get(actor)
+		local today = ctx.now() // DAY
+		local count = if tonumber(s.actorDay) == today then tonumber(s.actorSends) or 0 else 0
+		if count >= ctx.config.limits.perActorPerDay then
+			return false, "actor_limit"
+		end
+		return true, nil
+	end
+
+	local function countActor(actor: any)
+		if actor == nil or not ctx.data.isLoaded(actor) then
+			return
+		end
+		local today = ctx.now() // DAY
+		ctx.data.update(actor, function(sec: any)
+			if tonumber(sec.actorDay) ~= today then
+				sec.actorDay, sec.actorSends = today, 0
+			end
+			sec.actorSends = (tonumber(sec.actorSends) or 0) + 1
+		end)
+	end
+
 	local api: any = {}
 
-	function api.send(userId: number, templateKey: string, params: any?): (boolean, string?)
+	function api.send(userId: number, templateKey: string, params: any?, actor: any?): (boolean, string?)
 		local tpl, clean, why = lookup(userId, templateKey, params)
 		if tpl == nil or clean == nil then
 			return false, why
 		end
-		return engine.send(userId, tpl, clean, nil)
+		local allowed, limit = actorAllowed(actor)
+		if not allowed then
+			return false, limit
+		end
+		local ok, reason = engine.send(userId, tpl, clean, nil)
+		if ok then
+			countActor(actor)
+		end
+		return ok, reason
 	end
 
 	function api.schedule(
@@ -276,11 +327,16 @@ function Server.new(): any
 		templateKey: string,
 		at: number,
 		params: any?,
-		key: string?
+		key: string?,
+		actor: any?
 	): (boolean, string?)
 		local tpl, clean, why = lookup(userId, templateKey, params)
 		if tpl == nil or clean == nil then
 			return false, why
+		end
+		local allowed, limit = actorAllowed(actor)
+		if not allowed then
+			return false, limit
 		end
 		if type(at) ~= "number" or at ~= at then
 			return false, "bad_params"
@@ -289,6 +345,9 @@ function Server.new(): any
 			return false, "bad_params"
 		end
 		local ok, reason = engine.schedule(userId, tpl, at, clean, key, nil)
+		if ok then
+			countActor(actor)
+		end
 		if ok and tpl.promptOnSchedule and online[userId] ~= nil then
 			requestPrompt(online[userId], false)
 		end
@@ -330,6 +389,19 @@ function Server.new(): any
 		templates, errors = Templates.all(ctx.config.templates)
 		for _, message in errors do
 			ctx.log.warn(message .. ": the template is ignored")
+		end
+		-- placeholders are allowed (nothing is sent), but named once at boot so none ships by mistake
+		local placeholders: { string } = {}
+		for key, tpl in templates do
+			if tpl.placeholder then
+				table.insert(placeholders, key)
+			end
+		end
+		if #placeholders > 0 then
+			table.sort(placeholders)
+			ctx.log.info(
+				`placeholder templates (messageId = ""): {table.concat(placeholders, ", ")}: limited and scheduled as usual, never sent; set each messageId (Creator Dashboard > Engagement > Notifications) before publishing`
+			)
 		end
 		signals.Sent = ctx.signals.new("Sent")
 		signals.OptInPrompted = ctx.signals.new("OptInPrompted")

@@ -196,4 +196,8 @@ and a key from the game owner (`docs/framework/kits/notifications.md`, "Setup").
 12. **Store limits under load.**
     With several servers running, watch the Output for `budget`, `throttled` and `memory_budget`
     answers from the ordered and MemoryStore calls; confirm the census reading (`servers`, `players`)
-    matches the dashboard and that player saves are never delayed.
+    matches the dashboard and that player saves are never delayed. At scale (hundreds of servers),
+    watch the MemoryStore observability dashboard for `DataUpdateConflict` and
+    `PartitionRequestsOverLimit` on `SW/_/census` and its shard maps `SW/_/census/<k>` (past 500
+    servers the census bucket is split, module-api §23.5) and on the usage items `u/<Module>`,
+    which are not split.
