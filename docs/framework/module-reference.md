@@ -278,6 +278,11 @@ end
   later. Side effects go in `tx.after`.
 - `tx.paid` is set by the framework. Items granted in a purchase get a `paid:` source tag
   automatically.
+- `ctx.shop.ownsPass(player, pass)` never yields for a loaded player: every `products.passes`
+  entry is looked up at join, before the save loads (v1.6.0). Inside a transaction (a `capBonus`,
+  a `rateFactor`, a roll) a pass that was never looked up errors (`ctx.shop.ownsPass yields: call
+  it outside a transaction`) instead of yielding; a lookup that failed at join reads as not owned
+  there.
 
 ## Random outcomes: Compliance
 

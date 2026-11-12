@@ -389,13 +389,7 @@ awk '/^-- local moduleCtx/{f=1} f{sub(/^-- ?/,"")} f && /^}$/{f=0} {sub(/^\t-- m
 	"$SRV" >"$SRV.new" && mv "$SRV.new" "$SRV"
 SPEC="$G/modules/legacy-example-a/module.spec.luau"
 awk '/^\t-- it\("claimReward/{f=1} f{sub(/^\t-- ?/,"\t")} f && /^\tend\)$/{f=0} {print}' "$SPEC" >"$SPEC.new" && mv "$SPEC.new" "$SPEC"
-# (v1.6.0 dogfood r4) the example calls the sim's server:action(player, module, action, ...)
-# -> (ok, result); a StudWork without it (before that sim call existed) runs the same assertions
-# through server.runtime.action(player, ref, action), which returns the same (ok, result)
-if ! grep -q '^function Server\.action' "$CORE_ROOT/packages/framework/test/sim/Server.luau"; then
-	sed -i.bak 's/server:action(player, "LegacyExampleA", "claimReward")/server.runtime.action(player, server:ref("LegacyExampleA"), "claimReward")/' \
-		"$SPEC" && rm -f "$SPEC.bak"
-fi
+# (v1.6.0 dogfood r4) the example calls the sim's server:action(player, module, action, ...) -> (ok, result)
 check "the action example asserts (ok, result), not err == nil" sh -c \
 	"grep -q 'local ok, result = server' '$SPEC' && ! grep -q 'expect(err)' '$SPEC' && ! grep -q 'typeof(player)' '$SPEC'"
 TAB="$(printf '\t')"

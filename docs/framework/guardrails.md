@@ -173,6 +173,8 @@ files with the checks they may still break and why:
   selene/StyLua for it, `tools/typecheck` prints its problems as `warning: [legacy] ...`, and its
   baseline entry is `{}` (nothing counted). A style-only entry never gets "nothing legacy left";
   delete the file when its job moved. Like every entry, it can't be added after the adoption commit.
+- A `legacyBaseline` entry for a deleted file is ignored (the baseline can't change after the
+  first commit).
 - **Counts are per statement:** a re-wrap (StyLua splitting a call over lines) can't raise a
   listed file's count.
 - **Never downgraded:** a `ProcessReceipt` assignment, `special` and `packages` fail in a listed

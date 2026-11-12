@@ -429,6 +429,9 @@ For **every** product in the report's `purchases.products`:
 
 **Old receipts must not grant twice:**
 
+The audit's `historyIn` (per product handler) says where its history is: `"save"` (field
+`historyField`) or `"store"`; `null` = none.
+
 - If the old save kept PurchaseIds, return them from `importLegacy`'s `receipts` (step 5).
 - If the old game kept a **separate history store** (the report shows a `processReceipt` with
   `historyCheck = true` and a store keyed by user and purchase id), register it once in `init`
@@ -509,8 +512,12 @@ pushed state to clients usually become replicated section fields (`data.replicat
 
 **Testing an action:** `modules/<gameId>/module.spec.luau` has a commented example (boot the
 game in the sim, join a player, call an action, read the save). Uncomment and adapt it for each
-ported remote. Sim players are plain tables: guard code that calls `player:FindFirstChild` or
-parents an `Instance.new(...)` to the player (leaderstats) with `typeof(player) == "Instance"`.
+ported remote: `local ok, result = server:action(player, "<GameModule>", "<action>", ...)`, where
+`ok` is true when the handler ran (`result` = its return value), false with a reason (`"left"`,
+`"not_loaded"`, `"rate_limited"` or the handler's error). Sim players support what the leaderstats
+recipe uses (`FindFirstChild`, `WaitForChild`, `Instance.new("Folder" | "IntValue" | "NumberValue"
+| "StringValue" | "BoolValue")` parented to the player), so that code needs no guard. They have no
+`Character` (nil): code that reads the character must handle nil.
 
 A remote that passes a client argument into a grant or save write is the audit's high risk
 `client_value_trusted`: compute that value on the server in the action.
@@ -665,7 +672,7 @@ again: the module's `merge` runs, and without a `merge` those players can't join
 | boot error *"legacy product CoinPack writes the old save, but <id> imports it (importLegacy); migrate CoinPack to ctx.shop.onProduct first"* | a `writesLegacyData = true` bridge plus an import | port the product to `onProduct` (step 6) |
 | boot error: a product has both `onProduct` and `onLegacyProduct` | one handler per product | remove the bridge |
 | boot warning naming a product | an `onLegacyProduct` is left | port it; verify won't pass while it's there |
-| kick *"We couldn't bring over your save from the previous version yet. Nothing was lost. Please rejoin in a minute."* | the import failed (`LegacyImportFailed` with `read_error`, `busy`, `import_error`, `lost_session` or `merge_missing`) | in tests, read the logged reason: `import_error` = your `import` errored (often `old.x` is nil: use `or`), `merge_missing` = add a `merge` |
+| kick *"We couldn't bring over your save from the previous version yet. Nothing was lost. Please rejoin in a minute."* | the import failed (`LegacyImportFailed` with `read_error`, `busy`, `import_error`, `lost_session` or `merge_missing`) | `tools/test-migration` prints the reason, the import's Lua error and every print/warn of the join under each failed check: `import_error` = your `import` errored (often `old.x` is nil: use `or`), `merge_missing` = add a `merge` |
 | `legacy import: <Module>.<fn> refused (<value>)` | a kit's txApi call returned `nil`/`false` in the import (unknown item id, unknown currency) | add the missing item/currency to config, or map the field elsewhere |
 | *"ctx.compliance: no rolls or paid spends inside a legacy import"* | `import` rolls or spends | an import copies; grant the old result directly |
 | test-migration names an old field | that leaf is in neither `expect` nor `dropped` | add it to the save map and the import, or to `dropped` with a reason |
