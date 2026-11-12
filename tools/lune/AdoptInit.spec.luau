@@ -28,6 +28,17 @@ local LEGACY_PROJECT = [[
 }
 ]]
 
+describe("AdoptInit client boot", function()
+	it("waits for initial replication before requiring framework descendants", function()
+		local src = fs.readFile("templates/adopt/boot/client/Main.client.luau")
+		local waitAt = string.find(src, "game.Loaded:Wait()", 1, true)
+		local requireAt = string.find(src, "local StudWork = require", 1, true)
+		expect(waitAt).never.toBeNil()
+		expect(requireAt).never.toBeNil()
+		expect(waitAt < requireAt).toBe(true)
+	end)
+end)
+
 describe("AdoptInit.parseArgs", function()
 	it("defaults: id from the folder, the public url, install on, no dry run", function()
 		local opts = parse({ "../games/legacy-example-a/" })

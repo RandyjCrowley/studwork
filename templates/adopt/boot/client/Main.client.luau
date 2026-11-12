@@ -7,6 +7,12 @@
 
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
+-- ReplicatedFirst runs before the initial ReplicatedStorage tree is complete. The
+-- Framework ModuleScript can arrive before its children (Resolve, Types, and friends).
+if not game:IsLoaded() then
+	game.Loaded:Wait()
+end
+
 local StudWork = require(ReplicatedStorage:WaitForChild("Framework"))
 local Config = require(ReplicatedStorage:WaitForChild("Game"):WaitForChild("Config"))
 

@@ -47,7 +47,8 @@ The design behind every tool and API named here is [docs/framework/adopting.md](
 - deleting a feature of the game (as opposed to porting it).
 
 Everything else you decide yourself, with the rules on this page. Write each decision down as you
-go (keep a `MIGRATION_NOTES.md` in `<game>`; it becomes your report).
+go (keep a `MIGRATION_NOTES.md` in `<game>`; it becomes your report). Create it now, before
+step 1; update it after every step rather than reconstructing decisions at the end.
 
 **Check:** you know `<studwork>` and `<game>`, and `<studwork>/tools/adopt` exists.
 
@@ -206,6 +207,13 @@ published (a local path in `.gitmodules` must not be shared). It never overwrite
 existing project entry; a name clash stops it with a message naming the entry (rename the old
 entry in `default.project.json`, commit, run again).
 
+Then inspect the merged `default.project.json`: init keeps existing mappings. An old mapping of
+`src/shared` also contains the newly created `src/shared/Config`, so Config may temporarily appear
+in two places. Keep the old mapping only while unported scripts need it, then remove it in step 9;
+`ReplicatedStorage.Game.Config` is the canonical new location. Also inspect explicit `$className`
+`RemoteEvent` / `RemoteFunction` nodes: an empty old remote is still an instance even after its
+handler file is gone, and static script audit cannot prove that node was removed.
+
 Then, in `<game>`:
 
 ```sh
@@ -262,6 +270,19 @@ Rules:
    numbers in the GameConfig's `config.<Kit>`, the game's own in a new
    `src/shared/Config/Balance.luau` (a ModuleScript returning a frozen table; the game module
    requires it from `ReplicatedStorage.Game.Config.Balance`).
+6. **References to old item uids need an explicit plan.** Inventory generates new uids. Either
+   record `old uid -> new uid` using the value returned by `Inventory.add`, and rewrite equipped
+   lists in the same import, or preserve each old uid as `opts.meta.legacyUid` and resolve that key
+   to an owned inventory item in game actions. Never trust an arbitrary client key. Test both the
+   inventory contents and equipped references in a sim spec; `test-migration`'s simple equality
+   targets cannot express an arbitrary uid transformation. Keeping the old key in the game section
+   lets the fixture compare that list unchanged while the sim proves it resolves correctly.
+
+Before every migration commit, run `tools/format` on your new/ported code, then the step's checks.
+The pre-commit hook rejects StyLua drift; formatting isn't an excuse to reformat still-listed old
+files. Audit risks are conservative review prompts, not proof of an exploit: inspect existing
+ownership/context validation before changing a rule, preserve it when porting, and explain a false
+positive in the migration notes rather than weakening validation to silence the scanner.
 
 **Check:** the table lists every field you saw in the old save code (every key written by each
 `SetAsync`/`UpdateAsync`/profile `Data`), each with a new home or a drop reason.
@@ -517,6 +538,16 @@ actions = {
 If the currency is **paid** (listed in `compliance.paidCurrencies` because a product sells it),
 `Economy.spend` refuses it: spend with `ctx.compliance.spendPaid(tx, "Coins", cost, reason)`
 instead (module-api.md §19.6), or `spendForRoll` for a random roll.
+
+For a **game-owned** paid hatch action (for example, it must update a game stat in the same
+transaction), use a Rarity table with `paid = true` and no `cost`: its odds are disclosed but
+Rarity's built-in currency `roll` action isn't enabled. The game action validates the request,
+then calls `ctx.compliance.spendPaid` and `ctx.depsTx[Rarity].roll(..., { grant = true })` in the
+same transaction and asserts the roll's `info.ok` before updating its own stats. The earlier paid
+spend marks the roll paid and Inventory derives the tag; a refused roll must discard the spend.
+Test the whole action, refusal and atomic
+rollback in the sim. `luckDisclosed = true` is needed additionally for luck other than 1; don't
+add a `cost` merely to make odds replicate, since that also enables the kit's own action.
 
 (If the game uses the Upgrades kit, call its API instead of writing your own.)
 
