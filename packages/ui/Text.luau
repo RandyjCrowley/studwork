@@ -5,12 +5,13 @@
 	  Text.text(key, args?) -> string      the framework's client resolver (StudWork.text: translator,
 	                                       GameConfig.strings, English default); before StudWork.start,
 	                                       the UI kit's own English default. Never empty.
-	  Text.useText(key, args?) -> string   the same, as a React hook (re-renders on a locale change)
+	  Text.useText(key, args?) -> string   the same, as a React hook: re-renders when the locale changes
+	  Text.useLocale() -> number           the hook alone, for a component with several labels (then Text.text)
+	  Text.onLocaleChanged(fn) -> () -> () the locale atom the hook subscribes to (a disconnect function)
 
 	Registers the `ui.*` defaults (UI/Strings.luau) with the framework's resolver at require time.
-
-	FOUNDATION STUB: both resolve; `useText` doesn't yet subscribe to locale changes. The localization
-	builder (B3) wires the re-render and the framework client's locale atom.
+	The locale atom lives in the framework's shared Strings module (the client Text bumps it when the
+	translator's LocaleId changes), so the UI kit never reaches into the client runtime.
 ]]
 
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
@@ -35,13 +36,33 @@ function Text.text(key: string, args: { [any]: any }?): string
 			return text
 		end
 	end
-	local template = UIStrings.DEFAULTS[key] or key
-	local formatted = FrameworkStrings.format(template, args)
-	return formatted
+	return UIStrings.english(key, args)
+end
+
+function Text.onLocaleChanged(fn: (locale: string) -> ()): () -> ()
+	return FrameworkStrings.onLocaleChanged(fn)
+end
+
+-- Subscribes the calling component to locale changes (it re-renders on one) and returns a counter
+-- that changes with each. A component with several keyed labels calls this once at the top, then
+-- `Text.text` anywhere; `useText` is this plus one lookup.
+-- (`react` is for specs, which pass a stand-in; a component never does.)
+function Text.useLocale(react: any?): number
+	local React = react or require(ReplicatedStorage:WaitForChild("Packages"):WaitForChild("React")) :: any
+	local tick, setTick = React.useState(0)
+	React.useEffect(function()
+		return Text.onLocaleChanged(function()
+			setTick(function(n: number): number
+				return n + 1
+			end)
+		end)
+	end, {})
+	return tick
 end
 
 function Text.useText(key: string, args: { [any]: any }?): string
-	return Text.text(key, args) -- STUB (B3): subscribe to the locale atom
+	Text.useLocale()
+	return Text.text(key, args)
 end
 
 return Text

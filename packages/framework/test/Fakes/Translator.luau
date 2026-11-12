@@ -26,7 +26,7 @@ function TranslatorFake.new(opts: any?): any
 	local fake: any = { calls = {}, LocaleId = locale }
 
 	function fake.FormatByKey(_self: any, key: string, args: any?): string
-		table.insert(fake.calls, { method = "FormatByKey", key = key })
+		table.insert(fake.calls, { method = "FormatByKey", key = key, args = args })
 		if failures > 0 then
 			failures -= 1
 			error("Translator:FormatByKey failed (injected)", 0)

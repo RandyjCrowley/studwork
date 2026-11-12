@@ -10,12 +10,14 @@ local React = require(ReplicatedStorage:WaitForChild("Packages"):WaitForChild("R
 local ItemCard = require(script.Parent.Parent.ItemCard)
 local Modal = require(script.Parent.Parent.Modal)
 local Theme = require(script.Parent.Parent.Theme)
+local UIText = require(script.Parent.Parent.Text)
 
 local e = React.createElement
 
 local CARD = Vector2.new(120, 160) -- ItemCard's 0.75 aspect; fits every row at readable sizes (v1.6.2)
 
 return function(props: any)
+	UIText.useLocale()
 	local items: { any } = props.items or {}
 	local cards: { [string]: any } = {
 		Grid = e("UIGridLayout", {
@@ -41,7 +43,7 @@ return function(props: any)
 	end
 	local body = if #items == 0
 		then e("TextLabel", {
-			Text = props.emptyText or "Nothing here yet.",
+			Text = props.emptyText or UIText.text("ui.inventory.empty"),
 			FontFace = Theme.font("body"),
 			TextSize = Theme.text.body,
 			TextColor3 = Theme.color("textMuted"),
@@ -62,7 +64,7 @@ return function(props: any)
 		}, cards)
 	return e(
 		Modal,
-		{ open = true, title = props.title or "Inventory", onClose = props.onClose },
+		{ open = true, title = props.title or UIText.text("ui.inventory.title"), onClose = props.onClose },
 		{ Body = body }
 	)
 end

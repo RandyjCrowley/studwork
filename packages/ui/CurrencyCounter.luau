@@ -20,6 +20,7 @@ local React = require(ReplicatedStorage:WaitForChild("Packages"):WaitForChild("R
 local Format = require(script.Parent.Format)
 local Primitives = require(script.Parent.Primitives)
 local Theme = require(script.Parent.Theme)
+local UIText = require(script.Parent.Text)
 
 local e = React.createElement
 
@@ -39,6 +40,7 @@ export type Props = {
 local DEFAULT_DURATION = 0.35
 
 local function CurrencyCounter(props: Props)
+	UIText.useLocale()
 	local shown, setShown = React.useBinding(props.value)
 	local fromRef = React.useRef(props.value)
 
@@ -126,7 +128,7 @@ local function CurrencyCounter(props: Props)
 				}),
 				Rate = if props.rate
 					then e("TextLabel", {
-						Text = "+" .. Format.abbreviate(props.rate) .. "/s",
+						Text = UIText.text("ui.perSecond", { amount = Format.abbreviate(props.rate) }),
 						FontFace = Theme.font("bold"),
 						TextSize = Theme.text.small,
 						TextColor3 = Theme.color("textMuted"),

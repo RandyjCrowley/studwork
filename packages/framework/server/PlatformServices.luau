@@ -21,8 +21,8 @@
 	requests are off (when the engine lets the server read that) or GetSecret errors (no such
 	secret, a local playtest without a local secret).
 
-	translatorFor: LocalizationService:GetTranslatorForPlayerAsync(player) in pcall, nil on failure
-	(server/Text keeps English and owns the retry schedule).
+	translatorFor: LocalizationService:GetTranslatorForPlayerAsync(player); it raises when the fetch
+	fails (server/Text keeps English meanwhile and retries at 5, 30 and 120 s).
 ]]
 
 local PlatformServices = {}
@@ -95,7 +95,6 @@ local function liveOpenCloud(): any
 end
 
 function PlatformServices.live(): any
-	local localizationService: any = nil
 	return {
 		services = {
 			get = function(name: string): any
@@ -105,11 +104,7 @@ function PlatformServices.live(): any
 		openCloud = liveOpenCloud(),
 		localization = {
 			translatorFor = function(player: any): any
-				local ok, translator = pcall(function(): any
-					localizationService = localizationService or game:GetService("LocalizationService")
-					return localizationService:GetTranslatorForPlayerAsync(player)
-				end)
-				return if ok then translator else nil
+				return game:GetService("LocalizationService"):GetTranslatorForPlayerAsync(player)
 			end,
 		},
 	}

@@ -14,6 +14,15 @@
 	             translate = (key, args?) -> string?  (the player's translator; nil = none), warn? }
 	    resolver.english(key, args?) -> string     override > default > the key itself (one warning)
 	    resolver.text(key, args?) -> string        translator first, then english. Never empty.
+	    resolver.has(key) -> boolean               an override or a default exists for the key
+	  Strings.moduleDefaults(strings, config, ownerName) -> ({ [key] = text }?, { string })
+	                                               a module's `strings` field, table or function(config),
+	                                               run and checked (nil + errors when it is invalid)
+	  Strings.onLocaleChanged(fn) -> () -> ()      the locale atom: the client's Text bumps it with
+	  Strings.notifyLocaleChanged(locale)          notifyLocaleChanged; UI.useText subscribes (the UI kit
+	                                               shares this module with the framework, so it needs no
+	                                               other way to reach the client runtime). Returns a disconnect.
+	  Strings.currentLocale() -> string?           the last locale notified (nil before any)
 ]]
 
 local Strings = {}
@@ -30,12 +39,41 @@ function Strings.registerDefaults(defaults: { [string]: string })
 	end
 end
 
--- The framework's own player-facing text. B3 (localization) moves the kick lines here.
+-- The framework's own player-facing text (the kick lines the runtime shows when a save can't be used).
 Strings.FRAMEWORK = table.freeze({
 	["framework.kick.saveFailed"] = "Your save couldn't be loaded safely, so nothing was changed. Please rejoin in a moment.",
 	["framework.kick.sessionEnded"] = "Your save data was opened in another server. Please rejoin.",
 	["framework.kick.legacyImport"] = "We couldn't bring over your save from the previous version yet. Nothing was lost. Please rejoin in a minute.",
 })
+
+-- The locale atom (both sides' Text modules write it, the UI kit's hook reads it). Module-level on purpose.
+local localeListeners: { [number]: (locale: string) -> () } = {}
+local nextListener = 0
+local lastLocale: string? = nil
+
+function Strings.onLocaleChanged(fn: (locale: string) -> ()): () -> ()
+	nextListener += 1
+	local id = nextListener
+	localeListeners[id] = fn
+	return function()
+		localeListeners[id] = nil
+	end
+end
+
+function Strings.notifyLocaleChanged(locale: string)
+	lastLocale = locale
+	local snapshot: { (string) -> () } = {}
+	for _, fn in localeListeners do
+		table.insert(snapshot, fn)
+	end
+	for _, fn in snapshot do
+		pcall(fn, locale)
+	end
+end
+
+function Strings.currentLocale(): string?
+	return lastLocale
+end
 
 function Strings.isKey(key: any): boolean
 	return type(key) == "string"
@@ -87,6 +125,33 @@ function Strings.check(strings: any, ownerName: string, errors: { string })
 			table.insert(errors, `strings.{tostring(key)} must be a non-empty string`)
 		end
 	end
+end
+
+-- A module definition's `strings` field as a table: a table is checked as it is; a function is run
+-- with the module's merged config (in pcall) and its result checked. -> (table?, errors)
+function Strings.moduleDefaults(
+	strings: any,
+	config: any,
+	ownerName: string
+): ({ [string]: string }?, { string })
+	local errors: { string } = {}
+	if strings == nil then
+		return {}, errors
+	end
+	local resolved = strings
+	if type(strings) == "function" then
+		local ok, result = pcall(strings, config)
+		if not ok then
+			table.insert(errors, `strings(config) failed: {tostring(result)}`)
+			return nil, errors
+		end
+		resolved = result
+	end
+	Strings.check(resolved, ownerName, errors)
+	if #errors > 0 then
+		return nil, errors
+	end
+	return resolved, errors
 end
 
 function Strings.new(opts: any): any

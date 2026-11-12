@@ -53,7 +53,7 @@ local function MailboxWidget(props: any)
 	local UI = require(ReplicatedStorage:WaitForChild("UI")) :: any
 	local opts = props.opts or {}
 	return React.createElement(UI.Button, {
-		text = `Mailbox ({count})`,
+		text = UI.text("ui.mail.button", { count = count }),
 		variant = "secondary",
 		layoutOrder = props.layoutOrder,
 		onActivated = function()
