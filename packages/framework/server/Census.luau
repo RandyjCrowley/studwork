@@ -41,8 +41,10 @@
 	`SW/_/census`; shard k > 0 is `b/<i>/<bucket>/<k>` in the map `SW/_/census/<k>` (a function `map`
 	is called with that name, so each shard can be its own partition; a fixed backend holds them all).
 	Each server writes one shard (a random draw kept for its life, so a server stays put as K grows)
-	and reads every shard of the last bucket (the larger K of this cycle and the last one) and adds
-	them up.
+	and adds its K to the shard's `k` (the maximum). It reads shard 0 of the last bucket first, then
+	every shard up to the largest of: its K this cycle, its K last cycle, and shard 0's `k`; and adds
+	them up. Shard 0's `k` is how a server that starts after the split (no reading, so its own K is 1)
+	finds every shard on its first cycle.
 	Steady cost: one update (2 units) + one get per bucket shard (1 unit each) per server per
 	interval, plus one update per module that charged memory. A failed call is logged once a minute;
 	the last reading stays. The usage items `u/<Module>` are not sharded (their update returns the
@@ -292,12 +294,16 @@ function Census.new(opts: any): any
 					p = (tonumber(value.p) or 0) + here,
 					u = u,
 					pk = pk,
+					-- the shard count its writers use (the largest): shard 0's tells readers how many
+					-- shards to read, so a server with no reading yet still finds them all
+					k = math.max(tonumber(value.k) or 1, shards),
 				}
 			end, Census.BUCKET_EXPIRY)
 		end)
 		-- the last bucket, every shard added up (servers and players summed, usage newest, peaks max)
 		local last: any = nil
-		for k = 0, readShards - 1 do
+		local k = 0
+		while k < readShards do
 			local readMap, readKey = shardOf(k, bucket - 1)
 			local ok, part = call("read", 1, function()
 				return readMap.get(readKey)
@@ -305,6 +311,10 @@ function Census.new(opts: any): any
 			if not ok then
 				return -- a partial sum would undercount: the last reading stays
 			end
+			if k == 0 and type(part) == "table" and type(part.k) == "number" and part.k == part.k then
+				readShards = math.max(readShards, math.clamp(math.floor(part.k), 1, Census.MAX_SHARDS))
+			end
+			k += 1
 			if type(part) == "table" then
 				last = last or { s = 0, p = 0, u = {}, pk = {} }
 				last.s += tonumber(part.s) or 0

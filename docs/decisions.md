@@ -616,7 +616,11 @@ these pages before relying on a limit.
 - **The census bucket is split across maps past 500 servers.** A sorted map is one partition, so
   keys split inside one map would add read cost without adding throughput; each shard `k > 0` is
   its own map. Below 500 servers nothing changes (one key, one get). The usage items stay single
-  keys: their update answers the experience-wide total the memory budget needs.
+  keys: their update answers the experience-wide total the memory budget needs. Shard 0 carries
+  the shard count (the largest any of its writers uses) and is read first: a server's own count
+  comes from its last reading, so a server started after the split would otherwise read only
+  shard 0 and undercount for its whole life. The servers already holding a reading keep the count
+  in shard 0 every bucket, so it survives churn without anyone reading all 16 shards.
 - **Placeholders are named at boot as a log line, not a warning** (Badges id 0, Notifications
   `messageId = ""`): a game in development boots clean, and a placeholder left in is still visible
   before the first send.
