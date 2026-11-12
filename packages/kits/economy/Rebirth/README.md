@@ -16,7 +16,7 @@ A real StudWork module (v1.3.0). Definition: `module.luau`. Pure math:
 Section `rebirth` = `{ rebirths }` (replicated).
 
 ## API
-`canRebirth`, `rebirth(player) -> boolean`, `cost`, `multiplier`, `signals.Rebirthed(player, n)`.
+`canRebirth`, `rebirth(player) -> boolean`, `cost`, `multiplier`, `count(player) -> number` (v1.7.0), `signals.Rebirthed(player, n)`.
 Client action `rebirth()`: wire event `Rebirth` (no data) in this module's `net.blink` (RemoteScope
 `STUDWORK_REBIRTH`), limit 0.5/s burst 2 (v1.3.1; was the framework event `RequestRebirth`).
 `extensions.resetStep(id, fn(tx, player))`: runs inside the rebirth transaction, in registration

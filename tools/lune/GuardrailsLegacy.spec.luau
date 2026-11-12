@@ -156,6 +156,43 @@ describe("guardrails: transitional (studwork-legacy.json)", function()
 		cleanup()
 	end)
 
+	it("a textfilter finding in a listed file is downgraded like the other checks (v1.7.0)", function()
+		local sign = "src/server/Sign.server.luau"
+		local dir = project({
+			commit = false,
+			baseline = { files = { [SAVE] = { purchases = 1, numbers = 1 }, [sign] = { textfilter = 1 } } },
+			entries = {
+				{ path = SAVE, checks = { "purchases", "numbers" }, reason = "old save code" },
+				{ path = sign, checks = { "textfilter" }, reason = "old sign code" },
+			},
+		})
+		write(dir, sign, table.concat({
+			"return {",
+			"\tactions = {",
+			"\t\trename = { handler = function(player, name: string)",
+			'\t\t\tctx.replicate.setAll("sign", name)',
+			"\t\tend },",
+			"\t},",
+			"}",
+		}, "\n") .. "\n")
+		git(dir, { "add", "." })
+		git(dir, { "commit", "-q", "-m", "adopt" })
+		local ok, out = check(dir)
+		expect(out).toContain("warning: [legacy] " .. sign .. ":4: [textfilter] player text 'name'")
+		expect(out).toContain("(legacy: old sign code)")
+		expect(ok).toBe(true)
+		-- unlisted, the same finding fails
+		write(
+			dir,
+			"src/server/Other.server.luau",
+			"return {\n\tactions = { x = function(player, s) ctx.net.fireAll(E, s) end },\n}\n"
+		)
+		local ok2, out2 = check(dir)
+		expect(ok2).toBe(false)
+		expect(out2).toContain("src/server/Other.server.luau:2: [textfilter]")
+		cleanup()
+	end)
+
 	it("--raw ignores the list and prints every finding", function()
 		local dir = project()
 		local r = isolated("lune", { "run", "tools/lune/guardrails", "--raw", dir })

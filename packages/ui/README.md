@@ -27,6 +27,7 @@ inside `UI.ScaledRoot` (full-screen root that applies the responsive UIScale and
 | `Modal` | `open`, `title?`, `onClose?` (X button + backdrop tap), `dismissOnBackdrop?`, `size?`, children. Dimmed backdrop, panel capped 320-640 px wide; content scrolls instead of shrinking below the readable text floor. Render it in a ScreenGui with `ZIndexBehavior = Sibling` (under Global the backdrop covers the panel; the Modal warns). |
 | `CurrencyCounter` | `value`, `rate?` (`+12/s` line), `icon?`, `label?`, `animate?` (default true), `duration?` (0.35 s), `size?`, `position?`, `anchorPoint?`, `layoutOrder?`. Abbreviated (1.2K / 3.4M / 5.6B ...). |
 | `OddsTable` | `detail` (server `Types.OddsDetail`, `Core.Client.state().odds[tableId]`: item odds, mutation line, every item x mutation outcome, pity line "Guaranteed Legendary+ at least every N rolls"; preferred) or legacy `odds` (`{[itemId]: probability}`), `items` (`{id,name,rarity}` defs), `sortBy?` (`"rarity"` = rarest last, default; or `"probability"`), `title?` (`false` hides the embedded heading), `restricted?`, `restrictedText?`, `maxHeight?`, `size?`, `position?`, `anchorPoint?`, `layoutOrder?`. Exact percentages; never `0%` for a non-zero chance. |
+| `Leaderboard` | `title` (already resolved: `UI.text(key)` or a literal), `rows` (`{ rank, userId, name, value }`, best first), `selfUserId?`, `selfValue?`, `selfRank?`, `format?` (`"number"` \| `"time"`), `emptyText?`, `size?`, `layoutOrder?`. The player's own row is highlighted (token `colors.leaderboardSelf`) or pinned under the list with "Top N+". Names render with `AutoLocalize = false`. Pure formatting in `UI.LeaderboardFormat` (v1.7.0) |
 | `ScaledRoot` | children. Full-screen root with the responsive UIScale (use this for screens). |
 | `AutoScale` | none. Bare UIScale following the viewport; only under a content-sized frame (under a full-screen frame it pushes content off screen - use `ScaledRoot`). |
 
@@ -39,6 +40,18 @@ The default `metrics.minTextSize = 11` is a **real on-screen pixel** floor after
 `text.min = 14` design px is the default floor for fixed-width TextScaled labels.
 Odds names use a fixed readable size, wrap up to two lines, then ellipsize; tap the name to reveal its full text.
 The odds notice and long section headers use measured `WrappedText` rather than unreliable wrapped AutomaticSize Y.
+
+## Text and languages (v1.7.0)
+
+No kit component carries English in code: every label goes through `UI.text(key, args?)` (a string
+now) or `UI.useText(key, args?)` (a hook: the component re-renders when the player's language
+changes; `UI.useLocale()` is internal). The keys are `ui.*` in `packages/ui/Strings.luau`
+(`ui.odds.*`, `ui.inventory.*`, `ui.mail.*`, `ui.leaderboard.*`, `ui.perSecond`, `ui.modal.closeGlyph`,
+`ui.close`); a game rewords one with `GameConfig.strings` or translates it with a Roblox localization
+table ([localization](../../docs/framework/kits/localization.md)). `UI.Odds.pityLine(detail, text?)` and
+`luckLine(detail, text?)` take an optional resolver (default: English). Components that only render
+caller-supplied text (`Button`, `Toast`, `Panel`, `RarityBadge`) are unchanged. `AutoLocalize` is
+never turned off for labels. The `strings` lint check keeps new English out of this folder.
 
 ## Theme
 

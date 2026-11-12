@@ -5,7 +5,8 @@
 	Economy's primary), multiplierPerRebirth, keepInventory, keepDisplayed?, resetCurrencies?
 	(default { primary }), maxRebirths? } and config.Rebirth.onRebirth (the inventory rules, below).
 
-	api (v1.2): canRebirth(player), rebirth(player) -> boolean, cost(player), multiplier(player)
+	api (v1.2): canRebirth(player), rebirth(player) -> boolean, cost(player), multiplier(player),
+	  count(player) -> number (v1.7.0: rebirths done, 0 until the player's data is loaded)
 	  signals.Rebirthed(player, count)
 	extensions.resetStep(id, fn(tx, player))   runs inside Rebirth's single transaction, in
 	  registration order, BEFORE `rebirths` is incremented (§8; each step writes only its own
@@ -133,6 +134,10 @@ function Rebirth.new(): any
 
 	local function costCurrency(): string
 		return cfg().currency or economyPrimary()
+	end
+
+	function api.count(player: any): number
+		return count(player)
 	end
 
 	function api.cost(player: any): number

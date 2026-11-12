@@ -3397,6 +3397,13 @@ if args[1] == "--legacy-check" and args[2] then
 		end
 		table.insert(found, f)
 	end
+	-- (v1.7.0) the textfilter check reads the root game too (a legacy list may name it)
+	for _, f in GuardTextFilter.scanGame(fs, root) do
+		if string.sub(f, 1, #root + 1) == root .. "/" then
+			f = string.sub(f, #root + 2)
+		end
+		table.insert(found, f)
+	end
 	local input = Guard.legacyInput(root)
 	local failures, warnings, notes = Guard.applyLegacy(found, input)
 	-- (v1.6.1) the sticky adopted marker

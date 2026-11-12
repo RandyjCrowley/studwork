@@ -182,8 +182,10 @@ Each kit is optional; list the modules you want in `GameConfig.modules`.
 | collection | Items, Rarity, Inventory | item definitions; rarity rolls with luck, pity, mutations and disclosed odds; an inventory with gifting |
 | economy | Economy, Upgrades, Rebirth, Offline | currencies and income, upgrade cost curves, rebirth, capped offline earnings |
 | base | Plot | a player plot with display slots |
-| social | Friends, Mail | co-play detection and bonus; cross-server mail with a mailbox |
-| engagement | Streak | daily login streaks with a grace period |
+| social | Friends, Mail, TextFilter | co-play detection and bonus; cross-server mail with a mailbox; Roblox text filtering by audience |
+| engagement | Streak, Leaderboards, Badges, Notifications | daily login streaks with a grace period; all-time and periodic leaderboards; badge awards with retries; experience notifications and the opt-in prompt |
+
+Framework features (always on, not modules): environments and feature flags, localization.
 
 Details: [docs/framework/kits/](docs/framework/kits/).
 

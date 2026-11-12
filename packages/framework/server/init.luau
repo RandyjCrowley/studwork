@@ -339,6 +339,17 @@ function Server.start(gameConfig: any, serverConfig: any?, opts: any?): any
 		end
 	end
 
+	-- (v1.7.0) kick text through the strings system (framework.kick.<key>, the player's language);
+	-- the English constant is the fallback if the strings runtime is not up yet
+	local function kickText(player: any, key: string, fallback: string): string
+		local strings = rt.strings
+		if strings == nil then
+			return fallback
+		end
+		local ok, text = pcall(strings.api.format, player, "framework.kick." .. key)
+		return if ok and type(text) == "string" and text ~= "" then text else fallback
+	end
+
 	local function registerFrameworkConsole()
 		local function cmd(key: string, help: string, fn: (...string) -> any)
 			rt.console[key] = {
@@ -637,6 +648,12 @@ function Server.start(gameConfig: any, serverConfig: any?, opts: any?): any
 			delay = platform.delay,
 			now = now,
 			log = warnLog,
+			-- analytics is per player (no server-level sink): a refused value is a log line only
+			analytics = function(event: string, fields: { [string]: any })
+				warnLog(
+					`[StudWork] {event}: flag '{tostring(fields.flag)}' (testOnly) was not switched on in live`
+				)
+			end,
 		})
 		-- (added in v1.6.0, adopting.md §3/§4) the read-only reader of a game's OLD stores
 		local legacyBackend = o.legacy or (if platform.makeLegacy then platform.makeLegacy() else nil)
@@ -660,7 +677,7 @@ function Server.start(gameConfig: any, serverConfig: any?, opts: any?): any
 			log = warnLog,
 			require = o.require,
 			onSessionLost = function(player: any)
-				kick(player, Server.KICK_SESSION_ENDED)
+				kick(player, kickText(player, "sessionEnded", Server.KICK_SESSION_ENDED))
 			end,
 			-- (v1.6.0) the legacy import's re-check and analytics
 			isPlayer = platform.isPlayer,
@@ -879,7 +896,12 @@ function Server.start(gameConfig: any, serverConfig: any?, opts: any?): any
 		local loadedAt = clock()
 		if not ok then
 			logSink("warn", `[StudWork] {tostring(err)}`)
-			kick(player, if kind == "legacy" then Server.KICK_LEGACY_IMPORT else Server.KICK_MESSAGE)
+			kick(
+				player,
+				if kind == "legacy"
+					then kickText(player, "legacyImport", Server.KICK_LEGACY_IMPORT)
+					else kickText(player, "saveFailed", Server.KICK_MESSAGE)
+			)
 			return false
 		end
 		local total = clock() - joinedAt

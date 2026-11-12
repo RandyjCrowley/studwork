@@ -42,6 +42,9 @@ local StudWork = require(game:GetService("ReplicatedStorage"):WaitForChild("Fram
 | `StudWork.<Name>` | untyped shortcut for every enabled module (`StudWork.Economy.grant(...)`), for the command bar and console. Typed code uses `StudWork.use` |
 | `StudWork.Client` | client only, after `StudWork.start(Config)`: `state` (the whole replicated state) plus the framework UI (`Hud`, `Feedback`, `Input`) |
 | `StudWork.hook() -> { register, fire, count }` | a small handler list for offering extensions |
+| `StudWork.env` (v1.7.0) | `name() -> "studio" \| "test" \| "live"`, `placeId()`, `universeId()`; both sides, after `StudWork.start` (module-api §23.1, [environments](kits/environments.md)). A facade member, not a module |
+| `StudWork.flags` (v1.7.0) | `isOn(name)`, `onChanged(name, fn(on)) -> Connection`, `all()`, `source(name) -> "config" \| "override"`; both sides (§23.2). An undeclared name errors; a `serverOnly` flag errors on the client |
+| `StudWork.text(key, args?)` (v1.7.0) | client only: a string in the player's language (§23.9, [localization](kits/localization.md)); the UI kit has `UI.text` and `UI.useText` |
 
 `StudWork.use` accepts only a ModuleRef. `StudWork.use("Data")`, `StudWork.Data`, `.Shop`,
 `.Compliance`, `.Net`, `.Replication`, `.Policy` all error: those are framework internals, reached
@@ -81,6 +84,7 @@ return StudWork.defineModule({
 	theme = { colors = { questGold = "#FFD23F" } },
 	server = "Quests",               -- name under ServerScriptService.Modules (default: name)
 	client = "Quests",               -- name under ReplicatedStorage.Modules (nil = no client part)
+	strings = { ["Quests.title"] = "Daily quests" }, -- (v1.7.0) English defaults; or fn(config) -> table
 })
 ```
 
@@ -96,6 +100,8 @@ Rules (all problems are reported together, naming the module):
 - `config.defaults` keys must exist in `config.schema` and match it.
 - `itemFields` kinds are `item` and `mutation`; a namespace can't be a base item field.
 - `theme` groups: `colors` (`#RRGGBB`), `fonts`, `metrics`, `sounds`, `rarity`, `preset`.
+- `strings` (v1.7.0): keys start with `<ModuleName>.`, values are non-empty strings; a function gets the
+  merged config and runs once at boot ([localization](kits/localization.md)).
 
 At boot (not at definition time): names and data keys unique among enabled modules, the
 `framework` range compatible, hard dependencies listed, no cycles.
@@ -169,12 +175,20 @@ Every field is scoped to the module that receives it.
 | `ctx.compliance` | `registerRandomSource`, `roll`, `spendForRoll`, `tagPaid`, `isPaidCurrency`, `paidCurrencies`, `disclose`, `disclosed`, `registerCurrencySpender` ([Compliance](#random-outcomes-compliance)) |
 | `ctx.shop` | `onProduct(product, fn(tx))`, `onPassOwned(pass, fn(player))`, `ownsPass(player, pass)` ([Purchases](#purchases)) |
 | `ctx.events` | `schedule(id, schedule?, fn(event))`, `trigger`, `isActive(id)`, `onEnded(id, fn)` (live events from `GameConfig.events`) |
-| `ctx.policy` | read-only: `paidRandomRestricted(player)`, `isKnown(player)` |
+| `ctx.policy` | read-only: `paidRandomRestricted(player)`, `isKnown(player)`, `allows(player, field) -> boolean` (v1.7.0: a boolean `PolicyService` field such as `IsContentSharingAllowed`; false until the lookup succeeds) |
 | `ctx.analytics` | `funnel(player, step)`, `economy(...)`, `custom(player, name, value, fields?)` |
 | `ctx.console` | `register(command, fn(player, ...), help?)`; commands are prefixed with the module's lower-case name (`quests reset`) |
 | `ctx.log` | `info`, `warn`, `debug`, tagged `[<Module>]` |
 | `ctx.theme` | the merged theme tree, read-only |
 | `ctx.isStudio` | boolean |
+| `ctx.env` (v1.7.0) | the same table as `StudWork.env` |
+| `ctx.flags` (v1.7.0) | the same table as `StudWork.flags` ([environments](kits/environments.md)) |
+| `ctx.data.ordered(name)` (v1.7.0) | an ordered store per module: `get`, `set`, `increment`, `update`, `remove`, `top`; return `(ok, value \| reason)`, yield, never raise for a platform failure (§23.3) |
+| `ctx.data.sortedMap(name)` (v1.7.0) | a MemoryStore sorted map per module: `get`, `set`, `update`, `remove`, `range`; budgeted and memory-charged per module (§23.4) |
+| `ctx.data.census()` (v1.7.0) | `{ servers, players, peakPlayers, at }?`, nil until the first census read (§23.5); limits in `GameConfig.storeBudgets` |
+| `ctx.services.get(name)` (v1.7.0) | an engine service a module may use (`BadgeService`, `TextService`, `UserService`, `LocalizationService`, `Players`); replaceable by a fake in specs (§23.6) |
+| `ctx.openCloud` (v1.7.0) | `available(secret) -> boolean`, `request({ secret, method, path, body? }) -> (ok, status?, body?)`; deny by default through `ServerConfig.openCloud`, store and config families refused (§23.7) |
+| `ctx.text` (v1.7.0) | `format(player, key, args?) -> string` (the player's language), `english(key, args?) -> string` (§23.9) |
 
 ## Save data
 
@@ -421,11 +435,25 @@ expect(h:use(Quests).doneCount(p)).toBe(1)
 -- StudWork.test.memoryStore(): one store several harnesses share; store.failNext(n) injects failures
 ```
 
+v1.7.0 harness options: `env`, `placeId`, `universeId`, `services`, `openCloud`, `secrets`, `locale`,
+`translator`, `storeBudgets`, `census`, `strings`, `localization`; `h:orderedStore(module, name)` and
+`h:sortedMap(module, name)` return the in-memory store behind a module's store; the fakes are in
+`StudWork.test.fakes` (module-api §23.10).
+
 Run them with `tools/test <folder>`. Several servers, real ProfileStore session locks, crashes,
 latency and DataStore failures: `StudWork.test.sim` (`sim.world()`, `sim.server(world)`,
 `server:use(Ref)`, `server:section(p, key)`, `sim.saved(world, userId)`; see
 `packages/framework/test/sim/README.md`). Each generated game has `src/server/Boot.spec.luau`, which
 boots the whole game with the real kit modules in the sim.
+
+## Config keys added in v1.7.0
+
+All optional and top level in `GameConfig` unless noted (module-api §23): `environments` (test and
+live place and universe ids; generated into `src/shared/Config/Environments.luau` by
+`tools/sync-projects`), `flags`, `flagOverride`, `storeBudgets`, `strings`, `localization`;
+`ServerConfig.openCloud` (secrets and allow-list, server only) and `ServerConfig.flags` (hidden
+flags). The four kit modules (Leaderboards, Badges, Notifications, TextFilter) are normal modules
+with their own `config.<Name>` ([kit contract](kit-contract.md)).
 
 ## Errors you will see
 

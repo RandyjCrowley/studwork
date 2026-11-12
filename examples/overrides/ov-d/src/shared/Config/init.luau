@@ -26,6 +26,8 @@ local Config = {
 		require(Modules:WaitForChild("Inventory"):WaitForChild("module")), -- owned item copies, gifting, cap (needs Items)
 	} :: { any },
 	config = require(script.Balance),
+	-- generated from deploy.json by tools/sync-projects (docs/framework/kits/environments.md)
+	environments = require(script.Environments),
 	items = require(script.Items),
 	products = require(script.Products),
 	events = require(script.Events),

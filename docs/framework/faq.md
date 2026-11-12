@@ -19,7 +19,7 @@ re-delivers them; anything else goes through the normal receipt-safe path. Items
 old save are tagged paid (`paid:legacy`) unless the old game sold no items.
 
 **Do I have to use every kit?**
-No. List only the modules you want (`tools/new-game <name> --modules ...`). A module's hard
+No. List only the modules you want (the v1.7.0 ones too) (`tools/new-game <name> --modules ...`). A module's hard
 dependencies must be listed too; boot names the missing one. `--modules ""` is a foundation-only
 game.
 

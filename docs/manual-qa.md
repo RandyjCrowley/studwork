@@ -145,3 +145,55 @@ window there that every surface check passed, caused by a game ScreenGui left at
    server: it arrives once, or waits in the mailbox (HUD "Mailbox (N)") when the alt's inventory
    is full.
    Expected: as described; the Output has no save load-failure or "refusing to load" warnings.
+
+## New in v1.7.0
+
+Everything below needs Studio or a published test place. Nothing in the automated tests calls a real
+Roblox service. Use a **test** place, never a live game; Open Cloud and badge checks need real ids
+and a key from the game owner (`docs/framework/kits/notifications.md`, "Setup").
+
+6. **Two players: TextFilter and the friends context (Local Server, 2 players).**
+   In the sandbox, `sandbox petname Sprout` in Player1's context shows what other players see.
+   Expected: a `public` name comes back filtered (try a name Roblox filters); a `friends` text is
+   shown to a real friend and hidden from a non-friend (Studio test players are not real friends:
+   use two real accounts on a test place); a restricted account (`IsContentSharingAllowed` false)
+   is refused with `policy`; nothing readable appears in the Output logs.
+
+7. **Leaderboards across servers (two servers, 1-2 players each).**
+   Touch the sandbox block in server A until `sandbox top dailyTouches` shows rows, wait
+   `writeSeconds` (120 s) plus `refreshSeconds` (60 s), then run `sandbox top dailyTouches` in a
+   second server.
+   Expected: the second server shows the first server's rows and your own rank; only one server
+   reads the shared top at a time (check the Output for read warnings or `budget` answers);
+   `UI.open("Leaderboards")` highlights your row, pins it under the list when outside the top N, and
+   reads well on phone and tablet (run `tools/studio/ui-text-fit.luau` with long player names).
+
+8. **Notifications (test place, a real key).**
+   Create the Open Cloud key and secret as the page says, put a real template id in `Balance.luau`,
+   then `sandbox egg 30` on a server with one real player who has opted in.
+   Expected: the prompt appears only after `minSessionSeconds`, not on join; the notification arrives
+   once, after about 30 s, also when you leave the server first (a second server must still be
+   running); tapping its button joins with launch data and fires `LaunchedFrom` once. Check the real
+   response and error shapes against the request on the page.
+
+9. **Badges (test place, a test badge).**
+   Put a real test badge id in `Balance.luau`, `sandbox badge firstCollect`.
+   Expected: Roblox's own notification and the in-game toast appear once; awarding again does
+   nothing; with `awardInStudio = false` in Studio the Output says `would award` and nothing is sent.
+
+10. **Environments, flags and ConfigService.**
+    On the test place, paste its ids into `deploy.json`, run `tools/sync-projects`, publish, and
+    check `StudWork.env.name()` reads `"test"` there and `"live"` on the live place. Stage a boolean
+    experience config `flag_newShop` and wait `refreshSeconds`: `StudWork.flags.isOn("newShop")`
+    follows it, and a `testOnly` flag cannot be switched on in live.
+
+11. **Languages.**
+    In Studio, change the player's language (Player Emulator): `UI.useText` labels re-render, and
+    the server's `ctx.text.format` follows after the translator refetch. Confirm a Rojo-built
+    `LocalizationTable` under `LocalizationService` is picked up, that automatic text capture of
+    kit labels works, and that text still fits in a long language.
+
+12. **Store limits under load.**
+    With several servers running, watch the Output for `budget`, `throttled` and `memory_budget`
+    answers from the ordered and MemoryStore calls; confirm the census reading (`servers`, `players`)
+    matches the dashboard and that player saves are never delayed.

@@ -46,6 +46,14 @@ Streak = {
 },
 ```
 
+Framework-level config (v1.7.0), at the top of `GameConfig` and also level 2: `flags` (per-environment
+switches, [environments](kits/environments.md)), `strings` (reword any UI or framework text, or add
+`game.*` keys; [localization](kits/localization.md)), and `storeBudgets` (how much of the shared
+DataStore and MemoryStore quota modules may use). `environments` is generated from `deploy.json`
+by `tools/sync-projects`. Server-only secrets and hidden flags go in `ServerConfig`. Each of the
+new kit modules (Leaderboards boards, Badges, Notification templates, TextFilter limits) is
+configured under `config.<Module>` like any other.
+
 The keys of each kit module, with their defaults, are on its kit page (see the
 [framework index](README.md)).
 
@@ -90,7 +98,7 @@ one widget; `client.hud = MyHud` (a ModuleScript returning a React component) re
 
 ## 4. Switch a kit off
 
-Leave its modules out of `modules`. A collection game without Economy:
+Leave its modules out of `modules` (the v1.7.0 modules work when left out: calls on them error with the usual message, and code that checks `ctx.isEnabled` carries on). A collection game without Economy:
 
 ```
 tools/new-game card-game --modules Items,Rarity,Inventory
