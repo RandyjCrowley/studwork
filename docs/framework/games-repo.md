@@ -84,7 +84,7 @@ tools/install
 tools/new-game <name> [--modules A,B,C] [--no-design-doc]   # games/<name>, $paths into roblox-core/
 tools/make-module <Name> --game <name> [--net]               # games/<name>/modules/<name-kebab>/
 tools/make-screen <name> <ScreenName>
-tools/make-migration <module-dir | ModuleName>
+tools/make-migration <module-dir | ModuleName> [--from <n>]   # maps migrations/ in the game's project
 tools/lint                     # selene + stylua (core configs) over games/, sync-projects --check,
                                # guardrails (modules, numbers, remotes, purchases, packages,
                                # special, theme) + the framework pin

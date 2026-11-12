@@ -27,11 +27,17 @@
 	                                                         ReplicatedStorage:WaitForChild("Modules")`)
 
 	make-migration (module-api.md §6)
-	  dataVersion(moduleSource) -> number?                   data.version in module.luau
-	  nextMigration(moduleSource, existing, label) -> (plan?, error?)
+	  dataVersion(moduleSource) -> number?                   data.version in module.luau (a number
+	                                                         literal only)
+	  versionExpr(moduleSource) -> string?                   (v1.7.1) the text of data.version as
+	                                                         written (`3`, `Save.VERSION`, `VERSION`)
+	  nextMigration(moduleSource, existing, label, dir?, opts?) -> (plan?, error?)
 	      plan = { version, file, source (the migration), spec (a test stub), module (module.luau
-	      with data.version bumped and `migrations = script.Parent.migrations` declared) }
-	  writeMigration(fs, dir, label) -> (plan?, error?)
+	      with data.version bumped and `migrations = script.Parent.migrations` declared), bumped }
+	      (v1.7.1) opts.from = the current data.version when it isn't a literal (resolved by
+	      tools/lune/MakeMigration.luau or given with --from); a literal is still bumped in place,
+	      anything else is left as written (plan.bumped = false: the caller bumps the definition)
+	  writeMigration(fs, dir, label, opts?) -> (plan?, error?)
 
 	make-screen (module-api.md §13: UI.registerScreen / UI.open)
 	  screenSource(name) -> string                           a React screen built from UI kit parts
@@ -230,6 +236,23 @@ function MakeGen.dataVersion(source: string): number?
 	return if v then tonumber(v) else nil
 end
 
+-- (v1.7.1) data.version exactly as written, without the trailing comma or comment
+function MakeGen.versionExpr(source: string): string?
+	local s, e = dataBlock(source)
+	if s == nil then
+		return nil
+	end
+	local line = string.match(string.sub(source, s :: number, e :: number), "\n\t\tversion%s*=%s*([^\n]*)")
+	if line == nil then
+		return nil
+	end
+	line = string.gsub(line, "%-%-.*$", "")
+	line = string.gsub(line, "%s+$", "")
+	line = string.gsub(line, ",$", "")
+	line = string.gsub(line, "%s+$", "")
+	return if line == "" then nil else line
+end
+
 -- MIGRATION_TEMPLATE: templates/migration/migration.luau.tmpl
 
 -- MIGRATION_SPEC_TEMPLATE: templates/migration/Migration.spec.luau.tmpl
@@ -251,14 +274,20 @@ function MakeGen.nextMigration(
 	source: string,
 	existing: { string },
 	label: string?,
-	dir: string?
+	dir: string?,
+	opts: { from: number? }?
 ): (any?, string?)
 	local name = moduleNameOf(source)
 	if name == nil then
 		return nil, "module.luau: no StudWork.defineModule({ name = ... })"
 	end
-	local version = MakeGen.dataVersion(source)
+	local literal = MakeGen.dataVersion(source)
+	local version = (opts and opts.from) or literal
 	if version == nil then
+		local expr = MakeGen.versionExpr(source)
+		if expr then
+			return nil, `{name}: data.version is \`{expr}\`, not a number; pass --from <current version>`
+		end
 		return nil,
 			`{name}: module.luau has no data = \{ version = N, ... \} block (no save section to migrate)`
 	end
@@ -288,11 +317,14 @@ function MakeGen.nextMigration(
 	-- bump data.version and declare the migrations folder (once)
 	local s, e = dataBlock(source)
 	local block = string.sub(source, s :: number, e :: number)
-	local newBlock = string.gsub(block, "(\n\t\tversion%s*=%s*)%d+", "%1" .. to, 1)
+	local newBlock = block
+	if literal then
+		newBlock = string.gsub(block, "(\n\t\tversion%s*=%s*)%d+", "%1" .. to, 1)
+	end
 	if not string.find(newBlock, "\n\t\tmigrations%s*=") then
 		newBlock = string.gsub(
 			newBlock,
-			"(\n\t\tversion%s*=%s*%d+,)",
+			if literal then "(\n\t\tversion%s*=%s*%d+,)" else "(\n\t\tversion%s*=[^\n]*)",
 			"%1\n\t\tmigrations = script.Parent.migrations,",
 			1
 		)
@@ -307,11 +339,17 @@ function MakeGen.nextMigration(
 		spec = fill(template("migration/Migration.spec.luau.tmpl"), vars),
 		module = module,
 		name = name,
+		bumped = literal ~= nil,
 	},
 		nil
 end
 
-function MakeGen.writeMigration(fs: any, dir: string, label: string?): (any?, string?)
+function MakeGen.writeMigration(
+	fs: any,
+	dir: string,
+	label: string?,
+	opts: { from: number? }?
+): (any?, string?)
 	local modulePath = dir .. "/module.luau"
 	if not fs.isFile(modulePath) then
 		return nil, "no module.luau in " .. dir
@@ -324,7 +362,7 @@ function MakeGen.writeMigration(fs: any, dir: string, label: string?): (any?, st
 			end
 		end
 	end
-	local plan, err = MakeGen.nextMigration(fs.readFile(modulePath), existing, label, dir)
+	local plan, err = MakeGen.nextMigration(fs.readFile(modulePath), existing, label, dir, opts)
 	if plan == nil then
 		return nil, err
 	end
