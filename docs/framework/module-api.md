@@ -1131,6 +1131,11 @@ ctx.env                                              -- the same frozen table, s
   (`--check` fails on drift, and when deploy.json's test and live ids are equal). Placeholder
   ids are left out; the test universe id is written only when it differs from the live one.
 - Replicated as `state.framework.env`.
+- The test options of the server's `StudWork.start(Config, ServerConfig, opts)` (`env`, `isStudio`,
+  `placeId`, `universeId`) count only with an injected platform (the harness, the sim). A game that
+  passes them on a real server gets one warning and the real environment, so a live server can't be
+  started as `"test"` or `"studio"`. (The client's options only shape what that client shows; it
+  follows the server's replicated `env` and flags.)
 
 ### 23.2 `StudWork.flags` and `ctx.flags`: feature flags (added in v1.7.0: features have to be switched per environment, and switched off live without a restart)
 

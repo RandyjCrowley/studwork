@@ -183,7 +183,9 @@ framework state and on every change.
 
 ## Tests (mocked)
 
-- `harness({ env = "test" | "live" | "studio", placeId = n })` picks the environment;
+- `harness({ env = "test" | "live" | "studio", placeId = n })` picks the environment (the harness
+  injects its platform; on a real server those `StudWork.start` options are ignored with a warning,
+  so a game can't start live as test);
   `StudWork.test.boot({ flags = ... })` returns the testOnly boot error.
 - `StudWork.test.fakes.configService({ values = { flag_newShop = true } })` as
   `harness({ services = { ConfigService = fake } })`: `fake.set(key, value)` then

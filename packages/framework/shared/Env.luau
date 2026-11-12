@@ -5,6 +5,7 @@
 	  Env.resolve(environments, info) -> "studio" | "test" | "live"
 	  Env.validate(environments, info?) -> (errors, warnings)   shape, test/live overlap, unlisted place
 	  Env.build(environments, info, forced?) -> EnvAPI          frozen { name(), placeId(), universeId() }
+	  Env.testOptions(opts, platformInjected) -> (opts, ignored) StudWork.start's env options, tests only
 
 	info = { isStudio: boolean, placeId: number, universeId: number }. An unlisted place is live, so a
 	place nobody listed can never switch on test-only behaviour. Order: studio; a test place id; a live
@@ -150,6 +151,18 @@ function Env.validate(environments: any, info: Info?): ({ string }, { string })
 		end
 	end
 	return errors, warnings
+end
+
+-- The environment options of StudWork.start (env, isStudio, placeId, universeId) count only when the
+-- platform is injected (the harness, a sim): a game passing them on a live server can't make it
+-- "test" or "studio" (testOnly flags on). -> (the options to use, whether some were ignored)
+function Env.testOptions(opts: any, platformInjected: boolean): (any, boolean)
+	local o = if type(opts) == "table" then opts else {}
+	if platformInjected then
+		return o, false
+	end
+	local given = o.env ~= nil or o.isStudio ~= nil or o.placeId ~= nil or o.universeId ~= nil
+	return {}, given
 end
 
 -- forced: a test or tool picks the name (harness `env = "live"`); production never passes it.
