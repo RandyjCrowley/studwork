@@ -211,7 +211,7 @@ Rules that hold for everything below:
 
 - **api:** `send(userId, templateKey, params?) -> (ok, reason?)`, `schedule(userId, templateKey, at,
   params?, key?) -> (ok, reason?)`, `cancel(userId, key) -> boolean` (all yield),
-  `suggestOptIn(player, reason) -> boolean`.
+  `suggestOptIn(player, reason) -> (boolean, reason?)`.
 - **signals:** `Sent(userId, templateKey)`, `OptInPrompted(player)`, `LaunchedFrom(player,
   templateKey)` (untrusted: attribution only). **Uses:** `ctx.openCloud`, `ctx.data.sortedMap`,
   Streak's `expiresAt` (optional).

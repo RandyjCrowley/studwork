@@ -362,6 +362,15 @@ local function workspaceStub(): any
 end
 
 local harnessPlayers: { any } = {}
+-- (v1.7.0) userdata proxies a spec's mock Players registered as Instances: typeof() answers
+-- "Instance" for them (as in Studio), type() stays "userdata". Weak keys: nothing keeps them alive.
+local instanceProxies: { [any]: boolean } = setmetatable({}, { __mode = "k" }) :: any
+local function specTypeof(value: any): string
+	if instanceProxies[value] then
+		return "Instance"
+	end
+	return typeof(value)
+end
 local function playersStub(): any
 	return stubService("Players", {
 		GetPlayers = function(_self: any): { any }
@@ -380,6 +389,9 @@ local function playersStub(): any
 		end,
 		PlayerAdded = signalStub(),
 		PlayerRemoving = signalStub(),
+		__markInstance = function(proxy: any)
+			instanceProxies[proxy] = true
+		end,
 		-- the framework harness (packages/framework/test/harness.luau) keeps the list current
 		__setStudWorkPlayers = function(list: { any })
 			harnessPlayers = list
@@ -529,7 +541,7 @@ local baseGlobals = {
 	error = error,
 	assert = assert,
 	type = type,
-	typeof = typeof,
+	typeof = specTypeof,
 	tostring = tostring,
 	tonumber = tonumber,
 	pairs = pairs,

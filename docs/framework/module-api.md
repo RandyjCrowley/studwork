@@ -1468,6 +1468,12 @@ UI.text(key, args?) -> string ; UI.useText(key, args?) -> string   -- UI kit (ho
   `h:sent(Module?, Event?)` returns what the server sent through them (`{ event, player, args }`),
   so `suggestOptIn` and other server-to-client calls are testable. `h:action(p, Ref, name, ...)`
   is the client calling an action.
+- `h:addPlayer` returns an Instance-like player: a userdata proxy where `type(p)` is `"userdata"`,
+  `typeof(p)` is `"Instance"` and `p:IsA("Player")` is true, as for a live `Player`. A check written
+  `type(p) == "table"` (which passed every spec while it refused every real player in
+  `Notifications.suggestOptIn`) fails in a spec. The harness option `instancePlayers = false` gives
+  plain table players back. `Notifications.suggestOptIn` returns `(boolean, reason?)` (the reasons are
+  in kits/notifications.md).
 - Client runtime test options: `env`, `placeId`, `locale`, `translator`, `flags` (the replicated
   values), so client parts and `UI.text` are testable in Lune.
 

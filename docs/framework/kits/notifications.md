@@ -164,10 +164,14 @@ is missing. No key, URL or secret value goes in the repo.
   Extra reasons: `"too_far"`, `"too_many"` (`maxPerPlayer`), `"memory_budget"`. Works for offline
   recipients (it never touches their save). **(contract)**
 - `cancel(userId, key) -> boolean`: yields. **(contract)**
-- `suggestOptIn(player, reason) -> boolean`: game code says "now is a good moment" (the player
-  just started something that finishes later). The server checks the opt-in rules and, if they
-  pass, tells that player's client to run Roblox's check and prompt. Returns whether a prompt was
-  requested. Doesn't yield. **(contract)**
+- `suggestOptIn(player, reason) -> (boolean, reason?)`: game code says "now is a good moment" (the
+  player just started something that finishes later). `player` is a live `Player` (an Instance).
+  The server checks the opt-in rules and, if they pass, tells that player's client to run Roblox's
+  check and prompt. Returns whether a prompt was requested and, when not, why: `"not_suggested"`
+  (`optIn.onSuggest` is false), `"too_early"`, `"sessions"`, `"max_prompts"`, `"cooldown"`,
+  `"pending"`, `"asked"` (the opt-in rules above), `"disabled"`, `"no_event"`, `"not_loaded"`,
+  `"save_failed"`, `"bad_params"`. Doesn't yield. A platform-restricted player is refused on the
+  client (`CanPromptOptInAsync`), which reports `shown = false`. **(contract)**
 - Signals: `Sent(userId, templateKey)`, `OptInPrompted(player)`, `LaunchedFrom(player,
   templateKey)` (a join from a notification's Join button). **(contract)** `LaunchedFrom` comes
   from `GetJoinData().LaunchData`, which share links and invites can also set: it is **untrusted**,

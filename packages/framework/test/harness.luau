@@ -35,6 +35,7 @@ local Harness = {}
 Harness.__index = Harness
 
 export type Options = {
+	instancePlayers: boolean?, -- (v1.7.0) h:addPlayer returns userdata proxies (type() == "userdata") like live Players
 	modules: { any },
 	servers: { [string]: any }?,
 	moduleNetLog: { any }?, -- (v1.7.0) set by StudWork.test: what the modules' fake net events were sent
@@ -257,21 +258,43 @@ function Harness._syncPlayers(self: any)
 	end)
 end
 
-function Harness.player(userId: number, name: string?): any
+-- Harness.player(userId, name?, asInstance?): a mock player. A plain one is a table. With
+-- asInstance (or Harness's `instancePlayers` option) it is a userdata proxy over the same fields, so
+-- type() says "userdata" like a live Player (an Instance) does: a check written `type(p) == "table"`
+-- passes on the plain mock and refuses every real player. Reads and writes forward to the table.
+function Harness.player(userId: number, name: string?, asInstance: boolean?): any
 	local p: any = { UserId = userId, Name = name or ("Player" .. userId), kicked = nil }
 	function p.Kick(self: any, msg: string)
 		self.kicked = msg
 	end
-	return setmetatable(p, {
+	local mt = {
 		__tostring = function()
 			return p.Name
 		end,
-	})
+	}
+	if asInstance == true then
+		local proxy = newproxy(true)
+		local pmt = getmetatable(proxy)
+		pmt.__index = p
+		pmt.__newindex = p
+		pmt.__tostring = mt.__tostring
+		p.ClassName = "Player"
+		function p.IsA(_self: any, className: string): boolean
+			return className == "Player" or className == "Instance" or className == "Object"
+		end
+		-- typeof(proxy) is "Instance" in the spec sandbox, as for a live Player
+		pcall(function()
+			game:GetService("Players").__markInstance(proxy)
+		end)
+		return proxy
+	end
+	return setmetatable(p, mt)
 end
 
 local function build(opts: Options): (any, any)
 	local self: any = setmetatable({}, Harness)
 	self.clock = opts.startTime or 1_700_000_000
+	self.instancePlayers = opts.instancePlayers ~= false
 	self.store = opts.store or Server.memoryStore()
 	-- (v1.7.0) the ordered stores and sorted maps live next to the save store, so several harnesses
 	-- given the same StudWork.test.memoryStore() share them; their expiry runs on this clock
@@ -379,7 +402,7 @@ function Harness.addPlayer(
 	self: any,
 	spec: { userId: number, name: string?, data: any?, sync: boolean? }
 ): any
-	local p = self.players[spec.userId] or Harness.player(spec.userId, spec.name)
+	local p = self.players[spec.userId] or Harness.player(spec.userId, spec.name, self.instancePlayers)
 	self.players[spec.userId] = p
 	if spec.data ~= nil then
 		self.store.save(spec.userId, spec.data)
