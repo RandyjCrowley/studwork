@@ -3088,6 +3088,21 @@ local function selfTest(): boolean
 		end
 		local hist = { status = "ok", adopted = true, commit = "abc123" }
 		sticky("flag removed while --verify fails", false, hist, false, true)
+		sticky(
+			"shallow history cannot hide an unfinished migration",
+			false,
+			{ status = "shallow" },
+			false,
+			true
+		)
+		sticky(
+			"unavailable history cannot hide an unfinished migration",
+			false,
+			{ status = "unavailable" },
+			false,
+			true
+		)
+		sticky("verified shallow project is safe", false, { status = "shallow" }, true, false)
 		sticky("flag removed after --verify passes (graduated)", false, hist, true, false)
 		if sticky("flag still set: --verify isn't run by lint", true, hist, false, false) then
 			table.insert(failures, "sticky: a flagged project must not run --verify in lint")
@@ -3160,8 +3175,8 @@ local function selfTest(): boolean
 				return false, ""
 			end,
 		})
-		if #fSh > 0 or #nSh == 0 then
-			table.insert(failures, "sticky: a shallow clone must print a note")
+		if #fSh == 0 or #nSh > 0 then
+			table.insert(failures, "sticky: a shallow clone with failed verification must fail closed")
 		end
 	end
 	-- (v1.6.1) --anchor-remote: planted rewrites against the remote default branch

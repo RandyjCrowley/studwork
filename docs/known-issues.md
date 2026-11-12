@@ -159,9 +159,9 @@ There are no open Critical or High issues.
 ### O7. The legacy anchor and the adopted marker live in git history
 - **Where:** `tools/lune/guardrails.luau`, `tools/lune/AdoptedMarker.luau`.
 - **What fails:** a history rewrite resets both. In a project with no remote (or never pushed) that
-  can't be detected; `tools/lint --anchor-remote` needs a remote default branch and full history. In
-  a shallow clone, lint only notes that the marker's history can't be read (`tools/publish --live`
-  refuses there).
+  can't be detected; `tools/lint --anchor-remote` needs a remote default branch and full history.
+  If the adopted flag is absent and history is shallow or unavailable, lint requires `--verify`
+  to pass; `tools/publish --live` refuses there.
 - **Workaround:** push the adoption commit and run `tools/lint --anchor-remote` in CI (the
   single-game CI template does).
 

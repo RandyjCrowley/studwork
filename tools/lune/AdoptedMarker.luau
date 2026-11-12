@@ -99,11 +99,21 @@ function AdoptedMarker.evaluate(input: any): ({ string }, { string })
 		return failures, notes
 	end
 	local h = input.history or { status = "unavailable" }
-	if h.status == "shallow" then
-		table.insert(
-			notes,
-			"guardrails: shallow clone: the adopted marker's history isn't checked (fetch the full history, as CI does)"
-		)
+	if h.status == "shallow" or h.status == "unavailable" then
+		-- Missing history cannot prove this project was never adopted. Verify the current
+		-- tree instead; an incomplete migration must not escape by dropping the marker.
+		local ok, output = input.runVerify()
+		if ok then
+			table.insert(notes, "guardrails: adopted history unavailable; tools/adopt --verify . passes")
+		else
+			table.insert(
+				failures,
+				"studwork.json: [legacy] adopted history unavailable; fetch full history or finish tools/adopt --verify ."
+			)
+			for line in string.gmatch(output or "", "[^\n]+") do
+				table.insert(failures, "studwork.json: [legacy]   verify: " .. line)
+			end
+		end
 		return failures, notes
 	elseif h.status ~= "ok" or not h.adopted then
 		return failures, notes

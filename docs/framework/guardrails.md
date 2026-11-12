@@ -217,9 +217,9 @@ was removed.
   may go: that's graduating (lint prints a note).
 - `tools/publish --live` uses the sticky value: an un-flagged but historically adopted project
   still runs `tools/adopt --verify .` and is refused while it fails.
-- A shallow clone can't be checked: lint prints a note (an existing list still fails closed, as
-  above) and `tools/publish --live` is refused for a project whose `studwork.json` doesn't say
-  adopted.
+- If the flag is absent and history is shallow or unavailable, lint requires
+  `tools/adopt --verify .` to pass instead of assuming the project was never adopted.
+  `tools/publish --live` is refused when the sticky history cannot be established.
 
 ### `tools/lint --anchor-remote` (v1.6.1, optional)
 
