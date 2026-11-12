@@ -40,7 +40,7 @@ to the server and shown back (even to the author alone) goes through `"private"`
 | `trim` | `true` | strip leading/trailing whitespace and collapse runs of spaces before filtering |
 | `cache.maxEntries` | `500` | cached **re-display** results per server (least recently used are dropped); a new submission is always filtered fresh |
 | `cache.seconds` | `600` | a cached re-display result is re-filtered after this long |
-| `perPlayerPerMinute` | `20` | filter calls one author's text can cause per minute: every submission (`filter`, `store`; over the limit: `"rate_limited"`) and every `textFor` that misses the cache (over the limit: nil, so the caller shows the fallback). A `textFor` served from the cache costs nothing |
+| `perPlayerPerMinute` | `20` | filter calls one author's text can cause per minute, in two separate buckets: the author's submissions (`filter`, `store`; over the limit: `"rate_limited"`), and `textFor` calls that miss the cache (over the limit: nil, so the caller shows the fallback). What viewers re-display never spends the author's submissions. A `textFor` served from the cache costs nothing; `shown` isn't counted (see `shown`) |
 | `originals.max` | `100` | originals kept per author in this module's save section; the oldest is dropped first (its records then show `shown` only, below) |
 | `shownMaxDays` | `7` | a `"public"` record's saved broadcast string is shown while the author is away for at most this many days after it was filtered; after that, nil until the author is in a server again (a week: a string filtered under older rules is not shown for long) |
 | `fallbackKey` | `"TextFilter.hidden"` | the string key ([localization](localization.md)) callers show instead of text that can't be shown (English default: `"..."`) |
@@ -63,16 +63,19 @@ thread, never inside `ctx.tx`.
 - `textFor(viewer, author, text, context) -> string?`: re-display of text the author already
   submitted (filtered then): filters through the re-display cache and returns what `viewer` may
   see, or nil. A submission's result seeds the cache, so showing it right after costs no call.
-  A cache miss is one `FilterStringAsync` and counts against the author's `perPlayerPerMinute`,
-  like a submission (over it: nil); so text a client sends straight to `textFor` is bounded the same
-  way. New player text still belongs in `filter` or `store`. **(contract)**
+  A cache miss is one `FilterStringAsync` and counts against the author's re-display bucket
+  (`perPlayerPerMinute`, kept apart from the author's submissions; over it: nil), so text a client
+  sends straight to `textFor` is bounded, and viewers can't use up the author's own submissions.
+  New player text still belongs in `filter` or `store`. **(contract)**
 - `store(author, text, context) -> (ok, Stored | reason)`: a submission that is kept: filters,
   saves the original in **this module's** section of the author's save (`originals[id]`, never
   replicated), and returns `Stored = { id, author, context, at, shown? }`. `shown` is the broadcast
   string (`"public"` only) for display while the author is offline. The record holds no original
   text, so it is safe to keep in any section. **(contract)**
 - `shown(stored, viewer?) -> string?`: what to display from a `Stored` record: re-filtered from the
-  original (through the re-display cache) when the author is in the server; otherwise
+  original when the author is in the server (the result is held per record for `cache.seconds`,
+  apart from the re-display cache, so a record is re-filtered at most once per `cache.seconds` and
+  nothing is rate-limited: the original was a submission, counted when stored); otherwise
   `stored.shown` for `"public"` while it is younger than `shownMaxDays`, and nil for `"friends"` and
   `"private"` or an older record. Without a `viewer` only `"public"` text has a string (the
   broadcast one). **(contract)**
@@ -122,7 +125,10 @@ player (or a store other players read) without passing TextFilter.
   is annotated (`string`, `any`, `unknown`, a table type). Handlers: `handler = ...`, an entry of an
   `actions = { ... }` table, or `actions.<name> = ...`, where the value is an inline function or the
   name of a function defined in the same file (`local function onRename(player, name)` then
-  `handler = onRename`).
+  `handler = onRename`; a dotted name, `function M.onRename(...)` or `M.onRename = function(...)`
+  then `handler = M.onRename`), or either wrapped in a call (`handler = guard(onRename)`,
+  `handler = Util.wrap(M.onRename, 2)`, `handler = guard(function(player, name) ... end)`): every
+  argument of the call that is a function, or names one in the same file, is scanned as a handler.
 - **Filter records:** the values `filter` and `store` return (`Filtered`, `Stored`) are their own
   class: passing the **whole** value to a sink is a finding (use `result.public`,
   `result.forViewer(...)` or `TextFilter.shown(stored)`), so the display rules (viewer, age) apply.
@@ -143,7 +149,11 @@ player (or a store other players read) without passing TextFilter.
   `player text '<name>' reaches <sink> without TextFilter (docs/framework/kits/textfilter.md)` and
   `filter record '<name>' reaches <sink> whole: pass TextFilter.shown(...) or .public (docs/framework/kits/textfilter.md)`.
 - **Limits:** it follows names only within one function and one file (a handler that hands the
-  text to another function, or a handler defined in another file, isn't followed); text that travels through
+  text to another function, even a local helper that holds the sink, or a handler defined in
+  another file, isn't followed); a method handler (`function M:onRename`), a handler looked up
+  from a table (`handlers[name]`) or one returned by a call defined elsewhere isn't resolved;
+  reassigning a param to a filtered value (`name = r.public`) doesn't clear it (use a new name);
+  text that travels through
   tables, other modules or saves isn't followed (the author's own save isn't a sink: it never
   holds another player's text unless a later read sends it on, which a sink in that code catches).
   `-- guard: allow textfilter` at the end of the sink's line, with a reason on the line above, for
@@ -154,9 +164,12 @@ player (or a store other players read) without passing TextFilter.
   into a sorted map `set`, into `Notifications` `send` params, a whole `Stored` record into
   `setAll("sign", stored)`, the original sent after `filter` (`"public"` into `setAll`, `"private"`
   into `fireAll`) and after `store`, a named local handler, a `local f = function` actions entry,
-  `actions.x = f`, and params typed `any`, a table, a union with `string`, and `...`. Must pass: the
-  same flows after `store(...)` with `TextFilter.shown(stored)`, after `textFor(...)`, a named
-  handler that sends only `r.public`, `number`/`boolean` params, and a guarded non-text param.
+  `actions.x = f`, a dotted handler (`handler = M.f`, `{ x = T.f }` with `T.f = function`), a
+  wrapped handler (`guard(f)`, `Util.wrap(M.f, 2)`, `guard(function ... end)`), and params typed
+  `any`, a table, a union with `string`, and `...`. Must pass: the same flows after `store(...)`
+  with `TextFilter.shown(stored)`, after `textFor(...)`, a named handler that sends only
+  `r.public` (also dotted and wrapped), a wrapper's other arguments, `number`/`boolean` params,
+  and a guarded non-text param.
 
 ## Override levels
 
@@ -182,7 +195,9 @@ player (or a store other players read) without passing TextFilter.
 offline = { userIds } })` as `harness({ services = { TextService = fake } })`; the fake's results
 offer the broadcast and per-user methods and record calls. Specs: each context and who gets nil;
 two submissions of the same text make two filter calls, while re-display is cached (expiry
-re-filters); `maxLength`, trimming, control characters; per-author rate limit; policy refusal
+re-filters); `maxLength`, trimming, control characters; per-author rate limit (re-display by
+viewers, `textFor` or `shown`, never spends it); `shown` re-filters a record at most once per
+`cache.seconds` even past `cache.maxEntries`; policy refusal
 (`harness({ policy = ... })` extended with `IsContentSharingAllowed`); author offline;
 `filter_failed` never returns the original; a `Stored` record contains no original text; the
 original never replicates (the section isn't in `extra` or `data` state); `store`/`shown` round

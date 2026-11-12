@@ -305,6 +305,100 @@ describe("census bucket shards (M5: no single bucket key every server updates)",
 		expect(reading.players).toBe(2 * n)
 	end)
 
+	-- N1: a server that starts after the split has no reading (shardsFor(nil) = 1); it must still
+	-- learn the shard count (shard 0 carries it) and read the full count, not shard 0's share
+	local function shardWorld()
+		local w = world()
+		local maps = {}
+		function w.factory(name)
+			name = name or Census.MAP
+			if maps[name] == nil then
+				maps[name] = if name == Census.MAP
+					then w.map
+					else PlatformStores.memorySortedMap({ clock = w.clock })
+			end
+			return maps[name]
+		end
+		function w.node(draw)
+			return Census.new({
+				map = w.factory,
+				players = function()
+					return 2
+				end,
+				now = w.clock,
+				shardDraw = draw,
+			})
+		end
+		return w
+	end
+
+	it("a server that starts after the split reads the full count on its first cycle", function()
+		local w = shardWorld()
+		local n = 1200
+		local nodes = {}
+		for i = 1, n do
+			nodes[i] = w.node((i - 0.5) / n)
+		end
+		for _ = 1, 4 do
+			for _, c in nodes do
+				c.cycle()
+			end
+			w.t += 60
+		end
+		local late = { w.node(0.9), w.node(0.1), w.node(0.5) }
+		for round = 1, 3 do
+			for _, c in nodes do
+				c.cycle()
+			end
+			for _, c in late do
+				c.cycle()
+			end
+			w.t += 60
+			local expected = if round == 1 then n else n + #late
+			for _, c in late do
+				expect(c.get().servers).toBe(expected)
+				expect(c.get().players).toBe(2 * expected)
+			end
+			expect(nodes[1].get().servers).toBe(expected)
+		end
+	end)
+
+	it("under churn that replaces every server, every server keeps reading the true total", function()
+		local w = shardWorld()
+		local n = 1500
+		local nodes = {}
+		local seed = 0
+		local function draw()
+			seed = (seed * 1103515245 + 12345) % 2147483648
+			return seed / 2147483648
+		end
+		for i = 1, n do
+			nodes[i] = w.node(draw())
+		end
+		for _ = 1, 3 do
+			for _, c in nodes do
+				c.cycle()
+			end
+			w.t += 60
+		end
+		-- 150 servers a cycle stop and as many start: after 10 cycles none of the first servers are left
+		for round = 1, 12 do
+			for j = 1, 150 do
+				nodes[((round - 1) * 150 + j - 1) % n + 1] = w.node(draw())
+			end
+			for _, c in nodes do
+				c.cycle()
+			end
+			w.t += 60
+			for i, c in nodes do
+				local r = c.get()
+				if r == nil or r.servers ~= n or r.players ~= 2 * n then
+					error(`round {round} node {i}: {if r then r.servers else "no reading"}/{n}`)
+				end
+			end
+		end
+	end)
+
 	it("a fixed backend (no factory) keeps every shard in one map, under its own key", function()
 		local w = world()
 		local nodes = {}

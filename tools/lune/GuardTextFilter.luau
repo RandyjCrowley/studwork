@@ -22,7 +22,10 @@
 	            whatever else it is annotated: `any`, a table, a string). Handlers: `handler = ...`
 	            anywhere, `<name> = ...` directly in an `actions = { ... }` table, or
 	            `actions.<name> = ...`, where the value is an inline function or the name of a
-	            function defined in the same file (`local function onRename(player, name)`).
+	            function defined in the same file (`local function onRename(player, name)`, or
+	            dotted: `function M.onRename(` / `M.onRename = function(`), or any of those passed
+	            to a call (`handler = guard(onRename)`: each argument naming one is a handler).
+	            Not resolved: methods (`M:f`), table lookups, handlers from other files.
 	  taint     a local assigned (plain, `..`, string.sub/format/lower/upper or the same methods) from
 	            a tainted name in the same function is tainted from that line on.
 	  clean     only what a TextFilter call (`filter`, `textFor`, `store`, `shown` on a receiver that
@@ -520,8 +523,24 @@ end
 -- parameter types that can't carry text: a parameter annotated with only these isn't a source
 local SAFE_TYPES = { number = true, boolean = true }
 
--- every function definition in the file by name: `local function f(`, `function f(`,
--- `local f = function(` and `f = function(` -> { { fnIndex (the `function` token), open } }
+-- a name or a dotted name (`M.onRename`) starting at token i -> (the name, the token after it);
+-- nil if token i isn't a name
+local function dottedName(tokens: { any }, i: number): (string?, number)
+	local t = tokens[i]
+	if t == nil or t.kind ~= "name" then
+		return nil, i
+	end
+	local name, j = t.v, i + 1
+	while is(tokens[j], ".") and tokens[j + 1] and tokens[j + 1].kind == "name" do
+		name ..= "." .. tokens[j + 1].v
+		j += 2
+	end
+	return name, j
+end
+
+-- every function definition in the file by name, plain or dotted: `local function f(`,
+-- `function f(`, `function M.f(`, `local f = function(`, `f = function(` and `M.f = function(`
+-- -> { { fnIndex (the `function` token), open } }. Methods (`function M:f(`) aren't included.
 local function definitions(tokens: { any }): { [string]: { any } }
 	local defs = {}
 	local function put(name: string, fnIndex: number, open: number)
@@ -530,17 +549,26 @@ local function definitions(tokens: { any }): { [string]: { any } }
 	end
 	for i, t in tokens do
 		if is(t, "function") and t.kind == "kw" then
-			local nameT = tokens[i + 1]
 			local prev = tokens[i - 1]
 			local afterDot = prev ~= nil and prev.kind == "op" and (prev.v == "." or prev.v == ":")
-			if nameT and nameT.kind == "name" and is(tokens[i + 2], "(") and not afterDot then
-				put(nameT.v, i, i + 2) -- `function f(` / `local function f(`
+			local name, open = dottedName(tokens, i + 1)
+			if name ~= nil and is(tokens[open], "(") and not afterDot then
+				put(name, i, open) -- `function f(` / `local function f(` / `function M.f(`
 			elseif is(tokens[i + 1], "(") and is(prev, "=") then
-				local target = tokens[i - 2]
-				local before = tokens[i - 3]
-				local dotted = before ~= nil and before.kind == "op" and (before.v == "." or before.v == ":")
-				if target and target.kind == "name" and not dotted then
-					put(target.v, i, i + 1) -- `local f = function(` / `f = function(`
+				-- walk back over `a.b.c` before the `=`
+				local s = i - 2
+				if tokens[s] and tokens[s].kind == "name" then
+					while is(tokens[s - 1], ".") and tokens[s - 2] and tokens[s - 2].kind == "name" do
+						s -= 2
+					end
+					local before = tokens[s - 1]
+					local chained = before ~= nil
+						and before.kind == "op"
+						and (before.v == "." or before.v == ":" or before.v == "]" or before.v == ")")
+					local target, after = dottedName(tokens, s)
+					if target ~= nil and after == i - 1 and not chained then
+						put(target, i, i + 1) -- `local f = function(` / `f = function(` / `M.f = function(`
+					end
 				end
 			end
 		end
@@ -610,22 +638,55 @@ local function handlers(tokens: { any }, close: { [number]: number }): { any }
 		end
 		table.insert(found, { fnIndex = fnIndex, params = params, bodyFrom = shut + 1, bodyTo = bodyTo - 1 })
 	end
-	-- `<key> = function(` or `<key> = <name>` (a function defined in this file)
-	local function addValue(at: number)
+	-- `<key> = function(`, `<key> = <name>` / `<key> = <a>.<b>` (a function defined in this file),
+	-- or any of those wrapped in a call, `<key> = guard(onRename)`: every argument of the call that
+	-- is a function, or names one defined in this file, is taken as the handler
+	local function addValue(at: number, depth: number?)
+		local level = depth or 0
 		if is(tokens[at], "function") then
 			add(at, nil)
-		elseif tokens[at] and tokens[at].kind == "name" and defs[tokens[at].v] then
-			local after = tokens[at + 1]
-			if
+			return
+		end
+		local name, j = dottedName(tokens, at)
+		if name == nil then
+			return
+		end
+		local after = tokens[j]
+		if is(after, "(") and close[j] and after.line == tokens[j - 1].line then
+			if level >= 3 then
+				return
+			end
+			local shut = close[j]
+			local k = j + 1
+			while k < shut do
+				addValue(k, level + 1)
+				-- on to the next argument at this call's depth
+				while k < shut and not is(tokens[k], ",") do
+					local u = tokens[k]
+					local opens = (u.kind == "op" and (u.v == "(" or u.v == "{" or u.v == "["))
+						or is(u, "function")
+					if opens and close[k] then
+						k = close[k]
+					end
+					k += 1
+				end
+				k += 1
+			end
+			return
+		end
+		if
+			defs[name]
+			and (
 				after == nil
 				or after.v == ","
 				or after.v == "}"
+				or after.v == ")"
 				or after.v == ";"
-				or after.line ~= tokens[at].line
-			then
-				for _, d in defs[tokens[at].v] do
-					add(d.fnIndex, d.open)
-				end
+				or after.line ~= tokens[j - 1].line
+			)
+		then
+			for _, d in defs[name] do
+				add(d.fnIndex, d.open)
 			end
 		end
 	end
@@ -1199,6 +1260,69 @@ GuardTextFilter.PLANTED_FAIL = {
 		}, "\n"),
 		"player text 'text' reaches ctx.net.fireAll",
 	},
+	{
+		"a dotted named handler (handler = M.onRename)",
+		table.concat({
+			"local M = {}",
+			"function M.onRename(player, name)",
+			'\tctx.replicate.setAll("sign", name)',
+			"end",
+			"function M.part(ctx, part)",
+			"\tpart.actions = { rename = { limit = { rate = 1, burst = 2 }, handler = M.onRename } }",
+			"end",
+			"return M",
+		}, "\n"),
+		"player text 'name' reaches ctx.replicate.setAll",
+	},
+	{
+		"a dotted function value as an actions entry (Handlers.onSign = function)",
+		table.concat({
+			"local Handlers = {}",
+			"Handlers.onSign = function(player, text)",
+			"\tctx.net.fireAll(Ev, text)",
+			"end",
+			"return function(ctx, part)",
+			"\tpart.actions = { sign = Handlers.onSign }",
+			"end",
+		}, "\n"),
+		"player text 'text' reaches ctx.net.fireAll",
+	},
+	{
+		"a handler wrapped in a call (handler = guard(onRename))",
+		table.concat({
+			"return function(ctx, part)",
+			"\tlocal function onRename(player, name)",
+			'\t\tctx.replicate.setAll("sign", name)',
+			"\tend",
+			"\tpart.actions = { rename = { limit = { rate = 1, burst = 2 }, handler = guard(onRename) } }",
+			"end",
+		}, "\n"),
+		"player text 'name' reaches ctx.replicate.setAll",
+	},
+	{
+		"a dotted handler wrapped with more arguments (handler = Util.wrap(M.onTitle, 2))",
+		table.concat({
+			"local M = {}",
+			"function M.onTitle(player, title)",
+			"\tpart.Name = title",
+			"end",
+			"return function(ctx, part)",
+			"\tpart.actions = { title = { handler = Util.wrap(M.onTitle, 2) } }",
+			"end",
+		}, "\n"),
+		"player text 'title' reaches .Name =",
+	},
+	{
+		"an inline function wrapped in a call (handler = guard(function(player, name) ... end))",
+		table.concat({
+			"return function(ctx, part)",
+			"\tpart.actions = { rename = { handler = guard(function(player, name)",
+			'\t\tctx.replicate.setAll("sign", name)',
+			"\tend) } }",
+			"end",
+		}, "\n"),
+		"player text 'name' reaches ctx.replicate.setAll",
+	},
 	-- every wire value is a source unless annotated number/boolean
 	{
 		"a param typed any",
@@ -1271,6 +1395,36 @@ GuardTextFilter.PLANTED_PASS = {
 			'\t\tif ok then ctx.replicate.setAll("sign", r.public) end',
 			"\tend",
 			"\tpart.actions = { rename = { limit = { rate = 1, burst = 2 }, handler = onRename } }",
+			"end",
+			"return M",
+		}, "\n"),
+	},
+	{
+		"a dotted, wrapped handler that sends only the filtered string",
+		table.concat({
+			"local M = {}",
+			"function M.onRename(player, name: string)",
+			'\tlocal ok, r = ctx.deps[TextFilter].filter(player, name, "public")',
+			'\tif ok then ctx.replicate.setAll("sign", r.public) end',
+			"end",
+			"function M.part(ctx, part)",
+			"\tpart.actions = { rename = { handler = guard(M.onRename) }, alias = { handler = M.onRename } }",
+			"end",
+			"return M",
+		}, "\n"),
+	},
+	{
+		"a wrapper's other arguments aren't handlers (a helper passed alongside, number params)",
+		table.concat({
+			"local M = {}",
+			"function M.onScore(player, amount: number)",
+			'\tctx.replicate.setAll("score", amount)',
+			"end",
+			"local function describe(player, name)",
+			"\treturn name",
+			"end",
+			"function M.part(ctx, part)",
+			"\tpart.actions = { score = { handler = guard(M.onScore, 5) } }",
 			"end",
 			"return M",
 		}, "\n"),

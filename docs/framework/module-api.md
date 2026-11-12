@@ -1296,7 +1296,8 @@ ctx.data.census() -> { servers: number, players: number, peakPlayers: number, at
   10 min) and reads the last complete bucket. Past 500 servers (the last reading) the bucket is
   split so no one key takes every server's update: `ceil(servers / 500)` shards (at most 16), shard
   `k > 0` in its own map `SW/_/census/<k>` (its own partition); each server writes one and reads them
-  all (one get each) and adds them up. The bucket gives `servers` and `players` (= CCU) for the whole
+  all (one get each) and adds them up. Shard 0 also carries the shard count, read first, so a server
+  that starts after the split (no reading yet) finds every shard on its first cycle. The bucket gives `servers` and `players` (= CCU) for the whole
   experience, at most two buckets old. The day's peak player count is kept for 9 days, and
   `peakPlayers` is the highest of the last 8 days. Cost: about 3 request units per server per
   `censusSeconds` (an `update` counts as a read and a write; charged to the framework, not a

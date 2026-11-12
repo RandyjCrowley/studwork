@@ -222,10 +222,22 @@ describe("TextFilter: submissions and the re-display cache", function()
 		expect(tf.textFor(b, a, "never submitted 3", "public")).toBe(nil) -- over: nil, no filter call
 		expect(count(fake, "FilterStringAsync")).toBe(2)
 		expect(tf.textFor(b, a, "never submitted 1", "public")).never.toBe(nil) -- cached: free
-		expect(select(2, tf.filter(a, "4", "public"))).toBe("rate_limited") -- the same bucket
 		expect(count(fake, "FilterStringAsync")).toBe(2)
 		h:tick(60)
 		expect(tf.textFor(b, a, "never submitted 3", "public")).never.toBe(nil)
+	end)
+
+	it("viewers' textFor misses never spend the author's submission rate (N2)", function()
+		local h, fake = boot({ config = { perPlayerPerMinute = 2 } })
+		local a, b = join(h, 2)
+		local tf = h:use(TextFilter)
+		tf.textFor(b, a, "shown 1", "public")
+		tf.textFor(b, a, "shown 2", "public")
+		expect(tf.textFor(b, a, "shown 3", "public")).toBe(nil) -- re-display is still bounded
+		expect(tf.filter(a, "mine 1", "public")).toBe(true) -- the author's own submissions are not
+		expect(tf.filter(a, "mine 2", "public")).toBe(true)
+		expect(select(2, tf.filter(a, "mine 3", "public"))).toBe("rate_limited")
+		expect(count(fake, "FilterStringAsync")).toBe(4)
 	end)
 
 	it("content sharing off or unknown refuses public and friends; private still works", function()
@@ -399,6 +411,52 @@ describe("TextFilter: stored text", function()
 		h:removePlayer(a)
 		expect(h:saved(a).textfilter.originals["1"]).toBe(nil)
 	end)
+
+	it(
+		"viewers re-showing stored text never block the author's submissions or blank the text (N2)",
+		function()
+			local h = boot({ config = { perPlayerPerMinute = 30 } })
+			local a, b = join(h, 2, { { 1, 2 } })
+			local tf = h:use(TextFilter)
+			local records = {}
+			for i = 1, 30 do
+				local context = if i % 3 == 0 then "public" elseif i % 3 == 1 then "friends" else "private"
+				local ok, s = tf.store(a, `item {i}`, context)
+				expect(ok).toBe(true)
+				records[i] = s
+			end
+			h:tick(600) -- cache.seconds: every re-display is a miss now
+			for i, s in records do
+				local viewer = if s.context == "private" then a else b
+				expect(tf.shown(s, viewer)).toBe(`item {i}`)
+			end
+			expect(tf.filter(a, "a new name", "public")).toBe(true)
+		end
+	)
+
+	it(
+		"shown re-filters a stored record at most once per cache.seconds, even past cache.maxEntries",
+		function()
+			local h, fake = boot({ config = { cache = { maxEntries = 1, seconds = 600 } } })
+			local a, b = join(h, 2)
+			local tf = h:use(TextFilter)
+			local records = {}
+			for i = 1, 5 do
+				records[i] = select(2, tf.store(a, `sign {i}`, "public"))
+			end
+			h:tick(600)
+			local before = count(fake, "FilterStringAsync")
+			for _ = 1, 3 do
+				for _, s in records do
+					tf.shown(s, b)
+				end
+			end
+			expect(count(fake, "FilterStringAsync")).toBe(before + 5)
+			h:tick(600)
+			tf.shown(records[1], b)
+			expect(count(fake, "FilterStringAsync")).toBe(before + 6)
+		end
+	)
 
 	it("shown refuses anything that isn't a Stored record", function()
 		local h = boot()
