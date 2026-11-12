@@ -9,7 +9,7 @@
 	Strings: Badges.awarded ("Badge earned: {name}"), Badges.title and, from config,
 	Badges.badge.<key> (English default = the key until the game names it in GameConfig.strings).
 
-	config (GameConfig.config.Badges): flag, badges, awardInStudio, ownershipCheck, retry, budget,
+	config (GameConfig.config.Badges): flag, badges, awardInStudio, studioFeedback, ownershipCheck, retry, budget,
 	infoCacheSeconds (the page's table). Badge id 0 is a placeholder (recorded, never sent).
 ]]
 
@@ -37,6 +37,7 @@ return StudWork.defineModule({
 			flag = "string?",
 			badges = "{[string]: table}",
 			awardInStudio = "boolean",
+			studioFeedback = "boolean",
 			ownershipCheck = "boolean",
 			retry = {
 				base = "number(0..)",
@@ -53,6 +54,7 @@ return StudWork.defineModule({
 		defaults = {
 			badges = {},
 			awardInStudio = false,
+			studioFeedback = true, -- Studio: an unsent record still shows the toast (marked) and fires Awarded
 			ownershipCheck = true,
 			retry = { base = 5, factor = 2, max = 300, attempts = 6 },
 			budget = {
@@ -72,6 +74,7 @@ return StudWork.defineModule({
 	strings = function(config: any): { [string]: string }
 		local out: { [string]: string } = {
 			["Badges.awarded"] = "Badge earned: {name}",
+			["Badges.awardedStudio"] = "Badge earned: {name} (Studio preview, not sent)",
 			["Badges.title"] = "Badges",
 		}
 		for key in config.badges do

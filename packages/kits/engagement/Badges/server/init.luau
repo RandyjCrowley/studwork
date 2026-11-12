@@ -21,6 +21,8 @@
 	id 0 (one warning per server per key), a badge disabled on the dashboard (one warning per server
 	per id), the player gone. GetBadgeInfoAsync is cached infoCacheSeconds. AwardBadgeAsync:
 	  true  -> sent = true, BadgeAwarded, the Awarded client event, a toast when `toast`
+	In Studio a record that is not sent (awardInStudio false, or a placeholder id) still fires the
+	Awarded client event and a toast marked "(Studio preview)" once per session (studioFeedback).
 	  false -> one CheckUserBadgesAsync (budget.checksPerMinute): owned -> { sent, found }, the
 	           signal; not owned -> a failure
 	  error -> backoff (config.retry); after `attempts` failures this session it stays pending.
@@ -67,6 +69,7 @@ function Badges.new(): any
 	local queue: { [any]: { [string]: Entry } } = {}
 	local failures: { [any]: { [string]: number } } = {} -- this session's failed sends
 	local studioLogged: { [any]: { [string]: boolean } } = {}
+	local studioShown: { [any]: { [string]: boolean } } = {} -- the Studio preview already shown
 	local infoCache: { [number]: { at: number, enabled: boolean } } = {}
 	local warned: { [string]: boolean } = {}
 	local window = { minute = -1, awards = 0, checks = 0 }
@@ -206,6 +209,38 @@ function Badges.new(): any
 		end
 	end
 
+	-- Studio only (config.studioFeedback): a record that is never sent still gives the client what a
+	-- confirmed award gives (the Awarded event, a toast marked as a Studio preview), once per
+	-- player and key per session, so a game can see and test its badge UI. The BadgeAwarded signal
+	-- is NOT fired (it means Roblox confirmed), and the record stays pending.
+	local function studioPreview(player: any, key: string)
+		if not isStudio() or cfg().studioFeedback ~= true then
+			return
+		end
+		local shown = studioShown[player]
+		if shown == nil then
+			shown = {}
+			studioShown[player] = shown
+		end
+		if shown[key] then
+			return
+		end
+		shown[key] = true
+		local net = part.net
+		if type(net) == "table" and net.Awarded ~= nil then
+			pcall(ctx.net.fire, player, net.Awarded, key)
+		end
+		if defs[key].toast ~= false then
+			local name = ctx.text.format(player, "Badges.badge." .. key)
+			pcall(
+				ctx.net.feedback,
+				player,
+				"toast",
+				ctx.text.format(player, "Badges.awardedStudio", { name = name })
+			)
+		end
+	end
+
 	local function failed(player: any, key: string, entry: Entry, why: string)
 		local f = failures[player]
 		if f == nil then
@@ -252,6 +287,7 @@ function Badges.new(): any
 		end
 		if def.id == 0 then
 			dequeue(player, key)
+			studioPreview(player, key)
 			warnOnce(
 				"placeholder:" .. key,
 				`badge '{key}' has the placeholder id 0: recorded, never sent (set config.Badges.badges.{key}.id)`
@@ -260,6 +296,7 @@ function Badges.new(): any
 		end
 		if isStudio() and cfg().awardInStudio ~= true then
 			dequeue(player, key)
+			studioPreview(player, key)
 			studioLogged[player] = studioLogged[player] or {}
 			if not studioLogged[player][key] then
 				studioLogged[player][key] = true
@@ -705,6 +742,7 @@ function Badges.new(): any
 			queue[player] = nil
 			failures[player] = nil
 			studioLogged[player] = nil
+			studioShown[player] = nil
 		end)
 		ctx.lifecycle.onTick(1, function()
 			if next(queue) ~= nil then
