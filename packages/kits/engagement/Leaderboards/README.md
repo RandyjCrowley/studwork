@@ -8,5 +8,8 @@ defaults, save section, strings), `server/` (server part), `client/` (rows from 
 
 Design and API: [docs/framework/kits/leaderboards.md](../../../../docs/framework/kits/leaderboards.md).
 
-Status: the foundation skeleton. `module.luau` is final; the server part is a valid empty part whose
-API answers with documented safe defaults. Implementation: the leaderboards builder of the v1.7.0 round.
+Files: `server/init.luau` (the part: stores, shared top N with the reader lease, writes, replication),
+`server/Period.luau` and `server/Merge.luau` (pure rules), `client/init.luau` (api, screen registration),
+`client/State.luau` (pure readers), `client/Views.luau` (React: the screen and the single board view).
+Specs: `packages/kits/engagement/tests/Leaderboards*.spec.luau`, `client/State.spec.luau`,
+`packages/ui/Leaderboard.spec.luau`.
