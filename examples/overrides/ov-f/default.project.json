@@ -43,6 +43,18 @@
             "$path": "../../../packages/kits/engagement/Badges/client"
           }
         },
+        "Carry": {
+          "$className": "Folder",
+          "module": {
+            "$path": "../../../packages/kits/carry/Carry/module.luau"
+          },
+          "client": {
+            "$path": "../../../packages/kits/carry/Carry/client"
+          },
+          "shared": {
+            "$path": "../../../packages/kits/carry/Carry/shared"
+          }
+        },
         "Economy": {
           "$className": "Folder",
           "module": {
@@ -101,6 +113,15 @@
           },
           "client": {
             "$path": "../../../packages/kits/social/Mail/client"
+          }
+        },
+        "Movement": {
+          "$className": "Folder",
+          "module": {
+            "$path": "../../../packages/kits/carry/Movement/module.luau"
+          },
+          "shared": {
+            "$path": "../../../packages/kits/carry/Movement/shared"
           }
         },
         "Notifications": {
@@ -207,6 +228,9 @@
         "Badges": {
           "$path": "../../../packages/kits/engagement/Badges/server"
         },
+        "Carry": {
+          "$path": "../../../packages/kits/carry/Carry/server"
+        },
         "Economy": {
           "$path": "../../../packages/kits/economy/Economy/server"
         },
@@ -227,6 +251,9 @@
         },
         "Mail": {
           "$path": "../../../packages/kits/social/Mail/server"
+        },
+        "Movement": {
+          "$path": "../../../packages/kits/carry/Movement/server"
         },
         "Notifications": {
           "$path": "../../../packages/kits/engagement/Notifications/server"

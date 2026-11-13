@@ -40,6 +40,7 @@ local process = require("@lune/process")
 local Harness = require("../testkit/harness")
 local Snapshot = Harness.require("packages/framework/server/Replication/Snapshot.luau")
 local SectionCache = Harness.require("tools/lune/bench/SectionCache.luau") -- v1.1 parity cache
+local CarryVariant = require("./CarryVariant") -- the carry kit's variants (carry.md "Budget")
 local Data = Harness.require("packages/framework/server/Data.luau")
 local Store = Harness.require("packages/framework/server/Store.luau")
 
@@ -305,7 +306,7 @@ local kitHarness: any = nil
 local kitApis: any = nil
 -- all = true is KITS-ALL: the same modules plus every v1.7.0 module, configured like the sandbox
 -- (Balance.luau, Config/init.luau), with the harness's fakes for every store and service.
-local function bootKits(players: { FakePlayer }, all: boolean)
+local function bootKits(players: { FakePlayer }, all: boolean, carryPlan: any?)
 	Harness.mapGame(nil)
 	local ReplicatedStorage = Harness.game:GetService("ReplicatedStorage")
 	local StudWork = Harness.require(ReplicatedStorage.Framework)
@@ -403,6 +404,9 @@ local function bootKits(players: { FakePlayer }, all: boolean)
 			["game.debug"] = "debug: {env}",
 		}
 	end
+	if carryPlan then
+		carryPlan.extend(modules, config)
+	end
 	local h = StudWork.test.harness({
 		modules = modules,
 		items = items,
@@ -422,6 +426,13 @@ local function bootKits(players: { FakePlayer }, all: boolean)
 		end
 		h:fire(player, "StateInit") -- the client asked for its state: Replication sends to it
 		runtimes[p] = { player = player }
+	end
+	if carryPlan then
+		local list = {}
+		for i, p in players do
+			list[i] = runtimes[p].player
+		end
+		carryPlan.start(h, list)
 	end
 	h:tick(1) -- settle: rates computed, first states built
 	local last = {}
@@ -452,6 +463,17 @@ tickFns["KITS-ALL"] = function(p: FakePlayer, tick: number)
 end
 
 local ORDER = { "BEFORE", "AFTER", "AFTER-STUB", "MERGED", "MERGED-V13", "KITS", "KITS-ALL" }
+CarryVariant.register({ -- the carry kit's variants: KITS-ALL+carry (the v1.8.0 budget target), -FLOOR, -STEP, MOVEMENT-50, CARRY-20x4
+	variants = variants,
+	tickFns = tickFns,
+	order = ORDER,
+	bootKits = bootKits,
+	apis = function()
+		return kitApis
+	end,
+	runtimes = runtimes,
+	diff = diff,
+})
 
 -- (v1.8.0 quests kit) KITS-QUESTS: KITS-ALL + Quests + Goals, 50 players x 10 quests progressed per tick
 local QuestsVariant = require("./QuestsVariant")
@@ -612,3 +634,4 @@ for _, name in ORDER do
 		)
 	)
 end
+CarryVariant.report()

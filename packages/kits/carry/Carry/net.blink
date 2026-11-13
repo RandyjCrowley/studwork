@@ -1,0 +1,34 @@
+-- Carry module network contract (Blink IDL, compiled with `tools/net`; module-api.md §1, §9).
+-- Three client -> server requests, each carrying object ids only: never a position, a CFrame or a
+-- reason. The server looks the id up (an unknown id is refused), re-validates everything against its
+-- own state and rate-limits (the actions in server/init.luau: carryPickUp, carryDrop, carryHandOff).
+option RemoteScope = "STUDWORK_CARRY"
+option Casing = Pascal
+option ServerOutput = "server/Net.luau"
+option ClientOutput = "client/Net.luau"
+
+type ObjectId = string(1..16)
+
+-- Pick up (or join carrying) the object. (objectId)
+event CarryPickUp {
+    From: Client,
+    Type: Reliable,
+    Call: SingleAsync,
+    Data: ObjectId
+}
+
+-- Put down the object this player holds a slot on. (objectId)
+event CarryDrop {
+    From: Client,
+    Type: Reliable,
+    Call: SingleAsync,
+    Data: ObjectId
+}
+
+-- Pass (hand off or throw) the held object to a present player. (objectId, toUserId)
+event CarryHandOff {
+    From: Client,
+    Type: Reliable,
+    Call: SingleAsync,
+    Data: (ObjectId, f64)
+}
