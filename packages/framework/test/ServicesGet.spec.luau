@@ -38,6 +38,8 @@ describe("ctx.services.get", function()
 			UserService = fakes.userService({}),
 			LocalizationService = { marker = "loc" },
 			Players = { marker = "players" },
+			GroupService = { marker = "group" },
+			TextChatService = { marker = "textchat" },
 		}
 		local _, ctx = boot({ services = given })
 		for name in Services.ALLOWED do
@@ -79,7 +81,7 @@ describe("ctx.services.get", function()
 		local _, err = pcall(ctx.services.get, "Lighting")
 		expect(tostring(err)).toContain("not an allowed service")
 		expect(tostring(err)).toContain(
-			"BadgeService, LocalizationService, Players, TextService, UserService"
+			"BadgeService, GroupService, LocalizationService, Players, TextChatService, TextService, UserService"
 		)
 		local _, err2 = pcall(ctx.services.get, 5)
 		expect(tostring(err2)).toContain("name must be a string")

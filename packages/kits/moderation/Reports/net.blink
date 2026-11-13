@@ -1,0 +1,16 @@
+-- Reports module network contract (Blink IDL, compiled with `tools/net`; module-api.md §1, §9).
+-- Submit is a REQUEST: Blink checks the wire types; the server part's action handler validates
+-- the target, the category, the limits and filters the note. Feedback is a framework toast
+-- (ctx.net.feedback) with a strings key; a refused report looks the same as an accepted one.
+option RemoteScope = "STUDWORK_REPORTS"
+option Casing = Pascal
+option ServerOutput = "server/Net.luau"
+option ClientOutput = "client/Net.luau"
+
+-- Report a player. (targetUserId, category, note?)
+event Submit {
+    From: Client,
+    Type: Reliable,
+    Call: SingleAsync,
+    Data: (f64, string(1..32), string(0..200)?)
+}

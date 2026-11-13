@@ -204,7 +204,22 @@ describe("NewGame v1.3 module refs", function()
 		expect(Modules.kitFolder("Settings")).toBe("Player")
 		expect(Modules.isModule("Companions")).toBe(true)
 		expect(Modules.SPECS.Companions.requires).toEqual({ "Items", "Inventory" })
-		expect(#Modules.ORDER).toBe(22)
+		-- the 15 template modules in KitModules.ORDER, then kit modules the template doesn't list
+		-- yet, alphabetically
+		expect(#Modules.ORDER).toBe(25)
+		expect(Modules.ORDER[15]).toBe("Plot")
+		expect(table.move(Modules.ORDER, 16, 25, 1, {})).toEqual({
+			"Admin",
+			"Carry",
+			"Codes",
+			"Companions",
+			"Goals",
+			"Moderation",
+			"Movement",
+			"Quests",
+			"Reports",
+			"Settings",
+		})
 	end)
 
 	it("keeps the ref lines of chosen modules and adds a ref line for a missing one", function()

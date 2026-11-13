@@ -1,0 +1,71 @@
+-- Admin module network contract (Blink IDL, compiled with `tools/net`; module-api.md §1, §9).
+-- Every client -> server event is a REQUEST: Blink checks the wire types below on receive; the
+-- server part checks staff FIRST (a non-staff request is dropped with no reply, exactly like an
+-- unknown action, and only counted in a server log line), then the permission, the per-staff
+-- limits and every argument. The server -> client events go to that staff player only, except
+-- Announce (everyone in this server).
+-- Design deviation: the design's `Result` event is `RunResult` here (the `special` guardrail
+-- refuses kit event names that appear in framework code, and the framework has a `Result` type).
+option RemoteScope = "STUDWORK_ADMIN"
+option Casing = Pascal
+option ServerOutput = "server/Net.luau"
+option ClientOutput = "client/Net.luau"
+
+type Id = string(1..32)
+type Key = string(1..64)
+
+-- Run a panel action. (actionId, targetUserId?, preset?, duration?, text?)
+event Run {
+    From: Client,
+    Type: Reliable,
+    Call: SingleAsync,
+    Data: (Id, f64?, Key?, f64?, string(0..200)?)
+}
+
+-- Ask for one page of a panel tab. (tabId, page)
+event Fetch {
+    From: Client,
+    Type: Reliable,
+    Call: SingleAsync,
+    Data: (Id, u16)
+}
+
+-- The staff player opened the panel (the server re-sends extra.staff and delivers the panel UI).
+event PanelOpen {
+    From: Client,
+    Type: Reliable,
+    Call: SingleAsync,
+    Data: u8
+}
+
+-- One page of a tab, rows encoded as JSON. (tabId, page, json) -- that staff player only
+event Rows {
+    From: Server,
+    Type: Reliable,
+    Call: SingleAsync,
+    Data: (Id, u16, string(0..30000))
+}
+
+-- The outcome of a Run: ok and a strings key (Admin.result.*). -- that staff player only
+event RunResult {
+    From: Server,
+    Type: Reliable,
+    Call: SingleAsync,
+    Data: (boolean, Key)
+}
+
+-- Spectate a player (userId) or stop (nil). -- that staff player only
+event Spectate {
+    From: Server,
+    Type: Reliable,
+    Call: SingleAsync,
+    Data: f64?
+}
+
+-- An announcement to everyone in this server: filtered text or a preset strings key.
+event Announce {
+    From: Server,
+    Type: Reliable,
+    Call: SingleAsync,
+    Data: string(1..400)
+}

@@ -34,6 +34,15 @@
       },
       "Modules": {
         "$className": "Folder",
+        "Admin": {
+          "$className": "Folder",
+          "module": {
+            "$path": "../../../packages/kits/moderation/Admin/module.luau"
+          },
+          "client": {
+            "$path": "../../../packages/kits/moderation/Admin/client"
+          }
+        },
         "Badges": {
           "$className": "Folder",
           "module": {
@@ -139,6 +148,15 @@
             "$path": "../../../packages/kits/social/Mail/client"
           }
         },
+        "Moderation": {
+          "$className": "Folder",
+          "module": {
+            "$path": "../../../packages/kits/moderation/Moderation/module.luau"
+          },
+          "client": {
+            "$path": "../../../packages/kits/moderation/Moderation/client"
+          }
+        },
         "Movement": {
           "$className": "Folder",
           "module": {
@@ -205,6 +223,15 @@
             "$path": "../../../packages/kits/economy/Rebirth/client"
           }
         },
+        "Reports": {
+          "$className": "Folder",
+          "module": {
+            "$path": "../../../packages/kits/moderation/Reports/module.luau"
+          },
+          "client": {
+            "$path": "../../../packages/kits/moderation/Reports/client"
+          }
+        },
         "Settings": {
           "$className": "Folder",
           "module": {
@@ -252,6 +279,9 @@
         "OvA": {
           "$path": "modules/ov-a/server"
         },
+        "Admin": {
+          "$path": "../../../packages/kits/moderation/Admin/server"
+        },
         "Badges": {
           "$path": "../../../packages/kits/engagement/Badges/server"
         },
@@ -285,6 +315,9 @@
         "Mail": {
           "$path": "../../../packages/kits/social/Mail/server"
         },
+        "Moderation": {
+          "$path": "../../../packages/kits/moderation/Moderation/server"
+        },
         "Movement": {
           "$path": "../../../packages/kits/carry/Movement/server"
         },
@@ -305,6 +338,9 @@
         },
         "Rebirth": {
           "$path": "../../../packages/kits/economy/Rebirth/server"
+        },
+        "Reports": {
+          "$path": "../../../packages/kits/moderation/Reports/server"
         },
         "Settings": {
           "$path": "../../../packages/kits/player/Settings/server"

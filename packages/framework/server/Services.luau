@@ -23,6 +23,8 @@ Services.ALLOWED = table.freeze({
 	UserService = true,
 	LocalizationService = true,
 	Players = true,
+	GroupService = true,
+	TextChatService = true,
 })
 
 Services.REFUSED = table.freeze({

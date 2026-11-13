@@ -1,0 +1,16 @@
+-- Moderation module network contract (Blink IDL, compiled with `tools/net`; module-api.md §1, §9).
+-- No client -> server events: every moderation action comes from server code, the console or
+-- the Admin panel (Admin's own Run event). Notice goes to the affected player only.
+option RemoteScope = "STUDWORK_MODERATION"
+option Casing = Pascal
+option ServerOutput = "server/Net.luau"
+option ClientOutput = "client/Net.luau"
+
+-- A notice for this player (a warning, a mute start or end): a strings key and its format
+-- arguments as JSON. (key, argsJson)
+event Notice {
+    From: Server,
+    Type: Reliable,
+    Call: SingleAsync,
+    Data: (string(1..64), string(0..400))
+}
