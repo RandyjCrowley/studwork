@@ -1,0 +1,2 @@
+Key,Source,Context,Example,es
+game.welcome,"Welcome back, {name}!",Greeting when a player returns,"Welcome back, Sam!","¡Bienvenido de nuevo, {name}!"

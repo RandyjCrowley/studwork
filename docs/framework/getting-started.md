@@ -101,21 +101,21 @@ problems at once. See [the five override levels](override-levels.md).
 ## 5. Your first module (level 5)
 
 ```
-tools/make-module Quests --game my-game
+tools/make-module Trophies --game my-game
 ```
 
-It writes `games/my-game/modules/quests/` (definition, server part, client part, a harness test,
+It writes `games/my-game/modules/trophies/` (definition, server part, client part, a harness test,
 README) and maps it in `games/my-game/default.project.json`. Then:
 
 1. In `src/shared/Config/init.luau`, under `local ReplicatedStorage = ...`, add
    `local GameModules = ReplicatedStorage:WaitForChild("Modules")`, and add this line to `modules`:
-   `require(GameModules:WaitForChild("Quests"):WaitForChild("module")),`
-2. In `src/server/Boot.spec.luau`, add `"Quests",` to `EXPECTED` just before the game's own module
+   `require(GameModules:WaitForChild("Trophies"):WaitForChild("module")),`
+2. In `src/server/Boot.spec.luau`, add `"Trophies",` to `EXPECTED` just before the game's own module
    (the last entry).
 3. Run:
 
    ```
-   tools/test games/my-game/modules/quests
+   tools/test games/my-game/modules/trophies
    tools/test games/my-game/src/server
    tools/typecheck my-game
    tools/lint
@@ -126,7 +126,7 @@ README) and maps it in `games/my-game/default.project.json`. Then:
 Your module's spec uses `StudWork.test.harness` (`tools/make-module` writes one). How a spec drives the
 game module against the kits (options, `h:console`, `h:action`, `h:sent`, the fake Workspace) is in
 [testing.md](testing.md). The console commands your module registers are typed with its
-**lower-case name** in front: module `Quests` -> `quests reset`.
+**lower-case name** in front: module `Trophies` -> `trophies reset`.
 
 Next: [concepts](concepts.md), the [module API reference](module-reference.md), the
 [generators](generators.md), and the [example module](../../examples/modules/session-leaderboard/README.md).

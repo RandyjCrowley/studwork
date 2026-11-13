@@ -1,0 +1,26 @@
+-- Goals module network contract (Blink IDL, compiled with `tools/net`; module-api.md §1, §9;
+-- docs/framework/kits/quests.md, Goals "Actions"). Client-to-server requests only. Nothing is
+-- granted by either (goals have no rewards); the server checks every argument and the framework
+-- rate-limits them.
+option RemoteScope = "STUDWORK_GOALS"
+option Casing = Pascal
+option ServerOutput = "server/Net.luau"
+option ClientOutput = "client/Net.luau"
+
+type GoalId = string(1..32)
+
+-- The player's "hide goals" setting (saved). (hidden)
+event SkipGoals {
+    From: Client,
+    Type: Reliable,
+    Call: SingleAsync,
+    Data: boolean
+}
+
+-- Acknowledge the current goal when its check is { ack = true } ("opened the board"). (goalId)
+event AckGoal {
+    From: Client,
+    Type: Reliable,
+    Call: SingleAsync,
+    Data: GoalId
+}

@@ -453,6 +453,17 @@ end
 
 local ORDER = { "BEFORE", "AFTER", "AFTER-STUB", "MERGED", "MERGED-V13", "KITS", "KITS-ALL" }
 
+-- (v1.8.0 quests kit) KITS-QUESTS: KITS-ALL + Quests + Goals, 50 players x 10 quests progressed per tick
+local QuestsVariant = require("./QuestsVariant")
+variants["KITS-QUESTS"] = function(players)
+	return QuestsVariant.boot(players, bootKits, Harness) -- wraps the harness constructor for this one call
+end
+tickFns["KITS-QUESTS"] = function(p: FakePlayer, tick: number)
+	QuestsVariant.tick(runtimes[p].player, tick)
+	tickFns["KITS-ALL"](p, tick)
+end
+table.insert(ORDER, "KITS-QUESTS")
+
 local function median(list: { number }): number
 	local s = table.clone(list)
 	table.sort(s)

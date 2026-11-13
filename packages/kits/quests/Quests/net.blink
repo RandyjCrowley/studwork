@@ -1,0 +1,44 @@
+-- Quests module network contract (Blink IDL, compiled with `tools/net`; module-api.md §1, §9;
+-- docs/framework/kits/quests.md, "Actions"). Client-to-server requests only: there is no event
+-- that adds progress, completes a quest or grants one. Blink checks the wire types on receive; the
+-- server part's actions look every id up in config (the client's string is never used past the
+-- lookup) and are rate-limited by the framework.
+option RemoteScope = "STUDWORK_QUESTS"
+option Casing = Pascal
+option ServerOutput = "server/Net.luau"
+option ClientOutput = "client/Net.luau"
+
+type QuestId = string(1..32)
+enum SlotKind = { daily, weekly }
+
+-- Claim a complete quest's rewards (current period, active, or waiting). (questId)
+event ClaimQuest {
+    From: Client,
+    Type: Reliable,
+    Call: SingleAsync,
+    Data: QuestId
+}
+
+-- Reroll a daily or weekly slot with one of its free rerolls. (kind, slot)
+event RerollQuest {
+    From: Client,
+    Type: Reliable,
+    Call: SingleAsync,
+    Data: (SlotKind, u8)
+}
+
+-- Pin or unpin a quest on the HUD tracker. (questId, on)
+event PinQuest {
+    From: Client,
+    Type: Reliable,
+    Call: SingleAsync,
+    Data: (QuestId, boolean)
+}
+
+-- Acknowledge an `ack` objective ("opened the shop"); never claims. (key)
+event AckQuest {
+    From: Client,
+    Type: Reliable,
+    Call: SingleAsync,
+    Data: QuestId
+}

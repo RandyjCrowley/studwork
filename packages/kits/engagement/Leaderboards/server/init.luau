@@ -61,7 +61,9 @@ function LeaderboardsModule.new(): any
 	local boards: { [string]: any } = {}
 	local boardIds: { string } = {}
 	local sources: { [string]: (any) -> number? } = {}
-	local signals: any = {}
+	-- not a plain table: the framework copies plain api tables before init (Freeze.isPlain), so
+	-- BoardRefreshed (created in init) must land in this very table to be reachable through the api
+	local signals: any = setmetatable({}, {})
 	local cache: { [string]: any } = {}
 	local players: { [any]: any } = {}
 	local nameCache: { [number]: { name: string, at: number } } = {}

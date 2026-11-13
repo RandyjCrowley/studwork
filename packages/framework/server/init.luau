@@ -710,6 +710,7 @@ function Server.start(gameConfig: any, serverConfig: any?, opts: any?): any
 			items = result.items,
 			products = Freeze.freezeCopy(gameConfig.products or { passes = {}, devProducts = {} }),
 			events = Freeze.freezeCopy(gameConfig.events or {}),
+			analytics = Freeze.freezeCopy(gameConfig.analytics or {}),
 		})
 		rt.net = Net.new({
 			events = platform.events,

@@ -110,9 +110,9 @@ check "new-game: kit modules generated into roblox-core/" \
 check "new-game: Wally packages from the core's deps/" \
 	grep -q '"\.\./\.\./roblox-core/deps/Packages"' "$G/games/demo/default.project.json"
 check "new-game: GAMES.md row" grep -q '^| demo | scaffolded |' "$G/GAMES.md"
-step make-module tools/make-module Quests --game demo
+step make-module tools/make-module Missions --game demo
 check "make-module: mapped in the game's project" \
-	grep -q '"modules/quests/module.luau"' "$G/games/demo/default.project.json"
+	grep -q '"modules/missions/module.luau"' "$G/games/demo/default.project.json"
 step sync-projects-check tools/sync-projects --check
 step lint tools/lint
 step typecheck tools/typecheck demo

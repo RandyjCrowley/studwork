@@ -260,6 +260,7 @@ describe("ctx (§5)", function()
 		expect(c.gameConfig.gameId).toBe("test-game")
 		expect(c.gameConfig.items[1].id).toBe("pebble")
 		expect(c.gameConfig.config).toBeNil() -- no other modules' config
+		expect(c.gameConfig.analytics).toEqual({}) -- (v1.8.0) no analytics config: an empty table
 		expect(c.serverConfig.admins[1]).toBe(1)
 		expect(c.serverConfig.secret).toBeNil()
 		expect(c.isStudio).toBe(false)

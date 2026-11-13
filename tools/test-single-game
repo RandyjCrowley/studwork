@@ -212,9 +212,9 @@ check "test: nothing from studwork/" sh -c "! grep -q 'studwork/' '$(logof test)
 step build tools/build
 check "build: build/proj.rbxl" test -s "$G/build/proj.rbxl"
 check "build: no build/..rbxl" test ! -e "$G/build/..rbxl"
-step make-module tools/make-module Quests
-check "make-module: modules/quests/" test -f "$G/modules/quests/module.luau"
-check "make-module: mapped in default.project.json" grep -q '"modules/quests/module.luau"' "$G/default.project.json"
+step make-module tools/make-module Missions
+check "make-module: modules/missions/" test -f "$G/modules/missions/module.luau"
+check "make-module: mapped in default.project.json" grep -q '"modules/missions/module.luau"' "$G/default.project.json"
 step make-screen tools/make-screen Shop
 check "make-screen: src/client/Screens/Shop.luau" test -f "$G/src/client/Screens/Shop.luau"
 # (v1.7.1) make-migration on the game module whose data.version is a reference (a local here)
@@ -231,7 +231,7 @@ step sync-projects-check tools/sync-projects --check
 step lint-after-generators tools/lint
 step test-after-generators tools/test
 expect_fail "new-game refuses in a single-game project" "single-game project" tools/new-game other
-(cd "$G" && hgit add -A && hgit commit -q -m "Quests module, Shop screen") >"$LOGS/commit-generators.log" 2>&1 \
+(cd "$G" && hgit add -A && hgit commit -q -m "Missions module, Shop screen") >"$LOGS/commit-generators.log" 2>&1 \
 	&& pass "hook: commit of the generated module + screen" \
 	|| fail "hook: commit of the generated module + screen | $(tail -5 "$LOGS/commit-generators.log" | tr '\n' ' ')"
 

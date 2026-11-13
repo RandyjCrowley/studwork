@@ -58,6 +58,18 @@
             "$path": "../../../packages/kits/social/Friends/module.luau"
           }
         },
+        "Goals": {
+          "$className": "Folder",
+          "module": {
+            "$path": "../../../packages/kits/quests/Goals/module.luau"
+          },
+          "client": {
+            "$path": "../../../packages/kits/quests/Goals/client"
+          },
+          "shared": {
+            "$path": "../../../packages/kits/quests/Goals/shared"
+          }
+        },
         "Inventory": {
           "$className": "Folder",
           "module": {
@@ -113,6 +125,18 @@
           },
           "client": {
             "$path": "../../../packages/kits/base/Plot/client"
+          }
+        },
+        "Quests": {
+          "$className": "Folder",
+          "module": {
+            "$path": "../../../packages/kits/quests/Quests/module.luau"
+          },
+          "client": {
+            "$path": "../../../packages/kits/quests/Quests/client"
+          },
+          "shared": {
+            "$path": "../../../packages/kits/quests/Quests/shared"
           }
         },
         "Rarity": {
@@ -180,6 +204,9 @@
         "Friends": {
           "$path": "../../../packages/kits/social/Friends/server"
         },
+        "Goals": {
+          "$path": "../../../packages/kits/quests/Goals/server"
+        },
         "Inventory": {
           "$path": "../../../packages/kits/collection/Inventory/server"
         },
@@ -200,6 +227,9 @@
         },
         "Plot": {
           "$path": "../../../packages/kits/base/Plot/server"
+        },
+        "Quests": {
+          "$path": "../../../packages/kits/quests/Quests/server"
         },
         "Rarity": {
           "$path": "../../../packages/kits/collection/Rarity/server"
