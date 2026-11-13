@@ -543,10 +543,20 @@ export type ScopedDataAdditions = {
 	sortedMap: (name: string) -> SortedMapStore,
 	census: () -> CensusInfo?,
 }
+-- Server-only experience configuration snapshots; callers cache and validate values.
+export type ConfigSnapshot = {
+	GetValue: (self: ConfigSnapshot, key: string) -> any,
+	Refresh: (self: ConfigSnapshot) -> (),
+	UpdateAvailable: any,
+	Outdated: boolean,
+}
+export type ConfigValuesAPI = { snapshot: () -> ConfigSnapshot }
+
 export type ModuleContextAdditions = {
 	env: EnvAPI,
 	flags: FlagsAPI,
 	services: ServicesAPI,
+	configValues: ConfigValuesAPI?,
 	openCloud: OpenCloudAPI,
 	text: TextAPI,
 }

@@ -36,6 +36,7 @@ local PitchRamp = require(script.PitchRamp)
 local Pool = require(script.Pool)
 local PopAnim = require(script.PopAnim)
 local Shake = require(script.Shake)
+local SoundRouting = require(script.SoundRouting)
 
 local MAX_SCREEN_POPS = 12
 local MAX_WORLD_POPS = 16
@@ -319,6 +320,7 @@ end
 local soundFolder: Folder? = nil
 local voices: { [string]: { list: { Sound }, next: number } } = {}
 local coinRamp = PitchRamp.new()
+local soundRouting: any = nil
 
 local function getSoundFolder(): Folder
 	if soundFolder and soundFolder.Parent then
@@ -349,6 +351,12 @@ function Feedback.sound(key: string)
 		newSound.SoundId = "rbxassetid://" .. tostring(entry.id)
 		newSound.Volume = entry.volume or 0.5
 		newSound.Parent = getSoundFolder()
+		if soundRouting == nil then
+			soundRouting = SoundRouting.new(Players.LocalPlayer, SoundService, function()
+				return Instance.new("SoundGroup")
+			end)
+		end
+		soundRouting.attach(newSound)
 		b.list[b.next] = newSound
 		sound = newSound
 	end

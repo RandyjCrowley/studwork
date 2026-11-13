@@ -28,6 +28,8 @@ local Resolve = requireShared(Shared.Resolve)
 local Signal = requireShared(Shared.Signal)
 local StudWork = requireShared(Shared)
 
+local ConfigValues = require(script.Parent.ConfigValues)
+
 local Context = {}
 
 local function refTable(rt: any, owner: string, declared: { any }, pick: (ref: any) -> any): any
@@ -222,6 +224,7 @@ function Context.build(rt: any, ref: any): any
 		env = rt.env,
 		flags = rt.flags,
 		services = rt.services.forModule(name),
+		configValues = ConfigValues.new(rt.services, rt.assertUsable),
 		openCloud = rt.openCloud.forModule(name),
 		text = rt.strings.api,
 

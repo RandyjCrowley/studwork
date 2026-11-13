@@ -1,0 +1,20 @@
+-- Exact typed values; the server validates kind, schema membership and request order.
+option RemoteScope = "STUDWORK_SETTINGS"
+option Casing = Pascal
+option ServerOutput = "server/Net.luau"
+option ClientOutput = "client/Net.luau"
+type Id = string(1..32)
+type Kind = string(1..16)
+type Choice = string(0..64)
+event Set {
+ From: Client,
+ Type: Reliable,
+ Call: SingleAsync,
+ Data: (Id, Kind, boolean, f64, Choice, u32)
+}
+event Ack {
+ From: Server,
+ Type: Reliable,
+ Call: ManyAsync,
+ Data: (Id, Kind, boolean, f64, Choice, u32, boolean, u32)
+}

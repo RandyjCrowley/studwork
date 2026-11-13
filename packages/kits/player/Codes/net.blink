@@ -1,0 +1,17 @@
+-- Promotion requests and preset owner-only results.
+option RemoteScope = "STUDWORK_CODES"
+option Casing = Pascal
+option ServerOutput = "server/Net.luau"
+option ClientOutput = "client/Net.luau"
+event Redeem {
+ From: Client,
+ Type: Reliable,
+ Call: SingleAsync,
+ Data: string(0..64)
+}
+event RedeemResult {
+ From: Server,
+ Type: Reliable,
+ Call: ManyAsync,
+ Data: string(1..32)
+}

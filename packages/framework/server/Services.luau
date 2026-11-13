@@ -79,6 +79,11 @@ function Services.new(opts: any): any
 		return engineGet(name)
 	end
 
+	-- Public config snapshots use this engine adapter without exposing the raw service.
+	function self.configSnapshot(): any
+		return self.internal("ConfigService"):GetConfigAsync()
+	end
+
 	function self.forModule(moduleName: string): any
 		return table.freeze({
 			get = function(name: string): any

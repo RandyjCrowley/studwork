@@ -10,9 +10,11 @@
 
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local Workspace = game:GetService("Workspace")
+local Players = game:GetService("Players")
 
 local React = require(ReplicatedStorage:WaitForChild("Packages"):WaitForChild("React"))
 local Responsive = require(script.Parent.Responsive)
+local UserScale = require(script.Parent.UserScale)
 
 local e = React.createElement
 
@@ -22,7 +24,11 @@ local function currentScale(): number
 		return 1
 	end
 	local v = camera.ViewportSize
-	return Responsive.scale(v.X, v.Y)
+	local player = Players.LocalPlayer
+	return UserScale.combined(
+		Responsive.scale(v.X, v.Y),
+		if player then player:GetAttribute("CoreUIScale") else nil
+	)
 end
 
 local function ScaledRoot(props: { children: any? })
@@ -44,8 +50,17 @@ local function ScaledRoot(props: { children: any? })
 		end
 		watch()
 		local cameraConn = Workspace:GetPropertyChangedSignal("CurrentCamera"):Connect(watch)
+		local player = Players.LocalPlayer
+		local preferenceConn = if player
+			then player:GetAttributeChangedSignal("CoreUIScale"):Connect(function()
+				setScale(currentScale())
+			end)
+			else nil
 		return function()
 			cameraConn:Disconnect()
+			if preferenceConn then
+				preferenceConn:Disconnect()
+			end
 			if viewportConn then
 				viewportConn:Disconnect()
 			end

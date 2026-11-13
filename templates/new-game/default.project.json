@@ -55,6 +55,18 @@
             "$path": "../../packages/kits/carry/Carry/shared"
           }
         },
+        "Codes": {
+          "$className": "Folder",
+          "module": {
+            "$path": "../../packages/kits/player/Codes/module.luau"
+          },
+          "client": {
+            "$path": "../../packages/kits/player/Codes/client"
+          },
+          "shared": {
+            "$path": "../../packages/kits/player/Codes/shared"
+          }
+        },
         "Companions": {
           "$className": "Folder",
           "module": {
@@ -193,6 +205,18 @@
             "$path": "../../packages/kits/economy/Rebirth/client"
           }
         },
+        "Settings": {
+          "$className": "Folder",
+          "module": {
+            "$path": "../../packages/kits/player/Settings/module.luau"
+          },
+          "client": {
+            "$path": "../../packages/kits/player/Settings/client"
+          },
+          "shared": {
+            "$path": "../../packages/kits/player/Settings/shared"
+          }
+        },
         "Streak": {
           "$className": "Folder",
           "module": {
@@ -233,6 +257,9 @@
         },
         "Carry": {
           "$path": "../../packages/kits/carry/Carry/server"
+        },
+        "Codes": {
+          "$path": "../../packages/kits/player/Codes/server"
         },
         "Companions": {
           "$path": "../../packages/kits/companions/Companions/server"
@@ -278,6 +305,9 @@
         },
         "Rebirth": {
           "$path": "../../packages/kits/economy/Rebirth/server"
+        },
+        "Settings": {
+          "$path": "../../packages/kits/player/Settings/server"
         },
         "Streak": {
           "$path": "../../packages/kits/engagement/Streak/server"

@@ -1,0 +1,11 @@
+local Layout = require(script.Parent.Layout)
+describe("preference touch controls", function()
+	it("quantizes each step and clamps exactly to valid range endpoints", function()
+		local def = { min = 0.8, max = 1.2, step = 0.05 }
+		expect(math.abs(Layout.step(1, 1, def) - 1.05) < 0.000001).toBe(true)
+		expect(Layout.step(0.8, -1, def)).toBe(0.8)
+		expect(Layout.step(1.2, 1, def)).toBe(1.2)
+		local target = Layout.touch(44, 0.85, 0.98)
+		expect(target * 0.85 * 0.8 * 0.98 >= 44).toBe(true)
+	end)
+end)
