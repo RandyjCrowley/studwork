@@ -7,42 +7,6 @@
 [![CI](https://github.com/RandyjCrowley/studwork/actions/workflows/ci.yml/badge.svg)](https://github.com/RandyjCrowley/studwork/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 
-This is what StudWork code looks like (the banner's code panel is an illustration):
-
-```luau
--- src/shared/Config/init.luau
-local ReplicatedStorage = game:GetService("ReplicatedStorage")
-local Modules = ReplicatedStorage:WaitForChild("Modules")
-
-return {
-	gameId = "my-game",
-	modules = { require(Modules:WaitForChild("Economy"):WaitForChild("module")) },
-	config = { Economy = { primaryCurrency = "Coins" } },
-	items = {},
-	products = {},
-	events = {},
-}
-```
-
-```luau
--- src/client/Main.client.luau: game code reaches a module with StudWork.use
-local ReplicatedStorage = game:GetService("ReplicatedStorage")
-local StudWork = require(ReplicatedStorage:WaitForChild("Framework"))
-local Config = require(ReplicatedStorage:WaitForChild("Game"):WaitForChild("Config"))
-local Modules = ReplicatedStorage:WaitForChild("Modules")
-local Economy = require(Modules:WaitForChild("Economy"):WaitForChild("module"))
-
-StudWork.start(Config)
-StudWork.Client.Hud.mount() -- the default HUD; Economy's client part adds the coin counter
-
-local economy = StudWork.use(Economy) -- Economy's frozen client API, typed
-local coins = economy.read.currency(StudWork.Client.state(), "Coins") -- from the server's save
-print("Coins:", coins)
-```
-
-Inside a module, other modules come from `ctx.deps` instead of `StudWork.use`
-([module API §4](docs/framework/module-api.md#4-reaching-other-modules-studworkuse)).
-
 **StudWork** is an opinionated Roblox game framework written in Luau (`--!strict`). It makes good
 decisions for you, so a new game is playable within minutes: a game that sets only its name and
 items gets rarity tiers, a mobile-first theme, a HUD, an income economy, luck with disclosed odds,
