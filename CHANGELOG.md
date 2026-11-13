@@ -11,6 +11,40 @@ Identifiers like `R19` or `V1` are issue ids: open ones are listed in [docs/know
 
 ## [Unreleased]
 
+## [1.7.1] - 2026-11-12
+
+A patch release: the Linux CI failure and two tool gaps. No module API change.
+
+### Fixed
+
+- **Tests on Linux CI.** With `$TMPDIR` unset, specs that build a temp folder fell back to
+  `<cwd>/.cache`; Lune's `process.cwd` ends in `/`, so the path had `//`, and the test harness's
+  prefix strip left an absolute-looking `/.cache/...` that failed to load (4 failures in
+  `Runner.spec.luau`). The harness now normalises paths before making them relative
+  (`tools/lune/testkit/pathutil.luau`: repeated `/`, `.`, a cwd with or without a trailing `/`), the
+  specs join temp paths through it (an empty `$TMPDIR` counts as unset), and a relative folder
+  argument with a trailing `/` (`tools/test examples/sandbox/src/`) no longer gives `//` paths.
+- **The local gate mirrors CI for this case.** `tools/test` (core repo, with or without path
+  arguments) first runs the runner self-test with `$TMPDIR` unset, a cwd ending in `/`, a
+  doubled-slash spec path and a trailing-slash folder argument, so a Mac run fails where Linux CI
+  would.
+- **`tools/make-migration` in a single-game project.** A referenced `data.version`
+  (`version = Save.VERSION`, a local) is read by evaluating `module.luau` under Lune, and the one
+  literal it comes from is bumped (the name exactly, the literal the whole value), read back before
+  anything is written. `--from <n>` gives the current version when it can't be read (refused when it
+  disagrees with a version that can be read or leaves a gap after the last migration). A version it
+  can't bump (`Base.VERSION + 1`) is refused with nothing written unless `--from` is given. A literal
+  is read only when it is the whole expression (`1 + Base.VERSION` used to be read as `1`).
+- **The new migration reaches the place.** `tools/make-migration` adds
+  `"migrations": { "$path": "modules/<folder>/migrations" }` next to the node that maps the module in
+  each of the game's `*.project.json` files, including the game's own module
+  (`ReplicatedStorage.GameModule`, which mapped only `module.luau`). A module inside a game that no
+  project file maps is now refused before anything is written, with the exact entry to add (it used
+  to write the migration and print a note).
+- **`tools/new-project --modules` / `tools/new-game --modules`:** every kit you name goes in the
+  game module's `dependsOn` instead of `optional` (a named kit the template doesn't refer to gets a
+  ref line there); a kit added only as another kit's dependency keeps the template's place.
+
 ## [1.7.0] - 2026-11-12
 
 The features real games need: four new kit modules (Notifications, Leaderboards, Badges,
@@ -605,7 +639,8 @@ First release: the foundation services and kits.
   instead of an unprocessed purchase loop.
 - Leaving or shutting down no longer kicks with "opened in another server".
 
-[Unreleased]: https://github.com/RandyjCrowley/studwork/compare/v1.7.0...HEAD
+[Unreleased]: https://github.com/RandyjCrowley/studwork/compare/v1.7.1...HEAD
+[1.7.1]: https://github.com/RandyjCrowley/studwork/compare/v1.7.0...v1.7.1
 [1.7.0]: https://github.com/RandyjCrowley/studwork/compare/v1.6.2...v1.7.0
 [1.6.2]: https://github.com/RandyjCrowley/studwork/compare/v1.6.1...v1.6.2
 [1.6.1]: https://github.com/RandyjCrowley/studwork/compare/v1.6.0...v1.6.1

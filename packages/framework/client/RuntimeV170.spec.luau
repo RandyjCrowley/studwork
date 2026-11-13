@@ -15,9 +15,9 @@ local function start(config: any, opts: any?): any
 end
 
 describe("client runtime: version", function()
-	it("is 1.7.0, the same as the facade", function()
-		expect(Runtime.VERSION).toBe("1.7.0")
-		expect(StudWork.VERSION).toBe("1.7.0")
+	it("is 1.7.1, the same as the facade", function()
+		expect(Runtime.VERSION).toBe("1.7.1")
+		expect(StudWork.VERSION).toBe("1.7.1")
 	end)
 end)
 

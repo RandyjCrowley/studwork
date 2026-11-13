@@ -42,7 +42,7 @@ local ClientText = require(script.Parent.Text)
 
 local Runtime = {}
 
-Runtime.VERSION = "1.7.0"
+Runtime.VERSION = "1.7.1"
 
 -- game.PlaceId / game.GameId / RunService:IsStudio(), tolerant of a Lune stand-in without them
 function Runtime.detect(property: string): number
