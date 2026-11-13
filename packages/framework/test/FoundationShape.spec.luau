@@ -25,8 +25,8 @@ local StoreBudget = require(Server.StoreBudget)
 local Text = require(Server.Text)
 
 describe("v1.7.0 version and facade", function()
-	it("StudWork.VERSION is 1.7.1", function()
-		expect(StudWork.VERSION).toBe("1.7.1")
+	it("StudWork.VERSION is 1.8.0", function()
+		expect(StudWork.VERSION).toBe("1.8.0")
 	end)
 
 	it("exposes env, flags, text and test.fakes", function()

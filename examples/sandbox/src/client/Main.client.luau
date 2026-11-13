@@ -32,6 +32,11 @@ local Upgrades = require(Modules:WaitForChild("Upgrades"):WaitForChild("module")
 local Rebirth = require(Modules:WaitForChild("Rebirth"):WaitForChild("module"))
 local Mail = require(Modules:WaitForChild("Mail"):WaitForChild("module"))
 local Leaderboards = require(Modules:WaitForChild("Leaderboards"):WaitForChild("module"))
+-- v1.8.0 kits with a screen but no HUD widget of their own (Quests, Goals and Companions add theirs)
+local Codes = require(Modules:WaitForChild("Codes"):WaitForChild("module"))
+local Settings = require(Modules:WaitForChild("Settings"):WaitForChild("module"))
+local Reports = require(Modules:WaitForChild("Reports"):WaitForChild("module"))
+local Admin = require(Modules:WaitForChild("Admin"):WaitForChild("module"))
 local HudRules = require(ReplicatedStorage:WaitForChild("Game"):WaitForChild("HudRules"))
 
 local e = React.createElement
@@ -54,6 +59,10 @@ local function listed(ref: any): boolean
 	return false
 end
 local leaderboards = if listed(Leaderboards) then StudWork.use(Leaderboards) else nil
+local codes = if listed(Codes) then StudWork.use(Codes) else nil
+local settings = if listed(Settings) then StudWork.use(Settings) else nil
+local reports = if listed(Reports) then StudWork.use(Reports) else nil
+local admin = if listed(Admin) then StudWork.use(Admin) else nil
 local PRIMARY = Balance.Economy.primaryCurrency
 
 -- The mailbox: the HUD shows "Mailbox (N)" while gifts wait (full inventory); tapping opens this.
@@ -106,6 +115,10 @@ local function ActionBar()
 	end)
 	local boardLabel = UI.useText("game.leaderboards")
 	local debugLabel = UI.useText("game.debug", { env = StudWork.env.name() })
+	local codesLabel = UI.useText("Codes.title")
+	local settingsLabel = UI.useText("Settings.title")
+	local reportLabel = UI.useText("Reports.open")
+	local staffLabel = UI.useText("Admin.open")
 	local restricted = if state.framework then state.framework.paidRandomRestricted ~= false else true
 	local mailRows: { [string]: any } = {}
 	local mailbox: { any } = (mailSlice.extra and mailSlice.extra.mailbox) or {}
@@ -185,6 +198,56 @@ local function ActionBar()
 					end,
 				})
 				else nil,
+			-- the v1.8.0 player and moderation screens, one row: promo codes, settings, report a
+			-- player, and the staff panel (staff only: the server delivers it to staff alone)
+			More = e("Frame", {
+				BackgroundTransparency = 1,
+				AutomaticSize = Enum.AutomaticSize.XY,
+				Size = UDim2.fromOffset(0, 0),
+				LayoutOrder = 7,
+			}, {
+				Layout = UI.Primitives.list(Enum.FillDirection.Horizontal, 6, Enum.HorizontalAlignment.Right),
+				Codes = if codes ~= nil
+					then e(UI.Button, {
+						text = codesLabel,
+						variant = "secondary",
+						layoutOrder = 1,
+						onActivated = function()
+							codes.open()
+						end,
+					})
+					else nil,
+				Settings = if settings ~= nil
+					then e(UI.Button, {
+						text = settingsLabel,
+						variant = "secondary",
+						layoutOrder = 2,
+						onActivated = function()
+							settings.open()
+						end,
+					})
+					else nil,
+				Report = if reports ~= nil
+					then e(UI.Button, {
+						text = reportLabel,
+						variant = "secondary",
+						layoutOrder = 3,
+						onActivated = function()
+							reports.open()
+						end,
+					})
+					else nil,
+				Staff = if admin ~= nil and admin.isStaff()
+					then e(UI.Button, {
+						text = staffLabel,
+						variant = "secondary",
+						layoutOrder = 4,
+						onActivated = function()
+							admin.panel()
+						end,
+					})
+					else nil,
+			}),
 			-- debug-only (testOnly flag): never shown in live
 			Debug = if visible.debug
 				then e(UI.WrappedText, {

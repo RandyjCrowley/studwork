@@ -7,9 +7,8 @@ panel), **Moderation** (bans, kicks, mutes, warnings, offence ladders, the audit
 `ReplicatedStorage.Modules.<Module>`, `ServerScriptService.Modules.<Module>`), kit specs in
 `packages/kits/moderation/tests/`. Each module declares `framework = "^1.7.0"` and version
 `"1.0.0"`. Every config key, default, reason and status below is the one in the modules' code
-(`module.luau` and `server/`); the shared-file changes the kit needs (CHANGELOG, module-api §24,
-kit contract, decisions) are listed in [docs/pending/moderation.md](../../pending/moderation.md)
-until the release merges them. Entries marked **(contract)** are part of the cross-module surface
+(`module.luau` and `server/`); the shared-file changes the kit made are in the CHANGELOG, [module-api §24](../module-api.md),
+the kit contract and [decisions](../../decisions.md). Entries marked **(contract)** are part of the cross-module surface
 proposed for [kit-contract.md](../kit-contract.md).
 
 ```lua

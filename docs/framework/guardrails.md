@@ -155,6 +155,13 @@ not a substring.
 A line ending in `-- guard: allow <check>` skips that check for that line; say why on the line
 above, and use it rarely.
 
+v1.8.0 adds no lint check. The five new kits (quests, carry, companions, player, moderation) pass
+the existing checks unmodified. `ConfigService` stays framework-only under `purchases`: a module
+reads experience configs through `ctx.configValues.snapshot()` (module-api §24.2). A `moderation`
+check (`:Kick(`, `BanAsync` and `UnbanAsync` in server code outside the Moderation module) was
+proposed and is **not built**; until it is, route removals through the Moderation module so each
+one is permission-checked and audited ([moderation](kits/moderation.md)).
+
 ## Transitional guardrails (adopted projects)
 
 Added in v1.6.0 for a game that adopted StudWork (`tools/adopt --init`, [adopting.md](adopting.md) §5).

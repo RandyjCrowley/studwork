@@ -222,7 +222,7 @@ describe("case 15: a Plot-style character:PivotTo by code that does not know Mov
 		-- delays at or past 2 x baseLatency (0.3 s here) so the move lands once the respawn window has
 		-- genuinely closed on a real replicated sample, not FakeWorld's pre-arrival server-authored reading
 		-- (that race -- a PivotTo inside one round trip of CharacterAdded, before the client's first packet
-		-- even leaves -- is `docs/pending/carry.md`'s open question, not this planted case)
+		-- even leaves -- is an open question in docs/known-issues.md, not this planted case)
 		for _, delay in { 0.4, 0.7, 1.0 } do
 			local rig = Rig.new({ seed = 3 })
 			local p = rig:player(1, { path = FakeWorld.paths.stand(V(0, 3, 0)), ping = 0.3 })

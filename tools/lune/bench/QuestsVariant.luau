@@ -3,7 +3,7 @@
 	player holding 10 active quests (6 daily + 4 weekly slots, all on the counter key "benchTick")
 	progressed every tick, and a Goals chain whose one goal (currency >= 1e12) is never reached, so
 	every income tick's CurrencyChanged marks the player dirty. Budget: <= 1.2 x the same run's
-	KITS-ALL median (docs/pending/quests.md §9).
+	KITS-ALL median (docs/known-issues.md O21).
 
 	replication.luau's additive hook calls:
 	  QuestsVariant.boot(players, bootKits, Harness) -> sync   (bootKits(players, true) with the two

@@ -14,7 +14,7 @@ changes.** The only test seam is kit-owned (see "The World seam").
 
 "Hard rule N" below means the numbered hard rules in the repo's `CLAUDE.md`.
 
-**Doc URLs relied on** (also cited in `docs/pending/carry.md`, decisions part):
+**Doc URLs relied on** (also cited in `docs/decisions.md`):
 - Network ownership: https://create.roblox.com/docs/physics/network-ownership
 - AlignPosition / AlignOrientation (the rejected option):
   https://create.roblox.com/docs/physics/constraints/align-position,
@@ -41,21 +41,11 @@ changes.** The only test seam is kit-owned (see "The World seam").
 
 ## Quickstart: getting a carriable into your game
 
-(Added after dogfood found this missing — see `docs/pending/carry.md` "Dogfood fixes".)
-
-1. **List the modules.** `tools/new-project`/`tools/new-game` don't know about this kit yet (it
-   shipped after them this round — see `docs/pending/carry.md` for the `--modules` line to add
-   later). **Don't pass `Carry`/`Movement` to `tools/new-project --modules` yet: the flag is
-   silently accepted, but the generated boot spec's `EXPECTED` list omits them, so the project's
-   first commit fails its own pre-commit hook and `new-project` deletes the half-made project.**
-   Instead, generate the project WITHOUT these two names, then add both by hand: in
-   `src/shared/Config/init.luau`'s `GameConfig.modules` list (alongside whatever kits you already
-   use), and in your boot spec's `EXPECTED` module list (`src/server/Boot.spec.luau` in a
-   single-game project — exact path depends on your layout). Both `"Carry"` and `"Movement"` must
-   appear, since they're two separate modules, not one "Carry kit" entry. `tools/new-project`'s
-   generated `default.project.json` already Rojo-maps both module folders, so there's nothing to
-   add there. Neither module needs a `dependsOn` entry from your own game module unless your game
-   code calls their APIs directly (most carry games do, to react to `PickedUp`/`Delivered`).
+1. **List the modules.** Pass both to the generator (`tools/new-project my-game --modules Carry,Movement`,
+   or `tools/new-game`), or add them by hand to `GameConfig.modules` in `src/shared/Config/init.luau`
+   and to your boot spec's `EXPECTED` list. `"Carry"` and `"Movement"` are two separate modules.
+   Neither needs a `dependsOn` entry from your own game module unless your game code calls their
+   APIs directly (most carry games do, to react to `PickedUp`/`Delivered`).
 2. **Define a carriable.** Pick a CollectionService tag name (e.g. `"Couch"`) and add it to
    `config.Carry.carriables` in your `Balance.luau`:
    ```lua
@@ -195,7 +185,7 @@ fetches its own adapter.
 
 ### Decision: anchored, CFrame-driven, interpolated on the shared Heartbeat ticker
 
-This decision is duplicated in `docs/pending/carry.md` (decisions part).
+This decision is also recorded in `docs/decisions.md`.
 
 **While carried, the object is anchored.** `CanCollide` is off only so the carriers' own characters
 don't bump into it: being anchored is what holds it in place. `CanQuery` is off too, in lockstep with

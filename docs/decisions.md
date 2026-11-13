@@ -342,6 +342,449 @@ Not used:
   before the pin check, and the games-repo test commits through the hook.
 - **A root `CHANGELOG.md`** covers the whole repo; the framework changelog stays with the package.
 
+## v1.8.0 (quests, carry, companions, player and moderation kits)
+
+Five kits, each designed against the official Roblox documentation linked in its entries. APIs
+change: re-check these pages before relying on a limit. The framework gained only small generic
+additions (`ctx.configValues`, two allowed services, `ctx.gameConfig.analytics`, the `CoreUIScale`
+and `CoreEffectsGroup` player attributes); no framework code names a kit.
+
+### v1.8.0: quests kit
+
+- **Quests and Goals are two modules in one kit folder.** Goals is the first-session pointer and must
+  work in a game with no quest system; Quests is the retention layer. Splitting them keeps each
+  switchable (`modules`, `flag`) and lets Goals point at quests through Quests' public API only.
+- **One reset boundary per game, on the framework clock.** Days and weeks are counted as Streak and
+  Leaderboards count them: `floor((ctx.now() + utcOffsetHours * 3600) / 86400)`, weeks from
+  `weekStartsOn`. A per-player local day would need the client's clock, which a player controls, and
+  would let a server hop or clock change re-deal a set.
+- **The daily set is dealt deterministically and saved.** The saved set is authoritative for its
+  period; the seed (FNV-1a of user id, kind, period id, `poolVersion`, slot, reroll index; xorshift32
+  draw over the eligible pool in id order) only re-creates it when no saved set exists (new period,
+  or a crash rolled the save back). So rejoining, hopping servers or crashing can't fish for a better
+  set or a free extra reroll.
+- **Claim and grant in one `ctx.tx`.** The claim record (period/window, `done`, chain step) and every
+  reward grant (`Economy` / `Inventory` / `Rarity` txApi, or the game's registered handler) commit
+  together or not at all; the tx doesn't yield, one tx per player runs at a time, and the session lock
+  gives one writer across servers. This is the same reasoning as receipt-safe purchases, without
+  Robux.
+- **Progress is batched, and `progress` never opens a transaction.** A busy game calls `progress`
+  every frame; a save transaction per call would blow the tick budget. Non-completing increments stay
+  in memory and fold into the section every `foldSeconds` (staggered per player), before any
+  claim/reroll/deal, on leave and on shutdown. An increment that completes an objective flags the
+  player and is folded on the next 1-second tick, not synchronously: the framework allows one
+  transaction at a time and errors on a nested one, and games call `progress` from inside their own
+  transactions (a crate tx, a Mail claim, a reward handler). `Goals.complete` queues the same way. So a
+  crash loses at most `foldSeconds` of partial progress, or a completion from the last second.
+- **Periods only move forward.** Each server's `os.time()` differs by a few seconds, so near the reset
+  a player can hop from a server already on day D+1 to one still on D. A saved period id (and every
+  saved period or window key) is only ever replaced by a larger one; a set saved ahead of this
+  server's clock stays current. Otherwise the hop would re-deal day D from its seed and let its quests
+  be claimed twice.
+- **Both modules boot with no config.** `tools/new-game` and `tools/adopt --init` list every kit
+  module by default, with no config section for the new ones (`tools/test-adopt` boots that game in
+  the sim). So `daily.count` larger than the pool is an error only for a non-empty pool; an empty pool
+  deals nothing.
+- **Acknowledge objectives are the only client-driven progress.** A quest made only of `ack`
+  objectives, or auto-claimed with one, is a boot error; `ackQuest` / `ackGoal` are rate-limited
+  actions that never grant anything themselves.
+- **Random rewards go through Rarity at luck exactly 1, free, with odds Quests discloses itself.** The
+  claim passes `luck = 1` explicitly (Rarity's `nil` means the player's session luck). A quest claim
+  is not a purchase and spends no currency, so Compliance treats the roll as free; a table Rarity
+  counts as paid (`paid = true`, or a cost in a paid currency) is a boot error, because Rarity would
+  treat any roll on it as paid and refuse restricted players. Rarity replicates odds only for tables
+  with a cost or `luckDisclosed`, so Quests replicates `Rarity.getOddsDetail(table, nil, 1)` for every
+  roll-reward table (`extra.questOdds`), and every roll reward chip on the board has an Odds button
+  showing exactly those odds. PolicyService's `ArePaidRandomItemsRestricted` governs paid random items
+  only (https://create.roblox.com/docs/reference/engine/classes/PolicyService); no quest reward
+  involves Robux.
+- **One beam, attachments under Terrain.** A Beam renders only when it and both attachments are
+  descendants of Workspace (https://create.roblox.com/docs/reference/engine/classes/Beam,
+  https://create.roblox.com/docs/reference/engine/classes/Attachment,
+  https://create.roblox.com/docs/effects/beams); two attachments on `workspace.Terrain` need no extra
+  parts. The pointer updates on a budget (`pointer.updateSeconds`, and only after half a stud of
+  movement), and the edge arrow uses `Camera:WorldToViewportPoint`
+  (https://create.roblox.com/docs/reference/engine/classes/Camera).
+- **StreamingEnabled: point at what the client last saw.** A streamed-out instance is parented to nil
+  on the client (https://create.roblox.com/docs/workspace/streaming), so a tag or path target can be
+  missing. The client keeps each target's last known position, then a configured `fallback`, then hides
+  the beam and keeps the pill. `ModelStreamingMode.Persistent` is documented as an option for a few
+  small targets only, as Roblox recommends (same page; `Workspace.PersistentLoaded`:
+  https://create.roblox.com/docs/reference/engine/classes/Workspace). The server doesn't walk the world
+  for targets.
+- **Gamepad focus only inside a screen the player opened.** The board sets
+  `GuiService.SelectedObject` (https://create.roblox.com/docs/reference/engine/classes/GuiService) to its
+  first Claim button when opened from a gamepad; the pill, tracker and edge arrow are never
+  `Selectable`, so they can't steal the game's navigation. Reduce motion follows the framework's
+  `CoreReducedMotion` attribute or `GuiService.ReducedMotionEnabled`.
+- **Funnel steps through `ctx.analytics.funnel`.** The framework already logs each step once per player
+  (`AnalyticsService:LogOnboardingFunnelStepEvent`,
+  https://create.roblox.com/docs/reference/engine/classes/AnalyticsService); Goals adds no store of its
+  own. Tags for targets use CollectionService
+  (https://create.roblox.com/docs/reference/engine/classes/CollectionService).
+- **Removed ids are pruned on load, not by migrations.** Quest and goal ids come and go with content
+  updates; a migration per removal would be churn. `data.sanitize` has no config (`fn(section) ->
+  section`) and an error in it kicks the player, so it only repairs shapes; the config pruning runs in
+  each module's first tx on `onPlayerLoaded`. Quests' `done` ledger is never pruned, so a one-time
+  quest removed and re-added can't be claimed twice; `retired = true` is still the clean way to stop
+  offering one.
+- **Returning players skip the first-session chain.** When a live game adds Goals, a player whose
+  `goals` section is new but who has played before (`ctx.framework.sessions(player) > 1`) starts with
+  the chain finished and logs no funnel steps, so the onboarding funnel counts new players only.
+- **Event quests read events, they don't own them.** `ctx.events.schedule` allows one handler per event
+  id, which belongs to the game, so Quests uses `isActive` and the framework's `EventStarted` /
+  `EventEnded` signals. A hand-triggered event's window key is the start of its UTC day, so a server
+  hop can't open a second claim (and a second trigger the same day doesn't reopen a claimed quest).
+
+### v1.8.0: carry kit
+
+#### Carry drives carried objects anchored, by CFrame, interpolated on the shared ticker
+
+**Decision:** while carried, an object is anchored with `CanCollide` off.
+- The server computes a clamped target from the carriers' validated positions at 10 Hz.
+- It writes the object's CFrame (`PivotTo` for models) at `motionHz` (default 30) from
+  `ctx.lifecycle.onTick`, which runs on Heartbeat, interpolating between the last two targets.
+- On a drop the object is unanchored, then `SetNetworkOwner(nil)`. `CanCollide` stays `true` the
+  whole time (never disabled by default) — fling protection comes from a collision group
+  (`"CarryDropped"`, excludes characters only) assigned immediately, not a no-collide window.
+  Once settled, the object is re-anchored.
+- `AlignPosition`/`AlignOrientation` are not used.
+
+**Why:**
+- **Ownership:** anchored parts are always server-owned, so a client can never own a carried object.
+  `SetNetworkOwner` errors on anchored parts, so it is called only after unanchoring.
+- **No free fall:** an unanchored, non-colliding part driven at 10 Hz free-falls between writes (about
+  1 stud per 0.1 s, and through the floor on a server hitch), and clients see 10 Hz steps.
+  Interpolated writes on an anchored part do neither.
+- **Determinism:** Align* constraints need a simulated body, which costs a physics step per object,
+  and their settle time is non-deterministic. CFrame driving keeps the blend and clamp pure functions
+  that the sims assert on.
+- **Re-anchoring settled objects** stops characters from pushing or flinging them. A kill plane above
+  `FallenPartsDestroyHeight` returns any object that falls out, so the engine never destroys it.
+
+Docs relied on:
+- network ownership: https://create.roblox.com/docs/physics/network-ownership
+- AlignPosition: https://create.roblox.com/docs/physics/constraints/align-position
+- AlignOrientation: https://create.roblox.com/docs/physics/constraints/align-orientation
+- RunService: https://create.roblox.com/docs/reference/engine/classes/RunService
+- Workspace (`FallenPartsDestroyHeight`): https://create.roblox.com/docs/reference/engine/classes/Workspace
+- streaming: https://create.roblox.com/docs/workspace/streaming
+
+#### Movement derives every check from server-observed positions and its own clock; no Humanoid state is an exemption
+
+**Decision:**
+- **Positions only:** every check derives from the character root positions the server observes. It
+  never reads `AssemblyLinearVelocity` (client-set) and never treats a Humanoid state (`Seated`,
+  `Climbing`, `PlatformStanding`) as trusted, because the network owner runs the state machine.
+- **Clock:** time comes from the module's own monotonic clock (`os.clock`), not the ticker's nominal
+  `dt`.
+- **Speed:** a 4 s sliding window with a ping-aware lag allowance,
+  `clamp(ping + 0.15, 0.25, 0.75)` seconds, floored at 0.6 s for the window and the teleport cap alike
+  (an empty window must survive a 0.5 s freeze).
+- **Teleports:** a per-sample cap sized for zero false positives, plus a descent bound derived from
+  server gravity. A short teleport past a tagged volume is caught by an exact analytic path sweep.
+- **Respawns:** the new character is compared with the server's spawn placement (or a later server
+  move), so a respawn is not a free teleport.
+- **Trust:** only a non-`log` response on an integrity check revokes trust. A `hazard`/`checkpoint`
+  crossing never does, so at the defaults (`log`) Movement changes no gameplay.
+- **Seats:** exempt only with a server-side `SeatWeld` to the root, then checked relative to the seat.
+- **Climbing:** accepted only next to a `TrussPart` or a tagged climbable part.
+- **Platforms:** measured relative to the tagged platform's server CFrame.
+- **Server moves:** any server write to the root's CFrame opens an anchor, so other code (for example
+  Plot's spawn `PivotTo`) needs no knowledge of Movement.
+
+**Why:**
+- A client owns its character's physics and Humanoid state. Only the replicated position is
+  independent of what the client claims.
+- The ticker's `dt` is nominal and bursts after a hitch.
+- A per-sample speed rule without a lag term strikes real players on 300 ms connections, while the
+  window absorbs a freeze-then-catch-up and still catches a sustained 1.5x.
+- The design math was probed: 0 strikes for legitimate play with 0.5 s jitter spikes, and every
+  planted cheat caught (`docs/framework/kits/carry.md` "Worked numbers").
+
+Docs relied on:
+- network ownership: https://create.roblox.com/docs/physics/network-ownership
+- Humanoid: https://create.roblox.com/docs/reference/engine/classes/Humanoid
+- `HumanoidStateType`: https://create.roblox.com/docs/reference/engine/enums/HumanoidStateType
+- Seat: https://create.roblox.com/docs/reference/engine/classes/Seat
+- `Player:GetNetworkPing`: https://create.roblox.com/docs/reference/engine/classes/Player
+- raycasting: https://create.roblox.com/docs/workspace/raycasting
+- WorldRoot (Blockcast): https://create.roblox.com/docs/reference/engine/classes/WorldRoot
+- collisions (collision groups): https://create.roblox.com/docs/workspace/collisions
+
+#### The carry kit reads the world through a kit-owned `World` adapter (a test seam), not a framework change
+
+**Decision:**
+- **What the adapter covers:** Carry and Movement read characters, casts, tags, seats, ping and the
+  clock only through a `World` object.
+- **Live adapter:** the module's `shared/World.luau`. It fetches services lazily, under `pcall`,
+  never at load or in `init`.
+- **Fake adapter:** `packages/kits/carry/tests/FakeWorld.luau`, scriptable, and counting the engine
+  calls it receives.
+- **Installing a fake:** specs call `Carry.useWorld` / `Movement.useWorld`, a documented test seam.
+- **No harness change:** `Services.ALLOWED` and the harness are unchanged.
+
+**Why:**
+- **The harness has no world:** its Workspace is empty and it can't provide `CollectionService` or
+  `RunService`, so the anti-cheat sims need injected geometry, latency and characters.
+- **Nothing is special:** a kit-owned seam keeps the framework untouched, and any third-party module
+  could do the same.
+- **Default boots keep working:** lazy, `pcall`-guarded service access keeps "boot every module at
+  defaults" (`test-adopt`, new-game) working under the harness, where the module simply idles.
+
+#### Movement's casts use the engine's collision filter, and Carry gives characters their own group
+
+**Decision:**
+- Movement's wall sweep and ground cast set `RaycastParams.RespectCanCollide = true` and
+  `RaycastParams.CollisionGroup` to the character root's own group (read on the server, refreshed
+  with the ping), with every character excluded.
+- Carry turns `CanQuery` off on a carried object (back on when it is put down), so a game's own
+  raycasts don't hit it either.
+- Dropped objects go to `"CarryDropped"`; for that group to exclude characters, the live adapter puts
+  character parts still in `"Default"` into `"CarryCharacters"`.
+- `Movement.active(player?)` says whether Movement is policing that player now. Carry uses the raw
+  root under its own clamp while it is false (flag off), the same as with Movement absent.
+
+**Why:**
+- By default `Raycast`/`Blockcast` hit any part with `CanQuery = true`, including `CanCollide = false`
+  parts, and filter by the params' group (`"Default"`), not the character's. Without the filter a wall
+  sweep struck every player walking through a zone, a checkpoint or a carried object: invisible in
+  Lune (the fake skipped non-colliding parts) and found live in Studio.
+- A kill switch must turn a module off, not turn its sibling's trust model into "untrusted".
+
+Docs relied on:
+- raycasting: https://create.roblox.com/docs/workspace/raycasting
+- RaycastParams: https://create.roblox.com/docs/reference/engine/datatypes/RaycastParams
+- collisions (collision groups): https://create.roblox.com/docs/workspace/collisions
+
+### v1.8.0: companions kit
+
+- **Local cosmetic followers, authoritative equipment.** Equipment and capped bonuses belong to the
+  server; clients animate only bounded copies of the replicated equipped set. No client position
+  enters gameplay state. Direct `PivotTo` movement avoids physics assemblies for a cosmetic system.
+  Roblox describes `AlignPosition` as force-driven and `AlignOrientation` as torque-driven; these are
+  useful physical movers but unnecessary for this kit.
+  [AlignPosition](https://create.roblox.com/docs/reference/engine/classes/AlignPosition),
+  [AlignOrientation](https://create.roblox.com/docs/reference/engine/classes/AlignOrientation),
+  [mover constraints](https://create.roblox.com/docs/physics/mover-constraints),
+  [PVInstance.PivotTo](https://create.roblox.com/docs/reference/engine/classes/PVInstance#PivotTo).
+- **No Humanoid or pathfinding.** Optional rigs use AnimationController and Animator, while rigid
+  models use the same movement maths. Pathfinding computes routes around obstacles; cosmetic
+  followers intentionally permit clipping rather than maintaining paths per equipped copy.
+  [AnimationController](https://create.roblox.com/docs/reference/engine/classes/AnimationController),
+  [Animator](https://create.roblox.com/docs/reference/engine/classes/Animator),
+  [pathfinding](https://create.roblox.com/docs/characters/pathfinding).
+- **Streaming can remove Workspace content.** Missing character roots skip rendering, missing ground
+  uses an owner-relative fallback, and templates remain in ReplicatedStorage. No persistent-model
+  requests or forced streaming settings are introduced. Atomic models are not a guarantee for new
+  children added after replication.
+  [Instance streaming](https://create.roblox.com/docs/workspace/streaming),
+  [streaming techniques](https://create.roblox.com/docs/workspace/streaming/techniques),
+  [ModelStreamingMode](https://create.roblox.com/docs/reference/engine/enums/ModelStreamingMode).
+- **Icons and bounded pages; looks shared with Plot through a generic decorator.** The default UI uses
+  icons and bounded pages. A ViewportFrame renders another model view; custom thumbnail UIs should
+  bound their active previews. Companions reuse appearance functions with Plot through a generic
+  decorator extension rather than introducing a reverse kit dependency. Tags on cloned art are not
+  used for discovery, and no read-only tag property is assigned; tag operations use
+  CollectionService methods if needed.
+  [ViewportFrame](https://create.roblox.com/docs/reference/engine/classes/ViewportFrame),
+  [viewport frames](https://create.roblox.com/docs/ui/viewport-frames),
+  [CollectionService](https://create.roblox.com/docs/reference/engine/classes/CollectionService).
+- **Bounded movement work.** One client driver, distance-dependent update rates and a default maximum
+  of 30 clones bound movement work. Device render cost still depends on art, transparency and rig
+  complexity.
+  [Improve performance](https://create.roblox.com/docs/performance-optimization/improve).
+- **Plot's decorator extension is the only cross-kit change.** Owned-copy removals already offer a
+  public transactional hook; income already offers a public rate-factor hook. Neither framework
+  internals nor other modules' save sections are needed. Luck stays in Rarity's disclosed public
+  APIs; companions never introduce their own hidden roll modifier.
+
+### v1.8.0: player kit
+
+- **Durable global cap through `ctx.data.shared.update`, not MemoryStore.** A capped code's use count
+  is kept with `UpdateAsync`
+  (https://create.roblox.com/docs/reference/engine/classes/GlobalDataStore#UpdateAsync), not in an
+  expiring MemoryStore (https://create.roblox.com/docs/reference/engine/classes/MemoryStoreService).
+  Ambiguous reservations are retained forever, so availability can underfill after a crash but the
+  cap is never exceeded. Callbacks must be pure and non-yielding, because retries may run them more
+  than once.
+- **Live promotion definitions through a generic `ctx.configValues.snapshot()`.** The framework gives
+  modules experience configs without naming a kit and without direct service access. Experience
+  configs (https://create.roblox.com/docs/production/configs) support global snapshots,
+  `UpdateAvailable`/`Refresh`, stale snapshot retention and JSON values; values are not refreshed
+  merely by receiving `UpdateAvailable`. The kit caches with a bounded refresh and entry size. The
+  JSON value maximum is 100,000 characters and the kit caps payloads at 90,000; the official guide
+  allows 1000 active configs (check the current limits table before choosing a payload cap).
+  Propagation is eventual (the guide gives roughly 15 seconds to one minute for a normal immediate
+  rollout); fake tests never claim real propagation.
+- **Accessibility follows the engine's preferences.** Reduced motion and preferred text size come from
+  `GuiService` (`ReducedMotionEnabled`, `PreferredTextSize`:
+  https://create.roblox.com/docs/reference/engine/classes/GuiService,
+  https://create.roblox.com/docs/reference/engine/enums/PreferredTextSize), quality from
+  `UserGameSettings.SavedQualityLevel`
+  (https://create.roblox.com/docs/reference/engine/classes/UserGameSettings), keyboard bounds from
+  `UserInputService` (https://create.roblox.com/docs/reference/engine/classes/UserInputService).
+  Automatic is not the actual current rendering quality, and the kit never tries to set Roblox's
+  quality. Controls keep physical touch minimums under the combined responsive, user and modal
+  scale; slider schemas render as exact-step touch controls.
+- **Sound and UI scale preferences are generic player attributes.** `SoundGroup.Volume` multiplies a
+  sound's gain (https://create.roblox.com/docs/reference/engine/classes/SoundGroup), so feedback is
+  routed to an effects group and game music to a music group. The framework reads two attributes
+  on the local player, `CoreEffectsGroup` (the effects group; existing feedback sounds are rerouted
+  when it changes) and `CoreUIScale` (multiplied with the responsive scale; touch minimums stay in
+  physical pixels), so existing scaled roots and sounds follow the player's choice without the
+  framework naming a kit.
+- **Promotion policy.** Roblox's promo offer rules
+  (https://en.help.roblox.com/hc/en-us/articles/10549651908244-Promo-Offers-for-Virtual-Rewards)
+  require experience-only virtual rewards with no Robux or real-world value, public redemption
+  details and no exchange, and prohibit unique per-user promotion codes. Custom rewards need the
+  author's catalog review.
+- **Once per player, permanently.** Version 1 rejects an explicit `oncePerPlayer = false`. Every
+  definition verifies a durable, immutable cap policy, including uncapped `limit = 0`. Ambiguous
+  reservations never expire; pending records and sequences are never pruned; finalizing is
+  token-idempotent. Public operation budgets include recovery and up to four backend calls per
+  operation.
+- **Catalog retirement is permanent** across deployments and rollbacks; only settled history can be
+  pruned. Pending recovery has no catalog or flag eligibility prerequisite and grants nothing anew.
+- **Settings revisions.** Settings uses owner-only authoritative revisions plus per-id request
+  sequences and a separate optimistic draft state; a first-dirty timer prevents a save from being
+  postponed forever. A migration confirms `saveAsync` before clearing legacy data.
+
+### v1.8.0: moderation kit
+
+- **Three modules, Admin at the base.** Refs can't cycle, so Admin names neither of the others;
+  Moderation and Reports declare it optional and register their panel actions, tabs and the audit
+  sink into Admin's extensions in `init`. Each module works alone with a documented fallback
+  (permissions from `ServerConfig.<Module>.admins`, audit to `ctx.log`).
+- **Bans are Roblox's `BanAsync`, universe-wide.** It evicts across servers, refuses rejoins and
+  covers suspected alts by default (https://create.roblox.com/docs/reference/engine/classes/Players#BanAsync).
+  A universe unban doesn't lift a place ban (https://create.roblox.com/docs/reference/engine/classes/Players#UnbanAsync), so the kit only bans universe-wide.
+  `BanAsync` can fail (HTTP, throttling; no documented rate), so a failed ban kicks locally and goes to
+  a shared pending list any server retries.
+- **Ban messages are preset keys.** Roblox forbids handles and direct links in `DisplayReason` and
+  asks for public rules and an appeal path (https://create.roblox.com/docs/players#message-guidelines,
+  https://create.roblox.com/docs/players#ban-guidelines); presets plus a game-set appeal line make
+  that the default. Free text is opt-in and filtered.
+- **Group roles through `GroupService:GetRolesInGroupAsync`.** `Player:GetRankInGroup(Async)` is
+  deprecated and returns only the highest public role; role ids are stable, ranks don't define the
+  hierarchy (https://create.roblox.com/docs/reference/engine/classes/GroupService#GetRolesInGroupAsync,
+  https://create.roblox.com/docs/reference/engine/classes/Player#GetRankInGroupAsync).
+- **Cross-server actions through `ctx.data.messages`, not MessagingService.** MessagingService is
+  best effort (https://create.roblox.com/docs/reference/engine/classes/MessagingService) and
+  refused to modules; messages are durable and reach an offline player on the next load.
+- **Text mute through `TextSource.CanSend`** (https://create.roblox.com/docs/reference/engine/classes/TextSource);
+  the kit never reads chat text, which platform-integrated chat (required from May 2027) removes
+  (https://create.roblox.com/docs/chat/platform-integrated-chat).
+- **Own report queue.** No API opens Roblox's Report Abuse menu; `SetCore("PromptBlockPlayer")` is
+  the closest flow (https://create.roblox.com/docs/reference/engine/classes/StarterGui#SetCore).
+- **Automatic actions never ban by default** (`auto.permissions = warn, mute, kick`): a false
+  positive in a heuristic must not cost a player their account access.
+- **The panel's code ships in the server part** and is cloned into staff PlayerGuis only, so
+  non-staff clients never receive staff UI or the action list.
+- **The actor is required** (`by = Player | "server" | "console" | "system"`; `nil` raises). A
+  forgotten argument must never mean "trusted": that would give any forwarded client request
+  owner power with no rank check or limits.
+- **Fail closed on rank.** A target outside this server gets its rank from
+  `Admin.rankOfUserId` (users map, then group lookup); if that fails, the action is refused
+  (`"unknown_rank"`), so a moderator can't act on an offline admin.
+- **No hot shared keys.** `ctx.data.shared` has only `update`, so every "read" is a full write and
+  `return nil` deletes. The audit is chunked per server (`a/<day>/<job8>/<seq>`, 100 entries) with
+  a day directory and a small per-target index; pending bans and open reports are per-user keys
+  found through sorted map indexes (`range`/`get` are reads). One global key per day or per queue
+  would exceed the 4 MB value limit and the per-key write rate in a large game.
+- **Pending entries carry `kind`, `seq` and a lease.** An unban replaces a pending ban in the same
+  write, retries apply only the latest `seq`, and only the lease holder retries, so a late retry
+  can't re-ban an unbanned player and an incident doesn't make every server call `BanAsync`.
+- **Only transient `BanAsync` errors are retried** (`"failure for UserId"`, timeout, HTTP);
+  anything else (banning disabled, bad input) fails at once, so nothing is "pending" forever.
+- **Free text is filtered at submission or refused**, including private reasons (the raw text
+  goes only to `BanAsync`'s `PrivateReason`); context and data-view strings must be keys. Staff are
+  players too, and "staff only" is not an exemption from Roblox's filtering rule.
+- **Reporter ids need `reports.reporters`** (owner, admin), and nobody sees reports about
+  themselves or higher staff, so a reported helper can't retaliate.
+- **Anti-cheat thresholds may live in `ServerConfig.Moderation.autoSources`**: everything in
+  `config.*` replicates to clients.
+- **Client requests are §9 actions**, not `handleEvent` events: actions are scoped per module (no
+  global name clash) and `h:action` reaches them in specs.
+- **Distinct success statuses.** `kick`, `mute`, `unmute`, `warn`, `serverBan` return `"done"`
+  (applied in this server) or `"sent"` (queued through `ctx.data.messages`); `ban`/`unban`
+  `"banned"`/`"unbanned"`/`"pending"`; `punish` returns the step and the inner status, and
+  `(true, "sent", "sent")` for an absent target (the step is chosen where the save is). Callers
+  can tell "done" from "will happen" without a second call.
+- **`Admin.allow` counts, `Admin.can` doesn't, and each staff action is counted once.** The module
+  API counts (`allow`); Admin's own request handling counts its built-in actions and a registered
+  tab's fetch, and only checks the permission before a registered action or row action, whose
+  `run` calls the module API with `by = staff`. Without that split one click would be counted twice
+  against `actionsPerMinute`.
+- **Role caps through `Admin.limitsOf(staff)`.** Moderation needs a role's `maxBanSeconds` and
+  `maxMuteSeconds` but must not read Admin's config; a small read-only API keeps the boundary.
+- **Every tunable number is config:** the audit sizes and rates
+  (`audit.chunkSize`, `bufferMax`, `privateReasonMax`, `detailsMaxBytes`, `readSecondsPerStaff`,
+  `readCacheSeconds`, `refusedEverySeconds`, `shutdownSeconds`), `crossServer.perTargetPerHour`,
+  `pending.indexExpiryDays`/`pollSeconds`, `Reports.queue.maxOpen`/`indexExpiryDays`,
+  `Admin.grant.max`/`currencies`, the panel's duration choices. `audit.maxPerDay` and
+  `Reports.retentionDays` were dropped: chunked writes have no daily cap to enforce, and resolved
+  reports live only as audit entries, so audit retention governs them.
+- **`queue()` returns index summaries; `detail()` reads one report.** Reading every `r/t/<userId>`
+  key to list the queue would be a full DataStore write per report (no shared `get`); the sorted
+  map `range` is a read, and notes and reporter ids are read only for the one report a staff member
+  opens.
+- **A pending ban survives a store outage in memory.** If `BanAsync` and both pending writes fail,
+  the status stays `"pending"` (the player is kicked and refused here, the audit notes
+  `pendingUnsaved`) rather than `"failed"`: the ban was meant and is retried as soon as the store
+  is back.
+- **A messaged mute's end is absolute** (`now + seconds` at send): a delayed delivery shortens the
+  mute rather than extending a punishment past what staff chose.
+- **Retention sweep once per start and every 6 hours, under a lease** (`sweep` in the `pending`
+  sorted map), so one server does the deletes and a quiet game still expires its audit.
+- **Refused staff requests are audited** (once per (staff, action) per
+  `audit.refusedEverySeconds`), like refused automatic actions: probing for powers shows up in the
+  log without letting a loop flood it.
+- **Trusted actors' text is developer text.** `"server"`, `"console"` and `"system"` pass text the
+  game wrote, so it isn't filtered; only text from a staff Player goes through TextFilter. The page
+  tells games never to forward player-typed text with a trusted actor.
+- **Studio skips the rank rule.** In Studio everyone has `studioRole`, so every staff action would
+  be `"outranked"`; the rule is skipped there and specced with `isStudio = false`.
+- **Admin may use TextFilter itself** (optional dependency), with `registerTextFilter`
+  as an override hook: announcements and free panel text work with Admin + TextFilter alone.
+- **Role config merges over the defaults.** `config.Admin.roles` goes through the framework's deep
+  merge like every config table: a game changes a field of a role without restating it (lists such
+  as `permissions` replace).
+- **`serverBan` and `unban` need `ban`**, and `history` returns a plain list of `HistoryEntry`.
+- **Kit event `RunResult`, not `Result`.** The `special` guardrail refuses kit event names that
+  appear in framework code, and the framework has a `Result` type.
+- **Unknown rank fails closed everywhere.** `Admin.rankOf` answers 0 for a player
+  whose group lookup hasn't finished, and Moderation and Reports used it as "not staff". Rather
+  than change `rankOf` (frozen), Admin gained `rankOfChecked -> number?` (nil = unknown, never a
+  group lookup); the rank rule refuses `unknown_rank` and the Reports viewer rule hides the report.
+  The Reports viewer rule never spends `groupLookupsPerMinute` (in-server and cached ranks only),
+  so a busy Reports tab can't starve staff role resolution.
+- **No rank remembered from filing time.** An earlier version stored the target's
+  rank with the report and used it when Admin didn't know the current rank; a player reported as
+  rank 0 and promoted later then stayed visible to lower staff, and a claimer's stale stored rank
+  let a lower rank override them. Reports now uses only the current rank (`rankOfChecked`): unknown
+  hides the report and refuses the resolve override; the field is gone from records and summaries
+  (`queue()` returns the documented `ReportSummary` fields only). Cost: with group roles, reports
+  about players who left are hidden from staff once Admin's group cache expires (known issue
+  O41); trusted code and the console still see them.
+- **Caps unknown = no absent punish.** When `Admin.limitsOf` errors, an absent-target
+  punish is refused (`"failed"`, audited) instead of being sent without caps.
+- **Ghost drops re-check after the remove.** A sorted map has no conditional remove (an
+  `update` returning nil cancels), so `dropGhost` removes only while the record is closed and then
+  reads the record again: a submit writes its record before its index entry, so an entry removed by
+  a racing submit is found and written back.
+- **The Reports tab's reads per fetch are fixed:** at most two index `range` reads per
+  fetch, page 1 starts a walk and later pages resume the staff member's walk for 30 s, so the cost
+  of a page click doesn't grow with `queue.maxOpen` (no schema cap needed).
+- **Audit reads are bounded.** Every `ctx.data.shared` read is an `UpdateAsync`
+  write, so a day read that touched every server's chunk cost one write per server. A day read now
+  touches the directory plus `audit.chunksPerRead` (4) chunks, paged; the cache is time-only; the
+  Audit tab reads the store at most once per request. `ctx.data.shared.get` (proposed in module-api
+  §24.3, not built) remains the real fix.
+- **Only bans count toward `bansPerHour`.** `Admin.allow` gained an optional `action` argument
+  (additive): unban, server ban and history check the `ban` permission without using the ban
+  allowance.
+
 ## v1.7.0 (engagement, text, flags, localization)
 
 Designed against the official Roblox documentation as it read on 2026-11-12 (each create.roblox.com

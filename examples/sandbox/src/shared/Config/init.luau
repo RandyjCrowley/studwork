@@ -17,7 +17,8 @@ local Modules = ReplicatedStorage:WaitForChild("Modules")
 
 local Config = {
 	gameId = "sandbox",
-	-- The sandbox exercises every kit module.
+	-- The sandbox exercises every kit module (the v1.8.0 kits at their defaults, plus the config
+	-- in Balance.luau and ServerConfig.luau).
 	modules = {
 		require(Modules:WaitForChild("Items"):WaitForChild("module")),
 		require(Modules:WaitForChild("Rarity"):WaitForChild("module")),
@@ -34,6 +35,16 @@ local Config = {
 		require(Modules:WaitForChild("Mail"):WaitForChild("module")),
 		require(Modules:WaitForChild("TextFilter"):WaitForChild("module")),
 		require(Modules:WaitForChild("Plot"):WaitForChild("module")),
+		require(Modules:WaitForChild("Admin"):WaitForChild("module")),
+		require(Modules:WaitForChild("Carry"):WaitForChild("module")),
+		require(Modules:WaitForChild("Codes"):WaitForChild("module")),
+		require(Modules:WaitForChild("Companions"):WaitForChild("module")),
+		require(Modules:WaitForChild("Goals"):WaitForChild("module")),
+		require(Modules:WaitForChild("Moderation"):WaitForChild("module")),
+		require(Modules:WaitForChild("Movement"):WaitForChild("module")),
+		require(Modules:WaitForChild("Quests"):WaitForChild("module")),
+		require(Modules:WaitForChild("Reports"):WaitForChild("module")),
+		require(Modules:WaitForChild("Settings"):WaitForChild("module")),
 	} :: { any },
 	config = require(script.Balance),
 	-- Coins are sold for Robux (CoinPack), so the Coin-priced Chest is a paid random item too.
@@ -64,8 +75,14 @@ local Config = {
 		["game.welcome"] = "Welcome back, {name}!",
 		["game.leaderboards"] = "Leaderboards", -- the HUD button; src/shared/Localization/game.csv has the es text
 		["game.debug"] = "debug: {env}",
+		["Moderation.ban.appeal"] = "Appeal on our group page.", -- the ban screen's appeal line
 	},
-	client = { palette = require(script.Palette) },
+	client = {
+		palette = require(script.Palette),
+		-- Goals draws its own next-goal pill (docs/framework/kits/quests.md), so the framework's
+		-- "Game.nextGoal" pill (src/client/Main.client.luau's nextGoal) is hidden.
+		hud = { widgets = { ["Game.nextGoal"] = false } },
+	},
 	analytics = {
 		funnel = { "Joined", "FirstCollect", "FirstUpgrade", "FirstRebirth" },
 		clientSteps = {},

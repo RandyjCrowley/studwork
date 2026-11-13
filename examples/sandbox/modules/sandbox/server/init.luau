@@ -3,7 +3,8 @@
 	Sandbox server module (the game's implicit module, module-api.md §7 C4). What
 	src/server/Main.server.luau did under v1.2, through ctx only:
 	  - Collect: touching the block rolls the free "Block" table (Rarity), counts blockTouches in
-	    the sandbox's own section, funnel FirstCollect; FirstUpgrade / FirstRebirth from signals
+	    the sandbox's own section, funnel FirstCollect, and feeds the Quests counter "blockTouch"
+	    (the sandboxTouches quest, Balance.luau); FirstUpgrade / FirstRebirth from signals
 	  - Offline / Streak / Friends hooks (prints), live events CoinRain and SecretDrop
 	  - Robux products EggRoll (paid roll of "Egg"; a restricted player gets a fixed crystal) and
 	    CoinPack, the DoubleCoins pass, the "gift" mail kind
@@ -24,6 +25,7 @@ local Offline = require(Modules:WaitForChild("Offline"):WaitForChild("module"))
 local Streak = require(Modules:WaitForChild("Streak"):WaitForChild("module"))
 local Friends = require(Modules:WaitForChild("Friends"):WaitForChild("module"))
 local Mail = require(Modules:WaitForChild("Mail"):WaitForChild("module"))
+local Quests = require(Modules:WaitForChild("Quests"):WaitForChild("module"))
 local Tuning = require(ReplicatedStorage:WaitForChild("Game"):WaitForChild("Config"):WaitForChild("Tuning"))
 -- v1.7.0 kit demos (each file is owned by its kit's builder)
 local DemoBadges = require(script.DemoBadges)
@@ -147,6 +149,9 @@ function Sandbox.start(ctx: any)
 					s.blockTouches = (s.blockTouches or 0) + 1
 				end)
 				ctx.analytics.funnel(player, "FirstCollect")
+				if ctx.isEnabled(Quests) then
+					ctx.deps[Quests].progress(player, "blockTouch", 1)
+				end
 			end
 		end)
 	else

@@ -70,7 +70,7 @@ of `StudWork.start`: admins, hidden flags, `openCloud.secrets`) and these test-o
 | Option | What |
 |---|---|
 | `servers = { Name = part }` | inject a module's server part (wins over the project lookup) |
-| `services = { Name = fake }` | `ctx.services.get("Name")` fakes: `StudWork.test.fakes.badgeService()`, `textService()`, `userService()`, `configService()`, `translator()`, `experienceNotificationService()` (module-api §23.6, §23.10). What each kit needs: **Badges** `BadgeService = badgeService()`; **Leaderboards** `UserService = userService()` (names in `top`); **TextFilter** `TextService = textService()`; **Notifications** no service but `openCloud`, `secrets = { OpenCloudNotifications = true }` and the allow-list in `serverConfig` ([notifications.md](kits/notifications.md#tests-mocked-nothing-calls-roblox)). The scaffold's `GameModule.spec.luau` adds the first three for the kits the game lists |
+| `services = { Name = fake }` | `ctx.services.get("Name")` fakes: `StudWork.test.fakes.badgeService()`, `textService()`, `userService()`, `configService()`, `translator()`, `experienceNotificationService()` (module-api §23.6, §23.10). What each kit needs: **Badges** `BadgeService = badgeService()`; **Leaderboards** `UserService = userService()` (names in `top`); **TextFilter** `TextService = textService()`; **Notifications** no service but `openCloud`, `secrets = { OpenCloudNotifications = true }` and the allow-list in `serverConfig` ([notifications.md](kits/notifications.md#tests-mocked-nothing-calls-roblox)); **Moderation kit** `Players`, `GroupService`, `TextChatService` from the kit's own `packages/kits/moderation/tests/Fakes.luau` (`Fakes.players()`, which also fakes `BanAsync`, `UnbanAsync` and `GetBanHistoryAsync`; `Fakes.groupService()`, `Fakes.textChatService()`; `Fakes.giveGui(player)` for the panel's `PlayerGui`), plus `TextService = textService()` when TextFilter is listed (`GroupService` and `TextChatService` are allowed names from v1.8.0, module-api §24.1); **Codes** (v1.8.0) `ConfigService = configService()` when it reads live definitions through `ctx.configValues.snapshot()` (module-api §24.2; `set(key, value)` and `publish()` stage an update, `failNext(n)` makes the next calls raise); **Carry and Movement** no service: install a fake `World` with `Carry.useWorld` / `Movement.useWorld` ([carry.md](kits/carry.md#quickstart-getting-a-carriable-into-your-game)). The scaffold's `GameModule.spec.luau` adds the first three for the kits the game lists |
 | `openCloud = StudWork.test.fakes.openCloud()` | the `ctx.openCloud` transport; its `requests` list records every call |
 | `secrets = { [name] = true }` | secrets-store names that "exist" |
 | `env = "studio" \| "test" \| "live"`, `placeId`, `universeId`, `isStudio` | the environment the server believes it is in |
@@ -171,11 +171,22 @@ repository and use internal paths (`packages/framework/test/harness.luau`) that 
 a game uses `StudWork.test.*` only: `harness`, `boot`, `memoryStore`, `legacyStore`, `player`,
 `fakes.*` and `sim.*`.
 
+One exception (v1.8.0): a kit's engine fakes that `StudWork.test.fakes` doesn't offer can be
+required from the core's copy, for example the moderation kit's
+`studwork/packages/kits/moderation/tests/Fakes.luau` (single-game project) or
+`roblox-core/packages/kits/moderation/tests/Fakes.luau` (games repo). Require it as
+`(require :: any)(...)`, because luau-lsp resolves string requires relative to the file. Those
+files aren't public API, so pin to the release you build against.
+
 ## The multi-server sim
 
 `StudWork.test.sim` runs the real ProfileStore on a mock DataStore with several servers, crashes,
 latency and failure injection. `Boot.spec.luau` uses `F.bootGame("default.project.json")` to boot the
-whole game in it. See `packages/framework/test/sim/README.md` in the framework.
+whole game in it. `F.bootGame(projectPath, opts)` passes `opts` to the sim server, so a game whose
+config needs an engine fake passes it there:
+`F.bootGame("default.project.json", { services = { GroupService = Fakes.groupService() } })`. A
+game with `ServerConfig.Admin.groups` needs this: the sim has no `GroupService`, the lookup fails and
+`bootWarnings` is not empty (module-api §24.5). See `packages/framework/test/sim/README.md` in the framework.
 
 ## Before you commit
 

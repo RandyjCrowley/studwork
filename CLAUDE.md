@@ -89,6 +89,8 @@ packages/kits/<kit>/<Module>/  one folder per module: module.luau -> ReplicatedS
                             server/ -> ServerScriptService.Modules.<Name>, client/, shared/, net.blink
                             collection: Items Rarity Inventory    economy: Economy Upgrades Rebirth Offline
                             base: Plot    social: Friends Mail TextFilter    engagement: Streak Leaderboards Badges Notifications
+                            quests: Quests Goals    carry: Carry Movement    companions: Companions
+                            player: Codes Settings    moderation: Admin Moderation Reports
 packages/ui/                ReplicatedStorage.UI               React-lua component kit (theme-driven)
 packages/vendor/            ServerStorage.Vendor               vendored libraries
 deps/                       wally.toml + wally.lock; Packages -> ReplicatedStorage.Packages,

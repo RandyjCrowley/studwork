@@ -8,6 +8,8 @@
 	  - chest roll for Coins and the Robux egg roll, each with its odds table (Rarity) -- @if Rarity
 	  - rebirth (Rebirth) -- @if Rebirth
 	  - the mailbox (Mail): claim waiting gifts -- @if Mail
+	  - promo codes (Codes), settings (Settings), report a player (Reports), the staff panel for -- @if Codes|Settings|Reports|Admin
+	    staff (Admin); Quests, Goals and Companions add their own HUD widgets -- @if Codes|Settings|Reports|Admin
 
 	Paid random items: the odds the server discloses (Rarity's replicated `odds`) are shown for
 	both the Chest and the Robux egg before rolling/buying, and players whose policy restricts
@@ -22,7 +24,7 @@ local StudWork = require(ReplicatedStorage:WaitForChild("Framework"))
 local Config = require(ReplicatedStorage:WaitForChild("Game"):WaitForChild("Config"))
 local Balance = require(ReplicatedStorage:WaitForChild("Game"):WaitForChild("Config"):WaitForChild("Balance")) -- @if Economy,Rebirth|Upgrades|Rarity,Economy
 local React = require(ReplicatedStorage:WaitForChild("Packages"):WaitForChild("React"))
-local ReactCharm = require(ReplicatedStorage:WaitForChild("Packages"):WaitForChild("ReactCharm")) -- @if Rarity|Upgrades|Mail
+local ReactCharm = require(ReplicatedStorage:WaitForChild("Packages"):WaitForChild("ReactCharm")) -- @if Rarity|Upgrades|Mail|Admin
 local ReactRoblox = require(ReplicatedStorage:WaitForChild("Packages"):WaitForChild("ReactRoblox"))
 local UI = require(ReplicatedStorage:WaitForChild("UI"))
 
@@ -34,6 +36,10 @@ local EconomyDef = require(Modules:WaitForChild("Economy"):WaitForChild("module"
 local Upgrades = require(Modules:WaitForChild("Upgrades"):WaitForChild("module")) -- @if Upgrades
 local Rebirth = require(Modules:WaitForChild("Rebirth"):WaitForChild("module")) -- @if Rebirth
 local Mail = require(Modules:WaitForChild("Mail"):WaitForChild("module")) -- @if Mail
+local Codes = require(Modules:WaitForChild("Codes"):WaitForChild("module")) -- @if Codes
+local Settings = require(Modules:WaitForChild("Settings"):WaitForChild("module")) -- @if Settings
+local Reports = require(Modules:WaitForChild("Reports"):WaitForChild("module")) -- @if Reports
+local Admin = require(Modules:WaitForChild("Admin"):WaitForChild("module")) -- @if Admin
 
 local e = React.createElement
 
@@ -45,6 +51,10 @@ local upgrades = StudWork.use(Upgrades) -- @if Upgrades
 local rebirth = StudWork.use(Rebirth) -- @if Rebirth
 local rarity = StudWork.use(Rarity) -- @if Rarity
 local mail = StudWork.use(Mail) -- @if Mail
+local codes = StudWork.use(Codes) -- @if Codes
+local settings = StudWork.use(Settings) -- @if Settings
+local reports = StudWork.use(Reports) -- @if Reports
+local admin = StudWork.use(Admin) -- @if Admin
 local PRIMARY = Balance.Economy.primaryCurrency -- @if Economy,Rebirth
 
 -- @if Mail
@@ -122,6 +132,7 @@ local function ActionBar()
 		})
 	end
 	-- @end
+	local _staffState = ReactCharm.useAtom(Client.state) -- re-render when the staff role arrives -- @if Admin
 	local chestCost = Balance.Rarity.rarityTables.Chest.cost.amount -- @if Rarity,Economy
 	local eggProduct = Config.products.devProducts.EggRoll -- @if Rarity,Inventory
 
@@ -175,6 +186,60 @@ local function ActionBar()
 				onActivated = function()
 					rebirth.actions.rebirth()
 				end,
+			}),
+			-- @end
+			-- @if Codes|Settings|Reports|Admin
+			-- one row for the player and moderation screens
+			More = e("Frame", {
+				BackgroundTransparency = 1,
+				AutomaticSize = Enum.AutomaticSize.XY,
+				Size = UDim2.fromOffset(0, 0),
+				LayoutOrder = 5,
+			}, {
+				Layout = UI.Primitives.list(Enum.FillDirection.Horizontal, 6, Enum.HorizontalAlignment.Right),
+				-- @if Codes
+				Codes = e(UI.Button, {
+					text = UI.text("Codes.title"),
+					variant = "secondary",
+					layoutOrder = 1,
+					onActivated = function()
+						codes.open()
+					end,
+				}),
+				-- @end
+				-- @if Settings
+				Settings = e(UI.Button, {
+					text = UI.text("Settings.title"),
+					variant = "secondary",
+					layoutOrder = 2,
+					onActivated = function()
+						settings.open()
+					end,
+				}),
+				-- @end
+				-- @if Reports
+				Report = e(UI.Button, {
+					text = UI.text("Reports.open"),
+					variant = "secondary",
+					layoutOrder = 3,
+					onActivated = function()
+						reports.open()
+					end,
+				}),
+				-- @end
+				-- @if Admin
+				-- the staff panel: the server delivers it to staff only (ServerConfig.Admin)
+				Staff = if admin.isStaff()
+					then e(UI.Button, {
+						text = UI.text("Admin.open"),
+						variant = "secondary",
+						layoutOrder = 4,
+						onActivated = function()
+							admin.panel()
+						end,
+					})
+					else nil,
+				-- @end
 			}),
 			-- @end
 		}),

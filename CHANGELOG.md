@@ -11,6 +11,133 @@ Identifiers like `R19` or `V1` are issue ids: open ones are listed in [docs/know
 
 ## [Unreleased]
 
+## [1.8.0] - 2026-11-13
+
+Five new kits with ten kit modules: quests (Quests, Goals), carry (Carry, Movement), companions
+(Companions), player (Codes, Settings) and moderation (Admin, Moderation, Reports), plus the small
+framework additions they are built on. Additive: no module API was renamed or removed. Nothing here
+has been checked against live Roblox services yet; see the manual QA checklist ("New in v1.8.0") and
+known issues O14 to O45, S5 and S6 (the quests and carry tick costs are O21 and O30).
+
+### Added
+
+- **Ten kit modules in five kits**, all normal modules on the public module API (a game lists them in
+  `GameConfig.modules`; each works when left out):
+  - **Quests and Goals** (quests kit, `packages/kits/quests/`,
+    [docs/framework/kits/quests.md](docs/framework/kits/quests.md)), each with a `flag` kill switch:
+    - **Quests:** config-defined daily, weekly, story-chain, one-time, repeatable and event quests.
+      Daily and weekly sets are dealt from a weighted pool deterministically per player per period
+      (seed = user, period, pool version, slot, reroll index) and saved, so a rejoin or server hop
+      shows the same set; one free reroll per daily slot per day (config). Periods follow the
+      framework clock in `utcOffsetHours` and only move forward, so a server hop across the reset
+      can't re-deal a set. Objectives: counters (`progress`), thresholds and built-in sources from
+      Economy, Inventory, Rebirth, Streak and Leaderboards signals, plus game-registered sources.
+      Rewards: currency, items, free Rarity rolls at luck 1 whose odds the quest board shows, and game
+      handlers; a claim and its grants are one transaction, so a reward is granted exactly once
+      (double taps, save failures, shutdowns, rejoins on another server). Progress is batched in
+      memory (no save write per increment) and safe to call inside a game's own transaction. A quest
+      board screen, a HUD tracker for pinned quests and claim toasts, all theme-driven, localized and
+      usable at 667x375 with touch and gamepad. No Robux.
+    - **Goals:** the first-session goal chain and next-goal pointer: a HUD pill, one world beam toward
+      the target and an off-screen edge arrow (StreamingEnabled-safe: last known position or a
+      configured fallback), a game "what's next" after the chain, one analytics funnel step per goal.
+      Never blocks input, never opens a screen or moves the camera. Works without Quests. Players who
+      joined before a game added Goals start with the chain finished.
+    - Both modules boot with no config.
+  - **Carry and Movement** (carry kit, `packages/kits/carry/`,
+    [docs/framework/kits/carry.md](docs/framework/kits/carry.md)); each works without the other (with
+    Movement absent or its flag off, Carry falls back to its own clamp):
+    - **Carry:** objects carried by one or more players. The server drives them (anchored, CFrame
+      interpolated on Heartbeat, rate-clamped, `CanQuery` off while carried). Includes hand-off,
+      throw-and-catch, join/leave, drop rules (hard-landing drops are **opt-in**, off by default: when
+      a game sets `hardLandingSpeed`, each fall is decided at its touchdown, at least the carriers'
+      jump apex plus `hardLandingMarginStuds` high, with known limits listed in known issue O31),
+      delivery zones (`Delivered` fires once per arming, with the carrier list and timings), a kill
+      plane, the `carryPickUp` / `carryDrop` / `carryHandOff` actions, and touch, keyboard and gamepad
+      bindings. Dropped objects go to a `CarryDropped` collision group that excludes characters;
+      `CanCollide` is never turned off by default.
+    - **Movement:** a server-side movement validator. It checks a sliding-window speed cap with
+      ping-aware lag allowance, a per-sample teleport cap, an analytic path sweep against tagged
+      `hazard`/`noEntry`/`checkpoint` volumes, a ground cast with a jump/fall envelope, a wall sweep
+      and a rise cap. Its casts respect `CanCollide` and the character's own collision group, so
+      zones, checkpoints and carried or dropped objects are never a wall. Platform- and seat-relative
+      motion, server-move anchors and respawn settling cover legitimate moves. Also
+      `startRun`/`endRun`, `teleport`/`exempt`, `active`, and a `log` (default) / `strike` /
+      `resetPosition` / `disqualifyRun` policy. A Studio-only `movement samples` console command shows
+      a player's live samples.
+    - `useWorld` on both modules is a documented kit-level test seam.
+  - **Companions** (companions kit, `packages/kits/companions/`,
+    [docs/framework/kits/companions.md](docs/framework/kits/companions.md); needs Items and
+    Inventory): server-validated copy-uid equipment, saved selections, equip best, transaction-safe
+    ownership cleanup and capped opt-in income bonuses; local following with formations, ground
+    snapping, motion preferences, distance budgets, reusable variant looks and a themed touch equip
+    screen.
+  - **Codes and Settings** (player kit, `packages/kits/player/`,
+    [docs/framework/kits/player.md](docs/framework/kits/player.md)), independent of each other:
+    - **Codes:** free promotion codes with transactional rewards (every reward and the redemption
+      record commit in one transaction), durable cross-server use limits and cached live promotion
+      definitions from experience configs. No paid rewards or paid rolls.
+    - **Settings:** owner-only, validated, saved player preferences and accessible settings screens.
+  - **Admin, Moderation and Reports** (moderation kit, `packages/kits/moderation/`,
+    [docs/framework/kits/moderation.md](docs/framework/kits/moderation.md)), each working alone:
+    - **Admin:** staff roles with ranks and permissions from `ServerConfig.Admin` (users and group
+      roles through `GroupService:GetRolesInGroupAsync`, cached and budgeted), a staff panel delivered
+      only to staff (Players, Announce, Data tabs; teleport, spectate, announce, shutdown, grant
+      currency, data view), per-staff rate limits, extensions other modules use to add permissions,
+      actions, tabs, data views, an audit sink and a text filter. `allow` (permission plus per-staff
+      limits; only real bans count toward `bansPerHour`), `rankOf`/`rankOfUserId` (rank of a present
+      or absent user), `rankOfChecked` (the rank only when known without a group lookup; nil =
+      unknown, so callers fail closed), `studioRoleOnly` and `limitsOf` (role caps). Studio: everyone
+      is staff; live: nobody unless configured. Optional Economy and TextFilter.
+    - **Moderation:** `ban`/`unban` through `Players:BanAsync`/`UnbanAsync` (a transient failure
+      kicks locally and goes to a per-user pending entry with a sequence number and a lease, found
+      through a sorted map index; other errors fail), `history`, `kick` (cross-server through
+      `ctx.data.messages`), `serverBan`, `mute`/`unmute` (text chat `CanSend`, optional voice),
+      `warn`, offence ladders with decaying strikes (`punish`), an automatic hook (`report`) bounded
+      to warn/mute/kick, `record` for other kit modules' audit entries, and a retained audit log
+      chunked per server in `ctx.data.shared` (a day read touches at most `audit.chunksPerRead`
+      chunks, paged; a target read one key). Ladder steps may name their message (`key`), offences
+      their warning (`warnKey`). Every mutating call takes a required actor
+      (`by = Player | "server" | "console" | "system"`).
+    - **Reports:** a mobile-first report screen, rate limits per reporter, pair and target, merged
+      duplicates, filtered unattributed notes, reporter ids only for `reports.reporters` staff, no
+      reports about the viewer, higher staff or staff whose rank is unknown, the staff queue (a
+      sorted map index, paged up to `queue.maxOpen`; claimed reports resolved by the claimer or a
+      higher rank) as an Admin tab and through `queue`/`detail`/`claim`/`resolve`, optional
+      auto-action through Moderation (off by default), the block prompt after a report.
+- **Framework additions** used by the new kits, open to any module:
+  - `ctx.configValues.snapshot()` (server only, yields): an experience configuration snapshot
+    through the framework, fakeable with `services.ConfigService`. A module caches it, bounds its
+    refresh and validates each value; raw values are never replicated.
+  - `ctx.services.get` allows `GroupService` and `TextChatService` (module-api §24.1).
+  - `ctx.gameConfig.analytics` (a frozen copy of `GameConfig.analytics`), so a module can read the
+    `funnel` list.
+  - The `CoreUIScale` player attribute: a local UI scale preference that `UI.ScaledRoot` multiplies
+    with its responsive scale and follows when it changes.
+- **API additions to existing modules:** Plot's `extensions.decorate(id, fn) -> DecoratorConnection`,
+  an additive display decorator: dependent modules style cloned displays before measurement, with
+  existing-display refresh and collision sanitization (Companions uses it for its looks).
+- **Examples:** `examples/quests-demo/` (every Quests and Goals surface in Studio, with Studio-only
+  console commands to force states) and `examples/carry/` (the carry kit's fixture game).
+- **Tools:** `tools/new-game --modules` and `tools/new-project --modules` know the ten new modules
+  (discovered from the kit folders; the NewGame spec counts 25 kit modules). `tools/bench` variants
+  `KITS-QUESTS` (KITS-ALL plus Quests and Goals, 50 players with 10 active quests progressed every
+  tick), `KITS-ALL+carry`, `CARRY-20x4` and `MOVEMENT-50`, each carry variant with a control.
+
+### Changed
+
+- **Framework feedback sounds play through a SoundGroup.** Pooled feedback sounds are routed to the
+  SoundGroup named by the local player's `CoreEffectsGroup` attribute, or to a `"CoreEffects"` group
+  under `SoundService` when it is unset; changing the attribute reroutes sounds already playing and
+  keeps their gain. This applies to every game: the default group has volume 1, so nothing sounds
+  different until a game or the Settings module changes that group's volume.
+
+### Fixed
+
+- Leaderboards: `signals.BoardRefreshed` is reachable through the module's api
+  (`StudWork.use(Leaderboards).signals.BoardRefreshed` was nil: the signals table was a plain table
+  the framework copied before `init` created the signal).
+
 ## [1.7.1] - 2026-11-12
 
 A patch release: the Linux CI failure and two tool gaps. No module API change.
@@ -639,7 +766,8 @@ First release: the foundation services and kits.
   instead of an unprocessed purchase loop.
 - Leaving or shutting down no longer kicks with "opened in another server".
 
-[Unreleased]: https://github.com/RandyjCrowley/studwork/compare/v1.7.1...HEAD
+[Unreleased]: https://github.com/RandyjCrowley/studwork/compare/v1.8.0...HEAD
+[1.8.0]: https://github.com/RandyjCrowley/studwork/compare/v1.7.1...v1.8.0
 [1.7.1]: https://github.com/RandyjCrowley/studwork/compare/v1.7.0...v1.7.1
 [1.7.0]: https://github.com/RandyjCrowley/studwork/compare/v1.6.2...v1.7.0
 [1.6.2]: https://github.com/RandyjCrowley/studwork/compare/v1.6.1...v1.6.2

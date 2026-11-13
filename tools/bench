@@ -2,6 +2,8 @@
 # tools/bench [runs] [variant...]   replication / tick benchmark (tools/lune/bench/replication)
 # tools/bench views [runs]          frozen read view costs (tools/lune/bench/views)
 # Lune micro-benchmarks for the framework. Not part of tools/test. KITS (the v1.6.x kit modules) and KITS-ALL (the same plus every v1.7.0 module) are the tick-cost budget references; KITS-ALL is the one for v1.7.0 (0.94 ms/tick = 1.2 x 0.78).
+# v1.8.0 kit variants (KITS-ALL unchanged, each <= 1.2 x the same run's KITS-ALL): KITS-QUESTS, KITS-ALL+carry
+# and its controls (CarryVariant.luau), KITS-COMPANIONS, KITS-PLAYER, KITS-MODERATION (KitVariant.luau).
 source "$(dirname "$0")/_common.sh"
 help_if_asked "$0" "$@"
 

@@ -1,11 +1,12 @@
 # Kit contract: what each kit module offers other modules
 
-The fifteen built-in kit modules talk to each other, and to your modules, only through the public
+The twenty-five built-in kit modules talk to each other, and to your modules, only through the public
 module API ([module API reference](module-reference.md)). This page lists that cross-module
 surface in one place: for each kit module, its `api`, `txApi`, `purchaseOps`, `extensions`,
 `signals`, replicated keys and save section. The kit pages ([Collection](kits/collection.md),
 [Economy](kits/economy.md), [Base](kits/base.md), [Social](kits/social.md),
-[Engagement](kits/engagement.md)) have the config keys and the details.
+[Engagement](kits/engagement.md), [Quests](kits/quests.md), [Carry](kits/carry.md),
+[Companions](kits/companions.md), [Player](kits/player.md), [Moderation](kits/moderation.md)) have the config keys and the details.
 
 Rules that hold for everything below:
 
@@ -140,6 +141,13 @@ Rules that hold for everything below:
   (optional), Economy's `displayedSource` (optional), Items and Rarity (optional, for models and
   tier colours).
 - **Replicated:** `data.displayed`; `extra.plotName`. **Save section:** `plot`.
+- **extensions (v1.8.0, additive):** `decorate(id, fn(visual, itemDef, instance)) ->
+  DecoratorConnection`: a synchronous display decorator, called before size measurement and
+  placement. Unique id; stable order; errors are contained. Registering or disconnecting refreshes
+  existing displays; the connection's `Invalidate()` refreshes once without changing the order. The
+  result is sanitized (scripts, collisions, external references) while unparented; a failure keeps
+  the sanitized partial result and a destroyed visual gets a primitive fallback. Register during
+  `init`. Plot doesn't depend on the calling module (Companions uses it).
 
 ## Social kit
 
@@ -218,6 +226,203 @@ Rules that hold for everything below:
 - **Save section:** `notifications` (not replicated); scheduled entries live in a shared sorted
   map, not in a save. **Client:** `canPrompt()`.
 
+## Quests kit
+
+### Quests (v1.8.0)
+
+- **api:** `progress(player, key, amount?) -> boolean` (batched; safe inside a tx), `claim(player, questId) -> (ok,
+  reason?)`, `reroll(player, kind, slot) -> (ok, questIdOrReason)`, `active(player) -> { QuestView }`,
+  `state(player, questId) -> QuestState?`, `def(questId) -> Quest?`, `grant(player, questId) -> (ok, reason?)` (server only),
+  `pin(player, questId, on) -> (ok, reason?)`.
+- **extensions:** `registerSource(name, { read, changed? })` (value sources), `registerReward(handler,
+  fn(tx, player, params, questId))` (runs inside the claim tx). Call both in `init`.
+- **signals:** `Progressed(player, questIds)` (once per live-values send, with the ids whose values
+  moved; read them with `state`), `Completed(player, questId)`, `Claimed(player, questId, rewards)`,
+  `Rotated(player, kind, periodId)`.
+- **Uses:** Economy (`CurrencyChanged`, `balance`, `txApi.grant`), Inventory (`ItemAdded`,
+  `ItemRemoved`, `list`, `cap`, `txApi.add`, `txApi.count`), Items (`get`), Rarity (`txApi.roll` at
+  luck 1, `getOddsDetail`), Rebirth (`Rebirthed`, `count`), Streak (`StreakAdvanced`, `get`),
+  Leaderboards (`BoardRefreshed`, `rank`), all optional and only when the config references them;
+  `ctx.events.isActive`, framework signals `EventStarted`/`EventEnded`, `ctx.analytics`.
+- **Replicated `extra`:** `board`, `progIds` and `prog` (per player), `questOdds` (shared).
+  **Save section:** `quests`, not replicated.
+- **Client:** `active()`, `board()`, `onCompleted(fn)`, `onClaimed(fn)`, `open(tab?)`; actions
+  `claimQuest`, `rerollQuest`, `pinQuest`, `ackQuest`; screen `"Quests"`; widgets `"Quests.tracker"`,
+  `"Quests.button"`.
+
+### Goals (v1.8.0)
+
+- **api:** `current(player) -> GoalView?`, `complete(player, goalId) -> (ok, reason?)` (queued; safe inside a tx),
+  `setChain(chain, version?)`, `setNext(fn(player) -> NextGoal?)`, `skip(player, hidden) -> boolean`.
+- **extensions:** `registerSource(name, { read, changed? })`.
+- **signals:** `GoalChanged(player, goalId?, previousId?)`, `ChainDone(player)`.
+- **Uses:** Quests (`def`, `state`, `Completed`, `Claimed`, `Progressed`), Economy, Inventory, Rebirth, Streak
+  (value sources), all optional; `ctx.analytics.funnel`, `ctx.gameConfig.analytics` (the funnel
+  list, for boot warnings), `ctx.framework.sessions`.
+- **Replicated `extra`:** `goal`. **Save section:** `goals`, not replicated. **Theme:** `colors.goalPointer`.
+- **Client:** `goal()`, `pointer()`, `onChanged(fn)`, `registerPicker(name, fn)`, `setHidden(hidden)`;
+  actions `skipGoals`, `ackGoal`; widget `"Goals.goal"`.
+
+## Carry kit
+
+Both modules live in the kit folder `packages/kits/carry/`.
+
+### Carry (v1.8.0)
+
+- **api:**
+  - setup: `registerCarriable(tag, def)`, `setDropRule(tag?, rules)`;
+  - actions on objects: `pickUp(player, object) -> (boolean, reason?)`, `drop(player, object) -> boolean`,
+    `handOff(player, object, toPlayer) -> (boolean, reason?)`, `releasePlayer(player, reason)`,
+    `reportHazard(player, object)`, `reset(object, cframe?) -> boolean`;
+  - reads: `holders(object) -> { Player }`, `isCarrying(player) -> Instance?`,
+    `objectOf(objectId) -> Instance?`, `stateOf(object) -> CarryState?`;
+  - test seam: `useWorld(world)`.
+- **actions (client):** `carryPickUp(objectId)`, `carryDrop(objectId)`, `carryHandOff(objectId, toUserId)`.
+- **signals:** `PickedUp(player, object, slot)`, `Dropped(object, reason, by?)`, `HandedOff(object,
+  from, to, thrown)`, `Delivered(object, zone, carriers, timings)`, `Returned(object, reason)`.
+- **Uses:** Movement (optional): `active`, `lastValid`, `velocity`, `signals.RunDisqualified`/`Strike`.
+  Without Movement, or while `Movement.active(player)` is false (its flag off), it uses the raw root
+  under Carry's own clamp.
+- **Replicated `extra`:** `carry:<objectId>` (`setAll`, one encoded string per object, set on state
+  changes only). **Save section:** none. **Client:** widget `"Carry.status"`.
+
+### Movement (v1.8.0)
+
+- **api:**
+  - runs: `startRun(player, runId)`, `endRun(player, runId) -> (eligible, strikes)`;
+  - server moves: `teleport(player, cframe)`, `exempt(player, seconds?, reason)`;
+  - reads: `strikes(player) -> { Strike }`, `lastValid(player) -> (CFrame?, trusted)`,
+    `active(player?) -> boolean` (policing now: false with the flag off), `velocity(player) -> Vector3?`;
+  - setup: `registerVolume(tag, kind)`, `registerPlatformSource(fn)`, `setSpeedCap(player, studsPerSec?)`,
+    `setResponse(check, response)`;
+  - test seam: `useWorld(world)`.
+- **signals:** `Strike(player, reason, details)`, `RunDisqualified(player, runId, reason)`,
+  `VolumeCrossed(player, kind, volume)`.
+- **Uses:** nothing (a general-purpose validator).
+- **Replicated `extra`:** `movement` (`set`, owning player only, `"<strikeCount>|<lastReason>"`, set on
+  the first strike and later). **Save section:** none.
+
+## Companions kit
+
+### Companions (v1.8.0, needs Items and Inventory)
+
+- **api:** `equip(player, uid) -> (ok, reason?)`, `unequip(player, uid) -> (ok, reason?)`,
+  `equipBest(player) -> (ok, reason?)`, `equipped(player) -> { { uid, itemId, mutation? } }`
+  (frozen), `bonus(player) -> number`, `refresh(player) -> (ok, reason?)`,
+  `registerLook(key, fn(model, itemDef)) -> Connection`, `applyLook(model, itemDef, mutation?)`.
+- **extensions:** `canEquipWith(id, fn(player, copy) -> boolean) -> Connection`,
+  `scoreWith(id, fn(player, copy, itemDef) -> number) -> Connection`. Synchronous; unique ids.
+  A predicate that errors denies; a malformed score counts as zero.
+- **signals:** `EquippedChanged(player, equippedCopies, factor)` after the commit.
+- **Uses:** Inventory's `onItemRemoved` for atomic cleanup; optional Economy `rateFactor`, Rebirth
+  `resetStep`, Rarity's public tier order, and Plot's `decorate` for display appearance.
+- **No txApi or purchaseOps.** Client actions `equip(uid)`, `unequip(uid)` (4/s, burst 8 each),
+  `equipBest()` (1/s, burst 2), from its own network declaration.
+- **Replicated:** `data.equipped`, `data.manual`, `extra.bonus`, `extra.enabled` (owner);
+  `extra.roster` (every client: bounded equipped metadata, no positions or inventories).
+  **Save section:** `companions` (`{ equipped = { uid }, manual = false }`).
+- **Client:** `open()`, `setLowDetail(boolean)`, `lowDetail()`, `debugStats()`, `registerLook`,
+  `applyLook`, `read.equipped/manual/bonus/enabled/roster(state)`; screen `"Companions"`, widget
+  `"Companions.open"`. Server and client look registrations are separate.
+
+## Player kit
+
+Two independent modules; either works without the other.
+
+### Codes (v1.8.0)
+
+- **api:** `redeem(player, raw) -> string` (yields; the result key, such as `"ok"` or `"expired"`),
+  `define(definition) -> (ok, reason?)`, `disable(id) -> boolean`, `uses(id) -> (number?, reason?)`
+  (yields; uncapped gives nil and `"uncapped"`).
+- **extensions:** `registerReward(kind, handler(tx, player, reward) -> boolean)` (no yielding, no
+  external effects; a false result or an error cancels the whole grant),
+  `registerRequirement(kind, predicate)`. Both are also on `api`.
+- **signals:** `Redeemed(player, id)`.
+- **Uses:** Economy, Inventory, Rarity and Rebirth (all optional, for the rewards and requirements
+  a definition names); `ctx.data.shared` for durable global caps (reservations are kept until
+  confirmed and finalized once); `ctx.configValues.snapshot()` for live definitions (module-api
+  §24.2). Every reward and the redemption record commit in one tx. No paid rewards or paid rolls.
+- **Replicated `extra`:** `rollSources` (owner). **Save section:** `codes`, not replicated.
+- **Client:** `redeem(raw)`, `open()`; screen `"Codes"`.
+
+### Settings (v1.8.0)
+
+- **api:** `get(player, id)`, `set(player, id, value) -> (ok, reason?)` (saved settings only),
+  `register(definition) -> boolean` (before the first player loads; also an extension).
+- **signals:** `Changed(player, id, value)`.
+- **Uses:** nothing. Client preferences reach the UI kit and Feedback through the local player's
+  `CoreUIScale` and `CoreEffectsGroup` attributes (module-api §24.4).
+- **Replicated `extra`:** `values`, `revision`, `schema` (owner only: validated saved values and
+  acknowledgements; client apply functions never travel). **Save section:** `settings`
+  (`{ values = { ... } }`), not replicated directly.
+- **Client:** `get(id)`, `set(id, value)`, `onChanged(fn)`, `register(definition)`, `open()`,
+  `reset()`; screen `"Settings"`.
+
+## Moderation kit
+
+### Admin (v1.8.0, optional Economy, TextFilter)
+
+- **api:** `can(player, permission) -> boolean` (pure check), `allow(staff, permission, action?) ->
+  (boolean, reason?)` (check plus per-staff limits; `"no_permission"`, `"rate_limited"`,
+  `"disabled"`; only `ban`/`ban.permanent` actions count `bansPerHour`), `rankOf(player) -> number`,
+  `rankOfUserId(userId) -> (ok, rank)` (yields; 0 = not staff), `rankOfChecked(player | userId) ->
+  number?`, `studioRoleOnly(userId) -> boolean`, `limitsOf(staff) -> { maxBanSeconds?,
+  maxMuteSeconds? }`, `roleOf(player) -> string?`, `isStaff(player) -> boolean`,
+  `permissions(player) -> { string }` (frozen), `onlineStaff() -> { Player }`.
+- **extensions (init):** `registerPermission(name, { roles? })`, `registerAction(ActionDef)`,
+  `registerTab(TabDef)` (ActionDef/RowAction args `{ preset?, duration?, text?, amount?, note? }`;
+  RowAction `presets?`, `notes?`), `registerDataView(id, fn(target) -> { [string]: number |
+  boolean | string })` (strings must be declared keys), `onStaffMove(fn(staff, target, "to" |
+  "bring"))`, `registerAuditSink(fn(AuditRecord))`, `registerTextFilter(fn(author, text) -> (ok,
+  shown | reason))`. Reserved: action ids `teleportTo`, `bring`, `spectate`, `stopSpectate`,
+  `announce`, `shutdown`, `grant`, `dataView`; tab ids `players`, `announce`, `data`.
+- **signals:** `StaffJoined(player, role)`. **Uses:** Economy (optional, the grant action and Data
+  balances), TextFilter (optional, free panel text), `ctx.services` (`GroupService`, module-api
+  §24.1).
+- **Actions:** `run`, `fetch`, `panelOpen` (server to client: `Rows`, `RunResult`, `Spectate`,
+  `Announce`).
+- **Replicated `extra`:** `staff` (staff players only; absent for everyone else). **Save section:** none.
+- **Client:** `isStaff()`, `permissions()`, `role()`, `panel()`.
+
+### Moderation (v1.8.0, optional Admin, TextFilter)
+
+- **api (actions yield):** `ban(target, opts)`, `unban(userId, opts)`, `history(userId, opts) ->
+  (ok, { HistoryEntry } | reason)`, `kick(target, opts)`, `serverBan(target, opts)`,
+  `mute(target, opts)`, `unmute(target, opts)`, `isMuted(player) -> (boolean, untilTs?)`,
+  `warn(target, opts)`, `punish(target, offense, opts) -> (ok, step | reason, status?)`,
+  `report(target, source, severity, details?) -> boolean` (never yields; target a Player or user
+  id; true when counted), `audit(opts) -> (ok, entries | reason, more?)` (`opts.page`; a day read
+  is bounded by `audit.chunksPerRead`), `record(entry, { by }) -> (ok, reason?)` (whitelisted
+  actions). Each mutating call takes a required `opts.by: Player | "server" | "console" |
+  "system"` (`nil` raises) and returns `(ok, statusOrReason)`. Statuses:
+  `"banned"`/`"unbanned"`/`"pending"`; `"done"` (here) or `"sent"` (queued cross-server).
+  Reasons: `"no_permission"`, `"outranked"`, `"unknown_rank"`, `"invalid"`, `"no_filter"`,
+  `"disabled"`, `"rate_limited"`, `"too_long_for_role"`, `"failed"`, `"unavailable"`.
+- **signals:** `Actioned(entry)`, `Muted(player, untilTs?)`, `Banned(userId, seconds)`.
+- **Uses:** Admin's api (`allow`, `can`, `rankOf`, `rankOfChecked`, `rankOfUserId`, `limitsOf`) and
+  extensions (eight actions, the `audit` tab, the audit sink), TextFilter (staff free text),
+  `ctx.data.shared`, `ctx.data.sortedMap("pending")`, `ctx.data.messages`, `ctx.services`
+  (`Players`, `TextChatService`).
+- **Replicated `extra`:** `muted` (own player). **Save section:** `moderation`, not replicated.
+- **Client:** `isMuted()`, `onNotice(fn(key, args))`; screen `"ModerationNotice"`; event `Notice`.
+
+### Reports (v1.8.0, optional Admin, Moderation, TextFilter)
+
+- **api:** `submit(reporter, targetUserId, category, note?) -> (ok, reason?)` (yields),
+  `queue(opts) -> (ok, { ReportSummary } | reason)`, `detail(reportId, opts) -> (ok, Report |
+  reason)`, `claim(reportId, opts)`, `resolve(reportId, resolution, opts)`,
+  `registerContext(fn(targetUserId, target?) -> table?)` (also an extension).
+- **signals:** `Submitted(reportId, targetUserId, category)`, `Resolved(reportId, resolution)` (never
+  a reporter id).
+- **Uses:** Admin (`registerTab` with `claim`/`resolve` row actions, `allow`, `can`, ranks for the
+  viewer rules), Moderation (`report` for auto actions, `record` on claim and resolve), TextFilter
+  (notes), `ctx.data.shared`, `ctx.data.sortedMap("queue")`. Reporter ids are shown only to
+  `reports.reporters`.
+- **Actions:** `submit`.
+- **Replicated `extra`:** `recent` (`setAll`, `{ userId, name }`). **Save section:** `reports`, not
+  replicated.
+- **Client:** `open(targetUserId?)`, `recent()`, `read`; screen `"Report"`.
+
 ## Client side
 
 Each module's client part offers `StudWork.use(Ref)` on the client: its actions (for example
@@ -225,3 +430,6 @@ Each module's client part offers `StudWork.use(Ref)` on the client: its actions 
 `StudWork.use(Mail).actions.claimMail(id)`) and its state slice. HUD widgets are registered with
 `UI.registerWidget` under `"Economy.currency"` (Economy) and `"Social.mailbox"` (Mail); the UI kit
 registers the default `Odds`, `Inventory` and `Mailbox` screens ([theme guide](theme.md)).
+v1.8.0 kits add the widgets `"Quests.tracker"`, `"Quests.button"`, `"Goals.goal"`, `"Carry.status"`
+and `"Companions.open"`, and the screens `"Quests"`, `"Companions"`, `"Codes"`, `"Settings"`,
+`"ModerationNotice"` and `"Report"`.

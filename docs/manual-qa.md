@@ -201,3 +201,95 @@ and a key from the game owner (`docs/framework/kits/notifications.md`, "Setup").
     `PartitionRequestsOverLimit` on `SW/_/census` and its shard maps `SW/_/census/<k>` (past 500
     servers the census bucket is split, module-api §23.5) and on the usage items `u/<Module>`,
     which are not split.
+
+## New in v1.8.0
+
+Everything below needs Studio or a published test place; the automated tests use fakes for every
+Roblox service and a fake world. Use a **test** place, never a live game. Each kit page names what it
+assumes; open problems are in [known-issues.md](known-issues.md) (O14 to O45).
+
+13. **Quests and Goals (`examples/quests-demo`, Device Emulator, a StreamingEnabled place).**
+    - [ ] Quest board on a phone (Device Emulator 667x375 and a real device): tabs, rows, Claim,
+          Reroll, Odds, "Resets in"; text readable; nothing clipped; touch only.
+    - [ ] Gamepad: open the board from the HUD button, first Claim selected, B closes; the pill,
+          tracker and edge arrow never take focus.
+    - [ ] Goal pill and beam in the first session: they help without nagging; no modal, no camera
+          move; reduce motion on: no pulse.
+    - [ ] StreamingEnabled place: a goal target far away (streamed out) still gets an edge arrow (last
+          known or fallback); walking toward it streams it in and the beam snaps to it.
+    - [ ] Reset time: a daily set changes at the configured local midnight for players in your main
+          time zone; the set is the same after rejoining and after joining another server.
+    - [ ] Save size after weeks: `data dump <userId>` for a regular player: the `quests` section stays
+          a few KB (no per-day growth).
+    - [ ] A claim with full inventory shows the refusal toast and keeps the quest claimable.
+    - [ ] A roll reward's Odds button shows the table's odds at luck 1, also while the player has a
+          luck boost.
+    - [ ] At 667x375 the Goals pill, the currency widget, the mailbox and `Game.nextGoal` (if used)
+          don't overlap in `topCenter`.
+
+14. **Carry and Movement (`examples/carry`, Local Server with 2 players, network simulator).**
+    - [ ] Two real players on a Local Server pick up a 2-carrier object together and walk it into a
+          delivery zone. `Delivered` fires once, listing both carriers. Picking it up again is
+          refused until `Carry.reset`.
+    - [ ] A throw between two real players, caught, and then a missed catch. A missed throw becomes a
+          plain drop that anyone can pick up, and it settles and re-anchors.
+    - [ ] Touch controls on a phone or the Device Emulator at 667x375 and 926x428: the interact
+          button ("Pick up" / "Help carry" / "Drop"), the pass button and its target highlight, and
+          the bottom status chip.
+    - [ ] A real player on Studio's network simulator at 300 ms with jitter completes a normal run
+          (walk, jump, fall off a ledge, ride a tagged moving platform, sit in a seat, respawn) with
+          zero Movement strikes.
+    - [ ] A carried object looks smooth (no 10 Hz stepping) to a second client at 300 ms. A dropped
+          object pushed off the map comes back to its spawn.
+    - [ ] A carriable **Model** (with a `PrimaryPart` at one end) does not jump on pick-up, reset or
+          delivery once its pivot is at its box centre; note the jump if it isn't (known issue O31).
+    - [ ] With `wallSweep = "strike"`, carrying an object past walls, through a checkpoint and past a
+          just-dropped object gives zero strikes; a client-side teleport still strikes.
+    - [ ] On a deployed (not Studio) server with real latency, `Player:GetNetworkPing()` is non-zero
+          and a normal run at about 300 ms draws no strike (known issue O32).
+    - [ ] After a cold server start, a dropped object doesn't collide with players
+          (`CarryDropped` × `CarryCharacters`) but does collide with the floor.
+    - [ ] A crate held still for 10 s: its server CFrame changes 0 times (the idle-write skip holds
+          against a live character's replicated wobble).
+    - [ ] Changing a character root's `CollisionGroup` in the client's command bar doesn't change
+          what the server reads.
+    - [ ] A respawned player's new body is never hit by another player's wall sweep (no `wallSweep`
+          strikes when walking through a just-respawned player).
+    - [ ] With hard landing turned on (`hardLandingSpeed` set): walk a crate off a 15-stud ledge, down
+          a staircase with a jump, and onto a lift; only the ledge fall drops it (known issue O31).
+
+15. **Companions (Local Server with 2 players, a low-end phone).**
+    - [ ] Equip three copies: walker, hopper and flyer; follow on flat ground, stairs and a moving
+          platform.
+    - [ ] Respawn and teleport; each clone snaps back without crossing the world by smoothing.
+    - [ ] Enable a variant hook on server and client; confirm follower, Plot and custom thumbnail
+          agree.
+    - [ ] Check the equip screen at desktop and 667x375, including paging, empty state and full
+          slots.
+    - [ ] Toggle reduced motion and low detail; decorative motion and tracks stop, following remains.
+    - [ ] Toggle the kit's flag off/on; actions, bonus and visuals follow it while saved selections
+          remain.
+    - [ ] In a real two-player local server, both clients see the other's companions.
+    - [ ] Profile a low-end phone and a busy streamed scene; capture triangles, effects and frame cost
+          (known issue O34).
+
+16. **Codes and Settings (a published test experience).**
+    - [ ] Real ConfigService propagation: stage a live promotion definition and confirm servers pick it
+          up after `refreshSeconds` (the guide gives roughly 15 seconds to one minute).
+    - [ ] Shared-store throttling under production load: a capped code redeemed from several servers
+          never exceeds its cap.
+    - [ ] Device accessibility preferences (reduced motion, preferred text size, UI scale) are applied
+          by the Settings screens on a real device.
+    - [ ] Audible group mixing: changing the effects volume in Settings changes the framework's
+          feedback sounds and nothing else.
+
+17. **Moderation kit (a published test place, a real group, two servers).**
+    - [ ] A real `BanAsync`: the ban modal on join, alt-account propagation and device blocking.
+    - [ ] Which real `BanAsync` errors are transient (a transient one leaves the ban `"pending"` and
+          retried).
+    - [ ] Real cross-server latency of `ctx.data.messages` (a kick or mute to a player on another
+          server).
+    - [ ] Staff ranks from a real group (`ServerConfig.Admin.groups`).
+    - [ ] Voice mute through `AudioDeviceInput` access lists.
+    - [ ] Text mute: `TextSource.CanSend` under platform-integrated chat.
+    - [ ] The staff panel and the report screen on a phone.

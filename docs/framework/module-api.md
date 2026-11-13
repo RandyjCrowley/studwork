@@ -1505,3 +1505,93 @@ UI.text(key, args?) -> string ; UI.useText(key, args?) -> string   -- UI kit (ho
 Both have planted violations in `guardrails --self-test`, honour `-- guard: allow <check>` with a
 reason, and join the checks a legacy list may name (`textfilter` only; `strings` doesn't scan game
 code).
+
+## 24. Additions in v1.8.0
+
+Minor release: five new kits, all normal modules on the public API
+([quests](kits/quests.md): Quests, Goals; [carry](kits/carry.md): Carry, Movement;
+[companions](kits/companions.md): Companions; [player](kits/player.md): Codes, Settings;
+[moderation](kits/moderation.md): Admin, Moderation, Reports). Their own APIs are on their pages
+and in the [kit contract](kit-contract.md); nothing in the framework names them. This section lists
+the few **framework** surfaces they needed. Every one is new and optional; nothing above changed
+meaning. The quests, carry and companions kits needed nothing beyond §24.3 (Goals reads
+`ctx.gameConfig.analytics`); Companions' display hook is a Plot extension (`decorate`, kit
+contract), not a framework surface.
+
+With v1.8.0, a module's `ctx` has §5's fields plus `env`, `flags`, `services`, `openCloud`, `text`
+(v1.7.0, §23) and `configValues` (§24.2).
+
+### 24.1 `ctx.services.get`: `GroupService` and `TextChatService` (added in v1.8.0: the moderation kit resolves staff roles from groups and mutes text chat, and Lune specs must fake both)
+
+- `Services.ALLOWED` gains `GroupService` and `TextChatService` (§23.6 said later additions are
+  additive). The allowed names are now `BadgeService`, `TextService`, `UserService`,
+  `LocalizationService`, `Players`, `GroupService`, `TextChatService`. Nothing else changes: the
+  refused list, the fake and stub rules and the live `game:GetService` path are as in §23.6.
+- Why `GroupService`: `Player:GetRankInGroup`, `GetRankInGroupAsync` and `GetRoleInGroupAsync` are
+  deprecated in favour of `GroupService:GetRolesInGroupAsync(userId, groupId)`
+  (https://create.roblox.com/docs/reference/engine/classes/Player#GetRankInGroupAsync).
+- Why `TextChatService`: a server mute sets `TextSource.CanSend = false` on the muted user's text
+  sources (https://create.roblox.com/docs/reference/engine/classes/TextSource).
+- Fakes for these live with the kit that uses them (`packages/kits/moderation/tests/Fakes.luau`);
+  `StudWork.test.fakes` gains nothing ([testing.md](testing.md)).
+
+### 24.2 `ctx.configValues.snapshot()`: experience configuration values for modules (added in v1.8.0: the Codes module reads live promotion definitions from experience configs, and `ctx.services.get("ConfigService")` stays refused)
+
+```lua
+local ok, snapshot = pcall(ctx.configValues.snapshot) -- yields; errors on a service failure
+if ok then
+	local raw = snapshot:GetValue("promoCodes") -- validate before use
+end
+```
+
+- Server only. `snapshot() -> ConfigSnapshot` yields and returns the experience configuration
+  snapshot (`ConfigService:GetConfigAsync()`) through the framework, so `ConfigService` itself
+  stays framework-only (§23.6 still refuses `ctx.services.get("ConfigService")`, and the
+  `purchases` lint check still flags it in code).
+- `ConfigSnapshot`: `GetValue(key)`, `Refresh()`, `UpdateAvailable`, `Outdated`. As on Roblox, a
+  snapshot's values don't change when an update is published; they change on `Refresh()`.
+- The module owns everything else: cache the snapshot, bound how often it refreshes, handle errors
+  (a failed call raises, so keep the last good values) and validate every value before use. Raw
+  values are never replicated automatically.
+- In specs: the harness's existing `services = { ConfigService = StudWork.test.fakes.configService(...) }`
+  backs it (the fake's `set(key, value)` and `publish()` mark a snapshot `Outdated`;
+  `failNext(n)` makes the next calls raise).
+- `Types.luau`: `ConfigSnapshot`, `ConfigValuesAPI`; `ModuleContextAdditions` gains
+  `configValues: ConfigValuesAPI?` (optional).
+
+### 24.3 `ctx.gameConfig.analytics` (added in v1.8.0: Goals warns at boot about funnel steps it would never log, so it needs `GameConfig.analytics.funnel`)
+
+- `ctx.gameConfig` gains `analytics`: a frozen copy of `GameConfig.analytics` (`{}` when the game
+  sets none), next to `gameId`, `items`, `products` and `events` (§5). No public surface exposed it
+  before; `ctx.analytics` is the logging API only.
+
+### 24.4 Client preference attributes: `CoreUIScale` and `CoreEffectsGroup` (added in v1.8.0: a settings module must let players scale the UI and route sound effects without the framework naming it)
+
+- `UI.ScaledRoot` multiplies its responsive scale by the local player's `CoreUIScale` attribute
+  (a number from 0.8 to 1.2; anything else counts as 1) and follows changes to it.
+- The framework's Feedback sounds play through the `SoundGroup` named by the local player's
+  `CoreEffectsGroup` attribute (default `"CoreEffects"`, created under `SoundService` if missing);
+  pooled sounds already playing follow a change.
+- Any module may set these attributes on the local player; the Settings module does
+  ([player kit](kits/player.md)).
+
+### 24.5 `StudWork.test.sim.bootGame(projectPath, opts?)` (documented in v1.8.0: a game whose config needs an engine fake must pass it to its Boot spec)
+
+- `opts` is passed to the sim server, so `opts.services` reaches `ctx.services.get` there:
+  `F.bootGame("default.project.json", { services = { GroupService = Fakes.groupService() } })`.
+  A game with `ServerConfig.Admin.groups` needs this: the sim has no `GroupService`, the lookup
+  fails and `bootWarnings` is not empty. This was already the code's behaviour; §19.5 listed
+  `bootGame(projectPath)` only.
+
+### 24.6 Proposed, not in v1.8.0
+
+- `ctx.framework.isAdmin(player) -> boolean` would expose the framework's `ServerConfig.admins`
+  rule (Studio: everyone) read-only, so a module with Admin off needn't keep its own
+  `ServerConfig.<Module>.admins` list. A console permission hook (for example
+  `ctx.console.setAuthorizer(fn(player, command) -> boolean)`, one module at most) would let Admin's
+  roles govern the framework's own console commands. The moderation kit documents its fallbacks.
+- `ctx.data.shared.get(key) -> (ok, value?)`: `ctx.data.shared` has only `update` (§19.1), so a read
+  is `update(key, function(old) return old end)`, a full DataStore write (and `return nil` deletes
+  the key). A `get` backed by `GetAsync` (cached briefly, budgeted like sorted maps) would let a
+  module read a shared key without writing it; the moderation kit works around it with sorted-map
+  indexes and rate-limited audit reads.

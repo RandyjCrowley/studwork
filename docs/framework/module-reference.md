@@ -157,7 +157,7 @@ Every field is scoped to the module that receives it.
 |---|---|
 | `ctx.name` | the module's name |
 | `ctx.config` | merged, validated, frozen config |
-| `ctx.gameConfig` | read-only: `gameId`, `items`, `products`, `events` (not other modules' config) |
+| `ctx.gameConfig` | read-only: `gameId`, `items`, `products`, `events`, `analytics` (v1.8.0: a frozen copy of `GameConfig.analytics`, module-api §24.3) (not other modules' config) |
 | `ctx.serverConfig` | this module's part of `ServerConfig` (frozen) |
 | `ctx.deps[Ref]` | a declared dependency's `api` (hard or optional). A disabled optional dependency is the erroring proxy, so check `ctx.isEnabled` first. Indexing an undeclared ref errors and names the fix |
 | `ctx.depsTx[Ref]` | a declared dependency's `txApi` |
@@ -186,7 +186,8 @@ Every field is scoped to the module that receives it.
 | `ctx.data.ordered(name)` (v1.7.0) | an ordered store per module: `get`, `set`, `increment`, `update`, `remove`, `top`; return `(ok, value \| reason)`, yield, never raise for a platform failure (§23.3) |
 | `ctx.data.sortedMap(name)` (v1.7.0) | a MemoryStore sorted map per module: `get`, `set`, `update`, `remove`, `range`; budgeted and memory-charged per module (§23.4) |
 | `ctx.data.census()` (v1.7.0) | `{ servers, players, peakPlayers, at }?`, nil until the first census read (§23.5); limits in `GameConfig.storeBudgets` |
-| `ctx.services.get(name)` (v1.7.0) | an engine service a module may use (`BadgeService`, `TextService`, `UserService`, `LocalizationService`, `Players`); replaceable by a fake in specs (§23.6) |
+| `ctx.services.get(name)` (v1.7.0) | an engine service a module may use (`BadgeService`, `TextService`, `UserService`, `LocalizationService`, `Players`, `GroupService` (v1.8.0), `TextChatService` (v1.8.0)); replaceable by a fake in specs (§23.6, §24.1) |
+| `ctx.configValues.snapshot()` (v1.8.0) | server only, yields: the experience configuration snapshot (`GetValue(key)`, `Refresh()`, `UpdateAvailable`, `Outdated`); raises on a service failure. The module caches it, bounds its refresh cadence and validates every value; nothing is replicated. `ctx.services.get("ConfigService")` stays refused (§24.2) |
 | `ctx.openCloud` (v1.7.0) | `available(secret) -> boolean`, `request({ secret, method, path, body? }) -> (ok, status?, body?)`; deny by default through `ServerConfig.openCloud`, store and config families refused (§23.7) |
 | `ctx.text` (v1.7.0) | `format(player, key, args?) -> string` (the player's language), `english(key, args?) -> string` (§23.9) |
 
@@ -440,7 +441,9 @@ expect(h:use(Quests).doneCount(p)).toBe(1)
 v1.7.0 harness options: `env`, `placeId`, `universeId`, `services`, `openCloud`, `secrets`, `locale`,
 `translator`, `storeBudgets`, `census`, `strings`, `localization`; `h:orderedStore(module, name)` and
 `h:sortedMap(module, name)` return the in-memory store behind a module's store; the fakes are in
-`StudWork.test.fakes` (module-api §23.10).
+`StudWork.test.fakes` (module-api §23.10). v1.8.0: `ctx.configValues.snapshot()` uses the
+`services.ConfigService` fake; `sim.bootGame(projectPath, opts)` passes `opts.services` to the sim
+server, for a game Boot spec that needs an engine fake (§24.5).
 
 A spec for a **game** module (the game's own module against the kits: the harness options, every
 harness method, `h:console`, `h:action` for a client's request, `h:sent` for what the server sent a
@@ -462,6 +465,28 @@ flags). The four kit modules (Leaderboards, Badges, Notifications, TextFilter) a
 with their own `config.<Name>` ([kit contract](kit-contract.md)).
 `Notifications.suggestOptIn(player, reason) -> (boolean, reason?)`: whether a prompt was requested,
 and why not (reasons in [the Notifications page](kits/notifications.md)).
+
+## Config keys and kit modules added in v1.8.0
+
+Five new kits, each a set of normal modules with their own `config.<Name>` (module-api §24,
+[kit contract](kit-contract.md)):
+
+- `Quests` and `Goals` (`packages/kits/quests/`, [quests](kits/quests.md)).
+  `Quests.claim(player, questId) -> (boolean, reason?)` and `Quests.reroll(player, kind, slot) ->
+  (boolean, questIdOrReason)` return a reason on refusal; `registerSource` / `registerReward`
+  (Quests) and `registerSource` (Goals) are **extensions**, called in `init` through
+  `ctx.depsExt[...]`, because both modules validate their config in `start`.
+- `Carry` and `Movement` (`packages/kits/carry/`, [carry](kits/carry.md)): kit API, config and
+  replicated `extra` only; `useWorld` is a kit test seam, not a framework hook.
+- `Companions` (`packages/kits/companions/`, [companions](kits/companions.md)): no new framework
+  surface. It uses Plot's new `decorate` extension ([kit contract](kit-contract.md#plot-needs-inventory)).
+- `Codes` and `Settings` (`packages/kits/player/`, [player](kits/player.md)). Codes reads live
+  promotion definitions through `ctx.configValues.snapshot()` (§24.2); unpublished definitions go in
+  `ServerConfig.Codes` (server only).
+- `Admin`, `Moderation` and `Reports` (`packages/kits/moderation/`, [moderation](kits/moderation.md)):
+  `config.Admin`, `config.Moderation`, `config.Reports`; server only: `ServerConfig.Admin` (`users`,
+  `groups`), `ServerConfig.Moderation.admins`, `ServerConfig.Moderation.autoSources`,
+  `ServerConfig.Reports.admins`.
 
 ## Errors you will see
 

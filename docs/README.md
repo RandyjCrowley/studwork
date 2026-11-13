@@ -1,7 +1,7 @@
 # StudWork docs
 
-StudWork is an opinionated Roblox game framework: a module API (`packages/framework`), fifteen
-built-in kit modules in five kits (`packages/kits`), a UI kit (`packages/ui`), generators and
+StudWork is an opinionated Roblox game framework: a module API (`packages/framework`), twenty-five
+built-in kit modules in ten kits (`packages/kits`), a UI kit (`packages/ui`), generators and
 offline tests. Start with the philosophy, then follow the framework pages in order.
 
 ## Start here
@@ -46,6 +46,11 @@ offline tests. Start with the philosophy, then follow the framework pages in ord
 | [Base](framework/kits/base.md) | Plot |
 | [Social](framework/kits/social.md) | Friends, Mail, [TextFilter](framework/kits/textfilter.md) |
 | [Engagement](framework/kits/engagement.md) | Streak, [Leaderboards](framework/kits/leaderboards.md), [Badges](framework/kits/badges.md), [Notifications](framework/kits/notifications.md) |
+| [Quests](framework/kits/quests.md) | Quests, Goals |
+| [Carry](framework/kits/carry.md) | Carry, Movement |
+| [Companions](framework/kits/companions.md) | Companions |
+| [Player](framework/kits/player.md) | Codes, Settings |
+| [Moderation](framework/kits/moderation.md) | Admin, Moderation, Reports |
 
 Two v1.7.0 features are framework features, always on and not listed in `GameConfig.modules`:
 [Environments and flags](framework/kits/environments.md) and [Localization](framework/kits/localization.md).

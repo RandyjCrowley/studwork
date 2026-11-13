@@ -5,6 +5,7 @@
 	of the modules you chose):
 	  - Collect: touching the block rolls the free "Block" table (Rarity), counts blockTouches in -- @if Rarity
 	    the game's own section, funnel FirstCollect -- @if Rarity
+	  - each collect feeds the Quests counter "collected" (Balance.luau's collect quests) -- @if Quests
 	  - funnel steps FirstUpgrade / FirstRebirth from the kit signals -- @if Upgrades|Rebirth
 	  - Offline / Streak / Friends hooks (prints) -- @if Offline|Streak|Friends
 	  - live events CoinRain (Economy) and SecretDrop (Inventory) -- @if Economy|Inventory
@@ -28,6 +29,7 @@ local Offline = require(Modules:WaitForChild("Offline"):WaitForChild("module")) 
 local Streak = require(Modules:WaitForChild("Streak"):WaitForChild("module")) -- @if Streak
 local Friends = require(Modules:WaitForChild("Friends"):WaitForChild("module")) -- @if Friends
 local Mail = require(Modules:WaitForChild("Mail"):WaitForChild("module")) -- @if Mail
+local Quests = require(Modules:WaitForChild("Quests"):WaitForChild("module")) -- @if Quests
 local Tuning = require(ReplicatedStorage:WaitForChild("Game"):WaitForChild("Config"):WaitForChild("Tuning")) -- @if Economy
 
 local TOUCH_COOLDOWN = 1.5 -- seconds between block rewards per player (a feel number for this game only)
@@ -168,6 +170,11 @@ function Sandbox.start(ctx: any)
 					s.blockTouches = (s.blockTouches or 0) + 1
 				end)
 				ctx.analytics.funnel(player, "FirstCollect")
+				-- @if Quests
+				if ctx.isEnabled(Quests) then -- Quests is optional: the game may drop it
+					ctx.deps[Quests].progress(player, "collected", 1)
+				end
+				-- @end
 			end
 		end)
 	else

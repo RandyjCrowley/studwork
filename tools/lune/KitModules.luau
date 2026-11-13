@@ -43,6 +43,17 @@ KitModules.ORDER = {
 	"Mail",
 	"TextFilter",
 	"Plot",
+	-- v1.8.0 kits, after the v1.7.0 list (Admin before Moderation and Reports, which find it registered)
+	"Admin",
+	"Carry",
+	"Codes",
+	"Companions",
+	"Goals",
+	"Moderation",
+	"Movement",
+	"Quests",
+	"Reports",
+	"Settings",
 }
 
 local function parseDefinition(source: string): (string?, { string })

@@ -486,6 +486,16 @@ tickFns["KITS-QUESTS"] = function(p: FakePlayer, tick: number)
 end
 table.insert(ORDER, "KITS-QUESTS")
 
+-- (v1.8.0 companions, player and moderation kits) KITS-COMPANIONS, KITS-PLAYER, KITS-MODERATION:
+-- KITS-ALL + the kit's modules at 50 players, KITS-ALL's tick work (tools/lune/bench/KitVariant.luau)
+require("./KitVariant").register({
+	variants = variants,
+	tickFns = tickFns,
+	order = ORDER,
+	bootKits = bootKits,
+	Harness = Harness,
+})
+
 local function median(list: { number }): number
 	local s = table.clone(list)
 	table.sort(s)

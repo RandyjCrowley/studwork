@@ -140,6 +140,56 @@ local Balance = {
 	},
 	-- TextFilter has no required config (defaults: maxLength 40, trim, 20 filter calls a minute)
 	TextFilter = {},
+	-- v1.8.0 kits (docs/framework/kits/). Carry, Movement, Settings, Admin, Moderation and Reports run
+	-- at their defaults (staff: ServerConfig.Admin).
+	Quests = {
+		daily = { count = 3, rerollsPerSlot = 1 },
+		quests = {
+			sandboxCoins = {
+				kind = "daily",
+				objectives = { { kind = "source", source = "currencyEarned", target = 300 } },
+				reward = { { kind = "currency", amount = 100 } },
+			},
+			sandboxHatch = {
+				kind = "daily",
+				objectives = { { kind = "source", source = "itemCollected", target = 2 } },
+				reward = { { kind = "roll", table = "Block" } }, -- the free Block table: its odds are disclosed
+			},
+			sandboxRebirth = {
+				kind = "oneTime",
+				objectives = { { kind = "threshold", source = "rebirths", target = 1 } },
+				reward = { { kind = "currency", amount = 1000 } },
+			},
+			-- a game-fed counter: the sandbox module calls Quests.progress(player, "blockTouch", 1)
+			sandboxTouches = {
+				kind = "daily",
+				objectives = { { kind = "counter", key = "blockTouch", target = 10 } },
+				reward = { { kind = "currency", amount = 50 } },
+			},
+		},
+	},
+	Goals = {
+		chain = {
+			{
+				id = "sandboxFirstCoins",
+				check = { source = "currency", atLeast = 50 },
+				funnel = "FirstCollect",
+			},
+		},
+	},
+	Companions = { slots = 3, incomeBonusEnabled = false }, -- pebble, twig and acorn are companions (Items.luau)
+	Codes = {
+		-- testOnly: redeemable in Studio and the test place, refused in live
+		definitions = {
+			{
+				id = "sandbox_coins",
+				code = "SANDBOX",
+				testOnly = true,
+				maxUses = 1000,
+				rewards = { { kind = "currency", amount = 100 } },
+			},
+		},
+	},
 }
 
 return Balance

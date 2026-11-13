@@ -8,8 +8,8 @@
 	dependsOn vs optional (module-api.md §3, §5). tools/new-game and new-project --modules list
 	every chosen kit in GameConfig.modules and move every kit named in --modules into dependsOn
 	(a kit only added as another kit's dependency keeps its place). Without --modules (the template
-	as is) the core kits are in dependsOn and Leaderboards, Badges, Notifications and TextFilter
-	in optional. Both give ctx.deps[Kit]:
+	as is) the core kits are in dependsOn and Leaderboards, Badges, Notifications, TextFilter and
+	Quests in optional. Both give ctx.deps[Kit]:
 	  - dependsOn: boot fails if the kit is missing from GameConfig.modules, and the kit's init
 	    runs before this module's (an ordering edge).
 	  - optional: ctx.deps[Kit] works while the game lists the kit and errors when it is off; it
@@ -47,6 +47,7 @@ return StudWork.defineModule({
 		require(KitDefs:WaitForChild("Badges"):WaitForChild("module")),
 		require(KitDefs:WaitForChild("Notifications"):WaitForChild("module")),
 		require(KitDefs:WaitForChild("TextFilter"):WaitForChild("module")),
+		require(KitDefs:WaitForChild("Quests"):WaitForChild("module")),
 	},
 	data = {
 		key = GameConfig.gameId,

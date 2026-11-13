@@ -45,6 +45,11 @@
 	                         condition does NOT hold: the replacement for a dropped `-- @if A` line
 	renameConsolePrefix(src, name)  -> string            the template's console prefix / log tag `sandbox` ->
 	                                                     the game module's lower-case name
+	bootExpected(src, order, game)  -> (src?, error?)    (v1.8.0) the boot spec's `local EXPECTED = { ... }`
+	                                                     list rewritten to exactly `order` (the chosen
+	                                                     modules in boot order) and then `game` (the
+	                                                     game's own module line keeps its comment), so a
+	                                                     chosen module the template's list lacks is listed
 	moduleName(gameId)              -> string            "example-collector" -> "ExampleCollector"
 	deployJson(name, port)          -> table             ids 0 = placeholder (tools/publish refuses)
 	readme(name, port, designDoc)   -> string            README stub with a "Status: scaffolded" line
@@ -545,6 +550,22 @@ function NewGame.applyMarkers(source: string, chosen: { [string]: boolean }): (s
 		return nil, `line {stack[#stack].line}: @if without @end`
 	end
 	return table.concat(out, "\n"), nil
+end
+
+function NewGame.bootExpected(source: string, order: { string }, gameModule: string): (string?, string?)
+	local s, e = string.find(source, "local EXPECTED = %b{}")
+	if s == nil or e == nil then
+		return nil, "no `local EXPECTED = { ... }` list in the boot spec"
+	end
+	local block = string.sub(source, s, e)
+	local gameLine = string.match(block, '\n(\t"' .. gameModule .. '",[^\n]*)')
+	local lines = { "local EXPECTED = {" }
+	for _, n in order do
+		table.insert(lines, '\t"' .. n .. '",')
+	end
+	table.insert(lines, gameLine or ('\t"' .. gameModule .. '",'))
+	table.insert(lines, "}")
+	return string.sub(source, 1, s - 1) .. table.concat(lines, "\n") .. string.sub(source, e + 1), nil
 end
 
 function NewGame.moduleName(gameId: string): string

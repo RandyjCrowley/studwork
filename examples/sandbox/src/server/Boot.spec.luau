@@ -20,6 +20,16 @@ local EXPECTED = {
 	"Mail",
 	"TextFilter",
 	"Plot",
+	"Admin",
+	"Carry",
+	"Codes",
+	"Companions",
+	"Goals",
+	"Moderation",
+	"Movement",
+	"Quests",
+	"Reports",
+	"Settings",
 	"Sandbox", -- the game's own module, added by the framework
 }
 

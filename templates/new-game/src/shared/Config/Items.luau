@@ -1,12 +1,14 @@
 --!strict
 -- Sandbox items: a minimal set covering every rarity tier. Ids are saved forever; never reuse.
--- Base item fields (framework, module-api.md §12) + the Economy kit's `economy.incomePerSec`.
+-- Base item fields (framework, module-api.md §12) + the Economy kit's `economy.incomePerSec` + the
+-- Companions kit's `companions` (pebble, twig, acorn follow the player when equipped).
 local Items: { any } = {
 	{
 		id = "pebble",
 		name = "Pebble",
 		rarity = "Common",
 		economy = { incomePerSec = 1 }, -- @if Economy
+		companions = { movement = "walk" }, -- @if Companions
 		source = "drop",
 		tags = { "Rock" },
 	},
@@ -15,6 +17,7 @@ local Items: { any } = {
 		name = "Twig",
 		rarity = "Common",
 		economy = { incomePerSec = 1.5 }, -- @if Economy
+		companions = { movement = "hop" }, -- @if Companions
 		source = "drop",
 	},
 	{
@@ -22,6 +25,7 @@ local Items: { any } = {
 		name = "Acorn",
 		rarity = "Uncommon",
 		economy = { incomePerSec = 3 }, -- @if Economy
+		companions = { movement = "fly" }, -- @if Companions
 		source = "drop",
 	},
 	{

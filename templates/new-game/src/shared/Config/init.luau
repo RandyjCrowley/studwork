@@ -36,6 +36,16 @@ local Config = {
 		require(Modules:WaitForChild("Mail"):WaitForChild("module")), -- cross-server / offline messages + mailbox (idempotent handlers)
 		require(Modules:WaitForChild("TextFilter"):WaitForChild("module")), -- filter player-entered text by audience (public / friends / private)
 		require(Modules:WaitForChild("Plot"):WaitForChild("module")), -- per-player plots with item display slots (needs Inventory)
+		require(Modules:WaitForChild("Admin"):WaitForChild("module")), -- staff roles, permissions and the staff panel (ServerConfig.Admin)
+		require(Modules:WaitForChild("Carry"):WaitForChild("module")), -- carry, hand off, throw, drop and deliver objects (none until the world has carriables)
+		require(Modules:WaitForChild("Codes"):WaitForChild("module")), -- free promotion codes with durable global caps (none until you define one)
+		require(Modules:WaitForChild("Companions"):WaitForChild("module")), -- equipped collectible companions that follow the player (needs Items, Inventory)
+		require(Modules:WaitForChild("Goals"):WaitForChild("module")), -- first-session goal chain: HUD pill + one arrow to the next goal
+		require(Modules:WaitForChild("Moderation"):WaitForChild("module")), -- bans, kicks, mutes, warnings, ladders, audit log
+		require(Modules:WaitForChild("Movement"):WaitForChild("module")), -- server-side movement validator: speed, teleport, ground, wall (logs only by default)
+		require(Modules:WaitForChild("Quests"):WaitForChild("module")), -- daily/weekly/story quests, exactly-once claims, board + tracker
+		require(Modules:WaitForChild("Reports"):WaitForChild("module")), -- player reports and the staff queue
+		require(Modules:WaitForChild("Settings"):WaitForChild("module")), -- validated player preferences (the Settings screen), saved per player
 	} :: { any },
 	config = require(script.Balance),
 	-- @if Economy
@@ -61,11 +71,17 @@ local Config = {
 	-- StudWork.text("game.welcome", { name = "Sam" }) (client) or ctx.text.format (server).
 	strings = {
 		["game.welcome"] = "Welcome back, {name}!",
+		["Moderation.ban.appeal"] = "Appeal on our group page.", -- @if Moderation
 	},
 	-- localization = { sourceLocale = "en", useTranslators = true },
 	-- storeBudgets = { orderedReserve = 0.25, memory = { reserve = 0.2, defaultShare = 0.25, shares = {} } }, -- module-api.md §23.5
 	client = {
 		palette = require(script.Palette), -- legacy per-game colour overrides (hex), applied last
+		-- @if Goals
+		-- Goals draws its own next-goal pill (docs/framework/kits/quests.md), so the framework's
+		-- "Game.nextGoal" pill (src/client/Main.client.luau's nextGoal) is hidden.
+		hud = { widgets = { ["Game.nextGoal"] = false } },
+		-- @end
 		-- Override points (docs/framework/override-levels.md level 3). Uncomment to use.
 		-- The HUD (docs/framework/theme.md#hud): nil / "default" = the default slot layout.
 		-- hud = false, -- no HUD at all (toasts and screens still work)

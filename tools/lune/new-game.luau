@@ -282,18 +282,14 @@ if fs.isFile(bootPath) then
 	boot = string.gsub(boot, "the template's real Config", name .. "'s real Config")
 	boot = string.gsub(boot, '"' .. TEMPLATE_MODULE .. '", %-%-', '"' .. moduleName .. '", --')
 	if chosenModules then
-		local keep = { [moduleName] = true }
-		for _, n in chosenModules do
-			keep[n] = true
+		-- (v1.8.0) exactly the chosen modules, in boot order: a chosen kit the template's list
+		-- lacks is added too (filtering the template's list alone left such kits out)
+		local rewritten, bootError = NewGame.bootExpected(boot, chosenModules, moduleName)
+		if rewritten == nil then
+			print("error: " .. tostring(bootError) .. " (" .. bootPath .. ")")
+			process.exit(1)
 		end
-		local lines = {}
-		for line in string.gmatch(boot .. "\n", "([^\n]*)\n") do
-			local listed = string.match(line, '^\t"([%w_]+)",')
-			if listed == nil or keep[listed] then
-				table.insert(lines, line)
-			end
-		end
-		boot = table.concat(lines, "\n")
+		boot = rewritten
 	end
 	fs.writeFile(bootPath, boot)
 end

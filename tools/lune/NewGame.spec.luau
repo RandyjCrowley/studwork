@@ -204,8 +204,8 @@ describe("NewGame v1.3 module refs", function()
 		expect(Modules.kitFolder("Settings")).toBe("Player")
 		expect(Modules.isModule("Companions")).toBe(true)
 		expect(Modules.SPECS.Companions.requires).toEqual({ "Items", "Inventory" })
-		-- the 15 template modules in KitModules.ORDER, then kit modules the template doesn't list
-		-- yet, alphabetically
+		-- the 15 template modules up to v1.7.0, then the ten v1.8.0 kit modules (KitModules.ORDER and
+		-- the template list them in this order)
 		expect(#Modules.ORDER).toBe(25)
 		expect(Modules.ORDER[15]).toBe("Plot")
 		expect(table.move(Modules.ORDER, 16, 25, 1, {})).toEqual({
@@ -220,6 +220,17 @@ describe("NewGame v1.3 module refs", function()
 			"Reports",
 			"Settings",
 		})
+	end)
+
+	it("the template's GameConfig.modules lists every kit module, in Modules.ORDER", function()
+		-- a default new game (no --modules) boots every kit; tools/new-game trims this list
+		local source = fs.readFile("templates/new-game/src/shared/Config/init.luau")
+		local block = string.match(source, "\n\tmodules%s*=%s*(%b{})")
+		local listed = {}
+		for name in string.gmatch(block, 'WaitForChild%("([%w_]+)"%):WaitForChild%("module"%)') do
+			table.insert(listed, name)
+		end
+		expect(listed).toEqual(Modules.ORDER)
 	end)
 
 	it("keeps the ref lines of chosen modules and adds a ref line for a missing one", function()
@@ -423,6 +434,44 @@ describe("NewGame.applyMarkers (tools/new-game --modules)", function()
 			"print(Players)",
 		}, "\n")
 		expect(NewGame.pruneKitLocals(src)).toBe('local Players = game:GetService("Players")\nprint(Players)')
+	end)
+end)
+
+describe("NewGame.bootExpected (v1.8.0)", function()
+	local BOOT = table.concat({
+		"local F = StudWork.test.sim",
+		"",
+		"local EXPECTED = {",
+		'\t"Items",',
+		'\t"Economy",',
+		'\t"MyGame", -- the game\'s own module, added by the framework',
+		"}",
+		"",
+		'describe("x", function() end)',
+	}, "\n")
+
+	it("lists exactly the chosen modules in order, including ones the template's list lacks", function()
+		local out =
+			NewGame.bootExpected(BOOT, { "Items", "Economy", "Carry", "Movement", "Quests" }, "MyGame")
+		local block = string.match(out, "local EXPECTED = %b{}")
+		local listed = {}
+		for name in string.gmatch(block, '\n\t"([%w_]+)",') do
+			table.insert(listed, name)
+		end
+		expect(listed).toEqual({ "Items", "Economy", "Carry", "Movement", "Quests", "MyGame" })
+		expect(
+			string.find(out, '\t"MyGame", -- the game\'s own module, added by the framework', 1, true) ~= nil
+		).toBe(true)
+		expect(string.find(out, "local F = StudWork.test.sim\n\nlocal EXPECTED", 1, true) ~= nil).toBe(true)
+		expect(string.find(out, '}\n\ndescribe("x"', 1, true) ~= nil).toBe(true)
+	end)
+
+	it("drops modules not chosen and refuses a spec without the list", function()
+		local out = NewGame.bootExpected(BOOT, { "Items" }, "MyGame")
+		expect(string.find(out, '"Economy"', 1, true)).toBeNil()
+		local none, err = NewGame.bootExpected("print(1)", { "Items" }, "MyGame")
+		expect(none).toBeNil()
+		expect(string.find(err, "EXPECTED", 1, true) ~= nil).toBe(true)
 	end)
 end)
 

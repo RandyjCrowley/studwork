@@ -6,6 +6,12 @@
 
 local ServerConfig = {
 	admins = {} :: { number }, -- Roblox user ids allowed to trigger events live; in Studio every player counts
+	-- Staff (moderation kit, docs/framework/kits/moderation.md). Live: nobody is staff unless listed;
+	-- in Studio the Admin kit's studioRole applies.
+	Admin = {
+		users = {} :: { [number]: string }, -- [userId] = "owner" | "admin" | "moderator" | "helper"
+		groups = {} :: { any }, -- { { groupId = 0, roles = { { roleId = 0, role = "moderator" } } } }
+	},
 	-- A hidden flag (same fields as GameConfig.flags; never replicated; docs/framework/kits/environments.md)
 	flags = {
 		hiddenPricing = { default = true, description = "server-side pricing experiment" },

@@ -153,6 +153,11 @@ Each kit is optional; list the modules you want in `GameConfig.modules`.
 | base | Plot | a player plot with display slots |
 | social | Friends, Mail, TextFilter | co-play detection and bonus; cross-server mail with a mailbox; Roblox text filtering by audience |
 | engagement | Streak, Leaderboards, Badges, Notifications | daily login streaks with a grace period; all-time and periodic leaderboards; badge awards with retries; experience notifications and the opt-in prompt |
+| quests | Quests, Goals | daily, weekly, event and story quests with rewards and rerolls; a guided goal chain with an on-screen pointer |
+| carry | Carry, Movement | objects carried by one or more players (hand-off, throw and catch, drop rules, delivery zones); a server-side movement validator |
+| companions | Companions | equip owned item copies as followers, with equip-best and capped income bonuses |
+| player | Codes, Settings | free promotion codes with durable global caps; validated player preferences and accessibility settings |
+| moderation | Admin, Moderation, Reports | staff roles, permissions and the staff panel; bans, kicks, mutes, warnings and an audit log; player reports and the staff queue |
 
 Framework features (always on, not modules): environments and feature flags, localization.
 

@@ -32,6 +32,8 @@ return StudWork.defineModule({
 		require(KitDefs:WaitForChild("Badges"):WaitForChild("module")),
 		require(KitDefs:WaitForChild("Notifications"):WaitForChild("module")),
 		require(KitDefs:WaitForChild("TextFilter"):WaitForChild("module")),
+		-- v1.8.0: the block touch feeds a Quests counter (server/init.luau)
+		require(KitDefs:WaitForChild("Quests"):WaitForChild("module")),
 	},
 	data = { key = "sandbox", version = 1, default = { blockTouches = 0 }, replicate = { "blockTouches" } },
 	server = "Sandbox",

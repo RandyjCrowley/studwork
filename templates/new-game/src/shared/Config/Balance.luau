@@ -192,6 +192,57 @@ local Balance = {
 	-- 	maxLength = 40, trim = true, perPlayerPerMinute = 20, shownMaxDays = 30, respectContentSharing = true,
 	-- },
 	-- @end
+	-- @if Quests,Economy
+	-- Quests (docs/framework/kits/quests.md): 3 daily and 2 weekly quests dealt from this pool. The
+	-- counter "collected" is fed by the game module (a block collect); the rest are built-in sources.
+	Quests = {
+		daily = { count = 3, rerollsPerSlot = 1 },
+		weekly = { count = 2, rerollsPerSlot = 0 },
+		quests = {
+			earnCoins = {
+				kind = "daily",
+				objectives = { { kind = "source", source = "currencyEarned", target = 500 } },
+				reward = { { kind = "currency", amount = 100 } },
+			},
+			collectThings = {
+				kind = "daily",
+				objectives = { { kind = "counter", key = "collected", target = 20 } },
+				reward = { { kind = "currency", amount = 120 } },
+			},
+			earnMore = {
+				kind = "daily",
+				objectives = { { kind = "source", source = "currencyEarned", target = 2000 } },
+				reward = { { kind = "currency", amount = 250 } },
+			},
+			earnBig = {
+				kind = "weekly",
+				objectives = { { kind = "source", source = "currencyEarned", target = 20000 } },
+				reward = { { kind = "currency", amount = 2000 } },
+			},
+			collectMany = {
+				kind = "weekly",
+				objectives = { { kind = "counter", key = "collected", target = 200 } },
+				reward = { { kind = "currency", amount = 1500 } },
+			},
+		},
+	},
+	-- @end
+	-- @if Goals,Economy
+	-- Goals: the first-session chain (a HUD pill and one arrow to the next goal)
+	Goals = {
+		chain = {
+			{ id = "firstCoins", check = { source = "currency", atLeast = 25 } },
+			{ id = "firstQuest", check = { quest = "earnCoins" } }, -- @if Quests
+		} :: { any }, -- goals of different check shapes (or the Goals kit's shared Types `Chain`)
+	},
+	-- @end
+	-- @if Companions
+	-- Companions: pebble, twig and acorn follow the player when equipped (Items.luau `companions`)
+	Companions = { slots = 3, incomeBonusEnabled = false },
+	-- @end
+	-- Carry, Movement, Codes, Settings, Admin, Moderation and Reports run at their defaults: nothing
+	-- is carriable until the world has carriables, Movement only logs, no code exists until you define
+	-- one (docs/framework/kits/player.md), staff come from ServerConfig.Admin.
 	-- @if Items
 	-- Items has no config: item definitions live in Items.luau (GameConfig.items).
 	-- @end

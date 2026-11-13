@@ -1216,5 +1216,4 @@ playtest that nothing you add opens a screen in the first 3 minutes.
 
 The board and the beam on real phones (Device Emulator and a device), the reset time against real
 players' days, save size after weeks of play, `StreamingEnabled` behaviour on a large map, and
-whether the first-session goals help without nagging. Live checklist: `docs/manual-qa.md` (entries
-in `docs/pending/quests.md`).
+whether the first-session goals help without nagging. Live checklist: `docs/manual-qa.md`.
