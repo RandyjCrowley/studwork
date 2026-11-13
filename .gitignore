@@ -46,3 +46,6 @@ REPORT_*.md
 # tools/adopt output in a scratch run (fixtures commit none)
 studwork-adopt-report.json
 studwork-adopt-report.md
+
+# make-gen / make-migration spec fixtures (a killed run leaves one behind)
+/templates/.selftest-*

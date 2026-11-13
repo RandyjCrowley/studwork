@@ -722,8 +722,9 @@ these pages before relying on a limit.
   harness's prefix strip then left an absolute-looking `/.cache/...` that failed to load. macOS sets
   `$TMPDIR`, so every local gate passed while Linux CI failed. The harness now normalises both paths
   (`tools/lune/testkit/pathutil.luau`: collapse `//`, `.`, trailing `/`), the specs join through it,
-  and `tools/test` always runs the runner self-test with `$TMPDIR` unset, a `<repo>/` cwd and a
-  doubled-slash spec path, with or without path arguments.
+  and `tools/test` always runs the runner self-test with `$TMPDIR` unset, a `<repo>/` cwd, a
+  doubled-slash spec path and a relative folder argument with a trailing `/`, with or without path
+  arguments.
 
 - **make-migration reads a referenced `data.version` and maps `migrations/` itself (v1.7.1).** A
   game's save version is often a constant shared with its save code (`version = Save.VERSION`), which
@@ -732,7 +733,9 @@ these pages before relying on a limit.
   definition and rewrites the one number literal it comes from. A version it can't bump (a computed
   `Base.VERSION + 1`) is refused with nothing written, because a migration the module's version never
   reaches is worse than no migration; `--from <n>` is the explicit way through, with the bump left to
-  the user. The game module is mapped as `GameModule.module` only, so its `migrations/` never reached
+  the user. The bumped definition is read back from the planned texts before anything is written, and
+  a `--from` that disagrees with a version the tool can read, or that leaves a gap after the last
+  migration, is refused (a gap fails the boot). The game module is mapped as `GameModule.module` only, so its `migrations/` never reached
   the place: the tool now adds `migrations` next to whatever node maps the module in each of the
   game's project files (order-preserving JSON, so `tools/sync-projects` stays clean), and refuses a
   module no project maps before writing anything. A lint rule would only fire after an unmapped

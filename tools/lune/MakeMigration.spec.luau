@@ -136,6 +136,10 @@ describe("MakeMigration: reading data.version", function()
 			expect(n).toBeNil()
 			expect(err).toContain("positive integer")
 		end
+		expect(MakeMigration.parseFrom("998")).toBe(998)
+		local big, bigErr = MakeMigration.parseFrom("99999999999999999999")
+		expect(big).toBeNil()
+		expect(bigErr).toContain("at most 998")
 		expect((MakeMigration.parseFrom(nil))).toBeNil()
 	end)
 
@@ -162,13 +166,13 @@ describe("MakeMigration: reading data.version", function()
 			expect(ref.expr).toBe("Save.VERSION")
 			expect(resolve("gems").version).toBe(4)
 			expect(resolve("quests").version).toBe(2)
-			-- --from wins and says so when it disagrees
+			-- --from agrees, or is refused when it disagrees with a version that resolves
 			local agree = resolve("my-game", 2)
 			expect(agree.how).toBe("--from")
-			expect(agree.warning).toBeNil()
-			local disagree = resolve("my-game", 5)
-			expect(disagree.version).toBe(5)
-			expect(disagree.warning).toContain("--from 5 disagrees with data.version 2")
+			expect(agree.version).toBe(2)
+			local disagree, disagreeErr = resolve("my-game", 5)
+			expect(disagree).toBeNil()
+			expect(disagreeErr).toContain("--from 5 disagrees with data.version 2")
 			-- unresolvable: a clear error that suggests --from
 			write(root .. "/modules/coins/module.luau", moduleSource("Coins", "", "Missing.VERSION"))
 			local none, err = resolve("coins")
@@ -212,6 +216,23 @@ describe("MakeMigration: reading data.version", function()
 			)
 			expect(none).toBeNil()
 			expect(err).toContain("Base.VERSION + 1")
+			-- exact names, whole right-hand side: VERSION_FIRST and `VERSION = VERSION_FIRST + 1` aren't sites
+			local prefixed = "local VERSION_FIRST = 1\nlocal VERSION = VERSION_FIRST + 1\nreturn VERSION\n"
+			local p, pErr = MakeMigration.bumpReference(fs, luau, gems, prefixed, "VERSION", 3)
+			expect(p).toBeNil()
+			expect(pErr).toContain("no `VERSION = <number>`")
+			-- a trailing comment or comma is fine; a typed local is a site
+			local typed = assert(
+				MakeMigration.bumpReference(
+					fs,
+					luau,
+					gems,
+					"local VERSION: number = 2 -- save\n",
+					"VERSION",
+					3
+				)
+			)
+			expect(typed.text).toBe("local VERSION: number = 3 -- save\n")
 		end)
 	end)
 end)
@@ -318,10 +339,50 @@ describe("tools/make-migration end to end", function()
 			code, out = run(root, "../..", env, { "Coins", "--from", "0" })
 			expect(code).toBe(1)
 			expect(out).toContain("positive integer")
+			code, out = run(root, "../..", env, { "Coins", "--from", "999" })
+			expect(code).toBe(1)
+			expect(out).toContain("at most 998")
+			-- a --from that disagrees with a version that resolves: refused (it would leave a gap)
 			code, out = run(root, "../..", env, { "Coins", "--from=7" })
-			expect(code).toBe(0)
+			expect(code).toBe(1)
 			expect(out).toContain("--from 7 disagrees with data.version 4")
-			expect(fs.isFile(root .. "/modules/coins/migrations/008_migration.luau")).toBe(true)
+			expect(out).toContain("nothing was written")
+			expect(fs.isFile(root .. "/modules/coins/migrations/008_migration.luau")).toBe(false)
+			expect(fs.readFile(root .. "/modules/coins/module.luau")).toContain("\t\tversion = 4,\n")
+			-- --from on a version that can't be read: refused when it leaves a gap after the last migration
+			write(root .. "/modules/lost/module.luau", moduleSource("Lost", "", "Missing.VERSION"))
+			write(root .. "/modules/lost/migrations/002_old.luau", "return {}\n")
+			code, out = run(root, "../..", env, { "modules/lost", "--from", "4" })
+			expect(code).toBe(1)
+			expect(out).toContain("a gap fails the boot")
+			expect(fs.isFile(root .. "/modules/lost/migrations/005_migration.luau")).toBe(false)
+			-- a literal that is only the start of the expression, and a local whose name only starts
+			-- with the referenced one: neither is bumped; refused with nothing written
+			write(
+				root .. "/modules/prefixed/module.luau",
+				moduleSource("Prefixed", "local Base = require(script.Parent.Base)\n", "1 + Base.VERSION")
+			)
+			write(root .. "/modules/prefixed/Base.luau", "return { VERSION = 4 }\n")
+			code, out = run(root, "../..", env, { "modules/prefixed" })
+			expect(code).toBe(1)
+			expect(out).toContain("nothing was written")
+			expect(fs.readFile(root .. "/modules/prefixed/module.luau")).toContain(
+				"version = 1 + Base.VERSION,"
+			)
+			expect(fs.isDir(root .. "/modules/prefixed/migrations")).toBe(false)
+			write(
+				root .. "/modules/named/module.luau",
+				moduleSource(
+					"Named",
+					"local VERSION_FIRST = 1\nlocal VERSION = VERSION_FIRST + 1\n",
+					"VERSION"
+				)
+			)
+			code, out = run(root, "../..", env, { "modules/named" })
+			expect(code).toBe(1)
+			expect(out).toContain("nothing was written")
+			expect(fs.readFile(root .. "/modules/named/module.luau")).toContain("local VERSION_FIRST = 1\n")
+			expect(fs.isDir(root .. "/modules/named/migrations")).toBe(false)
 			-- a module the project doesn't map: refused, the exact mapping printed, nothing written
 			code, out = run(root, "../..", env, { "Orphan" })
 			expect(code).toBe(1)

@@ -11,12 +11,15 @@
 	    :WaitForChild / :FindFirstChild walk the module's folder on disk (so
 	    `require(script.Parent.shared.Save)` loads that file the same way), anything else (`game`,
 	    the Framework, kit refs, Roblox globals) is an inert stub, and StudWork.defineModule returns
-	    the table it is given. Lune's own libraries are not reachable from the evaluated code.
+	    the table it is given. `require`, `getfenv`/`setfenv`, `loadstring` and `debug` are blocked,
+	    but this is not a security sandbox: it runs the module's own code (as `tools/test` does), so
+	    don't run make-migration on code you don't trust.
 	resolveVersion(fs, luau, dir, source, from?) -> (result?, error?)
 	    result = { version, how = "literal" | "evaluated" | "--from", expr, warning? }
 	    A number literal is read as written; anything else (`Save.VERSION`, a local, a required
-	    sibling) is evaluated. --from wins; when it disagrees with the resolved version the result
-	    carries a warning. A version that can't be resolved is an error that suggests --from.
+	    sibling) is evaluated. --from is for a version that can't be read: when the version resolves
+	    and --from disagrees, it is an error (a gap in the migrations fails the boot). A version that
+	    can't be resolved is an error that suggests --from.
 	bumpReference(fs, luau, dir, source, expr, to) -> (edit?, error?)
 	    where a non-literal data.version is defined, as one edit { path, text, line }: a local of
 	    module.luau (`local VERSION = 2`), or a field of a module it requires from its own folder
@@ -45,6 +48,9 @@ function MakeMigration.parseFrom(text: string?): (number?, string?)
 	local n = tonumber(text) :: number
 	if n < 1 then
 		return nil, "--from needs a positive integer (the module's current data.version), got " .. text
+	end
+	if n > 998 then
+		return nil, "--from must be at most 998 (migration files are numbered 001..999), got " .. text
 	end
 	return n, nil
 end
@@ -199,7 +205,7 @@ end
 -- The globals the evaluated code sees: the stand-ins first, then Lune's built-in libraries
 -- (math, string, table, ...), then a stub for any other name (Roblox globals: Enum, Vector3, ...).
 local GLOBALS = getfenv(1)
-local BLOCKED = { require = true, getfenv = true, setfenv = true, _G = true }
+local BLOCKED = { require = true, getfenv = true, setfenv = true, _G = true, loadstring = true, debug = true }
 
 local function loader(fs: any, luau: any)
 	local cache: { [string]: any } = {}
@@ -315,18 +321,20 @@ function MakeMigration.resolveVersion(
 		how = "evaluated"
 	end
 	if from then
-		local warning = nil
 		if resolved ~= nil and resolved ~= from then
-			warning = string.format(
-				"--from %d disagrees with data.version %d (`%s` in %s/module.luau); using --from %d",
-				from,
-				resolved,
-				expr,
-				dir,
-				from
-			)
+			return nil,
+				string.format(
+					"--from %d disagrees with data.version %d (`%s` in %s/module.luau): nothing was written."
+						.. " --from is for a version that can't be read; a migration from %d would leave a gap"
+						.. " that fails the boot",
+					from,
+					resolved,
+					expr,
+					dir,
+					from
+				)
 		end
-		return { version = from, how = "--from", expr = expr, warning = warning }, nil
+		return { version = from, how = "--from", expr = expr }, nil
 	end
 	if resolved == nil then
 		return nil,
@@ -351,16 +359,25 @@ end
 local function literalSites(text: string, name: string): { { number } }
 	local sites = {}
 	local n = escape(name)
+	-- the name matches exactly (`VERSION_FIRST` is not `VERSION`) and the literal is the whole
+	-- right-hand side (`VERSION = 1 + X` is not a site): checked on the rest of the line
 	local patterns = {
-		"\n[ \t]*local[ \t]+" .. n .. "[ \t]*:?[%w_ \t]*=[ \t]*()%d+()",
+		"\n[ \t]*local[ \t]+" .. n .. "[ \t]*=[ \t]*()%d+()",
+		"\n[ \t]*local[ \t]+" .. n .. "[ \t]*:[ \t]*[%a_][%w_%.]*[ \t]*=[ \t]*()%d+()",
 		"\n[ \t]*" .. n .. "[ \t]*=[ \t]*()%d+()",
 		"\n[ \t]*[%a_][%w_%.]*%." .. n .. "[ \t]*=[ \t]*()%d+()",
 	}
+	local padded = "\n" .. text
+	local function wholeValue(e: number): boolean
+		local rest = string.match(padded, "^[^\n]*", e) or ""
+		rest = string.gsub(rest, "%-%-.*$", "")
+		return string.match(rest, "^[ \t]*[,;]?[ \t]*$") ~= nil
+	end
 	local seen = {}
 	for _, p in patterns do
-		for s, e in string.gmatch("\n" .. text, p) do
+		for s, e in string.gmatch(padded, p) do
 			-- positions are in "\n" .. text
-			if not seen[s] then
+			if not seen[s] and wholeValue(e) then
 				seen[s] = true
 				table.insert(sites, { s - 1, e - 1 })
 			end

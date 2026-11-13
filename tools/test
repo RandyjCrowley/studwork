@@ -11,13 +11,15 @@ help_if_asked "$0" "$@"
 
 # (v1.7.1) Mirror the CI environment for the runner self-test: no $TMPDIR (its specs fall back to
 # <cwd>/.cache) and a spec path with a doubled slash under a cwd that ends in "/" (Lune's
-# process.cwd always does). macOS sets $TMPDIR, so without this a Mac run never saw what Linux CI saw.
+# process.cwd always does), plus a relative folder argument with a trailing "/" (as tab completion
+# gives). macOS sets $TMPDIR, so without this a Mac run never saw what Linux CI saw.
 # Runs on every invocation in the core repo, with or without path arguments.
 if ! is_games_repo && ! is_single_game && [ -f "$PROJECT_ROOT/tools/lune/testkit/Runner.spec.luau" ]; then
 	echo "== runner self-test (TMPDIR unset, trailing-slash cwd)"
 	(cd "$PROJECT_ROOT/" && env -u TMPDIR lune run tools/lune/testkit/run \
 		"$PROJECT_ROOT//tools/lune/testkit/Runner.spec.luau" \
-		"$PROJECT_ROOT//tools/lune/testkit/pathutil.spec.luau") || exit 1
+		"$PROJECT_ROOT//tools/lune/testkit/pathutil.spec.luau" \
+		"examples/sandbox/src/shared/") || exit 1
 fi
 
 if [ $# -eq 0 ] && ! is_games_repo; then

@@ -129,23 +129,29 @@ the module's own folder (`version = Save.VERSION` with
 `local Save = require(script.Parent.shared.Save)`). A reference is read by evaluating
 `module.luau` under Lune the way the game requires it (files of the module's folder load for real;
 `game`, the framework and kit refs are inert stand-ins), and the one number literal it comes from
-(`Save.VERSION = 2`, `VERSION = 2,` or `local VERSION = 2`) is bumped. When there isn't exactly one
-such literal (`version = Base.VERSION + 1`) the tool refuses and writes nothing; run it again with
+(`Save.VERSION = 2`, `VERSION = 2,` or `local VERSION = 2`: the name exactly, the literal the whole
+value) is bumped, and the bumped definition is read back before anything is written. When there
+isn't exactly one such literal (`version = Base.VERSION + 1`, `version = 1 + Base.VERSION`) the tool
+refuses and writes nothing; run it again with
 `--from <current version>` to write the migration anyway and set the new version by hand (the tool
-says which value). `--from <n>` gives the current version instead of reading it (a positive
-integer; a warning when it disagrees with the version read from the module); use it when the
-definition can't be evaluated outside Roblox.
+says which value). `--from <n>` gives the current version instead of reading it (an integer from 1 to
+998); use it when the definition can't be evaluated outside Roblox. It is refused when it disagrees
+with a version the tool can read, or when it would leave a gap after the last migration in
+`migrations/` (a gap fails the boot). Evaluating runs the module's own code (as `tools/test` does),
+so don't run the tool on code you don't trust.
 
 **The migration reaches the place.** `data.migrations = script.Parent.migrations` needs the folder
 in the Rojo project. For a module inside a game (`<game>/modules/<folder>`, or `modules/<folder>` at
 a single-game project's root) the tool checks the game's `*.project.json` files: a node whose
 `module` is `modules/<folder>/module.luau` (`ReplicatedStorage.Modules.<Name>`, or the game
 module's `ReplicatedStorage.GameModule`) gets `"migrations": { "$path": "modules/<folder>/migrations" }`
-unless it has one or a `$path` already maps the whole folder. Only that entry is added; the rest of
-the file keeps its order and formatting (`tools/sync-projects --check` stays clean). A module that
+unless it has one or a `$path` already maps the whole folder. Only that entry is added, in every
+project file that maps the module; keys keep their order and the file is written in the
+`tools/sync-projects` style (2-space JSON), so `tools/sync-projects --check` stays clean but a
+hand-formatted file is re-indented. A module that
 no project file maps is refused before anything is written, with the exact entry to add. A module
-outside any game (`examples/modules/<x>`, a `--dir` module) gets a note to map it in its own
-project.
+outside any game (`examples/modules/<x>`, a folder outside `<game>/modules/`) gets a note to map it
+in its own project.
 
 ## tools/make-screen
 

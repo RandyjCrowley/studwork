@@ -227,13 +227,9 @@ local function dataBlock(source: string): (number?, number?)
 end
 
 function MakeGen.dataVersion(source: string): number?
-	local s, e = dataBlock(source)
-	if s == nil then
-		return nil
-	end
-	local block = string.sub(source, s :: number, e :: number)
-	local v = string.match(block, "\n\t\tversion%s*=%s*(%d+)")
-	return if v then tonumber(v) else nil
+	-- (v1.7.1) a literal only when the whole expression is digits: `1 + Base.VERSION` is not 1
+	local expr = MakeGen.versionExpr(source)
+	return if expr and string.match(expr, "^%d+$") then tonumber(expr) else nil
 end
 
 -- (v1.7.1) data.version exactly as written, without the trailing comma or comment

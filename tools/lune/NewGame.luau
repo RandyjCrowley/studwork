@@ -332,6 +332,9 @@ function NewGame.trimDependsOn(source: string, list: { string }, named: { string
 	if sampleLine == nil then
 		sampleName, sampleLine = next(optionalLines)
 	end
+	if sampleLine then
+		sampleLine = (string.gsub(sampleLine, "%s*%-%-.*$", "")) -- the sample's comment isn't the new kit's
+	end
 	if sampleName and sampleLine and string.find(sampleLine, "require(", 1, true) then
 		local needle = 'WaitForChild("' .. sampleName .. '")'
 		for _, n in named or {} do

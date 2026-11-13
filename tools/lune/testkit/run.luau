@@ -12,6 +12,7 @@ local fs = require("@lune/fs")
 local process = require("@lune/process")
 
 local Harness = require("./harness")
+local PathUtil = require("./pathutil")
 
 local SKIP_DIRS =
 	{ Packages = true, ServerPackages = true, DevPackages = true, [".git"] = true, node_modules = true }
@@ -27,7 +28,7 @@ local function collect(dir: string, out: { string })
 		return
 	end
 	for _, entry in fs.readDir(dir) do
-		local path = dir .. "/" .. entry
+		local path = PathUtil.join(dir, entry) -- `tools/test dir/` (a trailing "/") must not give "//"
 		if fs.isDir(path) then
 			if not SKIP_DIRS[entry] then
 				collect(path, out)

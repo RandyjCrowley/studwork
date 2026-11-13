@@ -174,6 +174,11 @@ describe("tools/make-migration", function()
 		local withData =
 			'return StudWork.defineModule({\n\tname = "X",\n\tdata = {\n\t\tkey = "x",\n\t\tversion = 2,\n\t\tdefault = {},\n\t},\n})\n'
 		expect(MakeGen.dataVersion(withData)).toBe(2)
+		-- (v1.7.1) a literal only when it is the whole expression
+		local prefixed = (string.gsub(withData, "version = 2,", "version = 1 + Base.VERSION, -- shared"))
+		expect(MakeGen.dataVersion(prefixed)).toBeNil()
+		local commented = (string.gsub(withData, "version = 2,", "version = 2, -- bump with a migration"))
+		expect(MakeGen.dataVersion(commented)).toBe(2)
 		local ahead, aheadErr = MakeGen.nextMigration(withData, { "003_y.luau" }, nil)
 		expect(ahead).toBeNil()
 		expect(string.find(aheadErr, "bump data.version", 1, true) ~= nil).toBe(true)

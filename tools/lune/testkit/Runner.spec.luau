@@ -9,7 +9,8 @@ local fs = lune("@lune/fs")
 local process = lune("@lune/process")
 
 local function tmpDir(): string
-	local base = process.env.TMPDIR or PathUtil.join(process.cwd, ".cache")
+	local tmp = process.env.TMPDIR -- unset on CI; an empty value counts as unset
+	local base = if tmp and tmp ~= "" then tmp else PathUtil.join(process.cwd, ".cache")
 	local dir = PathUtil.join(base, "studwork-runner-spec-" .. tostring(math.random(1, 1e9)))
 	fs.writeDir(dir)
 	return dir

@@ -10,7 +10,8 @@
 	single-game project's root) and examples/modules/*.
 	(v1.7.1) data.version may be a reference (`version = Save.VERSION`, a local): the definition is
 	evaluated to read it and the literal it comes from is bumped; --from <n> gives the current
-	version instead (a warning when it disagrees). A module inside a game must be mapped in the
+	version instead (refused when it disagrees with a version that resolves, or leaves a gap; v1.7.1
+	reads the bump back before writing). A module inside a game must be mapped in the
 	game's *.project.json: its node (ReplicatedStorage.Modules.<Name>, or the game module's
 	ReplicatedStorage.GameModule) gets `migrations` unless a $path already covers the folder; a
 	module the projects don't map is refused before anything is written.
@@ -116,9 +117,6 @@ local resolved, resolveErr = MakeMigration.resolveVersion(fs, luau, dir, source,
 if resolved == nil then
 	fail(tostring(resolveErr))
 end
-if resolved.warning then
-	print("warning: " .. resolved.warning)
-end
 
 -- 2. the migration, the test stub and module.luau (planned, nothing written yet)
 local existing = {}
@@ -164,6 +162,53 @@ if not plan.bumped then
 				"warning: data.version is `%s` and make-migration couldn't bump it (%s): set it to %d yourself",
 				resolved.expr,
 				tostring(bumpErr),
+				plan.version
+			)
+		)
+	end
+end
+
+-- (v1.7.1) --from: no gap after the existing migrations (a gap fails the boot)
+if from and #existing > 0 then
+	local highest = 0
+	for _, entry in existing do
+		highest = math.max(highest, tonumber(string.match(entry, "^(%d+)_")) or 0)
+	end
+	if plan.version ~= highest + 1 then
+		fail(
+			string.format(
+				"--from %d would write migration %03d, but the last one in %s/migrations is %03d: a gap fails the boot (nothing was written)",
+				from,
+				plan.version,
+				dir,
+				highest
+			)
+		)
+	end
+end
+
+-- (v1.7.1) the bumped version read back the way the game reads it, from the planned texts, before
+-- anything is written: a bump that hit the wrong literal fails clean
+if plan.bumped or bumpNote then
+	local planned: { [string]: string } = {}
+	for _, w in writes do
+		planned[w.path] = w.text
+	end
+	local overlay = setmetatable({
+		readFile = function(p: string): string
+			return planned[p] or fs.readFile(p)
+		end,
+		isFile = function(p: string): boolean
+			return planned[p] ~= nil or fs.isFile(p)
+		end,
+	}, { __index = fs })
+	local check = MakeMigration.resolveVersion(overlay, luau, dir, writes[1].text, nil, MakeGen)
+	if check == nil or check.version ~= plan.version then
+		fail(
+			string.format(
+				"data.version (`%s`) would read %s after the bump, not %d: nothing was written. Set it by hand, then run again with --from <its current value>",
+				resolved.expr,
+				if check then tostring(check.version) else "nothing",
 				plan.version
 			)
 		)
@@ -246,18 +291,6 @@ print(
 	)
 )
 if plan.bumped or bumpNote then
-	-- the bumped version, read back the way the game reads it
-	local check = MakeMigration.resolveVersion(fs, luau, dir, fs.readFile(modulePath), nil, MakeGen)
-	if check and check.version ~= plan.version then
-		print(
-			string.format(
-				"warning: data.version now reads %d, not %d: check `%s`",
-				check.version,
-				plan.version,
-				check.expr
-			)
-		)
-	end
 	print(
 		"updated "
 			.. (bumpNote or (dir .. "/module.luau: data.version"))

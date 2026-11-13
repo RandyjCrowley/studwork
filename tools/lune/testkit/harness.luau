@@ -804,6 +804,9 @@ function Harness.runSpec(specPath: string): (number, number, { string })
 		specPath = PathUtil.relativeTo(specPath, cwd)
 			or PathUtil.relativeTo(specPath, process.cwd)
 			or specPath
+	else
+		-- a relative spec path from `tools/test dir/` (trailing "/", "./"): the same key form
+		specPath = PathUtil.normalize(specPath)
 	end
 	local tests: { { name: string, fn: () -> () } } = {}
 	local prefix: { string } = {}

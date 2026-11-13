@@ -19,10 +19,11 @@ local env = {
 	Audit = Audit,
 	version = "1.6.0",
 }
-local DATA = Audit.normalize(process.cwd .. "/tools/lune/testdata/adopt")
+local DATA = Audit.normalize(PathUtil.join(process.cwd, "tools/lune/testdata/adopt"))
 
 local function tmpRoot(): string
-	local base = process.env.TMPDIR or PathUtil.join(process.cwd, ".cache")
+	local tmp = process.env.TMPDIR -- unset on CI; an empty value counts as unset
+	local base = if tmp and tmp ~= "" then tmp else PathUtil.join(process.cwd, ".cache")
 	local dir = Audit.normalize(base .. "/studwork-adopt-audit-spec-" .. tostring(math.random(1, 1e9)))
 	fs.writeDir(dir)
 	return dir
