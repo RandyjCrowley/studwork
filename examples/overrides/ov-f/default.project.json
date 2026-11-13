@@ -55,6 +55,18 @@
             "$path": "../../../packages/kits/carry/Carry/shared"
           }
         },
+        "Companions": {
+          "$className": "Folder",
+          "module": {
+            "$path": "../../../packages/kits/companions/Companions/module.luau"
+          },
+          "client": {
+            "$path": "../../../packages/kits/companions/Companions/client"
+          },
+          "shared": {
+            "$path": "../../../packages/kits/companions/Companions/shared"
+          }
+        },
         "Economy": {
           "$className": "Folder",
           "module": {
@@ -230,6 +242,9 @@
         },
         "Carry": {
           "$path": "../../../packages/kits/carry/Carry/server"
+        },
+        "Companions": {
+          "$path": "../../../packages/kits/companions/Companions/server"
         },
         "Economy": {
           "$path": "../../../packages/kits/economy/Economy/server"

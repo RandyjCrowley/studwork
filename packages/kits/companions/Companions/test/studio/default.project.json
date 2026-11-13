@@ -1,0 +1,256 @@
+{
+  "name": "companions-fixture",
+  "globIgnorePaths": [
+    "**/*.spec.luau",
+    "**/*.blink",
+    "**/README.md"
+  ],
+  "tree": {
+    "$className": "DataModel",
+    "ReplicatedStorage": {
+      "Packages": {
+        "$path": "../../../../../../deps/Packages"
+      },
+      "FrameworkClient": {
+        "$path": "../../../../../framework/client"
+      },
+      "Framework": {
+        "$path": "../../../../../framework/shared"
+      },
+      "UI": {
+        "$path": "../../../../../ui"
+      },
+      "Game": {
+        "$path": "shared"
+      },
+      "Modules": {
+        "$className": "Folder",
+        "Badges": {
+          "$className": "Folder",
+          "module": {
+            "$path": "../../../../engagement/Badges/module.luau"
+          },
+          "client": {
+            "$path": "../../../../engagement/Badges/client"
+          }
+        },
+        "Companions": {
+          "$className": "Folder",
+          "module": {
+            "$path": "../../module.luau"
+          },
+          "client": {
+            "$path": "../../client"
+          },
+          "shared": {
+            "$path": "../../shared"
+          }
+        },
+        "Economy": {
+          "$className": "Folder",
+          "module": {
+            "$path": "../../../../economy/Economy/module.luau"
+          },
+          "client": {
+            "$path": "../../../../economy/Economy/client"
+          }
+        },
+        "Friends": {
+          "$className": "Folder",
+          "module": {
+            "$path": "../../../../social/Friends/module.luau"
+          }
+        },
+        "Inventory": {
+          "$className": "Folder",
+          "module": {
+            "$path": "../../../../collection/Inventory/module.luau"
+          },
+          "client": {
+            "$path": "../../../../collection/Inventory/client"
+          }
+        },
+        "Items": {
+          "$className": "Folder",
+          "module": {
+            "$path": "../../../../collection/Items/module.luau"
+          }
+        },
+        "Leaderboards": {
+          "$className": "Folder",
+          "module": {
+            "$path": "../../../../engagement/Leaderboards/module.luau"
+          },
+          "client": {
+            "$path": "../../../../engagement/Leaderboards/client"
+          }
+        },
+        "Mail": {
+          "$className": "Folder",
+          "module": {
+            "$path": "../../../../social/Mail/module.luau"
+          },
+          "client": {
+            "$path": "../../../../social/Mail/client"
+          }
+        },
+        "Notifications": {
+          "$className": "Folder",
+          "module": {
+            "$path": "../../../../engagement/Notifications/module.luau"
+          },
+          "client": {
+            "$path": "../../../../engagement/Notifications/client"
+          }
+        },
+        "Offline": {
+          "$className": "Folder",
+          "module": {
+            "$path": "../../../../economy/Offline/module.luau"
+          }
+        },
+        "Plot": {
+          "$className": "Folder",
+          "module": {
+            "$path": "../../../../base/Plot/module.luau"
+          },
+          "client": {
+            "$path": "../../../../base/Plot/client"
+          }
+        },
+        "Rarity": {
+          "$className": "Folder",
+          "module": {
+            "$path": "../../../../collection/Rarity/module.luau"
+          },
+          "client": {
+            "$path": "../../../../collection/Rarity/client"
+          },
+          "shared": {
+            "$path": "../../../../collection/Rarity/shared"
+          }
+        },
+        "Rebirth": {
+          "$className": "Folder",
+          "module": {
+            "$path": "../../../../economy/Rebirth/module.luau"
+          },
+          "client": {
+            "$path": "../../../../economy/Rebirth/client"
+          }
+        },
+        "Streak": {
+          "$className": "Folder",
+          "module": {
+            "$path": "../../../../engagement/Streak/module.luau"
+          }
+        },
+        "TextFilter": {
+          "$className": "Folder",
+          "module": {
+            "$path": "../../../../social/TextFilter/module.luau"
+          }
+        },
+        "Upgrades": {
+          "$className": "Folder",
+          "module": {
+            "$path": "../../../../economy/Upgrades/module.luau"
+          },
+          "client": {
+            "$path": "../../../../economy/Upgrades/client"
+          }
+        }
+      },
+      "GameModule": {
+        "$className": "Folder",
+        "module": {
+          "$path": "shared/Module.luau"
+        }
+      }
+    },
+    "ServerScriptService": {
+      "Framework": {
+        "$path": "../../../../../framework/server"
+      },
+      "Game": {
+        "$path": "server"
+      },
+      "Modules": {
+        "$className": "Folder",
+        "Badges": {
+          "$path": "../../../../engagement/Badges/server"
+        },
+        "Companions": {
+          "$path": "../../server"
+        },
+        "Economy": {
+          "$path": "../../../../economy/Economy/server"
+        },
+        "Friends": {
+          "$path": "../../../../social/Friends/server"
+        },
+        "Inventory": {
+          "$path": "../../../../collection/Inventory/server"
+        },
+        "Items": {
+          "$path": "../../../../collection/Items/server"
+        },
+        "Leaderboards": {
+          "$path": "../../../../engagement/Leaderboards/server"
+        },
+        "Mail": {
+          "$path": "../../../../social/Mail/server"
+        },
+        "Notifications": {
+          "$path": "../../../../engagement/Notifications/server"
+        },
+        "Offline": {
+          "$path": "../../../../economy/Offline/server"
+        },
+        "Plot": {
+          "$path": "../../../../base/Plot/server"
+        },
+        "Rarity": {
+          "$path": "../../../../collection/Rarity/server"
+        },
+        "Rebirth": {
+          "$path": "../../../../economy/Rebirth/server"
+        },
+        "Streak": {
+          "$path": "../../../../engagement/Streak/server"
+        },
+        "TextFilter": {
+          "$path": "../../../../social/TextFilter/server"
+        },
+        "Upgrades": {
+          "$path": "../../../../economy/Upgrades/server"
+        }
+      }
+    },
+    "ServerStorage": {
+      "ServerPackages": {
+        "$path": "../../../../../../deps/ServerPackages"
+      },
+      "Vendor": {
+        "$path": "../../../../../vendor"
+      }
+    },
+    "StarterPlayer": {
+      "StarterPlayerScripts": {
+        "Game": {
+          "$path": "client"
+        }
+      }
+    },
+    "Workspace": {
+      "$properties": {
+        "StreamingEnabled": true
+      }
+    },
+    "Lighting": {
+      "$properties": {
+        "Technology": "Future"
+      }
+    }
+  }
+}

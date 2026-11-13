@@ -38,6 +38,13 @@ local Economy = require(Modules:WaitForChild("Economy"):WaitForChild("module"))
 local SignalTable = require(script.SignalTable)
 local Slots = require(script.Slots)
 local SlotCache = require(script.SlotCache)
+local Decorators = require(script.Decorators)
+local displaysDirty = false
+local decorationRevision = 0
+local decorators = Decorators.new(function()
+	displaysDirty = true
+	decorationRevision += 1
+end)
 
 local DEFAULT_PLOT_TAG = "CorePlot"
 local SLOT_ATTRIBUTE = "SlotId"
@@ -69,6 +76,7 @@ type Session = {
 	visuals: { [string]: Instance }, -- slotId -> visual
 	folder: Folder,
 	slots: SlotCache.SlotCache,
+	decorationRevision: number?,
 }
 
 type Look = { id: string, color: Color3, glow: Color3, strength: number }
@@ -288,22 +296,11 @@ local function makeVisual(instance: any, slotId: string, slot: BasePart, folder:
 	if template and (template:IsA("Model") or template:IsA("BasePart")) then
 		local clone = template:Clone()
 		stripAndFreeze(clone)
-		if clone:IsA("Model") then
-			local _, size = clone:GetBoundingBox()
-			height = size.Y
-			clone:PivotTo(surface * CFrame.new(0, size.Y / 2, 0))
-			adornee = clone.PrimaryPart or clone:FindFirstChildWhichIsA("BasePart", true)
-		else
-			local part = clone :: BasePart
-			height = part.Size.Y
-			part.CFrame = surface * CFrame.new(0, part.Size.Y / 2, 0)
-			adornee = part
-		end
 		visual = clone
 	else
 		local part = Instance.new("Part")
 		part.Size = Vector3.one * PLACEHOLDER_SIZE
-		part.CFrame = surface * CFrame.new(0, PLACEHOLDER_SIZE / 2, 0)
+		-- Positioned after decoration.
 		part.Color = look.color
 		part.Material = if look.strength >= NEON_MIN_GLOW
 			then Enum.Material.Neon
@@ -315,6 +312,9 @@ local function makeVisual(instance: any, slotId: string, slot: BasePart, folder:
 		adornee = part
 		visual = part
 	end
+
+	visual = decorators.apply(visual, def, instance)
+	height, adornee = Decorators.place(visual, surface)
 
 	if adornee then
 		-- Highlight has a ~31-per-client limit, so the rarity glow is a PointLight scaled by the
@@ -364,6 +364,13 @@ local function render(player: Player)
 	local displayed = displayedOf(player)
 	if session == nil or displayed == nil then
 		return
+	end
+	if session.decorationRevision ~= decorationRevision then
+		for slotId, visual in session.visuals do
+			session.visuals[slotId] = nil
+			session.trove:Remove(visual)
+		end
+		session.decorationRevision = decorationRevision
 	end
 	local owned = ownedOf(player)
 	local slots, parts = activeSlots(session)
@@ -753,7 +760,18 @@ function Plot.init(context: any)
 	end, "plot show [userId]: plot assignment + slot occupancy (Studio)")
 end
 
+Plot.extensions = { decorate = decorators.decorate }
+
 function Plot.start(_context: any)
+	ctx.lifecycle.onTick(0.25, function()
+		if not displaysDirty then
+			return
+		end
+		displaysDirty = false
+		for player in sessions do
+			render(player)
+		end
+	end)
 	local tag = plotTag()
 	CollectionService:GetInstanceAddedSignal(tag):Connect(function()
 		task.defer(drainQueue) -- let the game finish building/parenting the model

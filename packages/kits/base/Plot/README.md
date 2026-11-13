@@ -86,3 +86,12 @@ attributes `ItemUid`, `ItemId`, `Rarity`, `DisplaySlotId`. All parts are anchore
 - `ItemRemoved` -> `clearDisplay` (Inventory no longer scrubs `displayed`).
 - `Items` is optional: without it (`ctx.isEnabled("Items")` false) items are treated as untagged and labelled with their itemId.
 
+
+### Visual decorators
+
+`extensions.decorate(id, fn)` registers a synchronous appearance callback during init.
+The callback receives `(visual, itemDef, inventoryCopy)` before final bounds and positioning,
+for both templates and placeholders. The returned connection has `Disconnect()` and
+`Invalidate()`; changes coalesce into the next lifecycle render. Registration order is stable.
+Errors retain a sanitized partial visual; destroyed or empty geometry receives a safe primitive
+fallback. Scripts, movers and external references are stripped before parenting.

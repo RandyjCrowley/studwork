@@ -1,0 +1,8 @@
+option RemoteScope = "STUDWORK_COMPANIONS"
+option Casing = Pascal
+option ServerOutput = "server/Net.luau"
+option ClientOutput = "client/Net.luau"
+type Id = string(1..64)
+event Equip { From: Client, Type: Reliable, Call: SingleAsync, Data: Id }
+event Unequip { From: Client, Type: Reliable, Call: SingleAsync, Data: Id }
+event EquipBest { From: Client, Type: Reliable, Call: SingleAsync }
